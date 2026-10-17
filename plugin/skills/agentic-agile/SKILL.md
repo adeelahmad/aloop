@@ -424,9 +424,11 @@ call, SubagentStop) measures the worker from its own transcript and
 - at the **soft token** limit tells the worker nothing: it is telemetry only. The hook
   records `task.token_soft_limit` (`.agentic/logs/events.jsonl`) and the next sprint's
   `stats.md` / `NEXT.md` list those tasks so the planner sizes similar work smaller;
-- at the **hard** limit gives the worker one chance to append its output.md report
-  (`status: re-plan`), denies every other tool call (3 refusals), then **stops the worker
-  itself** — PostToolUse `continue: false`. No model decides the kill. It also writes
+- at the **hard** limit **stops the worker itself** on that call — PostToolUse
+  `continue: false` — and refuses every later call. The worker is not asked to narrate:
+  the harness appends the attempt's output.md block (`status: re-plan`, limits, worktree
+  diff, transcript path) and records `task.token_hard_limit` / `task.time_hard_timeout`.
+  No model decides the kill, and no model tokens are spent after it. It also writes
   `.agentic/budget-exceeded`, so the worker's SubagentStop gate releases it *unverified*.
 
 ## The feedback loop (exactly)

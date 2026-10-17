@@ -66,7 +66,7 @@ These parts already exist but their semantics must change:
    | `UNKNOWN` | Conservative re-plan, or escalate |
 
    Replacement tasks must fit the normal time and token budgets, and vertical slices are preferred.
-5. **No post-kill narration.** After the hard stop, do not spend model tokens asking the worker for a report. Today the worker is allowed a final `output.md` append, and that allowance should go.
+5. **No post-kill narration.** ✅ *Done (Unreleased): the hook stops the worker on the crossing call and the harness writes the `status: re-plan` block. Test: `scripts/test/budget-hard-stop.test.py`.* After the hard stop, no model tokens are spent asking the worker for a report.
 6. **Abstract model routes.** Roles map to `strongest | strong | economical`, and each host resolves those to concrete IDs.
 
 ## 4. New work

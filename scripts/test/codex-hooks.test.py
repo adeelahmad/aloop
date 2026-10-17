@@ -134,7 +134,7 @@ assert not denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={
 assert denied(fire("PreToolUse", dict(worker, tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n*** Add File: tests/a.rs\n+x\n*** End Patch"})))
 ok("patch outside the worktree refused")
 
-# time box from the worker's own rollout: soft token telemetry, then hard stop via continue:false
+# time box from the worker's own rollout: soft token telemetry, then hard stop (no report call) via continue:false
 rollout("th-red", [(120, 10)])
 r = fire("PostToolUse", dict(worker, tool_name="Bash", tool_input={"command": "cd %s && ls" % wt}, tool_response="ok"))
 assert "BUDGET" not in context(r)

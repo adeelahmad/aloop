@@ -26,7 +26,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - **The soft token limit is telemetry only** (ROADMAP §3.1). Crossing it no longer tells
   the worker to wrap up; `budget` records `task.token_soft_limit` once per attempt in
   `.agentic/logs/events.jsonl`, `stats.md` counts it, and `NEXT.md` lists those tasks as
-  planner input. The soft *time* limit still warns, and hard limits are unchanged.
+  planner input. The soft *time* limit still warns.
+- **No post-kill narration** (ROADMAP §3.5). At the hard limit the worker is stopped on
+  the crossing call instead of being given a last call to write its report. The harness
+  appends the gate-valid `status: re-plan` block to output.md itself (limits, worktree
+  diff, transcript path) and records `task.token_hard_limit` / `task.time_hard_timeout`.
+  A verdict reached before the worker's worktree is known still gets one call to find it.
 
 ## [0.10.1] - 2026-09-23
 

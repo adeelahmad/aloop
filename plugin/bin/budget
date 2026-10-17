@@ -12,10 +12,13 @@ each with a SOFT and a HARD limit:
   SOFT tokens   -> telemetry only: the worker is NOT told and keeps going. The crossing is
                    recorded (state `token_soft_limit`, event `task.token_soft_limit` in
                    .agentic/logs/events.jsonl) and fed to the next planning cycle (stats).
-  HARD crossed  -> the worker's tool calls are denied (PreToolUse) except appending its
-                   report to output.md, a `.agentic/budget-exceeded` marker lets its
-                   SubagentStop gate release it, and `budget watch` tells the supervisor
-                   to TaskStop it. The task is NOT retried — it goes back to the planner
+  HARD crossed  -> the worker is stopped at once (PostToolUse `continue: false`; every
+                   PreToolUse call is denied). It is NOT asked to narrate: the harness
+                   appends the `status: re-plan` block to output.md itself from facts it
+                   owns (limits, worktree diff, transcript path) — no model tokens are
+                   spent after the stop (ROADMAP §3.5). A `.agentic/budget-exceeded`
+                   marker lets its SubagentStop gate release it, and `budget watch` tells
+                   the supervisor to TaskStop it if the hook could not. The task is NOT retried — it goes back to the planner
                    to be split (SKILL.md "Budget overrun -> mid-sprint re-plan").
 
 Resolution order (first set wins):  per-task `budget:` line in tasks.md  >
@@ -49,7 +52,7 @@ import _usage  # noqa: E402  (token usage from any host's session log)
 
 BUDGET_KEYS = ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS")
 WORKERS = ("red-worker", "scaffolder", "green-worker")
-GRACE_DENIALS = 3          # at the hard limit: denied non-report calls before the forced stop
+GRACE_DENIALS = 3          # at the hard limit: denied calls before one is let through to be stopped
 TASK_BUDGET = re.compile(r"^\s*budget:\s*(.+)$", re.I)
 
 
@@ -281,20 +284,32 @@ def emit(event, context=None, deny=None, stop=None):
     print(json.dumps(out))
 
 
-def is_report_write(payload, st):
-    """At the hard limit the ONLY allowed tool call is appending the report to output.md."""
-    ti = payload.get("tool_input") or {}
-    fp = ti.get("file_path") or ""
-    if payload.get("tool_name") in ("Write", "Edit", "MultiEdit") and fp.endswith("output.md"):
-        return True
-    fp = fp or ti.get("filePath") or ""
-    if payload.get("tool_name") in ("write", "edit") and fp.endswith("output.md"):
-        return True                                            # OpenCode
-    cmd = ti.get("command") if isinstance(ti.get("command"), str) else ""
-    if payload.get("tool_name") == "apply_patch":              # Codex: the patch may touch ONLY output.md
-        files = re.findall(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", cmd, re.M)
-        return bool(files) and all(f.strip().endswith("output.md") for f in files)
-    return payload.get("tool_name") in ("Bash", "bash") and "output.md" in cmd and re.search(r">>|tee -a", cmd) is not None
+def harness_report(st, left, cls):
+    """At the hard limit the HARNESS writes the attempt's output.md block (never the model):
+    the gate-valid `## <task> · attempt N · <role> · <ts>` shape with status: re-plan."""
+    if st.get("harness_report") or not st.get("story_dir") or not os.path.isdir(st["story_dir"]):
+        return
+    st["harness_report"] = time.time()
+    wt = st.get("worktree") or ""
+    diff = sh("git", "-C", wt, "diff", "--stat", "HEAD") if wt and os.path.isdir(wt) else ""
+    diff = diff.splitlines()[-1].strip() if diff else "no changes"
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    block = ("\n## %s · attempt %s · %s · %s\nstatus: re-plan\n\n### Summary\n"
+             "Stopped by the time-box hook at the hard %s limit (%s). Written by the harness; "
+             "the worker was not asked to report.\n\n### Result\n| Check | Status | Detail |\n|---|---|---|\n"
+             "| budget | HARD (%s) | %s |\n| worktree diff | discarded | %s |\n\n### Next\n"
+             "re-plan: classify the overrun and split or reframe this task. Transcript: %s\n") % (
+        st.get("task") or "?", st.get("attempt") or "?", st["role"], ts, cls, left, cls, left, diff,
+        st.get("transcript") or "?")
+    out = os.path.join(st["story_dir"], "output.md")
+    try:
+        new = not os.path.isfile(out)
+        with open(out, "a") as f:
+            if new:
+                f.write("---\ntype: output\n---\n")
+            f.write(block)
+    except OSError:
+        pass
 
 
 def hook(mode):
@@ -386,19 +401,27 @@ def hook(mode):
         st["token_soft_limit"] = now
         log_event(cwd, "task.token_soft_limit", st, tokens=toks, tokens_soft=b["TOKENS_SOFT"],
                   elapsed_min=round(mins, 2))
+
+    def record_hard():
+        if st.get("hard_logged"):
+            return
+        st["hard_logged"] = now
+        cls = "token" if toks is not None and toks >= t_hard else "time"
+        log_event(cwd, "task.token_hard_limit" if cls == "token" else "task.time_hard_timeout", st,
+                  tokens=toks, elapsed_min=round(mins, 2))
+        harness_report(st, left, cls)
+
+    if st["hard"] and st.get("task_env_found"):
+        record_hard()
     save_state(spath, st)
 
     if st["hard"]:
-        msg = ("HARD BUDGET EXCEEDED (%s). You are being stopped. Do ONE thing: append your "
-               "`## <task> · attempt N · %s · <ts>` block to %s with `status: re-plan` (budget exceeded), a "
-               "### Summary of what is done and what is left, ### Result, ### Next — that tool call is "
-               "your last. Do not run tests or edit code. The task goes back to the planner to be split." % (left, role, report))
+        msg = ("HARD BUDGET EXCEEDED (%s). You are stopped now. Do nothing else: no report, no "
+               "tests, no edits. The harness has recorded this attempt in %s (status: re-plan) and "
+               "the task goes back to the planner." % (left, report))
         stop = ("agentic-agile: HARD BUDGET — %s %s stopped by the time-box hook (%s). "
                 "Not a pass; the supervisor re-plans this task." % (role, st.get("task") or "", left))
-        just_crossed = st["hard"] == now
         if mode == "pre":
-            if is_report_write(payload, st):
-                return                                   # the one call we still allow
             st["denials"] = st.get("denials", 0) + 1
             save_state(spath, st)
             if st["denials"] <= GRACE_DENIALS:
@@ -406,9 +429,12 @@ def hook(mode):
             # past the grace: let this call through — its PostToolUse ends the agent
             return
         if mode == "post":
-            if just_crossed:                             # first sight: one chance to report
+            if not st.get("task_env_found") and st["hard"] == now:
+                # judged before this worker's worktree (and its budget) is known: one more
+                # call may find it and withdraw the verdict (see the re-resolve above)
                 emit("PostToolUse", context=msg)
                 return
+            record_hard()                                # no grace call, no narration
             st["hook_killed"] = now
             st["done"] = now
             save_state(spath, st)
