@@ -16,6 +16,8 @@ Usage:
   targets target TASK STORY_DIR       the task's resolved targets: file:line for an existing
                                       symbol, `planned` for a shadow one
   targets shadow STORY_DIR            the shadow workspace: planned files and symbols
+  targets scope TASK STORY_DIR        the task's diff scope (its targets' paths), derived — the
+                                      SCOPE_GLOBS gate-green-verify uses when none was given
   targets context REF STORY_DIR [--budget N]
                                       the code a worker needs for change REF, capped at N tokens
                                       (default 2000; ~4 chars per token)
@@ -209,7 +211,7 @@ def main(argv):
         else:
             pos.append(a)
     cmd, root = argv[0], tree()
-    need = {"check": 1, "shadow": 1, "target": 2, "context": 2, "refs": 2, "callers": 2, "callees": 2}
+    need = {"check": 1, "shadow": 1, "scope": 2, "target": 2, "context": 2, "refs": 2, "callers": 2, "callees": 2}
     if cmd not in need or len(pos) < need[cmd]:
         print("targets: unknown or incomplete command (see targets --help)", file=sys.stderr)
         return 64
@@ -233,6 +235,10 @@ def main(argv):
                                           "planned-file" if t.get("operation") == "create" else "planned-symbol",
                                           t["change_ref"]))
         return 0
+    if cmd == "scope":
+        paths = sorted({t["path"] for t in targets if t.get("task") == pos[0] and t.get("path")})
+        print(" ".join(paths))
+        return 0 if paths else 1
     if cmd == "target":
         mine = [t for t in targets if t.get("task") == pos[0]]
         for t in mine:

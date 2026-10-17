@@ -18,6 +18,11 @@ validate_comms
 assert_no_suppression
 
 # 3) Diff scope: only files this task may touch (tasks.md scope) + its RED test file.
+#    No SCOPE_GLOBS given but the planner wrote change targets? Derive it (ROADMAP §4.6).
+if [ -z "${SCOPE_GLOBS:-}" ] && [ -n "${STORY_DIR:-}" ] && [ -f "$STORY_DIR/targets.json" ]; then
+  SCOPE_GLOBS="$("$HERE/targets" scope "${TASK_ID##*-}" "$STORY_DIR" 2>/dev/null)"
+  [ -n "$SCOPE_GLOBS" ] && note "SCOPE_GLOBS derived from targets.json: $SCOPE_GLOBS"
+fi
 if [ -n "${SCOPE_GLOBS:-}" ]; then
   : "${TEST_GLOBS:=*/tests/*.rs tests/*.rs}"
   allow="$SCOPE_GLOBS $TEST_GLOBS"

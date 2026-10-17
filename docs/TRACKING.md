@@ -25,7 +25,8 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.5 | Canonical ids, referential check, frozen map | IMPLEMENTED_TESTED | `scripts/test/ids-integrity.test.py` |
 | 4.6 | Structured change targets, shadow workspace, `target` / `context` | IMPLEMENTED_TESTED | `scripts/test/semantic-targets.test.py` |
 | 4.6 | LSP / structural adapter (refs, callers, callees) | IMPLEMENTED_TESTED | `scripts/test/lsp-adapter.test.py` |
-| 4.6 | Semantic plan as the execution source | NOT_IMPLEMENTED | — |
+| 4.6 | Semantic plan as the execution source: GREEN diff scope derived from targets | IMPLEMENTED_TESTED | `scripts/test/targets-scope.test.py` |
+| 4.6 | Semantic plan as the execution source: tasks.md / plan.md rendered from it | NOT_IMPLEMENTED | — |
 | 4.7 | Event stream `aladdin.event/1` | IMPLEMENTED_TESTED | `scripts/test/events.test.py` |
 | 4.7 | Decision rationale + authority record | IMPLEMENTED_TESTED | `scripts/test/events.test.py` |
 | 4.7 | Lineage: commit → intent → approver | IMPLEMENTED_TESTED | `scripts/test/commit-trace.test.py` |

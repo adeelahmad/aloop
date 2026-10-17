@@ -101,6 +101,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/orchestrator-sweep.test.py
 	python3 scripts/test/lsp-adapter.test.py
 	python3 scripts/test/context-boundary.test.py
+	python3 scripts/test/targets-scope.test.py
 	python3 scripts/check-tracking.py
 	python3 scripts/test/codex-hooks.test.py
 	@command -v node >/dev/null && node scripts/test/opencode-plugin.test.mjs || { echo "node not found — skipped OpenCode test (CI runs it)"; }

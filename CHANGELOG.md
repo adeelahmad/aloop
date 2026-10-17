@@ -91,6 +91,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - **Usage accuracy is explicit** (ROADMAP §4.9, conformance 12). Each attempt's usage
   carries `accuracy: exact` and names any class the host never reports (Codex has no cache
   write) instead of a silent zero; stats.md shows it in the Metrics table.
+- **Diff scope derived from change targets** (ROADMAP §4.6). When the supervisor gives no
+  `SCOPE_GLOBS` and the story has `targets.json`, gate-green-verify enforces the task's
+  target paths (`targets scope`) instead of skipping the scope check.
 - **LSP adapter seam** (ROADMAP §4.6). `targets refs|callers|callees` ask the language
   server named by `AGENTIC_LSP_COMMAND` (`_lsp.py`: references and the call hierarchy only).
   No server, or a server without the capability, is reported with exit 4; planned targets
