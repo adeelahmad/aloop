@@ -107,7 +107,7 @@ These parts already exist but their semantics must change:
 
     A rollover is **not** a failure.
 - ✅ *Done (Unreleased): `bin/timebox` + `AGENTIC_TIME_MODE=auto`. Test: `scripts/test/timebox-auto.test.py`.* Time budget `auto` mode: the planner proposes one stable task duration per project (with a min/max), recorded by the supervisor. It is revised only when there is evidence.
-- An interruptible orchestrator loop: *sleep → wake on event → inspect → accept / retry / preempt / replan / rollover / spawn → sleep*. The orchestrator spends no tokens watching workers.
+- ✅ *Done (Unreleased): `bin/sweep` (inspect → one action per task) and `sweep wait` (token-free sleep, wake on event). Test: `scripts/test/orchestrator-sweep.test.py`.* An interruptible orchestrator loop: *sleep → wake on event → inspect → accept / retry / preempt / replan / rollover / spawn → sleep*. The orchestrator spends no tokens watching workers.
 
 ### 4.3 Planning feedback lifecycle
 

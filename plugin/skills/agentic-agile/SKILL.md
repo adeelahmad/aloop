@@ -488,7 +488,9 @@ Your job during execution is small, and that is on purpose (it keeps your contex
 2. **Sleep.** Start `budget watch --interval 20 --grace 60` with `run_in_background:
    true` and end your turn. Do nothing else: no polling, no reading worker output early.
    You wake when a worker finishes (task notification) or when `budget watch` exits.
-3. **Sweep** on each wake:
+3. **Sweep** on each wake. Start with `sweep`: it prints one action per task (DONE, ACCEPT,
+   RETRY, ESCALATE, REPLAN, WAIT, SPAWN, ROLLOVER) decided from the event stream and
+   attempt states, not from worker prose. Act on those lines:
    - finished workers → read the gate verdict + latest `output.md` block, and proceed as
      in the feedback loop (tick/merge on pass, retry within the gate-retry budget);
    - `budget watch` printed `STOPPED …` lines (the hook already ended those workers) or
@@ -498,6 +500,9 @@ Your job during execution is small, and that is on purpose (it keeps your contex
      Then take the **Budget overrun** route below — do not re-dispatch the task;
    - still-running workers and no kill → start `budget watch` again and sleep.
 4. When nothing is running and nothing can be dispatched, the wave is done.
+
+On a host without background task notifications, `sweep wait --timeout 1800` is the
+sleep: it blocks without a model call until an event or attempt state changes, then sweeps.
 
 `budget status` prints every tracked attempt's tokens/minutes vs its limits.
 

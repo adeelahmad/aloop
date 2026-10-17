@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""sweep — the orchestrator loop's inspect step, decided from facts (ROADMAP §4.2).
+
+  sleep → wake on event → inspect → accept / retry / replan / rollover / spawn → sleep
+
+The supervisor spends no tokens watching workers: `sweep wait` blocks (no model call)
+until the event stream or an attempt's state changes, then prints one action per task.
+Every action comes from harness files (events.jsonl, attempt states, rollover.md,
+tasks.md), never from what a worker said.
+
+Usage:
+  sweep [SPRINT_DIR] [--json]        one line per task: ACTION TASK — reason
+  sweep wait [SPRINT_DIR] [--timeout SECONDS] [--json]
+                                     block until something changes (default 1800s), then sweep;
+                                     exit 0 changed · 4 timed out (nothing new)
+
+Actions (first match wins):
+  DONE      the task's worktree was merged (worktree.merged)
+  ROLLOVER  carried to the next planning cycle (rollover.md, or admission closed before it started)
+  WAIT      an attempt is still running (its budget state is open)
+  REPLAN    the last attempt hit a hard limit — never retried as-is; the class says why
+  ACCEPT    the last gate verdict passed — merge it (task-worktree remove after the merge)
+  RETRY     the last gate verdict failed and attempts remain (max 3 per task)
+  ESCALATE  the gate failed on the last allowed attempt
+  SPAWN     not started and admission is open — dispatch it (after `budget admit`)
+"""
+import glob
+import json
+import os
+import re
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _events  # noqa: E402
+import _paths  # noqa: E402
+
+MAX_ATTEMPTS = 3
+WORKERS = ("red-worker", "scaffolder", "green-worker")
+HARD = ("task.token_hard_limit", "task.time_hard_timeout")
+GATE = ("gate.passed", "gate.failed")
+
+
+def latest_sprint(cwd):
+    dirs = sorted(glob.glob(os.path.join(_paths.docs(cwd), "sprint[0-9]*")),
+                  key=lambda d: int(re.sub(r"\D", "", os.path.basename(d)) or 0))
+    return dirs[-1] if dirs else ""
+
+
+def planned(sdir):
+    out = []
+    for d in sorted(glob.glob(os.path.join(sdir, "s[0-9]*-[0-9]*-*"))):
+        m = re.match(r"^s(\d+)-(\d+)-", os.path.basename(d))
+        if not m:
+            continue
+        try:
+            heads = re.findall(r"(?m)^##\s+T(\d+)\b", open(os.path.join(d, "tasks.md")).read())
+        except OSError:
+            continue
+        out += ["S%s-%s-T%s" % (m.group(1), m.group(2), n) for n in heads]
+    return out
+
+
+def attempt_states(cwd):
+    rows = []
+    for p in glob.glob(os.path.join(_paths.home(cwd, "budget"), "*.json")):
+        if p.endswith(".sprint.json"):
+            continue
+        try:
+            rows.append(json.load(open(p)))
+        except (OSError, ValueError):
+            pass
+    return rows
+
+
+def decide(cwd, sdir):
+    evs = list(_events.read(cwd))
+    states = attempt_states(cwd)
+    try:
+        carried = set(re.findall(r"(?m)^- (S\d+-\d+-T\d+)\b", open(os.path.join(sdir, "rollover.md")).read()))
+    except OSError:
+        carried = set()
+    sp = {}
+    try:
+        sp = json.load(open(os.path.join(_paths.home(cwd, "budget"), "%s.sprint.json" % os.path.basename(sdir))))
+    except (OSError, ValueError):
+        pass
+    out = []
+    for task in planned(sdir):
+        mine = [e for e in evs if (e.get("ids") or {}).get("task") == task]
+        names = [e.get("event") for e in mine]
+        running = [s for s in states if s.get("task") == task and s.get("role") in WORKERS
+                   and not s.get("done") and not s.get("hook_killed") and not s.get("killed")]
+        # facts after the latest attempt started (a re-dispatch opens a new worktree)
+        starts = [i for i, n in enumerate(names) if n == "worktree.created"]
+        cur = mine[starts[-1]:] if starts else mine
+        hard = [e for e in cur if e.get("event") in HARD and (e.get("data") or {}).get("breach_class")
+                and e.get("role") in WORKERS]
+        gates = [e for e in cur if e.get("event") in GATE]
+        if "worktree.merged" in names:
+            act, why = "DONE", "merged"
+        elif task in carried:
+            act, why = "ROLLOVER", "listed in rollover.md"
+        elif running:
+            r = running[-1]
+            act, why = "WAIT", "%s attempt %s running" % (r.get("role"), r.get("attempt") or "?")
+        elif hard:
+            d = hard[-1].get("data") or {}
+            act, why = "REPLAN", "%s (%s) — %s" % (hard[-1]["event"], d.get("breach_class"), d.get("breach_evidence", ""))
+        elif gates and gates[-1]["event"] == "gate.passed":
+            act, why = "ACCEPT", "%s passed" % (gates[-1].get("data") or {}).get("gate", "gate")
+        elif gates:
+            g = gates[-1]
+            n = int(str(g.get("attempt") or (g.get("ids") or {}).get("attempt") or "1") or 1)
+            gate = (g.get("data") or {}).get("gate", "gate")
+            if n >= MAX_ATTEMPTS:
+                act, why = "ESCALATE", "%s failed on attempt %d of %d" % (gate, n, MAX_ATTEMPTS)
+            else:
+                act, why = "RETRY", "%s failed on attempt %d of %d" % (gate, n, MAX_ATTEMPTS)
+        elif not mine:
+            if sp.get("admission_closed"):
+                act, why = "ROLLOVER", "admission closed before it started"
+            else:
+                act, why = "SPAWN", "not started; admission open"
+        else:
+            act, why = "SPAWN", "started but no attempt is running and no verdict was recorded — re-dispatch"
+        out.append({"action": act, "task": task, "reason": why})
+    return out
+
+
+def show(rows, as_json):
+    if as_json:
+        print(json.dumps(rows))
+        return
+    for r in rows:
+        print("%-8s %-10s — %s" % (r["action"], r["task"], r["reason"]))
+    counts = {}
+    for r in rows:
+        counts[r["action"]] = counts.get(r["action"], 0) + 1
+    print("# %s" % (", ".join("%s %d" % kv for kv in sorted(counts.items())) or "no planned tasks"))
+
+
+def fingerprint(cwd):
+    paths = [_events.path(cwd)] + glob.glob(os.path.join(_paths.home(cwd, "budget"), "*.json"))
+    fp = []
+    for p in sorted(paths):
+        try:
+            st = os.stat(p)
+            fp.append((p, st.st_size, st.st_mtime))
+        except OSError:
+            pass
+    return fp
+
+
+def main(argv):
+    if argv and argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    wait = bool(argv) and argv[0] == "wait"
+    args = argv[1:] if wait else argv
+    as_json = "--json" in args
+    timeout = 1800
+    if "--timeout" in args[:-1]:
+        timeout = int(args[args.index("--timeout") + 1])
+    pos = [a for i, a in enumerate(args) if not a.startswith("--") and (i == 0 or args[i - 1] != "--timeout")]
+    cwd = os.getcwd()
+    sdir = pos[0] if pos else latest_sprint(cwd)
+    if not sdir or not os.path.isdir(sdir):
+        print("sweep: no sprint dir", file=sys.stderr)
+        return 64
+    if wait:
+        before, end = fingerprint(cwd), time.time() + timeout
+        while fingerprint(cwd) == before:
+            if time.time() >= end:
+                print("# nothing changed in %ds" % timeout)
+                return 4
+            time.sleep(min(5, max(0.2, end - time.time())))
+    show(decide(cwd, sdir), as_json)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

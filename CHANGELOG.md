@@ -81,6 +81,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
   mode is explicit (`events authority --mode autonomous`) and skips approval unless an
   escalation class is hit.
+- **The orchestrator's inspect step** (ROADMAP §4.2). `bin/sweep` prints one action per
+  planned task (DONE, ROLLOVER, WAIT, REPLAN, ACCEPT, RETRY, ESCALATE, SPAWN), decided from
+  the event stream, attempt states and rollover.md. `sweep wait` is a token-free sleep
+  that wakes on the next event or state change.
 - **Time budget `auto` mode** (ROADMAP §4.2). With `AGENTIC_TIME_MODE=auto`, `bin/timebox
   propose` records one stable task duration per project (with min/max) and `budget` uses
   it (soft = 2/3). `timebox revise` changes it only within range and only with evidence
