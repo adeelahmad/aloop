@@ -20,8 +20,10 @@ Usage:
                                       the code a worker needs for change REF, capped at N tokens
                                       (default 2000; ~4 chars per token)
   targets refs|callers|callees REF STORY_DIR
-                                      needs a structural (LSP) backend; none is configured, so
-                                      this says so and exits 4 — it never guesses
+                                      references / incoming / outgoing calls of the target's
+                                      symbol, from the LSP server in AGENTIC_LSP_COMMAND. With no
+                                      server, or one lacking the capability, it says so and
+                                      exits 4 — it never guesses
 
 The symbol backend is ctx-symbols when installed; otherwise a definition regex, and every
 answer says it came from the weaker backend.
@@ -34,6 +36,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import _events  # noqa: E402
+import _lsp  # noqa: E402
+import _paths  # noqa: E402
 
 OPS = ("create", "modify", "extend", "refactor", "replace", "delete")
 NEEDS_REAL = ("modify", "extend", "refactor", "replace", "delete")
@@ -243,9 +247,41 @@ def main(argv):
         print(context(match[0], root, int(opts.get("budget", 2000))))
         served(sdir, match[0], "context")
         return 0
-    print("targets %s: no structural (LSP) backend is configured; %s needs references and the call "
-          "hierarchy, which the regex/ctx-symbols backends cannot answer. Not guessing." % (cmd, cmd), file=sys.stderr)
-    return 4
+    return structural(cmd, match[0], root)
+
+
+def structural(cmd, t, root):
+    """refs / callers / callees through the LSP seam; any gap is reported (exit 4)."""
+    if t.get("operation") == "create" or not os.path.exists(os.path.join(root, t["path"])) or not t.get("symbol"):
+        print("# %s is planned (shadow): it has no %s yet" % (t.get("planned_symbol") or t["path"], cmd))
+        return 0
+    lsp = os.environ.get("AGENTIC_LSP_COMMAND") or _paths.settings(root).get("LSP_COMMAND") or ""
+    if not lsp:
+        print("targets %s: no structural (LSP) backend is configured (AGENTIC_LSP_COMMAND); %s needs references "
+              "and the call hierarchy, which the regex/ctx-symbols backends cannot answer. Not guessing." % (cmd, cmd),
+              file=sys.stderr)
+        return 4
+    line, _ = locate(root, t["path"], t["symbol"])
+    if not line:
+        print("targets %s: %s is not defined in %s" % (cmd, t["symbol"], t["path"]), file=sys.stderr)
+        return 2
+    text = open(os.path.join(root, t["path"])).read().splitlines()[line - 1]
+    col = text.find(t["symbol"])
+    client = None
+    try:
+        client = _lsp.Client(lsp, root)
+        if cmd == "refs":
+            rows = ["%s:%d:%d" % r for r in client.references(t["path"], line, col)]
+        else:
+            rows = ["%s:%d %s" % r for r in client.calls(t["path"], line, col, "incoming" if cmd == "callers" else "outgoing")]
+    except _lsp.Missing as e:
+        print("targets %s: %s. Not guessing." % (cmd, e), file=sys.stderr)
+        return 4
+    finally:
+        if client:
+            client.close()
+    print("\n".join(rows) if rows else "# no %s for %s" % (cmd, t["symbol"]))
+    return 0
 
 
 if __name__ == "__main__":

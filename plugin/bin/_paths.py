@@ -21,6 +21,8 @@ DEFAULTS = {
     "SPRINT_TOKENS_HARD": 6000000,
     # time budget mode: fixed (TIME_*_MIN above) | auto (one project timebox, bin/timebox)
     "TIME_MODE": "fixed",
+    # structural (LSP) backend for `targets refs|callers|callees` (ROADMAP §4.6): a command
+    "LSP_COMMAND": "",
     # optional cross-project impact provider (ROADMAP §4.8): a command, empty = none
     "IMPACT_PROVIDER": "",
     "MODEL_PLANNING": "claude-opus-5-5",

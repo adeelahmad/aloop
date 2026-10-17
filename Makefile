@@ -74,7 +74,7 @@ shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent
 .PHONY: pycheck
 pycheck: ## Byte-compile the Python hook scripts
 	@python3 -m py_compile plugin/bin/budget plugin/bin/stats plugin/bin/agentic-init plugin/bin/gate-commit-author plugin/bin/_paths.py \
-	    plugin/bin/_usage.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
+	    plugin/bin/_usage.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
 	  && rm -rf plugin/bin/__pycache__ && echo "python ok"
 
 .PHONY: test-hosts
@@ -99,6 +99,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/impact-provider.test.py
 	python3 scripts/test/timebox-auto.test.py
 	python3 scripts/test/orchestrator-sweep.test.py
+	python3 scripts/test/lsp-adapter.test.py
 	python3 scripts/check-tracking.py
 	python3 scripts/test/codex-hooks.test.py
 	@command -v node >/dev/null && node scripts/test/opencode-plugin.test.mjs || { echo "node not found — skipped OpenCode test (CI runs it)"; }

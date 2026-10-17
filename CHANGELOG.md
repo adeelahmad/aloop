@@ -81,6 +81,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
   mode is explicit (`events authority --mode autonomous`) and skips approval unless an
   escalation class is hit.
+- **LSP adapter seam** (ROADMAP §4.6). `targets refs|callers|callees` ask the language
+  server named by `AGENTIC_LSP_COMMAND` (`_lsp.py`: references and the call hierarchy only).
+  No server, or a server without the capability, is reported with exit 4; planned targets
+  answer "none yet" without touching any server.
 - **The orchestrator's inspect step** (ROADMAP §4.2). `bin/sweep` prints one action per
   planned task (DONE, ROLLOVER, WAIT, REPLAN, ACCEPT, RETRY, ESCALATE, SPAWN), decided from
   the event stream, attempt states and rollover.md. `sweep wait` is a token-free sleep
