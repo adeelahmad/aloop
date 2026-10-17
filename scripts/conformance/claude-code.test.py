@@ -255,6 +255,14 @@ with open(os.path.join(wt, ".agentic", "task.env"), "a") as f:
     f.write("TASK_ID=S1-01-T9\n")
 case(6, "a worker that points its task.env at another task is blocked", "gate-green-verify", wt, 2,
      "TASK_ID", agent_type="aloop:green-worker", transcript=TRANSCRIPT)
+# The supervisor writes the contract, so the worker can't fix a slip in it; a gate that
+# blocks on one loops the worker forever (live e2e run 2: 34 blocks on a comma-separated
+# SCOPE_GLOBS). Accept commas; trust the host's role over a mistyped contract role.
+write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-wrker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS=src/lib.rs,tests/sub.rs\n" % STORY)
+wt = green()
+os.remove(os.path.join(wt, ".agentic", "task.env"))
+case(6, "a comma-separated SCOPE_GLOBS and a mistyped contract role don't block good work", "gate-green-verify", wt, 0,
+     agent_type="aloop:green-worker", transcript=TRANSCRIPT)
 os.remove(CONTRACT)
 
 # §6.8 An accepted GREEN is mergeable

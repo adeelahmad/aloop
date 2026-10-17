@@ -146,11 +146,16 @@ load_task_env() {
     done < <(_task_env_kv "$te")
     te="$contract"
   fi
+  TASK_CONTRACT="$contract"
   while IFS=$'\t' read -r k v; do
     case "$k" in ''|BUDGET_*) continue ;; esac
     [ -n "${!k+x}" ] && continue
     export "$k=$v"
   done < <(_task_env_kv "$te")
+  # list keys: space- or comma-separated (supervisors write both)
+  [ -z "${SCOPE_GLOBS:-}" ] || export SCOPE_GLOBS="${SCOPE_GLOBS//,/ }"
+  [ -z "${SCAFFOLD_SYMBOLS:-}" ] || export SCAFFOLD_SYMBOLS="${SCAFFOLD_SYMBOLS//,/ }"
+  [ -z "${TEST_GLOBS:-}" ] || export TEST_GLOBS="${TEST_GLOBS//,/ }"
 }
 load_task_env
 
@@ -162,7 +167,10 @@ _gate_bind_role() {
   at="$(printf '%s' "$GATE_PAYLOAD" | sed -nE 's/.*"agent_type"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
   [ -n "$at" ] || return 0
   role="${at##*:}"
-  if [ -n "${AGENT_ROLE:-}" ] && [ "$AGENT_ROLE" != "$role" ]; then
+  if [ -n "${AGENT_ROLE:-}" ] && [ "$AGENT_ROLE" != "$role" ] && [ -n "${TASK_CONTRACT:-}" ]; then
+    # the supervisor's own contract: a slip the worker cannot fix, so never block on it
+    warn "the task contract says AGENT_ROLE=$AGENT_ROLE but the host dispatched a '$role'; gating as '$role'."
+  elif [ -n "${AGENT_ROLE:-}" ] && [ "$AGENT_ROLE" != "$role" ]; then
     fail "task.env says AGENT_ROLE=$AGENT_ROLE but the host dispatched a '$role' — the contract was edited or the wrong agent was dispatched for this worktree."
   fi
   export AGENT_ROLE="$role"
@@ -197,7 +205,7 @@ budget_release
 # frontmatter; the dynamic `##` blocks are grep-checked (md-db can't enumerate them).
 validate_comms() {
   local dir="${STORY_DIR:-${1:-}}"
-  [ -n "$dir" ] || fail "STORY_DIR unset — cannot find the story's comms (init.md/output.md). The supervisor must set STORY_DIR in .agentic/task.env (absolute path to docs/agents/sprintN/sN-NN-<slug>/)."
+  [ -n "$dir" ] || fail "STORY_DIR unset — cannot find the story's comms (init.md/output.md). The supervisor must set STORY_DIR in the task contract .agentic/state/tasks/<TASK_ID>.env and name TASK_ID on the dispatch prompt's first line (absolute path to docs/agents/sprintN/sN-NN-<slug>/)."
   local out="$dir/output.md" ini="$dir/init.md"
 
   # init.md: the supervisor's inbound contract must exist (this is how you were briefed).

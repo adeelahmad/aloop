@@ -84,6 +84,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   diff. RED/SCAFFOLD/GREEN gates now block uncommitted work, the worker prompts say to
   commit, and the playbook says to `git merge --no-ff` the worktree branch. Found by the
   e2e run.
+- **Gates looped on the supervisor's own contract slips.** A comma-separated `SCOPE_GLOBS`
+  (34 blocks in e2e run 2) or a mistyped `AGENT_ROLE` in the main-tree contract blocked a
+  worker that cannot edit the contract, so it retried until it gave up. Lists now accept
+  commas, and the host's role wins over the contract's with a WARN (a contradicting
+  worktree copy still blocks).
 - **The supervisor could write source mid-sprint on Linux.** `gate-supervisor-scope`'s
   "recently refreshed lock" arm called `stat -f %m` first; on Linux that prints a
   filesystem report instead of failing, the arithmetic crashed under `set -u`, and a

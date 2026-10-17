@@ -746,7 +746,7 @@ Before each dispatch, write the contract in the MAIN tree at
 `SCOPE_GLOBS` (GREEN diff-scope), `SCAFFOLD_SYMBOLS` (or write
 `.agentic/scaffold-symbols`), `BASE_REF` (diff base), and the four `BUDGET_*` lines printed by
 `budget resolve --tasks <STORY_DIR>/tasks.md --task Tn`. Then make the dispatch prompt's
-FIRST line `TASK_ID: <TASK_ID>`. Write plain `KEY=value` lines (quotes allowed, no `$VAR`
+FIRST line `TASK_ID: <TASK_ID>`. Write plain `KEY=value` lines (quotes allowed, lists space- or comma-separated, no `$VAR`
 expansion, no commands): the gate library PARSES the contract keys and ignores everything else.
 
 Why the main tree: on Claude Code `isolation: "worktree"` creates the worktree
