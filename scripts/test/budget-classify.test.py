@@ -103,7 +103,7 @@ assert '"continue": false' in sh(os.path.join(BIN, "budget"), "hook", "post", in
 out = open(os.path.join(story, "output.md")).read()
 assert "| breach class | AGENT_LOOPING | the same Bash call repeated 8 of 8 times" in out, out
 ev = [json.loads(l) for l in open(os.path.join(T, ".agentic", "logs", "events.jsonl"))]
-assert ev[-1]["event"] == "task.token_hard_limit" and ev[-1]["breach_class"] == "AGENT_LOOPING", ev[-1]
+assert ev[-1]["event"] == "task.token_hard_limit" and ev[-1]["data"]["breach_class"] == "AGENT_LOOPING" and ev[-1]["schema"] == "aladdin.event/1", ev[-1]
 assert "AGENT_LOOPING" in sh(os.path.join(BIN, "budget"), "classify", "S1-01-T1")
 ok("hard stop: class + evidence in output.md, the event, and `budget classify`")
 

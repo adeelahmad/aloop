@@ -138,7 +138,7 @@ ok("patch outside the worktree refused")
 rollout("th-red", [(120, 10)])
 r = fire("PostToolUse", dict(worker, tool_name="Bash", tool_input={"command": "cd %s && ls" % wt}, tool_response="ok"))
 assert "BUDGET" not in context(r)
-ev = [json.loads(l) for l in open(os.path.join(T, ".agentic/logs/events.jsonl"))]
+ev = [e for e in map(json.loads, open(os.path.join(T, ".agentic/logs/events.jsonl"))) if e["event"].startswith("task.")]
 assert [e["event"] for e in ev] == ["task.token_soft_limit"] and ev[0]["agent_id"] == "th-red", ev
 ok("soft token limit is telemetry only: worker not told, task.token_soft_limit recorded (rollout tokens)")
 rollout("th-red", [(120, 10), (300, 10)])

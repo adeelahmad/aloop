@@ -57,6 +57,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import _paths  # noqa: E402  (the one file-layout definition)
 import _usage  # noqa: E402  (token usage from any host's session log)
+import _events  # noqa: E402  (the aladdin.event/1 stream)
 
 BUDGET_KEYS = ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS")
 WORKERS = ("red-worker", "scaffolder", "green-worker")
@@ -271,15 +272,16 @@ def load_state(path):
 
 
 def log_event(cwd, name, st, **extra):
-    """One line in .agentic/logs/events.jsonl — the harness event stream (never fails)."""
-    ev = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "event": name,
-          "agent_id": st.get("agent_id"), "task": st.get("task"), "role": st.get("role"),
-          "attempt": st.get("attempt"), "story_dir": st.get("story_dir")}
-    ev.update(extra)
+    """One aladdin.event/1 record (see _events) for this attempt; never fails."""
     try:
-        with open(os.path.join(_paths.home(cwd, "logs"), "events.jsonl"), "a") as f:
-            f.write(json.dumps(ev) + "\n")
-    except OSError:
+        sd = st.get("story_dir") or ""
+        _events.emit(cwd, name, task=st.get("task") or "", attempt=st.get("attempt") or "",
+                     agent_id=st.get("agent_id") or "", role=st.get("role") or "",
+                     model=((st.get("usage") or {}).get("model") or ""),
+                     refs={"transcript": st.get("transcript"), "story_dir": sd,
+                           "output": os.path.join(sd, "output.md") if sd and os.path.isfile(os.path.join(sd, "output.md")) else ""},
+                     **extra)
+    except Exception:
         pass
 
 

@@ -28,12 +28,23 @@ case "$cmd" in
       git -C "$AGENTIC_PROJECT" worktree add -q -b "agentic/$task" "$wt" "$base" >&2 || exit 1
     fi
     printf '{"cwd":"%s"}' "$wt" | "$HERE/worktree-hygiene" >/dev/null 2>&1 || true
+    git -C "$wt" rev-parse HEAD > "$AGENTIC_HOME/worktrees/.$task.base" 2>/dev/null || true
     mkdir -p "$wt/.agentic"
+    "$HERE/events" emit worktree.created --task "$task" --ref "worktree=$wt" --data "branch=agentic/$task" >/dev/null 2>&1 || true
     echo "$wt" ;;
   path) [ -e "$wt/.git" ] && echo "$wt" ;;
   remove)
+    # merged = the branch gained commits (tip != its recorded base) and HEAD contains them
+    tip="$(git -C "$AGENTIC_PROJECT" rev-parse -q --verify "agentic/$task" 2>/dev/null)"
+    base="$(cat "$AGENTIC_HOME/worktrees/.$task.base" 2>/dev/null)"
+    ev=worktree.discarded
+    if [ -n "$tip" ] && [ "$tip" != "$base" ] && git -C "$AGENTIC_PROJECT" merge-base --is-ancestor "$tip" HEAD 2>/dev/null; then
+      ev=worktree.merged
+    fi
+    "$HERE/events" emit "$ev" --task "$task" --ref "worktree=$wt" --data "branch=agentic/$task" >/dev/null 2>&1 || true
     git -C "$AGENTIC_PROJECT" worktree remove --force "$wt" >&2 2>/dev/null || rm -rf "$wt"
-    git -C "$AGENTIC_PROJECT" worktree prune >/dev/null 2>&1 || true ;;
+    git -C "$AGENTIC_PROJECT" worktree prune >/dev/null 2>&1 || true
+    rm -f "$AGENTIC_HOME/worktrees/.$task.base" ;;
   -h|--help|"") sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "task-worktree: unknown command '$cmd'" >&2; exit 64 ;;
 esac

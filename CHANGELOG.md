@@ -63,6 +63,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   smaller" nudge for the next cycle only) with a calibration verdict derived from the
   breach classes (`plan-smaller`, `raise-time`, `raise-tokens`, `reduce-context`,
   `fix-environment`).
+- **The `aladdin.event/1` stream** (ROADMAP §4.7). `_events.py` and `bin/events` give
+  every harness event one envelope (ids, `parent_event_id` / `caused_by`, role, host,
+  model, authority, decision, refs, data) and refuse unknown event types. Budget events,
+  every real gate verdict (`gate.passed` / `gate.failed`) and the worktree lifecycle
+  (`worktree.created` / `merged` / `discarded`) are emitted into it. `events query` and
+  `events lineage <task>` answer from the stream, with references only and no transcripts.
 
 ## [0.10.1] - 2026-09-23
 

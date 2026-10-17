@@ -33,7 +33,8 @@ def state(agent):
 
 def events():
     p = os.path.join(T, ".agentic", "logs", "events.jsonl")
-    return [json.loads(l) for l in open(p)] if os.path.exists(p) else []
+    evs = [json.loads(l) for l in open(p)] if os.path.exists(p) else []
+    return [e for e in evs if e["event"].startswith("task.")]      # budget events only
 
 
 def call(agent, wt, tokens, mode="post"):
@@ -70,8 +71,8 @@ assert out == "", out
 s = state("w1")
 assert s.get("token_soft_limit") and not s["soft_warned"] and not s["hard"], s
 ev = events()
-assert len(ev) == 1 and ev[0]["event"] == "task.token_soft_limit" and ev[0]["tokens"] == 150000 \
-    and ev[0]["tokens_soft"] == 100000 and ev[0]["task"] == "S1-01-T1", ev
+assert len(ev) == 1 and ev[0]["event"] == "task.token_soft_limit" and ev[0]["data"]["tokens"] == 150000 \
+    and ev[0]["data"]["tokens_soft"] == 100000 and ev[0]["task"] == "S1-01-T1", ev
 ok("soft token crossing: worker not told, task.token_soft_limit recorded")
 
 # 3) recorded once, worker keeps working silently

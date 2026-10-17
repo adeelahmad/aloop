@@ -39,6 +39,12 @@ _gate_log_verdict() {
   printf '{"ts":"%s","gate":"%s","role":"%s","task":"%s","attempt":"%s","story_dir":"%s","exit":%d,"selfcheck":%s}\n' \
     "$(date -u +%FT%TZ)" "${GATE_NAME:-?}" "${AGENT_ROLE:-}" "${TASK_ID:-}" "${ATTEMPT:-}" "${STORY_DIR:-}" \
     "$rc" "$([ "${AGENTIC_SELFCHECK:-}" = 1 ] && echo true || echo false)" >> "$AGENTIC_LOGS/gates.jsonl" 2>/dev/null
+  # the aladdin.event/1 stream: real verdicts only (a self-check is not a gate run)
+  if [ "${AGENTIC_SELFCHECK:-}" != 1 ] && [ "$rc" -le 2 ]; then
+    "$GATELIB_DIR/events" emit "$([ "$rc" = 0 ] && echo gate.passed || echo gate.failed)" \
+      --task "${TASK_ID:-}" --attempt "${ATTEMPT:-}" --role "${AGENT_ROLE:-}" \
+      --ref "story_dir=${STORY_DIR:-}" --data "gate=${GATE_NAME:-?}" --data "exit=$rc" >/dev/null 2>&1 || true
+  fi
   return "$rc"
 }
 trap _gate_log_verdict EXIT

@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""events — the aladdin.event/1 stream (.agentic/logs/events.jsonl).
+
+Usage:
+  events emit EVENT [--task T] [--attempt N] [--agent ID] [--role R] [--parent EVENT_ID]
+                    [--caused-by EVENT_ID] [--ref name=path ...] [--data key=value ...]
+                                       append one event; prints its event_id
+  events query [--task T] [--event E] [--sprint S1]
+                                       matching events, one compact line each
+  events lineage TASK_ID               the task's chain: dispatch → attempts → gates →
+                                       limits/decisions → worktree outcome (no transcripts)
+Emitting never fails a hook: an unknown event type is the only error (exit 64).
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _events  # noqa: E402
+
+
+def parse(argv):
+    opts, pos, k = {"ref": [], "data": []}, [], None
+    for a in argv:
+        if k:
+            (opts[k].append(a) if isinstance(opts.get(k), list) else opts.__setitem__(k, a))
+            k = None
+        elif a.startswith("--"):
+            k = a[2:].replace("-", "_")
+        else:
+            pos.append(a)
+    return opts, pos
+
+
+def line(ev):
+    ids = ev.get("ids") or {}
+    extra = " ".join("%s=%s" % kv for kv in sorted((ev.get("data") or {}).items()) if kv[0] not in ("observe",))
+    return "%s %-24s %-10s %-12s %s%s" % (ev.get("ts", "?"), ev.get("event", "?"), ids.get("task", "-"),
+                                         ev.get("role") or "-", extra, (" parent=" + ev["parent_event_id"][:8]) if ev.get("parent_event_id") else "")
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    cmd, (opts, pos) = argv[0], parse(argv[1:])
+    cwd = os.getcwd()
+    if cmd == "emit":
+        if not pos:
+            print("events emit: need an EVENT", file=sys.stderr)
+            return 64
+        try:
+            eid = _events.emit(cwd, pos[0], task=opts.get("task", ""), attempt=opts.get("attempt", ""),
+                               agent_id=opts.get("agent", ""), role=opts.get("role", ""),
+                               parent_event_id=opts.get("parent"), caused_by=opts.get("caused_by"),
+                               refs=dict(r.split("=", 1) for r in opts["ref"] if "=" in r),
+                               **dict(d.split("=", 1) for d in opts["data"] if "=" in d))
+        except ValueError as e:
+            print("events: %s" % e, file=sys.stderr)
+            return 64
+        print(eid)
+        return 0
+    if cmd == "query":
+        for ev in _events.read(cwd):
+            ids = ev.get("ids") or {}
+            if opts.get("task") and ids.get("task", ev.get("task")) != opts["task"]:
+                continue
+            if opts.get("event") and ev.get("event") != opts["event"]:
+                continue
+            if opts.get("sprint") and ids.get("sprint") != opts["sprint"]:
+                continue
+            print(line(ev))
+        return 0
+    if cmd == "lineage":
+        task = pos[0] if pos else ""
+        evs = [ev for ev in _events.read(cwd) if (ev.get("ids") or {}).get("task", ev.get("task")) == task]
+        if not evs:
+            print("events lineage: no events for %s" % task, file=sys.stderr)
+            return 1
+        by_id = {ev.get("event_id"): ev for ev in evs}
+        for ev in evs:
+            depth, p = 0, ev.get("parent_event_id")
+            while p in by_id and depth < 8:
+                depth, p = depth + 1, by_id[p].get("parent_event_id")
+            refs = " ".join("%s=%s" % kv for kv in sorted((ev.get("refs") or {}).items()))
+            print("%s%s%s" % ("  " * depth, line(ev), ("  [" + refs + "]") if refs else ""))
+        return 0
+    print("events: unknown command %r" % cmd, file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
