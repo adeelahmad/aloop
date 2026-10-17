@@ -73,6 +73,7 @@ These parts already exist but their semantics must change:
 
 ### 4.1 Intent normalization
 
+- ✅ *Done (Unreleased): `bin/intent` (new/check/summary), gate-intake wiring, the clarification policy and explicit autonomous mode. Test: `scripts/test/intent-contract.test.py`.*
 - **An internal Intent Contract** produced by `intake`. The user never fills it in. Fields:
   - `intent_id`
   - `source` (prompt | file | issue | image | mixed)

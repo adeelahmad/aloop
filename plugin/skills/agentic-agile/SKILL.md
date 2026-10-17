@@ -273,6 +273,13 @@ sprint at a time: dispatch the planner, review its output, present it for the hu
 approval, then — only on "go" — start that sprint's execution. Do NOT batch-write every
 future sprint's Stage-2 and chain straight into execution.
 
+**Autonomous mode** is explicit, never inferred: the human chooses it at run start
+(`events authority --mode autonomous`, and `AGENTIC_AUTONOMY_MODE=autonomous` for the
+gates). Then the generated plan goes through the deterministic planning checks
+(gate-intake incl. `intent check`, gate-stage2-complete) and straight into execution,
+with no approval step, unless an escalation class is hit: an unanswered `ask` question
+(`intent check` exit 3), a scope change, or the re-plan cap. Reviewed mode stays the default.
+
 **Provenance (on "go", and at every durable boundary).** Record who approved what, once
 per sprint, before the first dispatch:
 `events authority --initiated-by <human> --mode reviewed|autonomous --scope "sprint N as approved"`

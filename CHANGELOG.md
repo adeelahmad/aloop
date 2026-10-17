@@ -73,6 +73,14 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   any overrides). `events decide` records one-line decisions with evidence refs, linked to
   that authority. A decision without an authority, with a multi-line reason or with an
   unknown kind is refused.
+- **The Intent Contract and the clarification policy** (ROADMAP §4.1). `bin/intent new`
+  issues a canonical, time-ordered `intent_id`, which is never model text, and the
+  contract skeleton with provenance. `intent check` validates every field. It requires a
+  class for each open question (`assume` / `default` / `spike` must record their
+  resolution) and stops BOTH modes on an unanswered `ask` (exit 3). `intent summary`
+  surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
+  mode is explicit (`events authority --mode autonomous`) and skips approval unless an
+  escalation class is hit.
 - **Canonical sprint handoff and the resume rule** (ROADMAP §4.4). sprint-close writes
   `sprintN/handoff.json` (`aladdin.handoff/1`) from accepted state: completed tasks with
   their gate verdict and merge event, unverified, open and carried tasks, the nudge and
