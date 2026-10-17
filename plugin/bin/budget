@@ -58,6 +58,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import _paths  # noqa: E402  (the one file-layout definition)
 import _usage  # noqa: E402  (token usage from any host's session log)
 import _events  # noqa: E402  (the aladdin.event/1 stream)
+import _timebox  # noqa: E402  (AGENTIC_TIME_MODE=auto)
 
 BUDGET_KEYS = ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS")
 WORKERS = ("red-worker", "scaffolder", "green-worker")
@@ -133,6 +134,10 @@ def resolve(cwd, tasks_file=None, task=None, task_env=None, with_source=False):
     meter = (task_env or {}).get("BUDGET_TOKEN_METER") or _paths.settings(cwd).get("TOKEN_METER") or "fresh"
     b["TOKEN_METER"] = meter if meter in ("fresh", "context") else "fresh"
     src = "docs/agents/defaults.md" if os.path.isfile(_paths.defaults_file(cwd)) else "built-in defaults"
+    tb = _timebox.current(cwd)
+    if tb:  # one stable project task duration, recorded by the supervisor (ROADMAP §4.2)
+        b.update(_timebox.limits(tb))
+        src = "timebox (AGENTIC_TIME_MODE=auto, %d min)" % tb["minutes"]
     for k in BUDGET_KEYS:
         v = (task_env or {}).get("BUDGET_" + k)
         if v and v.isdigit():

@@ -81,6 +81,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
   mode is explicit (`events authority --mode autonomous`) and skips approval unless an
   escalation class is hit.
+- **Time budget `auto` mode** (ROADMAP §4.2). With `AGENTIC_TIME_MODE=auto`, `bin/timebox
+  propose` records one stable task duration per project (with min/max) and `budget` uses
+  it (soft = 2/3). `timebox revise` changes it only within range and only with evidence
+  that exists; each change is a `decision.recorded`. Task overrides still win.
 - **Cross-project impact provider seam** (ROADMAP §4.8). `bin/impact query` asks an optional
   provider (`AGENTIC_IMPACT_PROVIDER`, any command speaking `aladdin.impact/1`) for downstream
   consumers, rationale, migration order or standards. Results without a source ref are

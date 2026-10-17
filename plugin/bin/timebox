@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+"""timebox — the time budget's `auto` mode (ROADMAP §4.2).
+
+With AGENTIC_TIME_MODE=auto in docs/agents/defaults.md, the planner proposes ONE stable
+task duration for the project (with a min and a max) and the supervisor records it here.
+`budget` then uses it as the hard time limit (soft = 2/3 of it) for every attempt. It is
+revised only with evidence (a stats.md, an event id, a file), never on a hunch.
+
+Usage:
+  timebox propose --minutes N --min A --max B --reason "one line"
+        record the project's task duration (once; A <= N <= B). Exit 2 if one exists.
+  timebox revise --minutes N --reason "one line" --evidence REF [--evidence REF ...]
+        change it within [min, max]; every REF must exist (a path, or an event id in the stream)
+  timebox show
+        the record and its history
+Task-level overrides (task.env BUDGET_*, a tasks.md `budget:` line) still win over it.
+"""
+import json
+import os
+import re
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _events  # noqa: E402
+import _paths  # noqa: E402
+import _timebox  # noqa: E402
+
+EVENT_ID = re.compile(r"^[0-9a-f]{32}$")
+
+
+path, current, limits = _timebox.path, _timebox.current, _timebox.limits
+
+
+def num(v):
+    return int(v) if str(v or "").isdigit() and int(v) > 0 else None
+
+
+def one_line(r):
+    return bool(r and r.strip()) and "\n" not in r and len(r) <= 200
+
+
+def record(cwd, kind, tb, reason, evidence):
+    auth = _events.current_authority(cwd)
+    _events.emit(cwd, "decision.recorded", role="supervisor", caused_by=auth and auth.get("event_id"),
+                 refs={"timebox": path(cwd)},
+                 decision={"kind": "plan", "reason": "timebox %s %dm (%s): %s" % (kind, tb["minutes"], tb["range"], reason),
+                           "evidence_refs": evidence, "authority_ref": auth and auth.get("event_id")})
+
+
+def cmd_propose(cwd, o):
+    n, lo, hi = num(o.get("minutes")), num(o.get("min")), num(o.get("max"))
+    if os.path.exists(path(cwd)):
+        print("BLOCK[timebox]: a timebox is already recorded; change it with `timebox revise` and evidence", file=sys.stderr)
+        return 2
+    if not (n and lo and hi and lo <= n <= hi) or not one_line(o.get("reason")):
+        print("BLOCK[timebox]: need --minutes N --min A --max B with A <= N <= B and a one-line --reason", file=sys.stderr)
+        return 2
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    tb = {"minutes": n, "min": lo, "max": hi, "range": "%d-%d" % (lo, hi), "reason": o["reason"], "since": now,
+          "history": [{"at": now, "minutes": n, "reason": o["reason"], "evidence": []}]}
+    with open(path(cwd), "w") as f:
+        json.dump(tb, f, indent=1)
+    record(cwd, "proposed", tb, o["reason"], [])
+    print("[timebox] %d min per task attempt (range %s)" % (n, tb["range"]), file=sys.stderr)
+    return 0
+
+
+def evidence_ok(cwd, refs):
+    ids = None
+    bad = []
+    for r in refs:
+        if EVENT_ID.match(r):
+            ids = ids if ids is not None else {e.get("event_id") for e in _events.read(cwd)}
+            if r not in ids:
+                bad.append(r)
+        elif not os.path.exists(os.path.join(_paths.project(cwd), r) if not os.path.isabs(r) else r):
+            bad.append(r)
+    return bad
+
+
+def cmd_revise(cwd, o, evidence):
+    try:
+        with open(path(cwd)) as f:
+            tb = json.load(f)
+    except (OSError, ValueError):
+        print("BLOCK[timebox]: nothing to revise; `timebox propose` first", file=sys.stderr)
+        return 2
+    n = num(o.get("minutes"))
+    if not n or not tb["min"] <= n <= tb["max"]:
+        print("BLOCK[timebox]: --minutes must stay within the recorded range %s" % tb["range"], file=sys.stderr)
+        return 2
+    if not evidence or not one_line(o.get("reason")):
+        print("BLOCK[timebox]: a revision needs --evidence (stats.md, an event id, a file) and a one-line --reason",
+              file=sys.stderr)
+        return 2
+    missing = evidence_ok(cwd, evidence)
+    if missing:
+        print("BLOCK[timebox]: evidence not found: %s" % ", ".join(missing), file=sys.stderr)
+        return 2
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    tb.update(minutes=n, reason=o["reason"], since=now)
+    tb["history"].append({"at": now, "minutes": n, "reason": o["reason"], "evidence": evidence})
+    with open(path(cwd), "w") as f:
+        json.dump(tb, f, indent=1)
+    record(cwd, "revised", tb, o["reason"], evidence)
+    print("[timebox] revised to %d min" % n, file=sys.stderr)
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    o, ev, k = {}, [], None
+    for a in argv[1:]:
+        if k:
+            (ev.append(a) if k == "evidence" else o.__setitem__(k, a))
+            k = None
+        elif a.startswith("--"):
+            k = a[2:]
+    cwd = os.getcwd()
+    if argv[0] == "propose":
+        return cmd_propose(cwd, o)
+    if argv[0] == "revise":
+        return cmd_revise(cwd, o, ev)
+    if argv[0] == "show":
+        mode = _paths.settings(cwd).get("TIME_MODE") or "fixed"
+        try:
+            tb = json.load(open(path(cwd)))
+        except (OSError, ValueError):
+            print("timebox: none recorded (AGENTIC_TIME_MODE=%s)" % mode)
+            return 0
+        print("timebox: %d min (range %s, AGENTIC_TIME_MODE=%s%s) — %s" % (
+            tb["minutes"], tb["range"], mode, "" if mode == "auto" else ", NOT in force", tb["reason"]))
+        for h in tb["history"]:
+            print("  %s %dm %s%s" % (h["at"], h["minutes"], h["reason"],
+                                      " [%s]" % ", ".join(h["evidence"]) if h["evidence"] else ""))
+        return 0
+    print("timebox: unknown command (see timebox --help)", file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
