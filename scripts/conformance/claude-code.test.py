@@ -21,7 +21,10 @@ sys.dont_write_bytecode = True
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
 BIN = os.path.join(ROOT, "bin")
 T = tempfile.mkdtemp(prefix="aloop-conf-")
-ENV = dict(os.environ, HOME=os.path.join(T, "home"), CLAUDE_PLUGIN_ROOT=ROOT, PYTHONDONTWRITEBYTECODE="1",
+# HOME is isolated, so pin rustup/cargo to the real ones (rustup finds its toolchain via HOME).
+_home = os.path.expanduser("~")
+ENV = dict(os.environ, RUSTUP_HOME=os.environ.get("RUSTUP_HOME", os.path.join(_home, ".rustup")),
+           CARGO_HOME=os.environ.get("CARGO_HOME", os.path.join(_home, ".cargo")), HOME=os.path.join(T, "home"), CLAUDE_PLUGIN_ROOT=ROOT, PYTHONDONTWRITEBYTECODE="1",
            CARGO_TARGET_DIR=os.path.join(T, "target"), CARGO_TERM_COLOR="never")
 for k in ("AGENTIC_HOST", "SKIP_HOOKS", "STORY_DIR", "AGENT_ROLE", "REPO_DIR", "BASE_REF", "SCOPE_GLOBS"):
     ENV.pop(k, None)
