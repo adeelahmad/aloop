@@ -212,6 +212,8 @@ Results carry source refs and are attached to planning provenance. An unavailabl
 
 ### 4.10 Metrics
 
+✅ *Mostly done (Unreleased): the stats.md Metrics table. Test: `scripts/test/metrics.test.py`. Still open: time soft preemptions, rotations/compactions, tests added/commits, semantic context served (they need §4.4/§4.6).*
+
 The run report should add:
 - time soft preemptions;
 - sprint admission closures and rollovers;

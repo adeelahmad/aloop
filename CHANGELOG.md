@@ -75,6 +75,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   evidence refs. NEXT.md renders it. `stats resume-check` names every task that
   plan-ready.md shows as done but that has no passing gate verdict, and SessionStart
   appends that live check to the loaded handoff.
+- **Sprint metrics** (ROADMAP §4.10). stats.md gains a Metrics table: p50/p90/p95 attempt
+  duration and tokens, hard breaches by role and class, hard-breach waste, tokens per
+  accepted task, first-pass rate by gate, re-plan rate, cache-hit and churn ratios,
+  context peak, and admission closures. All of it is derived from harness files, with no
+  model calls.
 
 ## [0.10.1] - 2026-09-23
 
