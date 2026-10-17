@@ -49,7 +49,7 @@ def _hooks_gates():
     for blocks in hooks.get("hooks", {}).values():
         for blk in blocks:
             for h in blk.get("hooks", []):
-                wired.add(os.path.basename(h.get("command", "").split()[0]))
+                wired.add(os.path.basename(h.get("command", "").split()[0].strip('"')))
     return wired
 
 

@@ -19,7 +19,8 @@ planner and the workers all cite one digest instead of re-deriving rules.
 
 ## Tools
 Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbols`,
-`log-execution`, `budget`, `transcripts`. Call them by bare name.
+`log-execution`, `budget`, `transcripts`. Call them by bare name. Never read this plugin's own files (its `bin/`, `schemas/`, `pipeline/`, skills): your prompt
+  and init block say what to write, and `selfcheck` names exactly what a gate wants.
 
 ## Hard limits
 - Does not plan or code.

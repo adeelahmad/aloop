@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# aloop — one entrypoint for every aloop tool, on every host.
+#
+#   aloop <tool> [args…]      e.g.  aloop selfcheck · aloop budget watch
+#                                     aloop md-db validate … · aloop stats show
+#   aloop --list              the tools
+#   aloop --root              this plugin's root (for absolute paths)
+#
+# Claude Code puts this plugin's bin/ on PATH itself. Codex has no such mechanism and
+# OpenCode needs its plugin to add it, so `aloop install <host>` links THIS one name
+# into ~/.local/bin — one unambiguous command instead of dozens of generic ones.
+set -uo pipefail
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do                      # resolve the ~/.local/bin symlink
+  dir="$(cd "$(dirname "$src")" && pwd)"; src="$(readlink "$src")"
+  case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+BIN="$(cd "$(dirname "$src")" && pwd)"
+export PATH="$BIN:$PATH"
+
+case "${1:-}" in
+  ""|-h|--help)
+    sed -n '2,11p' "$src" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  --root) cd "$BIN/.." && pwd; exit 0 ;;
+  --list)
+    for f in "$BIN"/*; do
+      b="$(basename "$f")"
+      case "$b" in aloop|agentic|agentic-init|_*|*.md|*.py) continue ;; esac
+      [ -x "$f" ] && echo "$b"
+    done; exit 0 ;;
+esac
+tool="$1"; shift
+case "$tool" in init) tool=aloop-init ;; esac     # `aloop init --show|--apply …`
+case "$tool" in */*|.*|_*) echo "aloop: bad tool name '$tool'" >&2; exit 64 ;; esac
+[ -x "$BIN/$tool" ] || { echo "aloop: unknown tool '$tool' (aloop --list)" >&2; exit 64; }
+exec "$BIN/$tool" "$@"

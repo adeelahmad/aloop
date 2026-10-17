@@ -29,7 +29,10 @@ case "$(basename "$f")" in
 esac
 
 if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1; then
-  md-db validate "$(dirname "$f")" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/$schema" \
+  # Validate THIS file only. Its directory also holds init.md/output.md (and the sprint dir
+  # holds stats.md, story dirs, ...), which this schema does not know, so validating the
+  # directory blocked every valid planner write.
+  md-db validate "$f" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/$schema" \
     || { echo "BLOCK[gate-validate-artifact]: $f failed $schema" >&2; exit 2; }
 else
   echo "WARN[gate-validate-artifact]: md-db absent; frontmatter-only fallback for $f" >&2

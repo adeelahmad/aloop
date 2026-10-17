@@ -4,7 +4,7 @@ Two suites live here:
 
 - **`agents/<role>.json`** — one per sub-agent, tested below.
 - The **skill** suite lives with the skill at
-  [`../skills/agentic-agile/evals/evals.json`](../skills/agentic-agile/evals/evals.json)
+  [`../skills/aloop/evals/evals.json`](../skills/aloop/evals/evals.json)
   (agentskills.io convention — kept next to its `SKILL.md`).
 
 ## Per-agent suites

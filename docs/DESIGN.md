@@ -1,5 +1,8 @@
 # agentic-agile Plugin — Consolidated Design
 
+> **Historical.** Part of the pre-v0.2 design package; counts, paths and status here are out of date. For the current picture read [OVERVIEW.md](OVERVIEW.md).
+
+
 Status: DESIGN ONLY. No code yet. Every section traces to a decision made in
 conversation; open questions are marked [OPEN] and not guessed.
 

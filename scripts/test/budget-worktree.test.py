@@ -30,7 +30,7 @@ def state(agent):
     return json.load(open(os.path.join(T, ".agentic", "budget", agent + ".json")))
 
 
-def call(agent, tool, tool_input, mode="post", tokens=None, role="green-worker"):
+def call(agent, tool, tool_input, mode="post", tokens=None, role="green-worker", cwd=T):
     tp = os.path.join(T, "cc", "sess.jsonl")
     sub = os.path.join(T, "cc", "sess", "subagents", "agent-%s.jsonl" % agent)
     os.makedirs(os.path.dirname(sub), exist_ok=True)
@@ -39,7 +39,7 @@ def call(agent, tool, tool_input, mode="post", tokens=None, role="green-worker")
             f.write(json.dumps({"timestamp": "2026-09-23T10:00:00Z", "message": {"id": "m%d" % tokens, "model": "claude-sonnet-5",
                                 "usage": {"input_tokens": tokens, "output_tokens": 0}}}) + "\n")
     payload = {"hook_event_name": "PostToolUse" if mode == "post" else "PreToolUse", "session_id": "sess",
-               "transcript_path": tp, "cwd": T, "agent_id": agent, "agent_type": "agentic-agile:" + role,
+               "transcript_path": tp, "cwd": cwd, "agent_id": agent, "agent_type": "aloop:" + role,
                "tool_name": tool, "tool_input": tool_input, "tool_response": "ok"}
     return sh(os.path.join(BIN, "budget"), "hook", mode, inp=json.dumps(payload))
 
@@ -99,8 +99,33 @@ st = sh(os.path.join(BIN, "budget"), "status")
 assert "task.env BUDGET_*" in st and "path in tool call" in st; ok("budget status shows the budget source and how the worktree was found")
 
 # 6) docs/agents/defaults.md still applies from the first call (the user's working fix)
-sh(os.path.join(BIN, "agentic-init"), "--apply", "TOKENS_SOFT=180000", "TOKENS_HARD=260000")
+sh(os.path.join(BIN, "aloop-init"), "--apply", "TOKENS_SOFT=180000", "TOKENS_HARD=260000")
 b = sh(os.path.join(BIN, "budget"), "resolve")
 assert "BUDGET_TOKENS_HARD=260000" in b and "defaults.md" in b; ok("defaults.md applies project-wide")
+
+# 7) Claude Code's own worktree (.claude/worktrees/agent-<id>) has no task.env: the budget comes from the
+#    supervisor's contract in the main tree, picked by the TASK_ID on the host's dispatch prompt
+tasks = os.path.join(T, ".agentic", "state", "tasks")
+os.makedirs(tasks, exist_ok=True)
+open(os.path.join(tasks, "S1-01-T7.env"), "w").write("TASK_ID=S1-01-T7\nATTEMPT=1\nAGENT_ROLE=green-worker\nBUDGET_TOKENS_HARD=410000\n")
+cc = os.path.join(T, ".claude", "worktrees", "agent-c7")
+sh("git", "worktree", "add", "-q", "-b", "worktree-agent-c7", cc)
+sub = os.path.join(T, "cc", "sess", "subagents", "agent-c7.jsonl")
+open(sub, "w").write(json.dumps({"type": "user", "message": {"role": "user", "content": "TASK_ID: S1-01-T7\nGo."}}) + "\n")
+call("c7", "Bash", {"command": "cargo test"}, tokens=5000, cwd=cc)
+s7 = state("c7")
+assert s7["task"] == "S1-01-T7" and s7["budget"]["TOKENS_HARD"] == 410000 and "contract" in s7["budget_source"], s7
+ok("Claude Code worktree without task.env: budget from the supervisor's contract")
+copy = os.path.join(cc, ".agentic", "task.env")
+assert os.path.isfile(copy) and open(copy).read() == open(os.path.join(tasks, "S1-01-T7.env")).read(), "no contract copy in the worktree"
+ok("the first tool call copies the contract into the worktree, so the worker's selfcheck finds it")
+
+# 8) a worker that raises BUDGET_* in its worktree copy does not get the bigger budget
+open(copy, "w").write(
+    "TASK_ID=S1-01-T7\nAGENT_ROLE=green-worker\nBUDGET_TOKENS_HARD=9999999\n")
+os.remove(os.path.join(T, ".agentic", "budget", "c7.json"))
+call("c7", "Bash", {"command": "cargo test"}, tokens=5001, cwd=cc)
+assert state("c7")["budget"]["TOKENS_HARD"] == 410000, state("c7")
+ok("a raised BUDGET_* in the worktree copy is ignored when the contract exists")
 
 print("\n%d checks passed" % PASS[0])

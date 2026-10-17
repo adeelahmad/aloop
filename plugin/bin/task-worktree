@@ -8,7 +8,7 @@
 #
 # Worktrees live at <project>/.agentic/worktrees/<TASK_ID> on branch agentic/<TASK_ID> —
 # inside the git-ignored run-data dir, same fixed layout on every host (_paths.sh).
-# The worker binds to it with its first command:  agentic bind <path>
+# The worker binds to it with its first command:  aloop bind <path>
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null

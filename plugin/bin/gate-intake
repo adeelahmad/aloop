@@ -6,6 +6,8 @@
 set -uo pipefail
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; export PATH="$BIN_DIR:$PATH"  # md-db shim -> real binary
 GATE_NAME="gate-intake"
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"   # a crash blocks, never allows
 
 f="${1:-${INTAKE_FILE:-}}"
 if [ -z "$f" ]; then
@@ -20,7 +22,7 @@ fi
 # md-db structural validation when stories.md + schema are available.
 if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1 && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/schemas/planning-artifacts.kdl" ]; then
   case "$f" in
-    */stories.md) md-db validate "$(dirname "$f")" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/planning-artifacts.kdl" \
+    */stories.md) md-db validate "$f" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/planning-artifacts.kdl" \
         || { echo "BLOCK[$GATE_NAME]: $f failed planning-artifacts.kdl" >&2; exit 2; } ;;
   esac
 fi

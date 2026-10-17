@@ -172,3 +172,30 @@ Two real defects caught and fixed: (1) gate scripts shipped non-executable; (2) 
 diff-scope filter counted the plugin's `.agentic/` control dir as worker scope.
 Dynamic cargo/md-db/ctx-symbols branches WARN-degrade (no toolchain in the harness);
 all structural checks ran for real.
+
+## Rename to aloop (v0.11.0)
+Decisions (reversible; recorded per CLAUDE.md):
+- User-facing names move now (plugin, marketplace, skill, CLI, OpenCode file, docs); the
+  ROADMAP had the rebrand last, but the owner asked for it first.
+- Old names stay as aliases (`agentic`, `agentic init`, `agentic-init`, `agentic bind`) so
+  existing prompts, scripts and worker transcripts keep working.
+- On-disk layout (`.agentic/`, `docs/agents/`, `agentic/<task>` branches, `AGENTIC_*` keys)
+  is NOT renamed here: it would change live projects without conformance fixtures to prove
+  parity. Moved to M1, after those fixtures exist.
+- GitHub repo slug stays `adeelahmad/agentic-agile` until the owner renames it (GitHub
+  redirects the old URL, so docs keep working either way).
+
+## Supervisor-owned task contract (M0.7)
+Probe (Claude Code 2.1.x, haiku, ~$0.005): an `isolation: worktree` dispatch creates
+`<main>/.claude/worktrees/agent-<agent_id>` on branch `worktree-agent-<agent_id>` at dispatch.
+SubagentStart/Stop payloads carry `agent_id`, `agent_type` and `cwd` = that worktree;
+SubagentStop adds `agent_transcript_path`, whose first user turn is the dispatch prompt.
+So the supervisor could never pre-write `task.env` into the worktree on Claude Code.
+Decisions (reversible):
+- Contract keyed by TASK_ID (known before dispatch), in the main tree:
+  `.agentic/state/tasks/<TASK_ID>.env`. The dispatch prompt's first line `TASK_ID: <id>`
+  links the agent to it through the host-written transcript, not through worker files.
+- A worktree `task.env` stays as a fallback (Codex/OpenCode, older sprints); when both
+  exist, any differing key blocks. Not relying on the undocumented
+  `subagents/*.meta.json` (it does carry `toolUseId` and `worktreePath`).
+- Open: Bash writes into `.agentic/state/` are not guarded yet.

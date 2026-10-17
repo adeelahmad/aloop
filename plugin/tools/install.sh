@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — build + install the agentic-agile gate backends onto PATH.
+# install.sh — build + install the aloop gate backends onto PATH.
 #
 #   ctx-symbols : built from source in this repo (tools/ctx-symbols).
 #   md-db       : built from vendored source in this repo (tools/md-db, AGPL-3.0).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# _paths.sh — THE one definition of where agentic-agile keeps its files. Every script
+# _paths.sh — THE one definition of where aloop keeps its files. Every script
 # sources this (Python scripts mirror it in bin/_paths.py). No model picks these names,
 # no task.env variable overrides them — so every project gets the same layout.
 #
@@ -8,7 +8,8 @@
 #     budget/                           one <agent_id>.json per worker attempt (time box)
 #     ledger/                           one <session_id>.jsonl per session (token usage)
 #     logs/gates.jsonl                  every gate verdict (pass/block)
-#     state/                            sprints.json (sprint close times), locks, markers
+#     state/                            sprints.json (sprint close times), locks, markers,
+#       tasks/<TASK_ID>.env             the supervisor's per-task contract (bin/_gatelib.sh)
 #   <project>/docs/agents/              planning docs (git-ignored unless init said track)
 #     defaults.md                       confirmed project settings (limits, models, git)
 #     NEXT.md                           the orchestrator handoff, re-loaded after /clear

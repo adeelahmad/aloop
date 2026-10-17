@@ -7,7 +7,7 @@
                 event_msg/token_count records carry CUMULATIVE total_token_usage
                 (input_tokens INCLUDES cached_input_tokens; output_tokens includes
                 reasoning). One row per increase of the running total.
-  OpenCode      the agentic-agile OpenCode plugin writes Claude-shaped usage records
+  OpenCode      the aloop OpenCode plugin writes Claude-shaped usage records
                 (.agentic/host/opencode/…), so they read as Claude.
 
 Row: {ts, id, model, in, cache_read, cache_write, out}  (in = uncached input).

@@ -1,5 +1,5 @@
 ---
-name: agentic-agile
+name: aloop
 description: >-
   Use this skill to plan and build software in a sprint with strict TDD and
   deterministic, hook-enforced gates. Two-stage planning (interactive, human-gated)
@@ -16,7 +16,7 @@ description: >-
 model: sonnet
 ---
 
-# agentic-agile — the supervisor's playbook
+# aloop — the supervisor's playbook
 
 You are the **supervisor**: the agent that loaded this skill. You are present in
 both phases. You own every planning artifact, `plan-ready.md`, and
@@ -41,8 +41,8 @@ value as the Agent call's `model` on every dispatch of that group.
 ## Project setup comes first (init) — and where everything lives
 
 If `docs/agents/defaults.md` does not exist, the project was never initialized: run the
-init flow (`skills/init/SKILL.md` steps 1–2 — `agentic init --show`, ask the human, then
-`agentic init --apply …`) **before any planning**. It confirms with the human the limits,
+init flow (`skills/init/SKILL.md` steps 1–2 — `aloop init --show`, ask the human, then
+`aloop init --apply …`) **before any planning**. It confirms with the human the limits,
 models, the `.gitignore` edit, whether `docs/agents/` is tracked (default no), and the
 commit author (default: the human's git identity, no Claude trailers). The harness writes
 the file; you never hand-edit `defaults.md`, `NEXT.md` or `stats.md` (a hook blocks it).
@@ -69,32 +69,32 @@ starts the session on Sonnet (`/model sonnet` or `claude --model sonnet`).
 
 The gates, time box, ledger, stats and handoff are the SAME scripts on every host (Codex
 runs this plugin's `hooks/hooks.json` natively; OpenCode runs them through the plugin
-`agentic install opencode` generates). Only the dispatch vocabulary differs:
+`aloop install opencode` generates). Only the dispatch vocabulary differs:
 
 | Playbook step | Claude Code | Codex | OpenCode |
 |---|---|---|---|
-| Install | `/plugin install` | `agentic install codex` + `codex plugin add agentic-agile@agentic-agile-marketplace`, then trust hooks in `/hooks` | `agentic install opencode`, restart |
+| Install | `/plugin install` | `aloop install codex` + `codex plugin add aloop@aloop-marketplace`, then trust hooks in `/hooks` | `aloop install opencode`, restart |
 | Dispatch a role | Agent tool, `subagent_type: <role>` | `spawn_agent`, `agent_type: <role>` | `task` tool, `subagent_type: <role>` |
-| Worker isolation | `isolation: "worktree"` | `agentic task-worktree add <TASK_ID>` → path; the worker's FIRST command is `agentic bind <path>` (hooks then confine it) | same as Codex (the plugin then rewrites its commands/edits into the worktree) |
+| Worker isolation | `isolation: "worktree"` | `aloop task-worktree add <TASK_ID>` → path; the worker's FIRST command is `aloop bind <path>` (hooks then confine it) | same as Codex (the plugin then rewrites its commands/edits into the worktree) |
 | Parallel / wait | `run_in_background` + `budget watch` | several `spawn_agent`, then `wait_agent` | several `task` calls in one message |
 | Stop a worker (backstop) | `TaskStop` | `close_agent` | — (the plugin aborts it) |
-| Merge a passed task | merge the worktree branch | merge `agentic/<TASK_ID>`, then `agentic task-worktree remove <TASK_ID>` | same as Codex |
+| Merge a passed task | merge the worktree branch | merge `agentic/<TASK_ID>`, then `aloop task-worktree remove <TASK_ID>` | same as Codex |
 | Fresh context per sprint | `/clear` | `/clear` or `/new` | `/new` |
 
 On Codex/OpenCode the dispatch message MUST contain the worktree line — e.g. "Your
-worktree: /abs/.agentic/worktrees/S1-02-T3. First command: `agentic bind
-/abs/.agentic/worktrees/S1-02-T3`." — and `task.env` is written into that worktree before
-dispatch, exactly as on Claude Code. Models per role come from the generated agent files
-(`agentic install` renders them from `docs/agents/defaults.md`).
+worktree: /abs/.agentic/worktrees/S1-02-T3. First command: `aloop bind
+/abs/.agentic/worktrees/S1-02-T3`." The task contract is written before dispatch,
+exactly as on Claude Code (see "The task contract" below). Models per role come from the generated agent files
+(`aloop install` renders them from `docs/agents/defaults.md`).
 
 ## Tools are on PATH — never search for them
 
 On Claude Code this plugin's `bin/` is on PATH in every session and sub-agent (OpenCode:
-the plugin adds it; Codex: `agentic` is linked into ~/.local/bin), and a SessionStart
+the plugin adds it; Codex: `aloop` is linked into ~/.local/bin), and a SessionStart
 hook (`ensure-tools`) installs `md-db` + `ctx-symbols` on first use (background build
-from the bundled source). Call everything as `agentic <tool>` — `agentic selfcheck`, `agentic md-db …`,
-`agentic budget …`, `agentic log-execution …` (on Claude Code and OpenCode the bare
-names work too; on Codex only `agentic` is on PATH, linked by `agentic install codex`).
+from the bundled source). Call everything as `aloop <tool>` — `aloop selfcheck`, `aloop md-db …`,
+`aloop budget …`, `aloop log-execution …` (on Claude Code and OpenCode the bare
+names work too; on Codex only `aloop` is on PATH, linked by `aloop install codex`).
 Never `find`/`which`/`ls` for them, and never tell a worker where they are — they know.
 If a backend reports "not installed", run `ensure-tools --sync` once (needs cargo).
 
@@ -338,7 +338,7 @@ worktree.
 ```
 docs/agents/
   memory.md                                      (you + human, at each retrospective)
-  defaults.md                                    (agentic-init) confirmed limits, models, git settings
+  defaults.md                                    (aloop-init) confirmed limits, models, git settings
   NEXT.md                                        (stats sprint-close) the post-/clear handoff
   sprintN/stats.md                               (stats sprint-close) the sprint's numbers
 <project>/.agentic/                              run data, fixed layout (bin/_paths.sh), git-ignored:
@@ -358,12 +358,16 @@ docs/agents/
   # opens with one `--- type: init|output · story: SN-NN ---` frontmatter. Read top-down =
   # the full negotiation history. This is how agents communicate across the chain.
 
-per worktree (transient, git-ignored, removed on stop):
-  .agentic/task.env        the per-task contract you write at dispatch (TASK_ID,
-                           ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS, BASE_REF,
-                           STORY_DIR, BUDGET_*) — the gates and the time-box hook read
-                           this. (Store paths are fixed — never put paths for logs or
+main tree (git-ignored):
+  .agentic/state/tasks/<TASK_ID>.env  the per-task contract you write before dispatch
+                           (TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS,
+                           BASE_REF, STORY_DIR, BUDGET_*) — the gates and the time-box hook
+                           read this. (Store paths are fixed — never put paths for logs or
                            transcripts in here.)
+
+per worktree (transient, git-ignored, removed on stop):
+  .agentic/task.env        optional copy of the contract (Codex/OpenCode, older sprints);
+                           it must match the contract when both exist
   .agentic/budget-exceeded marker the time-box hook writes at a HARD limit
                            STORY_DIR is the ABSOLUTE path to sN-NN-<slug>/ (the comms dir).
   .agentic/scaffold-symbols  scaffolder-written production-symbol list (scaffold gate)
@@ -379,8 +383,8 @@ per worktree (transient, git-ignored, removed on stop):
   tagged for this role or `all`, top ~7) and — on a re-spawn — a `### Feedback` block
   derived from the prior `output.md`. It POINTS at `plan-ready.md`; never copies the
   spec. NEVER rewrite an earlier block. The file opens once with `--- type: init ---`.
-  At dispatch you also write the worktree's `.agentic/task.env` (with `STORY_DIR` =
-  absolute path to this story dir) and `bin/transcripts stage-in` stages `.transcripts/`.
+  At dispatch you also write the task contract `.agentic/state/tasks/<TASK_ID>.env` (with
+  `STORY_DIR` = absolute path to this story dir) and `bin/transcripts stage-in` stages `.transcripts/`.
 - `output.md` (story-bound, **append-only**) — the **agent** APPENDS one block per
   attempt: `## <task> · attempt N · <role> · <ts>`, `status:`, then `### Summary`, a
   `### Result` table (Check/Status/Detail), optional `### Findings`/`### Scaffold`, and
@@ -411,10 +415,10 @@ with a soft and a hard limit. Defaults — **150k / 250k tokens,
 20 / 30 min** (a real RED/GREEN attempt that reads the style guide and runs the
 fmt/vet/lint/build/test matrix uses 60–190k) — and the project's confirmed values live in `docs/agents/defaults.md`; a single task
 may carry a planner-authored `budget:` override line in tasks.md (or `BUDGET_*` lines in
-its worktree's `task.env`). Tokens = the worker's current context + all its output
+its task contract). Tokens = the worker's current context + all its output
 tokens; time = wall clock since its first tool call. The hook finds the worker's
 worktree from the paths its tool calls name (`git -C <wt>`, `cd <wt>`, absolute paths),
-not only from the call's cwd; `agentic budget status` shows, per attempt, where its
+not only from the call's cwd; `aloop budget status` shows, per attempt, where its
 budget came from and how its worktree was found.
 
 The hooks enforce it — you don't: `budget hook` (PreToolUse/PostToolUse on every tool
@@ -431,7 +435,8 @@ call, SubagentStop) measures the worker from its own transcript and
 For each task attempt:
 
 1. You APPEND a dispatch block to the story's `init.md` and dispatch the matching
-   `subagent_type` for that `task_id` (worktree), with `STORY_DIR` set in `task.env`.
+   `subagent_type` for that `task_id` (worktree), with `STORY_DIR` set in the task contract
+   and the prompt's first line `TASK_ID: <id>`.
 2. The agent reads its block in `init.md` (+ the chain so far in `output.md`), does the
    work, and APPENDS its report block to the story's `output.md`.
 3. On SubagentStop the platform runs the matching gate (`hooks.json`). **exit 0**
@@ -449,7 +454,7 @@ Your job during execution is small, and that is on purpose (it keeps your contex
 
 1. **Dispatch** every task that can run now (the wave's RED, or GREEN, …) as
    background agents — `run_in_background: true`, `isolation: "worktree"`, `model` from
-   defaults.md — after writing each `init.md` block + `task.env` (with
+   defaults.md — after writing each `init.md` block + task contract (with
    `BUDGET_*`). Log `start` lines.
 2. **Sleep.** Start `budget watch --interval 20 --grace 60` with `run_in_background:
    true` and end your turn. Do nothing else: no polling, no reading worker output early.
@@ -528,8 +533,10 @@ before GREEN).
 - SubagentStop → `gate-green-verify`: this task's tests pass, `regressed=0`, diff
   in `tasks.md` scope, the **standards.md matrix** is green, zero suppressions,
   `output.md` validates.
-- On pass: tick the task's boxes in `plan-ready.md` and **merge its worktree** to
-  the sprint integration branch.
+- On pass: tick the task's boxes in `plan-ready.md` and **merge its worktree branch** to
+  the sprint integration branch (`git merge --no-ff <branch>`; on Claude Code the branch is
+  `worktree-agent-<id>`). Never copy files out of a worktree: what you merge must be the
+  commits the gate verified. Workers commit their own work; the gate blocks uncommitted work.
 
 **STRUCTURAL-REVIEW** — dispatch `structural-reviewer` (read-only) after the
 wave's GREEN merges.
@@ -676,7 +683,7 @@ All of these are on PATH — call them by bare name.
   `status`, `mark-killed`, `replans` (split-cap check); `hook` is the hook entrypoint.
 - `stats show` — token totals (this session, per sprint, whole project); `stats
   sprint-close` is run by gate-final, not by you.
-- `agentic-init` — project setup (`--show` / `--apply`), used by the init skill.
+- `aloop-init` — project setup (`--show` / `--apply`), used by the init skill.
 - `gate-supervisor-scope` — PreToolUse guard; blocks the supervisor from writing
   production source while a sprint is live this session (code goes through workers).
 - `transcripts …` — full interaction capture (managed by hooks; `transcripts --help`).
@@ -732,14 +739,23 @@ All of these are on PATH — call them by bare name.
 - The retrospective reads this to distill memory. Gate verdicts, supervisor decisions,
   and worktree create/merge/abandon are all captured here.
 
-## The per-worktree contract (.agentic/task.env)
-At dispatch, write `.agentic/task.env` into the worktree with `TASK_ID`, `ATTEMPT`,
-`AGENT_ROLE`, `STORY_DIR` (absolute path to the story dir — where `validate_comms` reads
-init.md/output.md), `SCOPE_GLOBS` (GREEN diff-scope), `SCAFFOLD_SYMBOLS` (or write
-`.agentic/scaffold-symbols`), `BASE_REF` (diff base), and the
-four `BUDGET_*` lines printed by `budget resolve --tasks <STORY_DIR>/tasks.md --task Tn`. The gate
-library sources it, so the gates check the RIGHT task's scope/symbols/comms — not
-auto-discovered guesses.
+## The task contract (.agentic/state/tasks/<TASK_ID>.env)
+Before each dispatch, write the contract in the MAIN tree at
+`.agentic/state/tasks/<TASK_ID>.env` with `TASK_ID`, `ATTEMPT`, `AGENT_ROLE`, `STORY_DIR`
+(absolute path to the story dir — where `validate_comms` reads init.md/output.md),
+`SCOPE_GLOBS` (GREEN diff-scope), `SCAFFOLD_SYMBOLS` (or write
+`.agentic/scaffold-symbols`), `BASE_REF` (diff base), and the four `BUDGET_*` lines printed by
+`budget resolve --tasks <STORY_DIR>/tasks.md --task Tn`. Then make the dispatch prompt's
+FIRST line `TASK_ID: <TASK_ID>`. Write plain `KEY=value` lines (quotes allowed, lists space- or comma-separated, no `$VAR`
+expansion, no commands): the gate library PARSES the contract keys and ignores everything else.
+
+Why the main tree: on Claude Code `isolation: "worktree"` creates the worktree
+(`.claude/worktrees/agent-<id>`) at dispatch, so there is no worktree to write into
+beforehand. The gates and the time box find the contract from the `TASK_ID` line the host
+records in the worker's transcript, and a worker may not write `.agentic/state/` or
+`.agentic/task.env` (`gate-supervisor-scope`). A worktree `.agentic/task.env` (Codex/OpenCode
+worktrees from `aloop task-worktree add`, older sprints) still works; once the contract
+exists, any key the copy sets must match it or the gate blocks.
 
 ## Reference
 

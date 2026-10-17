@@ -1,5 +1,5 @@
-// agentic-agile for OpenCode.
-// Installed by `agentic install opencode` (it replaces __AGENTIC_ROOT__ with this plugin's
+// aloop for OpenCode.
+// Installed by `aloop install opencode` (it replaces __AGENTIC_ROOT__ with this plugin's
 // absolute path). Maps OpenCode's plugin hooks onto the SAME scripts Claude Code and Codex
 // run from hooks/hooks.json, so gates, time boxes, the token ledger, stats and the handoff
 // behave identically on every host:
@@ -42,7 +42,7 @@ const GATE_ROUNDS = 3
 
 export const AgenticAgile = async ({ client, directory, worktree }) => {
   const project = worktree || directory
-  const active = () => existsSync(join(project, "docs", "agents"))       // an agentic-agile project
+  const active = () => existsSync(join(project, "docs", "agents"))       // an aloop project
   const env = { ...process.env, AGENTIC_HOST: "opencode", PATH: `${BIN}:${process.env.PATH || ""}` }
   const sessions = new Map()       // id -> { parentID, root, agent }
   const startCtx = new Map()       // root id -> SessionStart additionalContext
@@ -112,7 +112,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       // Claude semantics: a blocked stop sends the reason back and the sub-agent keeps working.
       try {
         await client.session.prompt({ path: { id: childID }, body: { agent: role || undefined,
-          parts: [{ type: "text", text: `[agentic-agile gate ${gate}] Your stop was blocked:\n${verdict}\nFix it, run \`agentic selfcheck\`, then finish.` }] } })
+          parts: [{ type: "text", text: `[aloop gate ${gate}] Your stop was blocked:\n${verdict}\nFix it, run \`aloop selfcheck\`, then finish.` }] } })
       } catch { break }
     }
     run("budget", ["hook", "stop"], p)
@@ -133,12 +133,12 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       if (input.agent) s.agent = input.agent
       if (!active() || s.parentID) return
       const text = (output.parts || []).filter((x) => x.type === "text").map((x) => x.text).join("\n")
-      if (text.startsWith("[agentic-agile")) return                     // our own injections
+      if (text.startsWith("[aloop")) return                     // our own injections
       run("transcripts", ["prompt"], await payload("UserPromptSubmit", input.sessionID, { prompt: text }))
     },
 
     "experimental.chat.system.transform": async (input, output) => {
-      output.system.push("agentic-agile tools: call `agentic <tool>` (e.g. `agentic selfcheck`, `agentic stats show`); never search for them.")
+      output.system.push("aloop tools: call `aloop <tool>` (e.g. `aloop selfcheck`, `aloop stats show`); never search for them.")
       if (!input.sessionID) return
       const s = await info(input.sessionID)
       const ctx = startCtx.get(s.root)
@@ -150,18 +150,18 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       const s = await info(input.sessionID)
       const args = output.args || {}
       let p = await payload("PreToolUse", input.sessionID, { tool_name: TOOL[input.tool] || input.tool, tool_input: toolInput(input.tool, args) })
-      run("host-adapter", ["hook"], p)                                   // records `agentic bind`
+      run("host-adapter", ["hook"], p)                                   // records `aloop bind`
       const role = s.agent || ""
       if (s.parentID && GATES[role] && WRITERS.has(role) && !s.toolingOk) {     // SubagentStart preflight
         const why = denyOf(run("gate-tooling", [], p))
         if (why) throw new Error(why)
         s.toolingOk = true
       }
-      const isBind = input.tool === "bash" && /\b(agentic\s+bind|bin\/bind)\s+\S+/.test(args.command || "")
+      const isBind = input.tool === "bash" && /\b((?:aloop|agentic)\s+bind|bin\/bind)\s+\S+/.test(args.command || "")
       if (s.parentID && WRITERS.has(role) && !isBind) {
         const wt = bound(input.sessionID)
         if (!wt && (input.tool === "bash" || EDITS.has(input.tool)))
-          throw new Error("agentic-agile isolation: bind your worktree first — your first command must be `agentic bind <worktree>` (the absolute path from your dispatch message).")
+          throw new Error("aloop isolation: bind your worktree first — your first command must be `aloop bind <worktree>` (the absolute path from your dispatch message).")
         if (wt) {                                                        // confine to the worktree
           if (input.tool === "bash") args.workdir = wt
           if (input.tool === "write" || input.tool === "edit") args.filePath = intoWt(args.filePath, wt)
@@ -188,7 +188,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       run("transcripts", ["record"], p)
       const res = run("budget", ["hook", "post"], p)
       const ctx = res.json?.hookSpecificOutput?.additionalContext
-      if (ctx) output.output = `${output.output || ""}\n\n[agentic-agile] ${ctx}`
+      if (ctx) output.output = `${output.output || ""}\n\n[aloop] ${ctx}`
       if (res.json?.continue === false) {
         try { await client.session.abort({ path: { id: input.sessionID } }) } catch {}
       }
@@ -196,7 +196,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
         const child = output.metadata?.sessionId
         if (child) {
           const blocked = await subagentStop(child, input.sessionID)
-          if (blocked) output.output = `${output.output || ""}\n\n[agentic-agile gate] BLOCKED after ${GATE_ROUNDS} fix rounds — the sub-agent did not pass its gate:\n${blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`
+          if (blocked) output.output = `${output.output || ""}\n\n[aloop gate] BLOCKED after ${GATE_ROUNDS} fix rounds — the sub-agent did not pass its gate:\n${blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`
         }
       }
     },

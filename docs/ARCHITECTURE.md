@@ -1,5 +1,8 @@
 # agentic-agile — Plugin Architecture & Implementation
 
+> **Historical.** Part of the pre-v0.2 design package; counts, paths and status here are out of date. For the current picture read [OVERVIEW.md](OVERVIEW.md).
+
+
 How this is built as a Claude Code plugin and how every piece is wired together.
 Concrete. Reads top-to-bottom as an implementation guide.
 

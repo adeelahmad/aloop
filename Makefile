@@ -1,11 +1,11 @@
-# agentic-agile — developer & release entrypoint.
+# aloop — developer & release entrypoint.
 # Run `make` (no target) for help.
 
 SHELL        := bash
 .DEFAULT_GOAL := help
 
-PLUGIN       := agentic-agile
-MARKET       := agentic-agile-marketplace
+PLUGIN       := aloop
+MARKET       := aloop-marketplace
 PLUGIN_DIR   := plugin
 CTX          := plugin/tools/ctx-symbols
 MDDB         := plugin/tools/md-db
@@ -14,7 +14,7 @@ REPO         := $(CURDIR)
 VERSION      := $(shell python3 -c "import json;print(json.load(open('plugin/.claude-plugin/plugin.json'))['version'])")
 TAG          := v$(VERSION)
 PKG_DIR      := package
-PKG          := $(PKG_DIR)/agentic-agile-$(TAG).tar.gz
+PKG          := $(PKG_DIR)/aloop-$(TAG).tar.gz
 
 # Colors
 C := \033[36m
@@ -23,7 +23,7 @@ R := \033[0m
 
 .PHONY: help
 help: ## Show this help
-	@printf "$(B)agentic-agile$(R)  v$(VERSION)\n\n"
+	@printf "$(B)aloop$(R)  v$(VERSION)\n\n"
 	@printf "Usage: make $(C)<target>$(R)\n\n"
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) \
 	  | sort | awk 'BEGIN{FS=":.*?## "}{printf "  $(C)%-16s$(R) %s\n",$$1,$$2}'
@@ -65,24 +65,42 @@ clippy: ## Clippy with warnings-as-errors
 .PHONY: shellcheck
 shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent)
 	@command -v shellcheck >/dev/null \
-	  && shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
+	  && shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh plugin/bin/_failclosed.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
 	       plugin/bin/selfcheck plugin/bin/transcripts plugin/bin/worktree-create plugin/bin/worktree-remove \
 	       plugin/bin/worktree-hygiene plugin/bin/ensure-tools plugin/bin/md-db plugin/bin/ctx-symbols \
-	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree \
+	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/aloop plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree \
 	  || echo "WARN: shellcheck not installed; skipping (CI enforces it)"
 
 .PHONY: pycheck
 pycheck: ## Byte-compile the Python hook scripts
-	@python3 -m py_compile plugin/bin/budget plugin/bin/stats plugin/bin/agentic-init plugin/bin/gate-commit-author plugin/bin/_paths.py \
+	@python3 -m py_compile plugin/bin/budget plugin/bin/stats plugin/bin/aloop-init plugin/bin/gate-commit-author plugin/bin/_paths.py \
 	    plugin/bin/_usage.py plugin/bin/host-adapter plugin/bin/install \
 	  && rm -rf plugin/bin/__pycache__ && echo "python ok"
 
 .PHONY: test-hosts
 test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plugin end-to-end (no network, no tokens)
-	@command -v node >/dev/null && node --check plugin/hosts/opencode/agentic-agile.js
+	@command -v node >/dev/null && node --check plugin/hosts/opencode/aloop.js
 	python3 scripts/test/budget-worktree.test.py
 	python3 scripts/test/codex-hooks.test.py
+	python3 scripts/test/rename-compat.test.py
+	python3 scripts/test/supervisor-scope.test.py
+	python3 scripts/test/hook-matchers.test.py
+	python3 scripts/test/fail-closed.test.py
 	@command -v node >/dev/null && node scripts/test/opencode-plugin.test.mjs || { echo "node not found — skipped OpenCode test (CI runs it)"; }
+
+.PHONY: conformance
+conformance: ## ROADMAP §6 conformance fixtures on today's gates (needs cargo; no network, no tokens)
+	python3 scripts/conformance/claude-code.test.py
+
+.PHONY: e2e-live
+e2e-live: ## Live end-to-end run: one-line intent -> planned, tested, merged code (YES=1; spends dollars)
+	@test -n "$(YES)" || { echo "spends tokens: make e2e-live YES=1"; exit 2; }
+	scripts/smoke/e2e-live.sh --yes
+
+.PHONY: smoke-live
+smoke-live: ## Live Claude Code session: hooks fire, supervisor write blocked, transcripts + ledger (YES=1; spends ~$0.005)
+	@test -n "$(YES)" || { echo "spends tokens: make smoke-live YES=1"; exit 2; }
+	scripts/smoke/live-claude.sh --yes
 
 .PHONY: json
 json: ## Validate plugin.json + marketplace.json
@@ -102,7 +120,7 @@ validate: json ## claude plugin validate --strict
 	claude plugin validate ./plugin --strict
 
 .PHONY: ci
-ci: fmt-check lint test eval-validate test-hosts ## Run everything CI runs (except the live claude install)
+ci: fmt-check lint test eval-validate test-hosts conformance ## Run everything CI runs (except the live claude install)
 
 # ── Evals ──────────────────────────────────────────────────────────
 .PHONY: eval-validate
@@ -128,7 +146,7 @@ release: ci validate version-check ## Verify, then create annotated git tag vX.Y
 	@git rev-parse --git-dir >/dev/null 2>&1 || { echo "not a git repo — run: git init && git add -A && git commit -m init"; exit 1; }
 	@test -z "$$(git status --porcelain)" || { echo "working tree dirty — commit first"; exit 1; }
 	@git rev-parse "$(TAG)" >/dev/null 2>&1 && { echo "tag $(TAG) already exists"; exit 1; } || true
-	git tag -a "$(TAG)" -m "agentic-agile $(TAG)"
+	git tag -a "$(TAG)" -m "aloop $(TAG)"
 	@echo "Tagged $(TAG). Run 'make publish' to push."
 
 .PHONY: publish
@@ -151,13 +169,13 @@ package: ## Bundle the release into package/ and publish it as the GitHub releas
 	  -czf "$(PKG)" .claude-plugin plugin README.md CHANGELOG.md LICENSE
 	@cd $(PKG_DIR) && shasum -a 256 "$(notdir $(PKG))" > "$(notdir $(PKG)).sha256"
 	@awk -v v='$(VERSION)' 'BEGIN{p=0} $$0 ~ "^## \\["v"\\]"{p=1;next} /^## \[/{if(p)exit} p' CHANGELOG.md > "$(PKG_DIR)/notes-$(TAG).md"
-	@test -s "$(PKG_DIR)/notes-$(TAG).md" || echo "agentic-agile $(TAG)" > "$(PKG_DIR)/notes-$(TAG).md"
+	@test -s "$(PKG_DIR)/notes-$(TAG).md" || echo "aloop $(TAG)" > "$(PKG_DIR)/notes-$(TAG).md"
 	@echo "Built $(PKG)"
 	@if gh release view "$(TAG)" >/dev/null 2>&1; then \
 	  gh release upload "$(TAG)" "$(PKG)" "$(PKG).sha256" --clobber; \
 	  gh release edit "$(TAG)" --latest --notes-file "$(PKG_DIR)/notes-$(TAG).md"; \
 	else \
-	  gh release create "$(TAG)" "$(PKG)" "$(PKG).sha256" --title "agentic-agile $(TAG)" \
+	  gh release create "$(TAG)" "$(PKG)" "$(PKG).sha256" --title "aloop $(TAG)" \
 	    --notes-file "$(PKG_DIR)/notes-$(TAG).md" --latest; \
 	fi
 	@echo "Published GitHub release $(TAG) with $(notdir $(PKG))."

@@ -8,6 +8,8 @@
 set -uo pipefail
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; export PATH="$BIN_DIR:$PATH"  # md-db shim -> real binary
 GATE_NAME="gate-memory"
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"   # a crash blocks, never allows
 
 f="${1:-${MEMORY_FILE:-}}"
 if [ -z "$f" ]; then
@@ -20,7 +22,7 @@ if [ -z "$f" ] || [ ! -f "$f" ]; then
 fi
 
 if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1 && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/schemas/memory.kdl" ]; then
-  md-db validate "$(dirname "$f")" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/memory.kdl" \
+  md-db validate "$f" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/memory.kdl" \
     || { echo "BLOCK[$GATE_NAME]: $f failed memory.kdl" >&2; exit 2; }
 fi
 

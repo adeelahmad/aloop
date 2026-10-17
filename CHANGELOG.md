@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Versioning policy
 
-`agentic-agile` versions the **plugin** (`plugin/.claude-plugin/plugin.json`) and the
+`aloop` (formerly `agentic-agile`) versions the **plugin** (`plugin/.claude-plugin/plugin.json`) and the
 bundled `ctx-symbols` crate together under one SemVer line:
 
 - **MAJOR** — breaking changes to the gate contract (hook events/`agent_type`
@@ -19,6 +19,120 @@ bundled `ctx-symbols` crate together under one SemVer line:
 
 Keep `plugin.json` `version`, the `ctx-symbols` `Cargo.toml` `version`, and the git
 tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
+
+## [Unreleased]
+
+### Added
+- **End-to-end live run (north star).** `make e2e-live YES=1` turns a one-line intent
+  (a semver parser) into planned, tested, merged code in a real Claude Code session with
+  the plugin, then checks the artifacts, gate verdicts, merge, tests and cost. First run:
+  done end to end in 19 min for $1.15 (sonnet supervisor, haiku workers), 22 tests on main;
+  it found the gate-matcher, selfcheck and copy-merge bugs fixed below.
+- **Conformance fixtures (ROADMAP §6, M1 slice 1).** `make conformance` runs the real RED
+  and GREEN gates on a fixture crate in linked worktrees: 16 checks over §6.3–6.9 (RED that
+  passes or edits `src/` is rejected, suppressions and out-of-scope diffs are blocked,
+  shared-tree workers are blocked, an accepted GREEN merges, a hard breach is released as
+  "not a pass"). Items not covered yet are printed with the reason. Runs in CI's rust job.
+  §6.2 adds 4 schema checks through the real md-db; task.env tampering adds 6 more (26 in all).
+
+- **Live smoke test (M0).** `make smoke-live YES=1` runs one short real Claude Code
+  session with the plugin and checks the handoff injection, the supervisor-scope block,
+  transcripts and the token ledger (~$0.004 on haiku). Not run in CI (needs tokens).
+
+- **Gates fail closed (M0.6).** A gate that crashes (exit other than 0 or 2) now blocks
+  with "the gate itself failed … failing closed" instead of being a non-blocking hook error
+  that lets the action through. Covers every sub-agent gate, and `gate-supervisor-scope`
+  once the repo has a sprint lock. `scripts/test/fail-closed.test.py`.
+
+### Security
+- **No role gate ran on Claude Code plugin installs.** Claude Code names a plugin's
+  sub-agents `aloop:<agent>`, and a plain-name hook matcher is an exact list, so the
+  `red-worker`, `green-worker`, … SubagentStop/SubagentStart matchers never matched: every
+  "gate" verdict came from the workers' own optional self-checks. Found by the first live
+  end-to-end run (all 7 verdicts were self-checks) and confirmed with a probe plugin.
+  Matchers now list both `<role>` and `aloop:<role>`; `scripts/test/hook-matchers.test.py`
+  failed before.
+- **A worker could pass its own gate by editing `task.env`.** The gate library *sourced*
+  `.agentic/task.env`, which sits in the worker's worktree: appending `exit 0` passed a
+  failing GREEN, and `GATE_RUN_MATRIX=0` or `SKIP_HOOKS=1` switched checks off. The file
+  is now parsed as data and only the contract keys are read (`selfcheck` too). Four new
+  conformance cases cover it; they failed before the fix. Remaining exposure (a worker
+  rewriting its contract keys) is ROADMAP M0.7.
+- **A worker could relabel its own role.** `AGENT_ROLE` came from `task.env`, so a RED
+  worker claiming `planner` skipped the worktree-isolation check. Gates now take the role
+  from the host's hook payload (`agent_type`) and block if `task.env` contradicts it.
+  2 conformance cases (26 in all) failed before.
+- **The task contract is the supervisor's (M0.7).** The playbook told the supervisor to
+  write `task.env` into the worker's worktree before dispatch, but on Claude Code
+  `isolation: "worktree"` creates that worktree (`.claude/worktrees/agent-<id>`) at
+  dispatch (measured with a live probe), so the contract could only be missing or
+  worker-written. The supervisor now writes `.agentic/state/tasks/<TASK_ID>.env` in the main
+  tree and puts `TASK_ID: <id>` on the dispatch prompt's first line; gates and the time box
+  find the contract from that line in the host's transcript. A worktree copy that disagrees
+  with the contract blocks the gate, and `gate-supervisor-scope` stops sub-agents writing
+  `.agentic/state/` or `.agentic/task.env`. 4 conformance cases (30 in all) and 4 unit
+  checks failed before.
+- **Workers could rewrite the contract through Bash.** `gate-supervisor-scope` now also
+  sees a sub-agent's Bash calls and blocks a command that names `.agentic/state/` or
+  `.agentic/task.env` together with a write (redirect, `tee`, `sed -i`, `cp`, `mv`, …);
+  reading it stays allowed. 2 checks failed before.
+
+### Fixed
+- **A Claude Code worker could get another task's budget.** With no `task.env` in its own
+  worktree, the time box guessed "the only green-worker worktree" and applied that task's
+  limits. It now takes the worker's own worktree from its cwd first.
+- **A worker's `selfcheck <role>` crashed on good work** (`AGENT_ROLE: unbound variable`)
+  when the role came only from the argument; selfcheck now exports it. Found by the e2e run.
+- **The supervisor merged by copying files out of worktrees.** Workers never committed, so
+  their branches were empty and the supervisor `cp`'d files into main, past the gate's
+  diff. RED/SCAFFOLD/GREEN gates now block uncommitted work, the worker prompts say to
+  commit, and the playbook says to `git merge --no-ff` the worktree branch. Found by the
+  e2e run.
+- **Gates looped on the supervisor's own contract slips.** A comma-separated `SCOPE_GLOBS`
+  (34 blocks in e2e run 2) or a mistyped `AGENT_ROLE` in the main-tree contract blocked a
+  worker that cannot edit the contract, so it retried until it gave up. Lists now accept
+  commas, and the host's role wins over the contract's with a WARN (a contradicting
+  worktree copy still blocks).
+- **A worker's `selfcheck` could not find its task on Claude Code** (`STORY_DIR unset`, once
+  per role in e2e run 2): the worktree is made at dispatch and has no `task.env`. The time
+  box's first tool-call hook now copies the supervisor's contract into the worktree (the
+  dispatch prompt's `TASK_ID` picks it); the gates still compare the copy to the contract.
+- **GREEN looped on RED's formatting** (19 blocks in e2e run 3): RED's test file failed
+  `cargo fmt --check`, and GREEN may not touch tests. RED and SCAFFOLD gates now run the
+  matrix's format check, so the file is fixed by the role that wrote it.
+- **False "isolation dropped" blocks** (27 in e2e run 5): a worker that `cd`s to the main
+  tree to read its story left the hook's cwd there. Gates now check the worktree Claude
+  Code made for that agent (`.claude/worktrees/agent-<agent_id>`) first. The Bash contract
+  guard is per simple command now (run 5 blocked a read-only probe), and RED's
+  out-of-scope message says how to undo the change.
+- **The supervisor could write source mid-sprint on Linux.** `gate-supervisor-scope`'s
+  "recently refreshed lock" arm called `stat -f %m` first; on Linux that prints a
+  filesystem report instead of failing, the arithmetic crashed under `set -u`, and a
+  crashed hook does not block. GNU `stat -c %Y` now goes first and the value is checked.
+  Found by the live smoke test; `scripts/test/supervisor-scope.test.py` covers it.
+- **Valid planner artifacts were blocked by the schema gate.** `gate-validate-artifact`,
+  `gate-intake` and `gate-memory` ran md-db on the written file's whole directory, and
+  `gate-stage2-complete` on the whole sprint tree. Those directories also hold the
+  `init.md`/`output.md` comms (and `stats.md`), which the schema does not know, so every
+  valid `tasks.md`/`validate.md`/`stories.md` write in a story that had comms was blocked.
+  They now validate only the written file (stage-2: only the planning artifacts). Found by
+  the new §6.2 fixture.
+
+## [0.11.0] - 2026-10-17
+
+### Changed
+- **Renamed to aloop (Aladdin's Loop).** The plugin is `aloop@aloop-marketplace`, the
+  skill is `/aloop:aloop` (entry point `/aloop:init`), the CLI is `aloop <tool>` and
+  `aloop init`, and the OpenCode plugin file is `aloop.js`. Upgrade: uninstall
+  `agentic-agile@agentic-agile-marketplace`, then install `aloop@aloop-marketplace`
+  (README → *Upgrading from agentic-agile*).
+
+### Compatibility
+- `agentic`, `agentic init`, `agentic-init` and `agentic bind` still work as aliases.
+- `aloop install opencode|codex` links both `~/.local/bin/aloop` and `~/.local/bin/agentic`,
+  and removes the pre-rename generated files (OpenCode would otherwise load both plugins).
+- Project data is untouched: `.agentic/`, `docs/agents/`, `agentic/<task>` branches and the
+  `AGENTIC_*` settings keys keep their names (a migrated layout is planned for M1).
 
 ## [0.10.1] - 2026-09-23
 

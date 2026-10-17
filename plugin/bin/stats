@@ -269,14 +269,14 @@ def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at)
     rel = os.path.relpath(sdir, _paths.project(sdir))
     lines = [
         "---", "type: agentic-handoff", "last_sprint: %d" % n, "closed_at: %s" % closed_at, "---",
-        "# agentic-agile — orchestrator handoff",
+        "# aloop — orchestrator handoff",
         "",
         "_Written by the harness when sprint %d's FINAL-GATE passed; loaded into your context by the"
         " SessionStart hook after `/clear`. Nothing from the previous conversation carries over —"
         " everything you need is on disk._" % n,
         "",
         "## You are the supervisor. Do this now",
-        "1. Load the `agentic-agile` skill and follow it exactly (planning is human-gated;"
+        "1. Load the `aloop` skill and follow it exactly (planning is human-gated;"
         " execution is autonomous; you never write code or planning artifacts yourself).",
         "2. Project settings — limits, models, commit author — are in `docs/agents/defaults.md`."
         " Never change them without the human (re-run the init skill).",
@@ -350,7 +350,7 @@ def hook():
         return 0
     cwd = payload.get("cwd") or os.getcwd()
     if not os.path.isdir(_paths.docs(cwd)):
-        return 0                                    # not an agentic-agile project: write nothing
+        return 0                                    # not an aloop project: write nothing
     try:
         update_ledger(payload)
     except Exception:
@@ -363,9 +363,9 @@ def hook():
     summary = open(marker).read().strip()
     os.remove(marker)                               # announce exactly once
     print(json.dumps({
-        "systemMessage": "agentic-agile: " + summary,
+        "systemMessage": "aloop: " + summary,
         "decision": "block",
-        "reason": ("[agentic-agile harness] " + summary + " The sprint is finished. Report these totals to the "
+        "reason": ("[aloop harness] " + summary + " The sprint is finished. Report these totals to the "
                    "human, then tell them: run /clear — docs/agents/NEXT.md (the handoff) is loaded "
                    "automatically into the fresh context. Do not start the next sprint in this context."),
     }))

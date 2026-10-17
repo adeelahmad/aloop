@@ -8,7 +8,10 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-[ -f "$top/.agentic/task.env" ] && { set -a; . "$top/.agentic/task.env"; set +a; }
+# AGENT_ROLE from task.env: parsed, never sourced (the worker can edit that file).
+if [ -z "${AGENT_ROLE:-}" ] && [ -f "$top/.agentic/task.env" ]; then
+  AGENT_ROLE="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?AGENT_ROLE=['\"]?([A-Za-z-]*)['\"]?[[:space:]]*$/\2/p" "$top/.agentic/task.env" | tail -1)"
+fi
 
 case "${1:-}" in
   -h|--help|help)
@@ -30,6 +33,7 @@ case "$role" in
   *) echo "selfcheck: unknown role '${role:-<empty>}' (set AGENT_ROLE or pass a role)" >&2; exit 64 ;;
 esac
 
+export AGENT_ROLE="$role"      # the gates read the role from here when no host payload names it
 export AGENTIC_SELFCHECK=1     # gates log this run as a self-check, and never close a sprint
 echo "self-check: running $gate ..."
 if "$HERE/$gate"; then

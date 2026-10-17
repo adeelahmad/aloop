@@ -10,6 +10,7 @@ source "$HERE/_gatelib.sh"
 
 # 0) Worktree isolation (invariant): this worker must run in a linked worktree.
 assert_worktree_isolation
+assert_work_committed
 
 # 0b) Comms: this agent must have appended its report block to the story's output.md.
 validate_comms
@@ -59,4 +60,7 @@ for sym in $symbols; do
 done
 
 note "scaffold verified: ${symbols:+$(echo "$symbols" | wc -w | tr -d ' ') symbol(s) unique + stubbed}, no shims"
+# 5) Format: the stubs must pass the matrix's format check (GREEN fills bodies, not layout).
+run_format_checks
+
 exit 0
