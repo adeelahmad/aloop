@@ -69,6 +69,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   every real gate verdict (`gate.passed` / `gate.failed`) and the worktree lifecycle
   (`worktree.created` / `merged` / `discarded`) are emitted into it. `events query` and
   `events lineage <task>` answer from the stream, with references only and no transcripts.
+- **Canonical sprint handoff and the resume rule** (ROADMAP §4.4). sprint-close writes
+  `sprintN/handoff.json` (`aladdin.handoff/1`) from accepted state: completed tasks with
+  their gate verdict and merge event, unverified, open and carried tasks, the nudge and
+  evidence refs. NEXT.md renders it. `stats resume-check` names every task that
+  plan-ready.md shows as done but that has no passing gate verdict, and SessionStart
+  appends that live check to the loaded handoff.
 
 ## [0.10.1] - 2026-09-23
 

@@ -17,9 +17,14 @@ if [ -n "$cwd" ] && [ -d "$cwd" ]; then cd "$cwd" || exit 0; fi
 "$HERE/agentic-init" --ensure-gitignore >/dev/null 2>&1 || true
 
 [ -f "$AGENTIC_NEXT" ] || exit 0
+# the resume rule: tasks shown done without gate evidence are named, so they get re-gated
+rerun="$("$HERE/stats" resume-check 2>/dev/null || true)"
 ctx="agentic-agile handoff — docs/agents/NEXT.md, loaded automatically by the SessionStart hook:
 
-$(head -c 12000 "$AGENTIC_NEXT")"
+$(head -c 12000 "$AGENTIC_NEXT")${rerun:+
+
+Resume check (from the gate log, now):
+$rerun}"
 if command -v python3 >/dev/null 2>&1; then
   CTX="$ctx" python3 -c 'import json,os;print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":os.environ["CTX"]}}))'
 else

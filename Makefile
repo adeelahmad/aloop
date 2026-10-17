@@ -89,6 +89,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/sprint-admission.test.py
 	python3 scripts/test/planner-feedback.test.py
 	python3 scripts/test/events.test.py
+	python3 scripts/test/handoff-resume.test.py
 	python3 scripts/test/codex-hooks.test.py
 	@command -v node >/dev/null && node scripts/test/opencode-plugin.test.mjs || { echo "node not found — skipped OpenCode test (CI runs it)"; }
 

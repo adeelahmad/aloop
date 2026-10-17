@@ -15,6 +15,14 @@ Nothing here is computed or written by a model:
                               handoff the SessionStart hook loads after /clear), records the
                               close in .agentic/state/sprints.json.
   stats show                  totals: this session, every sprint, the whole project.
+  stats resume-check [DIR]    the resume rule (ROADMAP §4.4): every task the sprint's
+                              plan-ready.md shows as done must have gate evidence (a
+                              passing gate verdict for that task). Prints one RE-RUN line per
+                              task without it; exit 0 always (SessionStart reads it).
+
+sprint-close also writes sprintN/handoff.json: the CANONICAL handoff built from accepted
+state (done tasks with their gate evidence, merged worktrees, open and carried work, the
+nudge, evidence refs). NEXT.md is a rendered view of it; neither inlines transcripts.
 
 Token figures are summed from the API usage Claude Code records in its transcripts:
 input (uncached) + cache read + cache write + output. `/usage` resets on /clear; this
@@ -317,7 +325,7 @@ def render_stats(n, sdir, facts, sprint_t, session_t, project_t, prompts, closed
     return "\n".join(lines)
 
 
-def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at):
+def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at, ho=None):
     try:
         stories = open(os.path.join(sdir, "stories.md")).read()
     except OSError:
@@ -348,9 +356,14 @@ def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at)
         "- Sprint %d goal: %s" % (n, " ".join(l.strip() for l in goal) or "(see %s/stories.md)" % rel),
         "- Sprint %d: %d stories, %d tasks planned, %d/%d plan boxes ticked, %d re-plans, %d attempts stopped at hard budget."
         % (n, facts["stories"], facts["tasks_planned"], facts["ticked"], facts["boxes"], facts["replans"], len(facts["killed"])),
-        "- Full stats: `%s/stats.md` · execution log: `%s/execution.log`" % (rel, rel),
+        "- Full stats: `%s/stats.md` · execution log: `%s/execution.log` · canonical handoff: `%s/handoff.json`"
+        % (rel, rel, rel),
         "",
     ]
+    if ho and ho["unverified"]:
+        lines += ["## Resume rule: re-run these gates first",
+                  "_plan-ready.md shows them done, but no passing gate verdict exists. Resume from evidence,"
+                  " never from \"the agent said done\"._", ""] + ["- " + t for t in ho["unverified"]] + [""]
     trouble, verdict, why = calibration(facts)
     lines += ["## Planner feedback (for sprint %d's planning only)" % (n + 1)]
     if verdict:
@@ -382,6 +395,72 @@ def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at)
     return "\n".join(lines)
 
 
+GREEN_GATES = ("gate-green-verify", "gate-final")
+
+
+def plan_ready_tasks(sdir):
+    """{task_id: done?} from every story's plan-ready.md (`## Tn` sections; a task is done
+    when all its boxes are ticked)."""
+    out = {}
+    for pr in sorted(glob.glob(os.path.join(sdir, "s[0-9]*-[0-9]*-*", "plan-ready.md"))):
+        m = re.match(r"^(s\d+-\d+)", os.path.basename(os.path.dirname(pr)))
+        story, sec = m.group(1).upper(), None
+        for line in open(pr):
+            h = re.match(r"^#+\s+(T\d+)\b", line)
+            if h:
+                sec = "%s-%s" % (story, h.group(1))
+                out.setdefault(sec, True)
+            elif sec and re.match(r"^\s*- \[ \]", line):
+                out[sec] = False
+    return out
+
+
+def gate_evidence(cwd):
+    """{task_id: latest passing worker-gate verdict} from the gate log (never from a model)."""
+    ev = {}
+    for g in read_jsonl(os.path.join(_paths.home(cwd, "logs"), "gates.jsonl")):
+        if g.get("exit") == 0 and not g.get("selfcheck") and g.get("task") and g.get("gate") in GREEN_GATES:
+            ev[g["task"]] = "%s pass @ %s" % (g["gate"], g.get("ts", "?"))
+    return ev
+
+
+def merged_worktrees(cwd):
+    out = {}
+    for e in read_jsonl(os.path.join(_paths.home(cwd, "logs"), "events.jsonl")):
+        if e.get("event") == "worktree.merged":
+            out[(e.get("ids") or {}).get("task") or e.get("task")] = e.get("event_id")
+    return out
+
+
+def resume_check(cwd, arg=None):
+    sdir = resolve_sprint_dir(cwd, arg)
+    if not sdir:
+        return 0
+    ev = gate_evidence(cwd)
+    missing = [t for t, done in sorted(plan_ready_tasks(sdir).items()) if done and t not in ev]
+    for t in missing:
+        print("RE-RUN %s: plan-ready.md shows it done but there is no passing gate verdict for it — "
+              "re-run its gate before building on it (resume from evidence, never from \"the agent said done\")." % t)
+    return 0
+
+
+def handoff(cwd, n, sdir, facts, closed_at):
+    tasks, ev, merged = plan_ready_tasks(sdir), gate_evidence(cwd), merged_worktrees(cwd)
+    trouble, verdict, why = calibration(facts)
+    rel = lambda p: os.path.relpath(p, _paths.project(cwd))  # noqa: E731
+    return {
+        "schema": "aladdin.handoff/1", "sprint": n, "closed_at": closed_at,
+        "completed": [{"task": t, "gate": ev.get(t), "merged_event": merged.get(t)} for t, d in sorted(tasks.items()) if d],
+        "unverified": [t for t, d in sorted(tasks.items()) if d and t not in ev],
+        "open": [t for t, d in sorted(tasks.items()) if not d and t not in facts["rolled_over"]],
+        "carried": facts["rolled_over"],
+        "nudge": {"verdict": verdict, "evidence": why, "tasks": trouble} if verdict else None,
+        "refs": {"stats": rel(os.path.join(sdir, "stats.md")), "events": ".agentic/logs/events.jsonl",
+                 "gates": ".agentic/logs/gates.jsonl", "execution_log": rel(os.path.join(sdir, "execution.log")),
+                 "rollover": rel(os.path.join(sdir, "rollover.md")) if facts["rollover"] else None},
+    }
+
+
 def sprint_close(cwd, arg=None):
     sdir = resolve_sprint_dir(cwd, arg)
     if not sdir:
@@ -403,8 +482,11 @@ def sprint_close(cwd, arg=None):
     closed.sort(key=lambda c: c["sprint"])
     with open(os.path.join(sdir, "stats.md"), "w") as f:
         f.write(render_stats(n, sdir, facts, sprint_t, session_t, project_t, prompts, at))
+    ho = handoff(cwd, n, sdir, facts, at)
+    with open(os.path.join(sdir, "handoff.json"), "w") as f:
+        json.dump(ho, f, indent=1)
     with open(_paths.next_file(cwd), "w") as f:
-        f.write(render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, at))
+        f.write(render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, at, ho))
     with open(sprints_file(cwd), "w") as f:
         json.dump({"closed": closed}, f, indent=1)
     summary = ("Sprint %d closed. Tokens — sprint: %s · this session: %s · project: %s. Tasks planned %d, "
@@ -477,6 +559,8 @@ def main(argv):
             return 0
     if cmd == "sprint-close":
         return sprint_close(os.getcwd(), argv[1] if len(argv) > 1 else None)
+    if cmd == "resume-check":
+        return resume_check(os.getcwd(), argv[1] if len(argv) > 1 else None)
     if cmd == "show":
         return show(os.getcwd())
     print("stats: unknown command %r" % cmd, file=sys.stderr)
