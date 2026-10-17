@@ -33,6 +33,7 @@ case "$role" in
   *) echo "selfcheck: unknown role '${role:-<empty>}' (set AGENT_ROLE or pass a role)" >&2; exit 64 ;;
 esac
 
+export AGENT_ROLE="$role"      # the gates read the role from here when no host payload names it
 export AGENTIC_SELFCHECK=1     # gates log this run as a self-check, and never close a sprint
 echo "self-check: running $gate ..."
 if "$HERE/$gate"; then

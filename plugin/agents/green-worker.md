@@ -47,6 +47,8 @@ tested, what was stubbed). When done you MUST **append** your report as a new bl
     ### Next
     structural review / next task
 
+Commit your work on your worktree's branch (`git add -A && git commit -m "<TASK_ID> <phase>"`;
+the gate blocks uncommitted work, because the supervisor merges your branch).
 Then run `selfcheck` and fix anything before reporting done —
 the SubagentStop gate BLOCKS unless your latest `output.md` block exists, is from
 green-worker, and carries `### Summary` / `### Result` / `### Next`.

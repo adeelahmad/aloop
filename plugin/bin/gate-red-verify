@@ -9,6 +9,7 @@ source "$HERE/_gatelib.sh"
 
 # 0) Worktree isolation (invariant): this worker must run in a linked worktree.
 assert_worktree_isolation
+assert_work_committed
 
 # 1) output.md / init.md structure.
 validate_comms

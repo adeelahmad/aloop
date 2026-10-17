@@ -23,6 +23,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
+- **End-to-end live run (north star).** `make e2e-live YES=1` turns a one-line intent
+  (a semver parser) into planned, tested, merged code in a real Claude Code session with
+  the plugin, then checks the artifacts, gate verdicts, merge, tests and cost. First run:
+  done end to end in 19 min for $1.15 (sonnet supervisor, haiku workers), 22 tests on main;
+  it found the gate-matcher, selfcheck and copy-merge bugs fixed below.
 - **Conformance fixtures (ROADMAP §6, M1 slice 1).** `make conformance` runs the real RED
   and GREEN gates on a fixture crate in linked worktrees: 16 checks over §6.3–6.9 (RED that
   passes or edits `src/` is rejected, suppressions and out-of-scope diffs are blocked,
@@ -72,6 +77,13 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - **A Claude Code worker could get another task's budget.** With no `task.env` in its own
   worktree, the time box guessed "the only green-worker worktree" and applied that task's
   limits. It now takes the worker's own worktree from its cwd first.
+- **A worker's `selfcheck <role>` crashed on good work** (`AGENT_ROLE: unbound variable`)
+  when the role came only from the argument; selfcheck now exports it. Found by the e2e run.
+- **The supervisor merged by copying files out of worktrees.** Workers never committed, so
+  their branches were empty and the supervisor `cp`'d files into main, past the gate's
+  diff. RED/SCAFFOLD/GREEN gates now block uncommitted work, the worker prompts say to
+  commit, and the playbook says to `git merge --no-ff` the worktree branch. Found by the
+  e2e run.
 - **The supervisor could write source mid-sprint on Linux.** `gate-supervisor-scope`'s
   "recently refreshed lock" arm called `stat -f %m` first; on Linux that prints a
   filesystem report instead of failing, the arithmetic crashed under `set -u`, and a

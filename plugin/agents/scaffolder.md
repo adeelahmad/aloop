@@ -57,6 +57,8 @@ an earlier block:
     ### Next
     green: fill the stubs
 
+Commit your work on your worktree's branch (`git add -A && git commit -m "<TASK_ID> <phase>"`;
+the gate blocks uncommitted work, because the supervisor merges your branch).
 Then run `selfcheck` and fix anything before reporting done —
 the SubagentStop gate BLOCKS unless your latest `output.md` block exists, is from
 scaffolder, and carries `### Summary` / `### Result` / `### Next`.

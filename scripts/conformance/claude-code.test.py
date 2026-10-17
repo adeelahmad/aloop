@@ -163,6 +163,15 @@ case(5, "GREEN that adds #[ignore] is rejected", "gate-green-verify", wt, 2, "su
 wt = green(lib=GREEN_LIB + "\n#[cfg(not(test))]\npub fn hidden() {}\n")
 case(5, "GREEN that adds #[cfg(not(test))] is rejected", "gate-green-verify", wt, 2, "suppression")
 
+# A worker's `selfcheck <role>` with no AGENT_ROLE in its env must run the gate, not crash it
+# (live e2e run: `AGENT_ROLE: unbound variable` made the self-check fail closed on good work).
+os.remove(os.path.join(green_ok_wt, ".agentic", "task.env"))
+report("green-worker", [("tests/sub.rs::sub_works", "PASS")])
+r = subprocess.run([os.path.join(BIN, "selfcheck"), "green-worker"], cwd=green_ok_wt, capture_output=True, text=True,
+                   env=dict(ENV, STORY_DIR=STORY, STANDARDS_FILE=os.path.join(MAIN, "standards.md")), stdin=subprocess.DEVNULL)
+results.append((5, "`selfcheck green-worker` with no AGENT_ROLE set passes good work", r.returncode == 0,
+                "exit %d %s" % (r.returncode, (r.stderr.strip().splitlines() or [""])[-1][:140])))
+
 # §6.6 A failed gate blocks acceptance
 wt = green(lib=LIB + "\npub fn sub(a: i32, b: i32) -> i32 {\n    a + b\n}\n")
 case(6, "GREEN whose test still fails is blocked by the standards matrix", "gate-green-verify", wt, 2, "matrix command failed")
@@ -175,6 +184,13 @@ os.remove(os.path.join(STORY, "output.md"))
 case(6, "a worker that leaves no output.md report is blocked", "gate-green-verify", wt, 2, "no output.md")
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
 case(6, "a stale report from another role is blocked", "gate-green-verify", wt, 2, "not from 'green-worker'")
+
+# Work must be committed on the worktree's branch, so the supervisor MERGES it (live e2e run:
+# workers left their edits uncommitted and the supervisor copied files into main instead).
+wt = green()
+with open(os.path.join(wt, "src", "lib.rs"), "a") as f:
+    f.write("\n// tweak\n")
+case(6, "a worker that leaves its work uncommitted is blocked", "gate-green-verify", wt, 2, "uncommitted")
 
 # §6.6 (cont.) The worker owns its worktree, including .agentic/task.env. Editing the
 # contract must not turn a failing attempt into a pass.

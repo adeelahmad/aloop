@@ -219,7 +219,7 @@ validate_comms() {
   printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Summary' || fail "latest output.md block missing '### Summary'"
   printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Result'  || fail "latest output.md block missing '### Result'"
   printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Next'    || fail "latest output.md block missing '### Next'"
-  note "comms ok: latest output.md block is a well-formed '$AGENT_ROLE' report in $(basename "$dir")"
+  note "comms ok: latest output.md block is a well-formed '${AGENT_ROLE:-?}' report in $(basename "$dir")"
 }
 
 # True if $1 opens with YAML frontmatter carrying `type: $2`. md-db validates this
@@ -306,6 +306,19 @@ assert_worktree_isolation() {
   constraint truly forces relaxing an invariant, ESCALATE to planning — never
   self-authorize. (Deliberate override? SKIP_HOOKS=1.)"
   fi
+}
+
+# The work must be COMMITTED on the worktree's branch: the supervisor merges that branch, and
+# an uncommitted edit is either lost or copied into main by hand, past the gate's diff.
+assert_work_committed() {
+  [ "${SKIP_HOOKS:-}" = "1" ] && return 0
+  case "${AGENT_ROLE:-}" in red-worker|scaffolder|green-worker) ;; *) return 0 ;; esac
+  local dirty
+  dirty="$(git -C "$(repo_dir)" status --porcelain --untracked-files=all 2>/dev/null \
+    | awk '!($1 == "??" && $NF ~ /(^|\/)Cargo\.lock$/) {print $NF}' \
+    | grep -vE '^(\.agentic/|\.transcripts/)' | head -5)"   # an untracked Cargo.lock is cargo's, not the worker's
+  [ -z "$dirty" ] || fail "uncommitted work in your worktree — commit it on this branch (git add -A && git commit -m '<task> <phase>') so the supervisor can merge it:
+$(printf '    %s\n' $dirty)"
 }
 
 # Run the gate matrix declared in standards.md (standards-bind-gates). Falls back
