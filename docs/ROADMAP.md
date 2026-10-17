@@ -151,6 +151,7 @@ These parts already exist but their semantics must change:
 
 ### 4.6 Semantic execution map
 
+- 🟡 *Partly done (Unreleased): structured targets, shadow workspace and `targets target|context|shadow` (`bin/targets`, checked by gate-stage2-complete). Test: `scripts/test/semantic-targets.test.py`. Open: the LSP adapter (refs/callers/callees exit 4 today) and making the semantic plan the execution source.*
 - **Structured change targets:**
   - `change_ref`
   - `operation` (create | modify | extend | refactor | replace | delete)

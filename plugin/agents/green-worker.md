@@ -24,6 +24,8 @@ your init block's `### Budget` line has the exact numbers). Plan for it:
   and the supervisor kills you. The task is then split by the planner — not retried.
 - Tools are on PATH — never search for them: `selfcheck`, `md-db`, `ctx-symbols`,
   `log-execution`, `budget status`. Call them by bare name.
+- Start from your task's change targets when the story has `targets.json`:
+  `targets target <Tn> <STORY_DIR>` then `targets context <Cn> <STORY_DIR>` — not a repo scan.
 
 ## Hard limits
 - No new tests; no refactor a test does not force.

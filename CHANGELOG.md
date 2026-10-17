@@ -81,6 +81,13 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
   mode is explicit (`events authority --mode autonomous`) and skips approval unless an
   escalation class is hit.
+- **Semantic change targets, first slice** (ROADMAP §4.6). The planner may write
+  `<story>/targets.json` (`change_ref / operation / path / symbol | planned_symbol / reason /
+  evidence_refs / constraints`). `bin/targets check` proves each target against tasks.md and
+  the real tree, and gate-stage2-complete runs it. Workers start from `targets target` and
+  `targets context --budget N`, including for files that do not exist yet; planned files
+  form a shadow workspace and no stub is created. `refs/callers/callees` report the missing
+  LSP backend (exit 4) instead of guessing.
 - **Canonical ids and referential integrity** (ROADMAP §4.5). `bin/ids freeze` checks the
   structured references between planning artifacts, never prose, and issues each story and
   task alias a frozen UUIDv7 in `sprintN/ids.json`. A split task's original is retired and

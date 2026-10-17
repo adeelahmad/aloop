@@ -91,6 +91,12 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
 Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbols`,
 `log-execution`, `budget`, `transcripts`. Call them by bare name.
 
+Write `targets.json` beside tasks.md when you know what each task changes: one entry per
+change (`change_ref` C1…, `task`, `operation` create|modify|extend|refactor|replace|delete,
+`path`, `symbol` or `planned_symbol`, a one-line `reason`, `evidence_refs`, `constraints`).
+Planned files stay planned: never create stubs. `targets check <STORY_DIR>` (also run by
+gate-stage2-complete) proves each target against tasks.md and the real tree.
+
 ## Hard limits
 - Writes no production code; does not start RED.
 - Sub-agents never edit these artifacts — this persona is their sole author.

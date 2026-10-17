@@ -69,7 +69,15 @@ fi
 "$BIN_DIR/ids" freeze "$sprint_dir" \
   || { echo "BLOCK[$GATE_NAME]: broken cross-artifact reference in $sprint_dir (see above)" >&2; exit 2; }
 
-# 5) Structural validation via md-db (fallback to frontmatter check).
+# 5) Semantic change targets (ROADMAP §4.6), where the planner wrote them: each target's
+#    task, operation, path and symbol must hold against tasks.md and the real tree.
+for t in "$sprint_dir"/s*-*-*/targets.json; do
+  [ -f "$t" ] || continue
+  "$BIN_DIR/targets" check "$(dirname "$t")" \
+    || { echo "BLOCK[$GATE_NAME]: invalid change targets in $t (see above)" >&2; exit 2; }
+done
+
+# 6) Structural validation via md-db (fallback to frontmatter check).
 if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1; then
   md-db validate "$sprint_dir" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/planning-artifacts.kdl" \
     || { echo "BLOCK[$GATE_NAME]: md-db rejected $sprint_dir" >&2; exit 2; }

@@ -68,4 +68,4 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
 - Sub-agents never edit these artifacts — this persona is their sole author.
 
 ## Tools
-read, write(planning-artifacts)
+read, write(planning-artifacts) · `targets check` for the optional `targets.json` (semantic change targets, ROADMAP §4.6)
