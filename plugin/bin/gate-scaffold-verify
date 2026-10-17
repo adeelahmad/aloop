@@ -30,7 +30,10 @@ if [ -z "$symbols" ]; then
   sf="$root/.agentic/scaffold-symbols"
   if [ -f "$sf" ]; then
     # one symbol per line; anything after it on the line is a note ("Foo (enum) @ src/lib.rs")
-    symbols="$(grep -vE '^[[:space:]]*(#|$)' "$sf" | awk '{print $1}' | sort -u)"
+    symbols="$(grep -vE '^[[:space:]]*(#|$)' "$sf" | awk '
+      $2 == "for" { next }                                    # "Display for Foo": a trait impl, not a new symbol
+      NR == 1 && tolower($1) ~ /^(symbol|name)$/ && tolower($2) ~ /^(path|kind|file)$/ { next }  # table header
+      { print $1 }' | sort -u)"
   fi
 fi
 # keep only identifiers / paths (`Foo`, `crate::Foo`): punctuation is never a symbol

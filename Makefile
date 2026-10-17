@@ -64,12 +64,11 @@ clippy: ## Clippy with warnings-as-errors
 
 .PHONY: shellcheck
 shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent)
-	@command -v shellcheck >/dev/null \
-	  && shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh plugin/bin/_failclosed.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
+	@if ! command -v shellcheck >/dev/null; then echo "WARN: shellcheck not installed; skipping (CI enforces it)"; else \
+	  shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh plugin/bin/_failclosed.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
 	       plugin/bin/selfcheck plugin/bin/transcripts plugin/bin/worktree-create plugin/bin/worktree-remove \
 	       plugin/bin/worktree-hygiene plugin/bin/ensure-tools plugin/bin/md-db plugin/bin/ctx-symbols \
-	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/aloop plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree \
-	  || echo "WARN: shellcheck not installed; skipping (CI enforces it)"
+	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/aloop plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree; fi
 
 .PHONY: pycheck
 pycheck: ## Byte-compile the Python hook scripts

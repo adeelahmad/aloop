@@ -19,9 +19,16 @@ validate_comms
 block="$(latest_block "${STORY_DIR:-}/output.md")"
 test_rows="$(printf '%s\n' "$block" | grep -E '^\|.*::.*\|' || true)"
 if [ -n "$test_rows" ]; then
-  if printf '%s\n' "$test_rows" | grep -qiE '\|[[:space:]]*PASS[[:space:]]*\|'; then
-    fail "a NEW test PASSED in RED (test exercises nothing) — latest output.md block has a PASS row"
-  fi
+  # A PASS row is allowed only for a test already on the base (an earlier task's, listed for
+  # context); a test fn the base does not have is NEW and must FAIL.
+  while IFS= read -r row; do
+    fn="$(printf '%s\n' "$row" | grep -oE '::[A-Za-z_][A-Za-z0-9_]*' | tail -1 | cut -c3-)"
+    if [ -n "$fn" ] && [ -n "${BASE_REF:-}" ] \
+       && git -C "$(repo_dir)" grep -qE "fn[[:space:]]+${fn}[[:space:]]*\(" "$BASE_REF" -- 2>/dev/null; then
+      continue
+    fi
+    fail "a NEW test PASSED in RED (test exercises nothing) — latest output.md block has a PASS row: ${fn:-$row}"
+  done < <(printf '%s\n' "$test_rows" | grep -iE '\|[[:space:]]*PASS[[:space:]]*\|')
   printf '%s\n' "$test_rows" | grep -qiE '\|[[:space:]]*FAIL[[:space:]]*\|' \
     || fail "no FAILing test row in the latest output.md block — RED produced no failing test"
 else

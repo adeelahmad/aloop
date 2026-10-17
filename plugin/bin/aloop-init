@@ -134,6 +134,21 @@ def show(cwd):
     return 0
 
 
+MEMORY_SEED = """---
+type: memory
+updated_at: %s
+---
+# aloop — agent memory
+
+Curated at each retrospective (schema: schemas/memory.kdl). One row per lesson.
+
+## Entries
+
+| id | applies_to | text | origin | recurrence | added |
+| --- | --- | --- | --- | --- | --- |
+"""
+
+
 def render(vals, who):
     today = datetime.date.today().isoformat()
     lines = ["---", "type: agentic-defaults", "confirmed_at: %s" % today, "---",
@@ -179,6 +194,11 @@ def apply(cwd, pairs):
     with open(_paths.defaults_file(cwd), "w") as f:
         f.write(render(vals, vals["COMMIT_AUTHOR_NAME"]))
     print("wrote %s" % _paths.defaults_file(cwd))
+    memory = os.path.join(_paths.docs(cwd), "memory.md")
+    if not os.path.exists(memory):                   # seeded so no agent guesses its schema
+        with open(memory, "w") as f:
+            f.write(MEMORY_SEED % datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
+        print("wrote %s" % memory)
     if vals["GITIGNORE"] == "yes":
         ensure_gitignore(cwd, vals)
     for key, cfg in (("COMMIT_AUTHOR_NAME", "user.name"), ("COMMIT_AUTHOR_EMAIL", "user.email")):

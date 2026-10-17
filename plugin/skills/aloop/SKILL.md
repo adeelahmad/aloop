@@ -213,7 +213,7 @@ yourself): read the GLOBAL transcript stream + the failure/feedback trail since 
 draft terse, role-scoped lessons from RECURRING patterns (>= 2) — failures AND
 reliably-good moves. The human curates and adds their own continuous-failure
 insights. Kept entries (1-2 lines each) go into `docs/agents/memory.md` (schema:
-`schemas/memory.kdl`). On every later dispatch you inject the matching entries into
+`schemas/memory.kdl`; `aloop init` seeds it, so only add rows to its `## Entries` table). On every later dispatch you inject the matching entries into
 the worker's `init.md` `# Memory` section. Memories are advisory and NEVER relax an
 invariant (no-suppression, human-only-planning, scaffolder-leaves-panic, the gates);
 patterns not one-offs; keep `memory.md` bounded.
