@@ -213,6 +213,12 @@ wt = green(scope="src/lib.rs")
 write(os.path.join(wt, "build.rs"), "fn main() {}\n")
 commit(wt, "out of scope")
 case(6, "GREEN that touches a path outside its task scope is blocked", "gate-green-verify", wt, 2, "out-of-scope path: build.rs")
+# Scope globs are patterns, never expanded against the worktree: `tests/**` expanded to
+# `tests/common tests/sub.rs` and missed tests/common/mod.rs (live e2e run 8: 29 blocks).
+wt = green(scope="src/*.rs tests/**")
+write(os.path.join(wt, "tests", "common", "mod.rs"), "pub fn helper() -> i32 {\n    1\n}\n")
+commit(wt, "helper in scope")
+case(6, "GREEN inside a `dir/**` scope glob is accepted", "gate-green-verify", wt, 0)
 wt = green()
 os.remove(os.path.join(STORY, "output.md"))
 case(6, "a worker that leaves no output.md report is blocked", "gate-green-verify", wt, 2, "no output.md")

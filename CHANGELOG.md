@@ -23,6 +23,8 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
+- **Second live e2e intent**: `make e2e-live YES=1 INTENT=wordfreq` runs two dependent stories
+  (word counting, then top-N ranking).
 - **`gate-final` checks every planned test is on main**: each `path::fn` bullet in a story's
   `plan.md` must exist at its path. `plan-ready.md` lists only what RED wrote, so a test a
   re-plan dropped used to vanish unnoticed (e2e run 6).
@@ -89,6 +91,13 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- Scope globs are no longer expanded against the worktree: `tests/**` became the files that
+  happened to exist, so GREEN was blocked for an in-scope `tests/common/mod.rs` (e2e run 8: 29 blocks).
+- `ctx-symbols conflicts` no longer reports the same name in two integration-test files
+  (`mod common;`, a local helper) as a HIGH duplicate; each `tests/*.rs` is its own crate.
+  e2e run 8's structural review halted 57 times on it. The grep fallback skips `tests/` too.
+- `gate-scaffold-verify`'s grep fallback (no ctx-symbols) located a test fn instead of the stub,
+  depending on directory order; it now uses the same name-anchored match as `symbol_count`.
 - `gate-red-verify` no longer blocks a RED report that lists a test already on the base as
   PASS (an earlier task's test, for context); only a NEW test may not pass. e2e run 7: 22 blocks.
 - `make shellcheck` no longer reports a lint error as "shellcheck not installed" and passes.
