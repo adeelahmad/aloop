@@ -32,6 +32,7 @@ Usage:
   budget mark-killed AGENT_ID...            after TaskStop: stop tracking those attempts
   budget status                             table of tracked attempts
   budget replans TASK_ID                    how many times TASK_ID was split (cap check)
+  budget classify AGENT_ID|TASK_ID...       the breach class of a stopped attempt + its evidence
 
 Tokens = the charge under TOKEN_METER (defaults.md, or BUDGET_TOKEN_METER in task.env):
   fresh   (default) every uncached input token + every output token so far
@@ -299,6 +300,75 @@ def emit(event, context=None, deny=None, stop=None):
     print(json.dumps(out))
 
 
+BREACH_CLASSES = ("TASK_TOO_LARGE", "AGENT_LOOPING", "PLAN_AMBIGUOUS", "BLOCKED_DEPENDENCY",
+                  "ENVIRONMENT_SLOW", "TEST_SUITE_SLOW", "EXTERNAL_SERVICE", "HOST_FAILURE",
+                  "CONTEXT_PATHOLOGY", "UNKNOWN")
+TEST_CMD = re.compile(r"\b(cargo (?:test|nextest)|go test|pytest|py\.test|npm (?:run )?test|yarn test|pnpm test|"
+                      r"jest|vitest|mvn test|gradle test|make test|ctest|rspec|phpunit|dotnet test)\b")
+NET_ERR = re.compile(r"ECONNREFUSED|ETIMEDOUT|ENOTFOUND|Connection refused|Could not resolve host|"
+                     r"Temporary failure in name resolution|\b(?:502|503|504) (?:Bad Gateway|Service Unavailable|Gateway Timeout)|"
+                     r"rate limit", re.I)
+
+
+def tool_calls(path):
+    """[(name, input-json, result-text)] from a Claude-shaped transcript (best effort)."""
+    calls, results = [], {}
+    if not path or not os.path.isfile(path) or path.endswith(".zst"):
+        return calls
+    try:
+        with open(path, errors="replace") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                content = (rec.get("message") or {}).get("content") if isinstance(rec.get("message"), dict) else None
+                for c in content if isinstance(content, list) else []:
+                    if not isinstance(c, dict):
+                        continue
+                    if c.get("type") == "tool_use":
+                        calls.append([c.get("id"), c.get("name") or "", json.dumps(c.get("input") or {}, sort_keys=True), ""])
+                    elif c.get("type") == "tool_result":
+                        body = c.get("content")
+                        results[c.get("tool_use_id")] = body if isinstance(body, str) else json.dumps(body)
+    except OSError:
+        return []
+    return [(n, i, results.get(cid, "")) for cid, n, i, _ in calls]
+
+
+def classify(st):
+    """Deterministic FIRST classification of a hard breach (ROADMAP §3.4), from facts the
+    harness owns. The planner confirms or overrides it; PLAN_AMBIGUOUS and
+    BLOCKED_DEPENDENCY need its judgment and are never guessed here."""
+    b, u = st.get("budget") or {}, st.get("usage") or {}
+    toks, mins = st.get("tokens"), st.get("elapsed_min") or 0
+    hard_t = b.get("TOKENS_HARD") or 1
+    token_breach = toks is not None and toks >= hard_t
+    calls = tool_calls(st.get("transcript"))
+    if not u and not calls:
+        return "HOST_FAILURE", "no model usage or tool calls recorded for this attempt (%.1f min)" % mins
+    if calls:
+        counts = {}
+        for n, i, _ in calls:
+            counts[(n, i)] = counts.get((n, i), 0) + 1
+        (name, inp), top = max(counts.items(), key=lambda kv: kv[1])
+        if top >= 4 and top * 3 >= len(calls):
+            return "AGENT_LOOPING", "the same %s call repeated %d of %d times: %s" % (name, top, len(calls), inp[:120])
+        net = sum(1 for _, _, r in calls if NET_ERR.search(r or ""))
+        if net >= 2:
+            return "EXTERNAL_SERVICE", "%d tool results show network/service errors" % net
+    if (u.get("context") or 0) >= 0.8 * max(hard_t, 200000):
+        return "CONTEXT_PATHOLOGY", "context in use reached %s (cache read %s)" % (fmt_k(u.get("context")), fmt_k(u.get("cache_read")))
+    if not token_breach and (toks or 0) < 0.4 * hard_t:
+        tests = sum(1 for n, i, _ in calls if n.lower() == "bash" and TEST_CMD.search(i))
+        if calls and tests * 2 >= sum(1 for n, _, _ in calls if n.lower() == "bash") and tests:
+            return "TEST_SUITE_SLOW", "time limit hit at %s tokens; %d of the shell calls were test runs" % (fmt_k(toks), tests)
+        return "ENVIRONMENT_SLOW", "time limit hit at only %s of %s tokens: wall clock went to tools, not the model" % (fmt_k(toks), fmt_k(hard_t))
+    if token_breach or calls:
+        return "TASK_TOO_LARGE", "%s tokens, %.1f min, %d tool calls, no loop or slow-tool signal" % (fmt_k(toks), mins, len(calls))
+    return "UNKNOWN", "no signal matched"
+
+
 def harness_report(st, left, cls):
     """At the hard limit the HARNESS writes the attempt's output.md block (never the model):
     the gate-valid `## <task> · attempt N · <role> · <ts>` shape with status: re-plan."""
@@ -308,14 +378,17 @@ def harness_report(st, left, cls):
     wt = st.get("worktree") or ""
     diff = sh("git", "-C", wt, "diff", "--stat", "HEAD") if wt and os.path.isdir(wt) else ""
     diff = diff.splitlines()[-1].strip() if diff else "no changes"
+    breach, why = st.get("breach_class") or classify(st)
     ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     block = ("\n## %s · attempt %s · %s · %s\nstatus: re-plan\n\n### Summary\n"
              "Stopped by the time-box hook at the hard %s limit (%s). Written by the harness; "
              "the worker was not asked to report.\n\n### Result\n| Check | Status | Detail |\n|---|---|---|\n"
-             "| budget | HARD (%s) | %s |\n| worktree diff | discarded | %s |\n\n### Next\n"
-             "re-plan: classify the overrun and split or reframe this task. Transcript: %s\n") % (
+             "| budget | HARD (%s) | %s |\n| worktree diff | discarded | %s |\n"
+             "| breach class | %s | %s |\n\n### Next\n"
+             "re-plan: confirm or override the breach class, then act on it (SKILL.md \"Breach classes\"). "
+             "Transcript: %s\n") % (
         st.get("task") or "?", st.get("attempt") or "?", st["role"], ts, cls, left, cls, left, diff,
-        st.get("transcript") or "?")
+        breach, why.replace("|", "/"), st.get("transcript") or "?")
     out = os.path.join(st["story_dir"], "output.md")
     try:
         new = not os.path.isfile(out)
@@ -484,8 +557,10 @@ def hook(mode):
             return
         st["hard_logged"] = now
         cls = "token" if toks is not None and toks >= t_hard else "time"
+        st["breach_class"] = list(classify(st))
         log_event(cwd, "task.token_hard_limit" if cls == "token" else "task.time_hard_timeout", st,
-                  tokens=toks, elapsed_min=round(mins, 2))
+                  tokens=toks, elapsed_min=round(mins, 2), breach_class=st["breach_class"][0],
+                  breach_evidence=st["breach_class"][1])
         harness_report(st, left, cls)
 
     if st["hard"] and st.get("task_env_found"):
@@ -582,12 +657,12 @@ def watch(cwd, interval, grace):
                 save_state(p, s)
                 if now - s["hard"] >= grace:
                     kill.append(s)
-        line = "%s agent_id=%s task=%s role=%s attempt=%s tokens=%s/%s elapsed=%.1f/%dmin"
+        line = "%s agent_id=%s task=%s role=%s attempt=%s tokens=%s/%s elapsed=%.1f/%dmin class=%s"
         for tag, group in (("STOPPED", stopped), ("KILL", kill)):
             for s in group:
                 print(line % (tag, s["agent_id"], s.get("task") or "?", s["role"], s.get("attempt") or "?",
                               fmt_k(s.get("tokens")), fmt_k(s["budget"]["TOKENS_HARD"]), s.get("elapsed_min") or 0,
-                              s["budget"]["TIME_HARD_MIN"]))
+                              s["budget"]["TIME_HARD_MIN"], (s.get("breach_class") or classify(s))[0]))
         if stopped or kill:
             if kill:
                 print("-> KILL lines: the hook could not stop these — TaskStop each, then `budget mark-killed <agent_id>`.")
@@ -707,6 +782,14 @@ def main(argv):
         return mark_killed(cwd, opts.get("_") or [])
     if cmd == "replans":
         return replans(cwd, (opts.get("_") or [""])[0])
+    if cmd == "classify":
+        found = 0
+        for _, s in all_states(cwd):
+            if s["agent_id"] in (opts.get("_") or []) or s.get("task") in (opts.get("_") or []):
+                c, why = s.get("breach_class") or classify(s)
+                print("%s %s %s: %s — %s" % (s["agent_id"], s.get("task") or "?", s["role"], c, why))
+                found += 1
+        return 0 if found else 1
     print("budget: unknown command %r (see budget --help)" % cmd, file=sys.stderr)
     return 64
 

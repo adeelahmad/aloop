@@ -46,7 +46,14 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
 (ticked in plan-ready.md / merged) and which are OPEN (killed or not started).
 - NEVER touch a DONE task: its tasks.md section, its plan.md bullets, its ticked
   plan-ready.md boxes stay byte-identical.
-- For each OPEN task that was killed, SPLIT it into 2+ smaller tasks (new `## Tn`
+- Each killed task carries a **breach class** (its output.md block's `| breach class |`
+  row, with evidence). Confirm or override it from the transcript, write the class you act
+  on under the task as `breach: <CLASS> — <one-line reason>`, and act on THAT class
+  (SKILL.md "Breach classes"): only `TASK_TOO_LARGE` / `CONTEXT_PATHOLOGY` / `UNKNOWN`
+  default to a split; `AGENT_LOOPING` reframes, `PLAN_AMBIGUOUS` repairs the contract,
+  `BLOCKED_DEPENDENCY` reorders, the slow classes adjust commands or the `budget:` time
+  line, `EXTERNAL_SERVICE` isolates or mocks it.
+- For each OPEN task you split, SPLIT it into 2+ smaller tasks (new `## Tn`
   headings with fresh numbers, each with its own tests in plan.md and rubric in
   validate.md) so each fits the budget. Under each new heading write
   `split_from: T<old>` (the supervisor caps how often one lineage is split — at the cap

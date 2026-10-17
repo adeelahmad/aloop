@@ -502,6 +502,28 @@ again. Instead:
    `replan SN-NN complete Tn`.
 5. **Resume** the sprint: dispatch the new tasks (from RED) and continue the loop.
 
+### Breach classes (classify before you split)
+
+A hard stop is not always "too big". The hook writes a first, deterministic breach class
+with its evidence into the attempt's output.md block (`| breach class | … |`), the
+`task.*_hard_limit` event and `budget watch`'s line (`budget classify <task>` re-prints
+it). Pass it to the planner, which confirms or overrides it and then acts on it:
+
+| Class | Action |
+|---|---|
+| `TASK_TOO_LARGE` | Split into smaller, independently testable tasks (vertical slices) |
+| `AGENT_LOOPING` | Reframe the task and put the failed strategy in its `### Feedback` |
+| `PLAN_AMBIGUOUS` | Repair the contract (plan.md tests / validate.md rubric) |
+| `BLOCKED_DEPENDENCY` | Schedule the dependency first |
+| `ENVIRONMENT_SLOW` / `TEST_SUITE_SLOW` | Adjust the commands or the task's `budget:` time line; splitting may not help |
+| `EXTERNAL_SERVICE` | Isolate or mock the service in the task's contract |
+| `HOST_FAILURE` | Retry the infrastructure: re-dispatch the task unchanged (does not count as a split) |
+| `CONTEXT_PATHOLOGY` | Narrow the task's inputs (fewer files to read), or split |
+| `UNKNOWN` | Conservative split, or escalate |
+
+`PLAN_AMBIGUOUS` and `BLOCKED_DEPENDENCY` are never guessed by the hook: they need the
+planner's judgment. Every replacement task must still fit the normal budgets.
+
 ## Wave loop — step by step (the run trace)
 
 For wave K, for each task `T<k>`:

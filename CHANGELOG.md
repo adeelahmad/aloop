@@ -42,6 +42,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   archivist, structural-reviewer and final-gate are metered against per-role profiles
   (overridable with `AGENTIC_BUDGET_<ROLE>` in defaults.md). They are observe-only:
   crossings are recorded as events, and the agent is never told or stopped.
+- **Hard breaches are classified, not always split** (ROADMAP §3.4). The hook makes a
+  deterministic first call (`TASK_TOO_LARGE`, `AGENT_LOOPING`, `EXTERNAL_SERVICE`,
+  `TEST_SUITE_SLOW`, `ENVIRONMENT_SLOW`, `CONTEXT_PATHOLOGY`, `HOST_FAILURE`, `UNKNOWN`)
+  from usage classes, tool calls and results, with its evidence in the output.md block,
+  the event, `budget watch` and the new `budget classify`. The planner confirms or
+  overrides it (`breach:` line) and acts per class (SKILL.md "Breach classes").
 
 ## [0.10.1] - 2026-09-23
 
