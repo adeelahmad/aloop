@@ -32,6 +32,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   appends the gate-valid `status: re-plan` block to output.md itself (limits, worktree
   diff, transcript path) and records `task.token_hard_limit` / `task.time_hard_timeout`.
   A verdict reached before the worker's worktree is known still gets one call to find it.
+- **The token meter counts classes separately** (ROADMAP §3.2). The budget charge is now
+  fresh (uncached) input + output by default. Cache read and cache write are kept as
+  their own classes in each attempt's state (`usage`), and context size is the latest
+  call's, never cumulative cache traffic. `TOKEN_METER=context` in defaults.md (or
+  `BUDGET_TOKEN_METER=context` in a task.env) keeps the previous context + output charge;
+  `budget resolve` / `status` show the meter in force.
 
 ## [0.10.1] - 2026-09-23
 

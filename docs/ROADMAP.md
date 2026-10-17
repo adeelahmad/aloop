@@ -49,7 +49,7 @@ These parts already exist but their semantics must change:
    - feed the event to the *next* planning cycle.
 
    Graceful wrap-up stays for the *time* soft limit only.
-2. **The token meter counts classes separately.** Today it measures context in use plus output. Change the default task-length charge to *fresh input + output*, and keep cache read and cache write visible for cost and churn. Never confuse cumulative cache traffic with context size.
+2. **The token meter counts classes separately.** ✅ *Done (Unreleased): `TOKEN_METER=fresh` default, classes in attempt state. Test: `scripts/test/budget-meter.test.py`.* Previously it measured context in use plus output. Change the default task-length charge to *fresh input + output*, and keep cache read and cache write visible for cost and churn. Never confuse cumulative cache traffic with context size.
 3. **Budgets cover every model role.** Today only `red-worker`, `scaffolder` and `green-worker` are metered. Extend the meter to planners, reviewers and `final-gate`, with a limit profile per role.
 4. **Hard breaches are classified, not always split.** The planner must first classify the breach, then act:
 

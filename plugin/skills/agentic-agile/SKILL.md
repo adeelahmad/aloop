@@ -411,8 +411,10 @@ with a soft and a hard limit. Defaults — **150k / 250k tokens,
 20 / 30 min** (a real RED/GREEN attempt that reads the style guide and runs the
 fmt/vet/lint/build/test matrix uses 60–190k) — and the project's confirmed values live in `docs/agents/defaults.md`; a single task
 may carry a planner-authored `budget:` override line in tasks.md (or `BUDGET_*` lines in
-its worktree's `task.env`). Tokens = the worker's current context + all its output
-tokens; time = wall clock since its first tool call. The hook finds the worker's
+its worktree's `task.env`). Tokens = the charge under `TOKEN_METER`: by default every
+fresh (uncached) input token + every output token; `context` (the pre-0.11 meter, on which
+the 60–190k figure above was measured) charges the context in use + all output instead.
+Cache read / cache write are recorded as separate classes for cost and churn; time = wall clock since its first tool call. The hook finds the worker's
 worktree from the paths its tool calls name (`git -C <wt>`, `cd <wt>`, absolute paths),
 not only from the call's cwd; `agentic budget status` shows, per attempt, where its
 budget came from and how its worktree was found.

@@ -4,7 +4,7 @@
 Every worker attempt (red-worker / scaffolder / green-worker) runs under two budgets,
 each with a SOFT and a HARD limit:
 
-    tokens   soft 150k  hard 250k    (context in use + all output tokens, see below)
+    tokens   soft 150k  hard 250k    (fresh input + output tokens, see below)
     time     soft 20m   hard 30m     (wall clock since the attempt's first tool call)
 
   SOFT time     -> the worker is told, inside its own tool results (PostToolUse
@@ -33,8 +33,11 @@ Usage:
   budget status                             table of tracked attempts
   budget replans TASK_ID                    how many times TASK_ID was split (cap check)
 
-Tokens = the latest assistant turn's context (input + cache read + cache creation)
-plus every output token so far, read from the sub-agent's own transcript.
+Tokens = the charge under TOKEN_METER (defaults.md, or BUDGET_TOKEN_METER in task.env):
+  fresh   (default) every uncached input token + every output token so far
+  context the latest call's context in use + every output token (the pre-0.11 meter)
+read from the sub-agent's own transcript. Cache read / cache write are kept as their own
+classes in the attempt state (cost and churn), never folded into context size.
 
 Hook mode NEVER fails the tool call on an internal error (exit 0, no output).
 """
@@ -112,6 +115,8 @@ def task_override(tasks_file, task):
 
 def resolve(cwd, tasks_file=None, task=None, task_env=None, with_source=False):
     b = conf_values(cwd)
+    meter = (task_env or {}).get("BUDGET_TOKEN_METER") or _paths.settings(cwd).get("TOKEN_METER") or "fresh"
+    b["TOKEN_METER"] = meter if meter in ("fresh", "context") else "fresh"
     src = "docs/agents/defaults.md" if os.path.isfile(_paths.defaults_file(cwd)) else "built-in defaults"
     for k in BUDGET_KEYS:
         v = (task_env or {}).get("BUDGET_" + k)
@@ -133,9 +138,10 @@ def transcript_for(payload, agent_id):
     return _usage.agent_transcript(payload, agent_id)
 
 
-def tokens_used(path):
-    """latest context size + cumulative output tokens (any host; see _usage)."""
-    return _usage.context_plus_output(path)
+def tokens_used(path, meter="fresh"):
+    """(charge, classes) for one agent log, any host (see _usage.classes / charge)."""
+    c = _usage.classes(path)
+    return _usage.charge(c, meter), c
 
 
 def bound_worktree(cwd, agent_id):
@@ -370,9 +376,9 @@ def hook(mode):
     tp = transcript_for(payload, agent_id)
     if tp:
         st["transcript"] = tp
-    toks = tokens_used(st.get("transcript") or tp)
+    toks, cls = tokens_used(st.get("transcript") or tp, b.get("TOKEN_METER", "fresh"))
     if toks is not None:
-        st["tokens"] = toks
+        st["tokens"], st["usage"] = toks, cls
     toks = st.get("tokens")
     mins = (now - st["start"]) / 60.0
     st["elapsed_min"] = round(mins, 2)
@@ -477,9 +483,9 @@ def refresh(st):
     True when the attempt is at/over a HARD limit."""
     now = time.time()
     st["elapsed_min"] = round((now - st["start"]) / 60.0, 2)
-    t = tokens_used(st.get("transcript"))
+    t, cls = tokens_used(st.get("transcript"), st["budget"].get("TOKEN_METER", "fresh"))
     if t is not None:
-        st["tokens"] = t
+        st["tokens"], st["usage"] = t, cls
     b = st["budget"]
     return bool(st.get("hard")) or st["elapsed_min"] >= b["TIME_HARD_MIN"] or (st.get("tokens") or 0) >= b["TOKENS_HARD"]
 
@@ -547,7 +553,7 @@ def status(cwd):
         state = "killed" if s.get("killed") else "done" if s.get("done") else ("HARD" if s.get("hard") else ("soft" if s.get("soft_warned") else ("soft-tok" if s.get("token_soft_limit") else "ok")))
         print("%-22s %-13s %-14s %-4s %-16s %-14s %-7s %s" % (
             s["agent_id"][:22], s["role"], (s.get("task") or "?")[:14], s.get("attempt") or "?",
-            "%s/%s" % (fmt_k(s.get("tokens")), fmt_k(b["TOKENS_HARD"])),
+            "%s/%s %s" % (fmt_k(s.get("tokens")), fmt_k(b["TOKENS_HARD"]), b.get("TOKEN_METER", "context")[0]),
             "%.1f/%d" % (s["elapsed_min"], b["TIME_HARD_MIN"]), state,
             "%s (%s)" % (s.get("budget_source") or "?", s.get("found_by") or "not found")))
     return 0
@@ -619,6 +625,7 @@ def main(argv):
         b, src = resolve(cwd, opts.get("tasks"), opts.get("task"), env, with_source=True)
         for k in ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN"):
             print("BUDGET_%s=%d" % (k, b[k]))
+        print("BUDGET_TOKEN_METER=%s" % b["TOKEN_METER"])
         print("# from: %s" % src)
         return 0
     if cmd == "watch":

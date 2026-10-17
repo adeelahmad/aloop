@@ -13,6 +13,8 @@ DEFAULTS = {
     "TIME_SOFT_MIN": 20,
     "TIME_HARD_MIN": 30,
     "MAX_REPLANS": 2,
+    # budget token charge: fresh (uncached input + output) | context (context in use + output)
+    "TOKEN_METER": "fresh",
     "MODEL_PLANNING": "claude-opus-5-5",
     "MODEL_WORKER": "sonnet",
     "GITIGNORE": "yes",

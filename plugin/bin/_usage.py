@@ -89,6 +89,27 @@ def rows(path):
     return sorted(claude.values(), key=lambda r: r["ts"]) + codex
 
 
+def classes(path):
+    """Token CLASSES for one agent log, kept apart (ROADMAP §3.2): cumulative fresh (uncached)
+    input, cache read, cache write and output, plus the context in use on the latest call.
+    Cache traffic is cumulative churn/cost, never context size. None when the log is empty."""
+    rs = rows(path)
+    if not rs:
+        return None
+    last = rs[-1]
+    return {"in": sum(r["in"] for r in rs), "cache_read": sum(r["cache_read"] for r in rs),
+            "cache_write": sum(r["cache_write"] for r in rs), "out": sum(r["out"] for r in rs),
+            "context": last.get("_ctx") or (last["in"] + last["cache_read"] + last["cache_write"])}
+
+
+def charge(c, meter="fresh"):
+    """The budget charge from classes(): fresh input + output (default), or the legacy
+    `context` meter (context in use + all output)."""
+    if c is None:
+        return None
+    return c["context"] + c["out"] if meter == "context" else c["in"] + c["out"]
+
+
 def context_plus_output(path):
     """Budget metric: context in use on the latest call + every output token so far."""
     rs = rows(path)
