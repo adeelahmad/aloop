@@ -20,6 +20,15 @@ bundled `ctx-symbols` crate together under one SemVer line:
 Keep `plugin.json` `version`, the `ctx-symbols` `Cargo.toml` `version`, and the git
 tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
+## [Unreleased]
+
+### Added
+- **Conformance fixtures (ROADMAP §6, M1 slice 1).** `make conformance` runs the real RED
+  and GREEN gates on a fixture crate in linked worktrees: 16 checks over §6.3–6.9 (RED that
+  passes or edits `src/` is rejected, suppressions and out-of-scope diffs are blocked,
+  shared-tree workers are blocked, an accepted GREEN merges, a hard breach is released as
+  "not a pass"). Items not covered yet are printed with the reason. Runs in CI's rust job.
+
 ## [0.11.0] - 2026-10-17
 
 ### Changed

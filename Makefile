@@ -85,6 +85,10 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/rename-compat.test.py
 	@command -v node >/dev/null && node scripts/test/opencode-plugin.test.mjs || { echo "node not found — skipped OpenCode test (CI runs it)"; }
 
+.PHONY: conformance
+conformance: ## ROADMAP §6 conformance fixtures on today's gates (needs cargo; no network, no tokens)
+	python3 scripts/conformance/claude-code.test.py
+
 .PHONY: json
 json: ## Validate plugin.json + marketplace.json
 	@python3 -c "import json;json.load(open('plugin/.claude-plugin/plugin.json'));json.load(open('.claude-plugin/marketplace.json'));print('JSON ok')"
@@ -103,7 +107,7 @@ validate: json ## claude plugin validate --strict
 	claude plugin validate ./plugin --strict
 
 .PHONY: ci
-ci: fmt-check lint test eval-validate test-hosts ## Run everything CI runs (except the live claude install)
+ci: fmt-check lint test eval-validate test-hosts conformance ## Run everything CI runs (except the live claude install)
 
 # ── Evals ──────────────────────────────────────────────────────────
 .PHONY: eval-validate
