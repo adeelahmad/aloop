@@ -132,7 +132,10 @@ lock_recent() {
   [ -f "$lock" ] || return 1
   local now m
   now="$(date +%s 2>/dev/null)" || return 1
-  m="$(stat -f %m "$lock" 2>/dev/null || stat -c %Y "$lock" 2>/dev/null)" || return 1
+  # GNU first: on Linux `stat -f` means "filesystem status" and prints a report instead of
+  # failing, which used to crash this arm (and a crashed hook does not block).
+  m="$(stat -c %Y "$lock" 2>/dev/null)" || m="$(stat -f %m "$lock" 2>/dev/null)" || return 1
+  case "$m" in ''|*[!0-9]*) return 1 ;; esac
   [ $(( now - m )) -lt "${AGENTIC_SPRINT_LOCK_TTL:-14400}" ]
 }
 if [ -f "$lock" ] && { [ "$(head -1 "$lock" 2>/dev/null)" = "$session" ] || lock_recent; }; then

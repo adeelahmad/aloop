@@ -83,11 +83,17 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/budget-worktree.test.py
 	python3 scripts/test/codex-hooks.test.py
 	python3 scripts/test/rename-compat.test.py
+	python3 scripts/test/supervisor-scope.test.py
 	@command -v node >/dev/null && node scripts/test/opencode-plugin.test.mjs || { echo "node not found — skipped OpenCode test (CI runs it)"; }
 
 .PHONY: conformance
 conformance: ## ROADMAP §6 conformance fixtures on today's gates (needs cargo; no network, no tokens)
 	python3 scripts/conformance/claude-code.test.py
+
+.PHONY: smoke-live
+smoke-live: ## Live Claude Code session: hooks fire, supervisor write blocked, transcripts + ledger (YES=1; spends ~$0.005)
+	@test -n "$(YES)" || { echo "spends tokens: make smoke-live YES=1"; exit 2; }
+	scripts/smoke/live-claude.sh --yes
 
 .PHONY: json
 json: ## Validate plugin.json + marketplace.json

@@ -30,7 +30,16 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   "not a pass"). Items not covered yet are printed with the reason. Runs in CI's rust job.
   §6.2 adds 4 schema checks through the real md-db (20 checks in all).
 
+- **Live smoke test (M0).** `make smoke-live YES=1` runs one short real Claude Code
+  session with the plugin and checks the handoff injection, the supervisor-scope block,
+  transcripts and the token ledger (~$0.004 on haiku). Not run in CI (needs tokens).
+
 ### Fixed
+- **The supervisor could write source mid-sprint on Linux.** `gate-supervisor-scope`'s
+  "recently refreshed lock" arm called `stat -f %m` first; on Linux that prints a
+  filesystem report instead of failing, the arithmetic crashed under `set -u`, and a
+  crashed hook does not block. GNU `stat -c %Y` now goes first and the value is checked.
+  Found by the live smoke test; `scripts/test/supervisor-scope.test.py` covers it.
 - **Valid planner artifacts were blocked by the schema gate.** `gate-validate-artifact`,
   `gate-intake` and `gate-memory` ran md-db on the written file's whole directory, and
   `gate-stage2-complete` on the whole sprint tree. Those directories also hold the
