@@ -92,4 +92,23 @@ for want in ("commit   %s feat: csv writer" % sha[:12], "task     S1-01-T1", "ga
 assert sh(os.path.join(BIN, "events"), "trace", "deadbeef", check=False).returncode == 1
 ok("events trace walks commit → task → gates → plan → intent → approver with no transcript")
 
+# commit message from the task title + recorded decisions + the intent (no model prose)
+sh(os.path.join(BIN, "events"), "decide", "implementation", "--task", "S1-01-T1",
+   "--reason", "stdlib csv keeps the no-new-deps constraint", "--evidence", "intake.md#constraints")
+msg = sh(os.path.join(BIN, "events"), "commit-msg", "S1-01-T1").stdout
+assert msg.splitlines()[0] == "S1-01-T1: writer", msg
+assert "- implementation: stdlib csv keeps the no-new-deps constraint" in msg and "Intent: %s" % doc["intent_id"] in msg, msg
+assert sh(os.path.join(BIN, "events"), "commit-msg", "S1-01-T9", check=False).returncode == 1
+ok("events commit-msg builds the message from the task title, decisions and intent")
+
+# graph export: rebuildable from the stream; commit → event → task edges, intent nodes
+g = json.loads(sh(os.path.join(BIN, "events"), "graph").stdout)
+ids = {n["id"] for n in g["nodes"]}
+assert "commit:" + sha in ids and "task:S1-01-T1" in ids and "intent:" + doc["intent_id"] in ids, ids
+assert {"from": "commit:" + sha, "to": cc[0]["event_id"], "rel": "recorded_by"} in g["edges"]
+assert {"from": cc[0]["event_id"], "to": merged["event_id"], "rel": "parent"} in g["edges"]
+assert {"from": plan[0]["event_id"], "to": intent_ev["event_id"], "rel": "caused_by"} in g["edges"]
+assert sh(os.path.join(BIN, "events"), "graph", "--format", "dot").stdout.startswith("digraph aladdin {")
+ok("events graph exports nodes and edges (json/dot) derived only from the stream")
+
 print("\n%d checks passed" % PASS[0])

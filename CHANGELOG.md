@@ -93,7 +93,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   `plan.created` / `plan.revised`, caused by the intent; `events authority` emits
   `plan.approved` for the latest plan; `task-worktree remove` emits `commit.created` per
   merged commit. `events trace SHA` walks commit → task → gates → plan → intent → approver
-  from the event stream alone.
+  from the event stream alone. `events commit-msg TASK` builds the commit message from the
+  task title, recorded decisions and ids; `events graph` exports the stream as a
+  rebuildable graph (JSON or DOT).
 - **Semantic change targets, first slice** (ROADMAP §4.6). The planner may write
   `<story>/targets.json` (`change_ref / operation / path / symbol | planned_symbol / reason /
   evidence_refs / constraints`). `bin/targets check` proves each target against tasks.md and

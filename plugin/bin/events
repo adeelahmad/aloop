@@ -11,6 +11,10 @@ Usage:
                                        limits/decisions → worktree outcome (no transcripts)
   events trace SHA                     commit → task → gates/decisions → plan → intent →
                                        approver, from the stream alone (exit 1: unknown commit)
+  events commit-msg TASK_ID           a commit message built from the task's title (tasks.md),
+                                       its recorded decisions and the intent, never model prose
+  events graph [--format json|dot]     the stream as a graph (events, tasks, commits, intents;
+                                       parent / caused_by / about edges); rebuildable, downstream
   events authority --initiated-by WHO --mode reviewed|autonomous --scope "..."
                    [--policy P] [--override key=value ...]
                                        the run's authority record (human.approval);
@@ -20,12 +24,15 @@ Usage:
                                        implementation|replan|acceptance)
 Emitting never fails a hook: an unknown event type is the only error (exit 64).
 """
+import glob
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import _events  # noqa: E402
+import _paths  # noqa: E402
 
 
 def parse(argv):
@@ -96,6 +103,74 @@ def trace(cwd, sha):
     return 0
 
 
+def task_title(cwd, task):
+    m = re.match(r"^S(\d+)-(\d+)-T(\d+)$", task or "")
+    if not m:
+        return ""
+    for tf in glob.glob(os.path.join(_paths.docs(cwd), "sprint%s" % m.group(1), "s%s-%s-*" % (m.group(1), m.group(2)), "tasks.md")):
+        h = re.search(r"(?m)^##\s+T%s\b\s*[—:-]*\s*(.*)$" % m.group(3), open(tf).read())
+        if h:
+            return h.group(1).strip()
+    return ""
+
+
+def commit_msg(cwd, task):
+    """Subject from the planner's task title; body from recorded decisions; trailers link
+    the task id, its canonical id and the intent. Built from the stream, never model prose."""
+    title = task_title(cwd, task)
+    if not title:
+        print("events commit-msg: no ## heading for %s in tasks.md" % task, file=sys.stderr)
+        return 1
+    evs = list(_events.read(cwd))
+    mine = [e for e in evs if (e.get("ids") or {}).get("task") == task]
+    body = ["- %s: %s" % (e["decision"]["kind"], e["decision"]["reason"]) for e in mine if e.get("decision")]
+    uid = next(((e.get("ids") or {}).get("task_uid") for e in reversed(mine) if (e.get("ids") or {}).get("task_uid")), "")
+    sp = (_events.ids_for(task) or {}).get("sprint")
+    plan = [e for e in evs if e.get("event") in ("plan.created", "plan.revised") and (e.get("data") or {}).get("sprint") == sp]
+    intent = (plan[-1].get("data") or {}).get("intent_id") if plan else ""
+    out = ["%s: %s" % (task, title)]
+    if body:
+        out += [""] + body
+    out += ["", "Task: %s%s" % (task, " (%s)" % uid if uid else "")]
+    if intent:
+        out.append("Intent: %s" % intent)
+    print("\n".join(out))
+    return 0
+
+
+def graph(cwd, fmt_):
+    nodes, edges = {}, []
+    for e in _events.read(cwd):
+        eid = e.get("event_id")
+        if not eid:
+            continue
+        nodes[eid] = {"id": eid, "type": "event", "event": e.get("event"), "ts": e.get("ts")}
+        for rel in ("parent_event_id", "caused_by"):
+            if e.get(rel):
+                edges.append({"from": eid, "to": e[rel], "rel": "parent" if rel == "parent_event_id" else "caused_by"})
+        task = (e.get("ids") or {}).get("task")
+        if task:
+            nodes.setdefault("task:" + task, {"id": "task:" + task, "type": "task"})
+            edges.append({"from": eid, "to": "task:" + task, "rel": "about"})
+        d = e.get("data") or {}
+        if e.get("event") == "commit.created" and d.get("sha"):
+            nodes.setdefault("commit:" + d["sha"], {"id": "commit:" + d["sha"], "type": "commit"})
+            edges.append({"from": "commit:" + d["sha"], "to": eid, "rel": "recorded_by"})
+        if d.get("intent_id"):
+            nodes.setdefault("intent:" + d["intent_id"], {"id": "intent:" + d["intent_id"], "type": "intent"})
+            edges.append({"from": eid, "to": "intent:" + d["intent_id"], "rel": "about"})
+    if fmt_ == "dot":
+        print("digraph aladdin {")
+        for n in nodes.values():
+            print('  "%s" [label="%s"];' % (n["id"], n.get("event") or n["id"]))
+        for ed in edges:
+            print('  "%s" -> "%s" [label="%s"];' % (ed["from"], ed["to"], ed["rel"]))
+        print("}")
+    else:
+        print(json.dumps({"schema": "aladdin.graph/1", "nodes": list(nodes.values()), "edges": edges}))
+    return 0
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip())
@@ -143,6 +218,10 @@ def main(argv):
                 continue
             print(line(ev))
         return 0
+    if cmd == "commit-msg":
+        return commit_msg(cwd, pos[0] if pos else "")
+    if cmd == "graph":
+        return graph(cwd, opts.get("format", "json"))
     if cmd == "trace":
         return trace(cwd, pos[0] if pos else "")
     if cmd == "lineage":

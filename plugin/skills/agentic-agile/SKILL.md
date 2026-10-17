@@ -61,7 +61,9 @@ The layout is FIXED by `bin/_paths.sh` — never invent another directory name:
 | `docs/agents/sprintN/` | sprint artifacts + `stats.md` | ignored unless tracked |
 
 Commits are authored by the configured human author only; `gate-commit-author` blocks a
-commit with another author or (unless allowed) a Claude co-author / attribution trailer. This
+commit with another author or (unless allowed) a Claude co-author / attribution trailer.
+Build each task's commit message with `events commit-msg <task>` (task title, recorded
+decisions, task and intent ids), not free prose. This
 skill's `model: sonnet` covers the turn it loads in; for a long autonomous run the human
 starts the session on Sonnet (`/model sonnet` or `claude --model sonnet`).
 
