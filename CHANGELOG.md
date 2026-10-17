@@ -34,6 +34,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   session with the plugin and checks the handoff injection, the supervisor-scope block,
   transcripts and the token ledger (~$0.004 on haiku). Not run in CI (needs tokens).
 
+- **Gates fail closed (M0.6).** A gate that crashes (exit other than 0 or 2) now blocks
+  with "the gate itself failed … failing closed" instead of being a non-blocking hook error
+  that lets the action through. Covers every sub-agent gate, and `gate-supervisor-scope`
+  once the repo has a sprint lock. `scripts/test/fail-closed.test.py`.
+
 ### Security
 - **A worker could pass its own gate by editing `task.env`.** The gate library *sourced*
   `.agentic/task.env`, which sits in the worker's worktree: appending `exit 0` passed a

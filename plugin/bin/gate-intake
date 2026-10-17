@@ -6,6 +6,8 @@
 set -uo pipefail
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; export PATH="$BIN_DIR:$PATH"  # md-db shim -> real binary
 GATE_NAME="gate-intake"
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"   # a crash blocks, never allows
 
 f="${1:-${INTAKE_FILE:-}}"
 if [ -z "$f" ]; then

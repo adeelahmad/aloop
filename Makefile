@@ -65,7 +65,7 @@ clippy: ## Clippy with warnings-as-errors
 .PHONY: shellcheck
 shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent)
 	@command -v shellcheck >/dev/null \
-	  && shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
+	  && shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh plugin/bin/_failclosed.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
 	       plugin/bin/selfcheck plugin/bin/transcripts plugin/bin/worktree-create plugin/bin/worktree-remove \
 	       plugin/bin/worktree-hygiene plugin/bin/ensure-tools plugin/bin/md-db plugin/bin/ctx-symbols \
 	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/aloop plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree \
@@ -84,6 +84,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/codex-hooks.test.py
 	python3 scripts/test/rename-compat.test.py
 	python3 scripts/test/supervisor-scope.test.py
+	python3 scripts/test/fail-closed.test.py
 	@command -v node >/dev/null && node scripts/test/opencode-plugin.test.mjs || { echo "node not found — skipped OpenCode test (CI runs it)"; }
 
 .PHONY: conformance

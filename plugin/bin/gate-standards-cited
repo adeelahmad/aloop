@@ -5,6 +5,8 @@
 # as a block; this gate emits exit 2 only for an actual dangling citation.)
 set -uo pipefail
 GATE_NAME="gate-standards-cited"
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"   # a crash blocks, never allows
 
 # Resolve standards.md: $1, $STANDARDS_FILE, or auto-discover under the repo.
 sf="${1:-${STANDARDS_FILE:-}}"

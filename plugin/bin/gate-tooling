@@ -13,6 +13,8 @@
 # Exit: 0 = both backends present (full enforcement) · 2 = block.
 set -uo pipefail
 GATE_NAME=tooling
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"   # a crash blocks, never allows
 
 [ "${SKIP_HOOKS:-}" = "1" ] && exit 0
 

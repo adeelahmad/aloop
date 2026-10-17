@@ -128,6 +128,13 @@ fi
 # a RESUMED sprint session that reads existing plans and acts before it re-arms (e.g.
 # hand-fixing code after a structural-review finding). A lock with no recent activity is
 # inert, so an old/abandoned sprint never blocks unrelated future work.
+# This repo has a sprint lock, so the event is ours to judge: from here a crash blocks.
+# (Before this point the gate also sees every unrelated session on the machine; it stays
+# fail-open there so a gate bug can never stall work outside a sprint.)
+if [ -f "$lock" ]; then
+  # shellcheck source=/dev/null
+  . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"
+fi
 lock_recent() {
   [ -f "$lock" ] || return 1
   local now m

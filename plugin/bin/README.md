@@ -6,7 +6,7 @@ never calls them directly. Shared helpers live in `_gatelib.sh`.
 ## Exit-code convention (gates)
 - `0`  PASS (allow the event)
 - `2`  BLOCK the event + write the reason to stderr (fed back to the supervisor)
-- other non-zero  error
+- any other exit is a gate bug and is turned into `2` (BLOCK, "failing closed") by `_failclosed.sh`, which every sub-agent gate loads; `gate-supervisor-scope` arms it only once the repo has a sprint lock, because it sees every session on the machine
 Transcripts hooks (`transcripts`) ALWAYS exit `0` — they must never block an agent.
 
 ## Per-task contract
