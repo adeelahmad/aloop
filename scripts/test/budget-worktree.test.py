@@ -116,10 +116,12 @@ call("c7", "Bash", {"command": "cargo test"}, tokens=5000, cwd=cc)
 s7 = state("c7")
 assert s7["task"] == "S1-01-T7" and s7["budget"]["TOKENS_HARD"] == 410000 and "contract" in s7["budget_source"], s7
 ok("Claude Code worktree without task.env: budget from the supervisor's contract")
+copy = os.path.join(cc, ".agentic", "task.env")
+assert os.path.isfile(copy) and open(copy).read() == open(os.path.join(tasks, "S1-01-T7.env")).read(), "no contract copy in the worktree"
+ok("the first tool call copies the contract into the worktree, so the worker's selfcheck finds it")
 
 # 8) a worker that raises BUDGET_* in its worktree copy does not get the bigger budget
-open(os.path.join(cc, ".agentic", "task.env") if os.path.isdir(os.path.join(cc, ".agentic")) else
-     (os.makedirs(os.path.join(cc, ".agentic")) or os.path.join(cc, ".agentic", "task.env")), "w").write(
+open(copy, "w").write(
     "TASK_ID=S1-01-T7\nAGENT_ROLE=green-worker\nBUDGET_TOKENS_HARD=9999999\n")
 os.remove(os.path.join(T, ".agentic", "budget", "c7.json"))
 call("c7", "Bash", {"command": "cargo test"}, tokens=5001, cwd=cc)

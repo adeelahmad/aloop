@@ -89,6 +89,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   worker that cannot edit the contract, so it retried until it gave up. Lists now accept
   commas, and the host's role wins over the contract's with a WARN (a contradicting
   worktree copy still blocks).
+- **A worker's `selfcheck` could not find its task on Claude Code** (`STORY_DIR unset`, once
+  per role in e2e run 2): the worktree is made at dispatch and has no `task.env`. The time
+  box's first tool-call hook now copies the supervisor's contract into the worktree (the
+  dispatch prompt's `TASK_ID` picks it); the gates still compare the copy to the contract.
 - **The supervisor could write source mid-sprint on Linux.** `gate-supervisor-scope`'s
   "recently refreshed lock" arm called `stat -f %m` first; on Linux that prints a
   filesystem report instead of failing, the arithmetic crashed under `set -u`, and a
