@@ -8,7 +8,10 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-[ -f "$top/.agentic/task.env" ] && { set -a; . "$top/.agentic/task.env"; set +a; }
+# AGENT_ROLE from task.env: parsed, never sourced (the worker can edit that file).
+if [ -z "${AGENT_ROLE:-}" ] && [ -f "$top/.agentic/task.env" ]; then
+  AGENT_ROLE="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?AGENT_ROLE=['\"]?([A-Za-z-]*)['\"]?[[:space:]]*$/\2/p" "$top/.agentic/task.env" | tail -1)"
+fi
 
 case "${1:-}" in
   -h|--help|help)

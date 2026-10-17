@@ -28,11 +28,19 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   passes or edits `src/` is rejected, suppressions and out-of-scope diffs are blocked,
   shared-tree workers are blocked, an accepted GREEN merges, a hard breach is released as
   "not a pass"). Items not covered yet are printed with the reason. Runs in CI's rust job.
-  §6.2 adds 4 schema checks through the real md-db (20 checks in all).
+  §6.2 adds 4 schema checks through the real md-db; task.env tampering adds 4 more (24 in all).
 
 - **Live smoke test (M0).** `make smoke-live YES=1` runs one short real Claude Code
   session with the plugin and checks the handoff injection, the supervisor-scope block,
   transcripts and the token ledger (~$0.004 on haiku). Not run in CI (needs tokens).
+
+### Security
+- **A worker could pass its own gate by editing `task.env`.** The gate library *sourced*
+  `.agentic/task.env`, which sits in the worker's worktree: appending `exit 0` passed a
+  failing GREEN, and `GATE_RUN_MATRIX=0` or `SKIP_HOOKS=1` switched checks off. The file
+  is now parsed as data and only the contract keys are read (`selfcheck` too). Four new
+  conformance cases cover it; they failed before the fix. Remaining exposure (a worker
+  rewriting its contract keys) is ROADMAP M0.7.
 
 ### Fixed
 - **The supervisor could write source mid-sprint on Linux.** `gate-supervisor-scope`'s

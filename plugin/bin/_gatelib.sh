@@ -74,12 +74,27 @@ _gate_enter_bound_worktree
 
 # Per-worktree task contract the supervisor writes at dispatch (.agentic/task.env):
 # TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS, BASE_REF, STORY_DIR,
-# AGENTIC_TRANSCRIPTS_DIR. Real env still overrides (load is non-clobbering only for unset).
+# AGENTIC_TRANSCRIPTS_DIR. Real env still overrides (only unset keys are loaded).
+#
+# PARSED, NEVER SOURCED. The file sits in the worker's own worktree, so the worker can
+# edit it: sourcing it let `exit 0` pass the gate, and GATE_RUN_MATRIX=0 / SKIP_HOOKS=1
+# switch checks off. Only the contract keys above are read, as plain KEY=VALUE data
+# (one layer of quotes stripped, no expansion); every other line is ignored.
+TASK_ENV_KEYS="TASK_ID ATTEMPT AGENT_ROLE SCOPE_GLOBS SCAFFOLD_SYMBOLS BASE_REF STORY_DIR AGENTIC_TRANSCRIPTS_DIR"
 load_task_env() {
-  local te; te="$(repo_dir)/.agentic/task.env"
+  local te line k v
+  te="$(repo_dir)/.agentic/task.env"
   [ -f "$te" ] || return 0
-  # shellcheck source=/dev/null
-  set -a; . "$te"; set +a
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line#export }"
+    case "$line" in ''|'#'*) continue ;; *=*) ;; *) continue ;; esac
+    k="${line%%=*}"; v="${line#*=}"
+    case " $TASK_ENV_KEYS " in *" $k "*) ;; *) continue ;; esac
+    case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
+    [ -n "${!k+x}" ] && continue
+    export "$k=$v"
+  done < "$te"
 }
 load_task_env
 

@@ -737,9 +737,10 @@ At dispatch, write `.agentic/task.env` into the worktree with `TASK_ID`, `ATTEMP
 `AGENT_ROLE`, `STORY_DIR` (absolute path to the story dir — where `validate_comms` reads
 init.md/output.md), `SCOPE_GLOBS` (GREEN diff-scope), `SCAFFOLD_SYMBOLS` (or write
 `.agentic/scaffold-symbols`), `BASE_REF` (diff base), and the
-four `BUDGET_*` lines printed by `budget resolve --tasks <STORY_DIR>/tasks.md --task Tn`. The gate
-library sources it, so the gates check the RIGHT task's scope/symbols/comms — not
-auto-discovered guesses.
+four `BUDGET_*` lines printed by `budget resolve --tasks <STORY_DIR>/tasks.md --task Tn`. Write
+plain `KEY=value` lines (quotes allowed, no `$VAR` expansion, no commands): the gate library
+PARSES the contract keys and ignores everything else, so the gates check the RIGHT task's
+scope/symbols/comms — not auto-discovered guesses — and nothing a worker adds to the file runs.
 
 ## Reference
 

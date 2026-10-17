@@ -171,11 +171,30 @@ case(6, "a worker that leaves no output.md report is blocked", "gate-green-verif
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
 case(6, "a stale report from another role is blocked", "gate-green-verify", wt, 2, "not from 'green-worker'")
 
+# §6.6 (cont.) The worker owns its worktree, including .agentic/task.env. Editing the
+# contract must not turn a failing attempt into a pass.
+def tamper(lines):
+    wt = green(lib=LIB + "\npub fn sub(a: i32, b: i32) -> i32 {\n    a + b\n}\n")   # tests still fail
+    with open(os.path.join(wt, ".agentic", "task.env"), "a") as f:
+        f.write("".join(l + "\n" for l in lines))
+    return wt
+
+
+wt = tamper(["exit 0"])
+case(6, "a worker that appends `exit 0` to its task.env is still blocked", "gate-green-verify", wt, 2, "matrix command failed")
+wt = tamper(["GATE_RUN_MATRIX=0"])
+case(6, "a worker that sets GATE_RUN_MATRIX=0 in its task.env is still blocked", "gate-green-verify", wt, 2, "matrix command failed")
+wt = tamper(["SCOPE_GLOBS='*'", "true; exit 0"])
+case(6, "task.env is data, never executed (`true; exit 0`)", "gate-green-verify", wt, 2, "matrix command failed")
+
 # §6.7 Worktrees stay isolated
 write(os.path.join(MAIN, ".agentic", "task.env"),
       "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=%s\n" % STORY)
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
 case(7, "a RED worker running in the shared main tree is blocked", "gate-red-verify", MAIN, 2, "worktree isolation dropped")
+with open(os.path.join(MAIN, ".agentic", "task.env"), "a") as f:
+    f.write("SKIP_HOOKS=1\n")
+case(7, "SKIP_HOOKS=1 written into task.env does not lift isolation", "gate-red-verify", MAIN, 2, "worktree isolation dropped")
 os.remove(os.path.join(MAIN, ".agentic", "task.env"))
 report("green-worker", [("tests/sub.rs::sub_works", "PASS")])
 case(7, "a GREEN worker running in the shared main tree is blocked", "gate-green-verify", MAIN, 2, "worktree isolation dropped",
