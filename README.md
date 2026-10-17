@@ -35,6 +35,8 @@ block the stop and feed the failure reason back to the supervisor.
 > [`plugin/`](plugin/); the marketplace catalog is
 > [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
 
+**New here?** [What this project is](docs/OVERVIEW.md) · [Roadmap](docs/ROADMAP.md)
+
 ## Quick start
 
 ```bash
@@ -173,8 +175,10 @@ env-contract and how to retarget a non-Rust repo.
 ```
 .claude-plugin/marketplace.json   marketplace catalog (source: ./plugin)
 plugin/                           the installable plugin (see plugin/README.md)
-docs/                             design + architecture docs for this plugin
-  ARCHITECTURE.md DESIGN.md PLATFORM-NOTES.md KICKSTART.md
+docs/                             what it is, roadmap, design history
+  OVERVIEW.md ROADMAP.md           start here: definition + plan
+  ARCHITECTURE.md DESIGN.md KICKSTART.md   historical design package
+  PLATFORM-NOTES.md
   agentic-agile-design.html diagrams/
 DEVLOG.md                         build journal + review dispositions
 ```
@@ -227,10 +231,12 @@ make publish        # pushes branch + tags
 
 `.github/workflows/ci.yml` runs on every push/PR:
 
-- **ctx-symbols** — `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`.
+- **rust** — `cargo fmt --check`, `cargo clippy -D warnings`, tests for `ctx-symbols` + `md-db`.
 - **shellcheck** — lints every gate script (`plugin/bin/*`), errors fail the build.
-- **plugin validate** — JSON sanity on the manifest + marketplace, then
-  `claude plugin validate ./plugin --strict` (installs the Claude Code CLI).
+- **hosts** — byte-compiles the Python hooks, then Codex hooks emulation + the OpenCode
+  plugin end-to-end (no network, no tokens).
+- **plugin** — JSON sanity on the manifest + marketplace, eval-suite validation, version
+  lockstep, then `claude plugin validate ./plugin --strict`.
 
 ## Status
 

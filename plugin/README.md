@@ -156,7 +156,7 @@ All optional, each with a safe fallback (see `bin/_gatelib.sh`):
 ```
 .claude-plugin/plugin.json   manifest
 skills/agentic-agile/SKILL.md the supervisor playbook (canonical)
-agents/<role>.md             8 dispatchable personas
+agents/<role>.md             9 dispatchable personas
 hooks/hooks.json             gate wiring by agent_type (SubagentStop/Stop/PostToolUse)
 bin/                         gate bodies + _gatelib.sh + log-execution
 schemas/*.kdl                md-db schemas (agent-io / planning-artifacts / ledger)

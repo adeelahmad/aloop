@@ -6,6 +6,31 @@
 
 ---
 
+## 0. At a glance
+
+What the project is today: [OVERVIEW.md](OVERVIEW.md). Sections 1–8 below are the full
+spec; this table is the plan. Versions are targets, not promises.
+
+| Milestone | Target | Contents | Status |
+|---|---|---|---|
+| **M0 — Hygiene** | v0.10.x | Mark `DESIGN` / `ARCHITECTURE` / `KICKSTART` historical; fix stale counts (8 → 9 roles) and the README CI section; add the `CONTRIBUTING.md` the README badge links to; one live-session smoke test of the hook wiring (open since `DEVLOG` v0.1) | in progress: docs, CONTRIBUTING and stale counts done; live smoke test open |
+| **M1 — Trustworthy state** | v0.11 | Session 1: conformance fixtures around current behaviour, canonical IDs and the reference remap (§4.5) | not started |
+| **M2 — Budgets that plan** | v0.12 | Sessions 2 and 4: budget semantics (§3.1–3.5), sprint envelope and admission control (§4.2), breach classes, failure envelope, grace rule, lesson candidates (§4.3) | not started |
+| **M3 — Clean boundaries** | v0.13 | Session 3: canonical handoff, rotation and the resume rule (§4.4) | not started |
+| **M4 — Intent in, autonomy optional** | v0.14 | Session 5: Intent Contract, clarification policy, autonomous mode (§4.1) | not started |
+| **M5 — Narrow context** | v0.15 | Session 6: semantic execution map, shadow workspace, `target` / `context` CLI (§4.6) | not started |
+| **M6 — Audit** | v0.16 | Sessions 7–8: event stream, rationale, authority, lineage query (§4.7); provider seam (§4.8) | not started |
+| **M7 — Any host** | v0.17 | Session 9: `HostAdapter`, capability matrix, `.aladdin/config.yaml`, host swap, metrics (§4.9–4.10) | not started |
+| **M8 — Aladdin 1.0** | v1.0 | Session 10: rebrand, `/aladdin` + `aladdin` CLI with aliases, README, site, measured public runs (§4.11) | not started |
+
+**Order rationale:** identity and conformance fixtures first, so every later change is
+measured against today's behaviour; budgets and handoff next, because they shape every run;
+the semantic map and audit trail after, since they build on canonical IDs; portability and
+the rebrand last, once the conformance suite (§6) can prove parity.
+
+**Exit for each milestone:** the §5 exit criterion holds, the §6 conformance items it
+touches pass on Claude Code, and each requirement is reported per §8.
+
 ## 1. Goal
 
 Evolve **agentic-agile** into **Aladdin**. Aladdin is an intent-driven, test-driven, cross-harness system for software engineering. It takes anything from a one-line request to a full specification and turns it into planned, tested, reviewed and auditable software.

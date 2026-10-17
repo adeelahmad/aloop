@@ -1,5 +1,8 @@
 # KICKSTART — instruction for an AI agent
 
+> **Historical.** Part of the pre-v0.2 design package; counts, paths and status here are out of date. For the current picture read [OVERVIEW.md](OVERVIEW.md).
+
+
 You are picking up a DESIGN package and turning it into a working Claude Code
 plugin. This file tells you what to read, what to decide, and the exact order to
 build in. Do not improvise past the design; where something is undecided it is
