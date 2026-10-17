@@ -31,6 +31,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.7 | Lineage: commit → intent → approver | IMPLEMENTED_TESTED | `scripts/test/commit-trace.test.py` |
 | 4.7 | Commit messages from rationale; graph export | IMPLEMENTED_TESTED | `scripts/test/commit-trace.test.py` |
 | 4.8 | Cross-project impact provider seam | IMPLEMENTED_TESTED | `scripts/test/impact-provider.test.py` |
+| 4.9 | Usage reporting: classes apart, exact or marked, unreported classes named | IMPLEMENTED_TESTED | `scripts/test/budget-meter.test.py` |
 | 4.9 | HostAdapter interface, capability matrix, gate equivalence | NOT_IMPLEMENTED | overlaps PR #7 |
 | 4.9 | Portable `.aladdin/config.yaml`, host swap | NOT_IMPLEMENTED | overlaps PR #7 |
 | 4.10 | Metrics table (percentiles, breaches, waste, rates, cache, context peak) | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |

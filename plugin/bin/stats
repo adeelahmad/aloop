@@ -337,9 +337,20 @@ def metrics(f):
         ("Context peak (largest context in use)", fmt(peak) if peak else "-"),
         ("Commits produced / test files added", "%d / %d" % (len(f["commits"]), f["tests_added"])),
         ("Time soft limits reached", "%d" % f["time_soft"]),
+        ("Usage accuracy", usage_accuracy(rows)),
         ("Semantic context served (targets resolved instead of repo scans)", "%d" % f["semantic_served"]),
         ("Admission closures / tasks rolled over", "%d / %d" % (1 if f["rollover"] else 0, len(f["rolled_over"]))),
     ]
+
+
+def usage_accuracy(rows):
+    """exact unless a row says otherwise; classes a host never reports are named."""
+    est = [s for s in rows if (s.get("usage") or {}).get("accuracy") not in (None, "exact")]
+    gaps = sorted({k for s in rows for k in (s.get("usage") or {}).get("unreported") or []})
+    if not rows:
+        return "-"
+    return "%s%s" % ("%d attempt(s) estimated" % len(est) if est else "exact (read from host logs)",
+                     "; not reported by the host: %s" % ", ".join(gaps) if gaps else "")
 
 
 CALIBRATION = {

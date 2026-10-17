@@ -89,6 +89,7 @@ ok("cache-hit ratio, churn and context peak from the usage classes")
 
 assert row("Commits produced / test files added").endswith("| 1 / 1 |"), row("Commits produced")
 assert row("Time soft limits reached").endswith("| 1 |") and row("Semantic context served").endswith("| 2 |")
+assert row("Usage accuracy").endswith("| exact (read from host logs) |"), row("Usage accuracy")
 ok("commits produced, test files added, time soft limits and semantic context served, from the event stream")
 
 print("\n%d checks passed" % PASS[0])

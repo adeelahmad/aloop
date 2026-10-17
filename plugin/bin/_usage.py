@@ -61,7 +61,9 @@ def rows(path):
             mid = msg.get("id") or rec.get("uuid") or str(len(claude))
             claude[mid] = {"ts": rec.get("timestamp") or "", "id": mid, "model": msg.get("model") or "",
                            "in": u.get("input_tokens") or 0, "cache_read": u.get("cache_read_input_tokens") or 0,
-                           "cache_write": u.get("cache_creation_input_tokens") or 0, "out": u.get("output_tokens") or 0}
+                           "cache_write": u.get("cache_creation_input_tokens") or 0, "out": u.get("output_tokens") or 0,
+                           "_unreported": [k for k, f in (("cache_read", "cache_read_input_tokens"),
+                                                          ("cache_write", "cache_creation_input_tokens")) if f not in u]}
             continue
         p = rec.get("payload") if isinstance(rec.get("payload"), dict) else None
         if not p:
@@ -85,7 +87,8 @@ def rows(path):
                       "model": model, "in": max(d["input_tokens"] - d["cached_input_tokens"], 0),
                       "cache_read": max(d["cached_input_tokens"], 0), "cache_write": max(d["cache_write_input_tokens"], 0),
                       "out": max(d["output_tokens"], 0),
-                      "_ctx": last.get("input_tokens") or 0})
+                      "_ctx": last.get("input_tokens") or 0,
+                      "_unreported": [] if "cache_write_input_tokens" in tot else ["cache_write"]})
     return sorted(claude.values(), key=lambda r: r["ts"]) + codex
 
 
@@ -97,9 +100,12 @@ def classes(path):
     if not rs:
         return None
     last = rs[-1]
+    # every count is read from the host's own log (exact); a class the host never reports is
+    # named, never estimated or silently zero (ROADMAP §4.9 usage reporting, conformance 12)
     return {"in": sum(r["in"] for r in rs), "cache_read": sum(r["cache_read"] for r in rs),
             "cache_write": sum(r["cache_write"] for r in rs), "out": sum(r["out"] for r in rs),
-            "context": last.get("_ctx") or (last["in"] + last["cache_read"] + last["cache_write"])}
+            "context": last.get("_ctx") or (last["in"] + last["cache_read"] + last["cache_write"]),
+            "accuracy": "exact", "unreported": sorted({k for r in rs for k in r.get("_unreported") or []})}
 
 
 def charge(c, meter="fresh"):

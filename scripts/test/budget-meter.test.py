@@ -49,6 +49,7 @@ def cached_calls(agent, n=10):
 
 # 1) _usage.classes keeps each class separate; context is the LAST call's, not a sum
 c = _usage.classes(cached_calls("u1"))
+assert c.pop("accuracy") == "exact" and c.pop("unreported") == [], c
 assert c == {"in": 20000, "cache_read": sum(190000 + i * 1000 for i in range(10)), "cache_write": 10000,
              "out": 10000, "context": 2000 + 199000 + 1000}, c
 assert _usage.charge(c) == 30000 and _usage.charge(c, "context") == 202000 + 10000
@@ -96,5 +97,17 @@ assert "BUDGET_TOKEN_METER=fresh" in sh(os.path.join(BIN, "budget"), "resolve")
 st = sh(os.path.join(BIN, "budget"), "status")
 assert "30.0k/250.0k f" in st and "212.0k/250.0k c" in st, st
 ok("budget resolve / status show the meter in force")
+
+# 5) usage is exact or names what the host does not report (conformance 12)
+roll = os.path.join(T, "rollout.jsonl")
+with open(roll, "w") as f:
+    for i, (inp, cached, out) in enumerate(((1000, 0, 100), (3000, 1500, 300))):
+        f.write(json.dumps({"timestamp": "2026-10-17T10:00:0%dZ" % i, "type": "event_msg", "payload": {
+            "type": "token_count", "info": {"total_token_usage": {"input_tokens": inp, "cached_input_tokens": cached,
+                                                                  "output_tokens": out},
+                                            "last_token_usage": {"input_tokens": inp}}}}) + "\n")
+c = _usage.classes(roll)
+assert c["accuracy"] == "exact" and c["unreported"] == ["cache_write"] and c["in"] == 1500 and c["cache_read"] == 1500, c
+ok("usage is exact; a class the host never reports (Codex cache write) is named, not zero-filled silently")
 
 print("\n%d checks passed" % PASS[0])
