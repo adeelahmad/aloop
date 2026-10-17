@@ -26,10 +26,21 @@ for d in "$root" ${sprint_dir:+"$sprint_dir"}; do
   fi
 done
 
+# 2b) Every test a story's plan.md names (`- \`path::fn\``) exists on main. plan-ready.md lists
+#     only what RED wrote, so a test a re-plan dropped would otherwise vanish unnoticed.
+if [ -n "$sprint_dir" ]; then
+  while IFS= read -r ref; do
+    path="${ref%%::*}"; fn="${ref##*::}"
+    grep -qE "fn[[:space:]]+${fn}[[:space:]]*\(" "$root/$path" 2>/dev/null \
+      || fail "planned test \`$ref\` is not on main (in its story's plan.md): write it, or have the planner re-plan the story without it"
+  done < <(find "$sprint_dir" -name plan.md -path '*/s[0-9]*' -exec grep -hoE '^[[:space:]]*- `[^`:]+(::[A-Za-z_][A-Za-z0-9_]*)+`' {} + 2>/dev/null \
+           | sed -E 's/^[^`]*`//; s/`$//' | sort -u)
+fi
+
 # 3) Full gate matrix (from standards.md) green.
 run_standards_matrix
 
-note "FINAL gate passed: matrix green, zero suppressions, all plan-ready ticked"
+note "FINAL gate passed: matrix green, zero suppressions, all plan-ready ticked, every planned test on main"
 
 # 4) Sprint close — by the harness, only on the real SubagentStop run (never a self-check):
 #    sprintN/stats.md, docs/agents/NEXT.md (the post-/clear handoff), token totals.

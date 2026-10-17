@@ -332,6 +332,17 @@ said = any("NOT verified" in l for l in lines) and any("do not merge" in l for l
 results.append((9, "a hard-breached worker is released as 'not a pass, do not merge'", rc == 0 and said,
                 "exit %d %s" % (rc, (lines[0] if lines else "")[:140])))
 
+# FINAL: every test the story's plan.md names must exist on main. A RED re-plan that drops a
+# planned test otherwise loses coverage silently (live e2e run 6), since plan-ready.md only
+# lists what RED actually wrote.
+PLAN = "---\ntype: plan\nstory: S1-01\n---\n# plan\n\n## T1 tests\n\n- `tests/add.rs::add_works`\n  — adds.\n"
+write(os.path.join(STORY, "plan.md"), PLAN)
+fenv = {"STORY_DIR": STORY, "AGENTIC_SELFCHECK": "1"}
+case(6, "FINAL passes when every planned test exists on main", "gate-final", MAIN, 0, extra=fenv)
+write(os.path.join(STORY, "plan.md"), PLAN + "- `tests/sub.rs::sub_handles_negatives`\n  — dropped by a re-plan.\n")
+case(6, "FINAL blocks when a planned test is missing from main", "gate-final", MAIN, 2, "sub_handles_negatives", extra=fenv)
+os.remove(os.path.join(STORY, "plan.md"))
+
 # §6.2 Planner artifacts are schema-valid (gate-validate-artifact runs md-db on every planner write)
 def md_db():
     """The real md-db binary, put where ensure-tools finds it; built from the bundled source if needed."""
