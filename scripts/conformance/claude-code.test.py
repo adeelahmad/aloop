@@ -90,7 +90,8 @@ def worktree(role, scope=""):
 
 
 def gate(name, cwd, extra=None, agent_type=None, transcript=None):
-    env = dict(ENV, REPO_DIR=cwd, STANDARDS_FILE=os.path.join(MAIN, "standards.md"), **(extra or {}))
+    env = dict(ENV, REPO_DIR=cwd, STANDARDS_FILE=os.path.join(MAIN, "standards.md"))
+    env.update(extra or {})
     payload = {"hook_event_name": "SubagentStop", "session_id": "s1", "agent_id": "a1", "agent_type": agent_type}
     if transcript:
         payload["agent_transcript_path"] = transcript
@@ -138,6 +139,20 @@ write(os.path.join(wt, "tests", "sub.rs"), "#[test]\nfn sub_works() {\n    asser
 commit(wt, "red no shim")
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
 case(3, "RED that fails by missing symbol (not by assertion) is rejected", "gate-red-verify", wt, 2, "do NOT compile")
+
+# RED's tests must already pass the matrix's format check: GREEN may not touch them, so an
+# unformatted RED file blocks every GREEN attempt (live e2e run 3: 19 GREEN fmt blocks).
+FMT_STANDARDS = os.path.join(T, "standards-fmt.md")
+write(FMT_STANDARDS, "# standards\n\n## Gate matrix\n\n```\ncargo fmt --all -- --check\ncargo test --workspace\n```\n")
+wt = worktree("red-worker")
+write(os.path.join(wt, "tests", "common", "mod.rs"), SHIM)
+write(os.path.join(wt, "tests", "sub.rs"), "mod common;\n#[test]\nfn sub_works() {   assert_eq!(common::sub(3,1),2); }\n")
+commit(wt, "red unformatted")
+report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
+case(3, "RED whose tests fail the matrix's format check is rejected", "gate-red-verify", wt, 2, "cargo fmt",
+     extra={"STANDARDS_FILE": FMT_STANDARDS})
+case(3, "a formatted RED passes the same format check", "gate-red-verify", red_ok_wt, 0,
+     extra={"STANDARDS_FILE": FMT_STANDARDS})
 
 # §6.4 RED cannot write production code
 wt = red_ok()

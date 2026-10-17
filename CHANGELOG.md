@@ -93,6 +93,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   per role in e2e run 2): the worktree is made at dispatch and has no `task.env`. The time
   box's first tool-call hook now copies the supervisor's contract into the worktree (the
   dispatch prompt's `TASK_ID` picks it); the gates still compare the copy to the contract.
+- **GREEN looped on RED's formatting** (19 blocks in e2e run 3): RED's test file failed
+  `cargo fmt --check`, and GREEN may not touch tests. RED and SCAFFOLD gates now run the
+  matrix's format check, so the file is fixed by the role that wrote it.
 - **The supervisor could write source mid-sprint on Linux.** `gate-supervisor-scope`'s
   "recently refreshed lock" arm called `stat -f %m` first; on Linux that prints a
   filesystem report instead of failing, the arithmetic crashed under `set -u`, and a

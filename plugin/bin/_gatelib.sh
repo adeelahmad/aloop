@@ -329,10 +329,17 @@ assert_work_committed() {
 $(printf '    %s\n' $dirty)"
 }
 
+# The matrix's FORMAT checks only. RED and SCAFFOLD files must already be formatted: GREEN may
+# not touch the tests, so an unformatted RED file would block every GREEN attempt.
+FORMAT_CHECK_RE='(^|[[:space:]/])(cargo fmt|rustfmt|gofmt|prettier|black|ruff format)([[:space:]]|$)'
+run_format_checks() { run_standards_matrix "$FORMAT_CHECK_RE"; }
+
 # Run the gate matrix declared in standards.md (standards-bind-gates). Falls back
 # to a default Rust matrix with a WARN if standards.md / its matrix is not found.
+# Optional $1: an ERE; only the matrix commands matching it run (e.g. just the format check).
 run_standards_matrix() {
   [ "${GATE_RUN_MATRIX:-1}" = "1" ] || { note "matrix skipped (GATE_RUN_MATRIX=0)"; return 0; }
+  local only="${1:-}"
   local root; root="$(repo_dir)"
   local sf="${STANDARDS_FILE:-}"
   if [ -z "$sf" ]; then
@@ -363,6 +370,7 @@ run_standards_matrix() {
 
   local c
   for c in "${cmds[@]}"; do
+    if [ -n "$only" ] && ! printf '%s\n' "$c" | grep -qE "$only"; then continue; fi
     note "matrix: $c"
     ( cd "$root" && eval "$c" ) || fail "matrix command failed: $c"
   done
