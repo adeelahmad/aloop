@@ -10,9 +10,11 @@ never calls them directly. Shared helpers live in `_gatelib.sh`.
 Transcripts hooks (`transcripts`) ALWAYS exit `0` — they must never block an agent.
 
 ## Per-task contract
-Gates read `.agentic/task.env` (the supervisor writes it into each worktree at
-dispatch): `TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS, BASE_REF,
-STORY_DIR, BUDGET_*`. Real env overrides. Store paths are NOT part of the contract:
+Gates read the supervisor's contract `<main tree>/.agentic/state/tasks/<TASK_ID>.env`
+(written before dispatch; the dispatch prompt's first line `TASK_ID: <id>` names it):
+`TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS, BASE_REF, STORY_DIR,
+BUDGET_*`. A worktree `.agentic/task.env` is a fallback and must match the contract when
+both exist. Parsed, never sourced. Real env overrides. Store paths are NOT part of the contract:
 `_paths.sh` / `_paths.py` fix them (`<main tree>/.agentic/{transcripts,budget,ledger,logs,state}`,
 `docs/agents/{defaults.md,NEXT.md}`). A missing backend (md-db /
 ctx-symbols) → WARN + grep fallback; never a silent pass.

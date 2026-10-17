@@ -89,16 +89,18 @@ def worktree(role, scope=""):
     return wt
 
 
-def gate(name, cwd, extra=None, agent_type=None):
+def gate(name, cwd, extra=None, agent_type=None, transcript=None):
     env = dict(ENV, REPO_DIR=cwd, STANDARDS_FILE=os.path.join(MAIN, "standards.md"), **(extra or {}))
-    payload = json.dumps({"hook_event_name": "SubagentStop", "session_id": "s1", "agent_id": "a1",
-                          "agent_type": agent_type}) if agent_type else ""
+    payload = {"hook_event_name": "SubagentStop", "session_id": "s1", "agent_id": "a1", "agent_type": agent_type}
+    if transcript:
+        payload["agent_transcript_path"] = transcript
+    payload = json.dumps(payload) if agent_type else ""
     r = subprocess.run([os.path.join(BIN, name)], cwd=cwd, env=env, capture_output=True, text=True, input=payload)
     return r.returncode, (r.stderr or r.stdout).strip().splitlines()
 
 
-def case(item, title, name, cwd, expect, must_say=None, extra=None, agent_type=None):
-    rc, lines = gate(name, cwd, extra, agent_type)
+def case(item, title, name, cwd, expect, must_say=None, extra=None, agent_type=None, transcript=None):
+    rc, lines = gate(name, cwd, extra, agent_type, transcript)
     blocks = [l for l in lines if l.startswith("BLOCK[")]
     good = rc == expect and (must_say is None or any(must_say in l for l in blocks))
     detail = blocks[0] if blocks else (lines[-1] if lines else "")
@@ -212,6 +214,32 @@ case(7, "a RED worker that relabels itself AGENT_ROLE=planner is still caught", 
 os.remove(os.path.join(MAIN, ".agentic", "task.env"))
 case(7, "with no task.env role, the host's role still enforces isolation", "gate-red-verify", MAIN, 2,
      "worktree isolation dropped", extra={"STORY_DIR": STORY}, agent_type="aloop:red-worker")
+
+# §6.6/§6.7 (M0.7) The contract is the supervisor's: it lives in the MAIN tree, keyed by the
+# TASK_ID the host's dispatch prompt names. On Claude Code `isolation: "worktree"` creates
+# the worktree (.claude/worktrees/agent-<id>) at dispatch, so nobody can pre-write its task.env;
+# a worktree copy is only a hint, and one that disagrees with the contract is tampering.
+CONTRACT = os.path.join(MAIN, ".agentic", "state", "tasks", "S1-01-T1.env")
+TRANSCRIPT = os.path.join(T, "agent-a1.jsonl")
+write(TRANSCRIPT, json.dumps({"type": "user", "message": {"role": "user", "content": "TASK_ID: S1-01-T1\nMake the RED test pass."}}) + "\n")
+write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS='src/*.rs'\n" % STORY)
+wt = green()
+os.remove(os.path.join(wt, ".agentic", "task.env"))
+case(6, "a worktree with no task.env is gated by the supervisor's contract the dispatch names", "gate-green-verify", wt, 0,
+     agent_type="aloop:green-worker", transcript=TRANSCRIPT)
+wt = green(scope="*")
+write(os.path.join(wt, "build.rs"), "fn main() {}\n")
+commit(wt, "widened scope")
+case(6, "a worker that widens SCOPE_GLOBS in its worktree copy is blocked", "gate-green-verify", wt, 2,
+     "disagrees with the supervisor's contract", agent_type="aloop:green-worker", transcript=TRANSCRIPT)
+case(6, "the same tamper is caught by a self-check (no host payload)", "gate-green-verify", wt, 2,
+     "disagrees with the supervisor's contract")
+wt = green()
+with open(os.path.join(wt, ".agentic", "task.env"), "a") as f:
+    f.write("TASK_ID=S1-01-T9\n")
+case(6, "a worker that points its task.env at another task is blocked", "gate-green-verify", wt, 2,
+     "TASK_ID", agent_type="aloop:green-worker", transcript=TRANSCRIPT)
+os.remove(CONTRACT)
 
 # §6.8 An accepted GREEN is mergeable
 r = sh("git", "merge", "--no-ff", "-qm", "accept", "agentic/case%d" % int(os.path.basename(green_ok_wt)[2:]), check=False)

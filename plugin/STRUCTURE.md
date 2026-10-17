@@ -71,4 +71,4 @@ gets a READ-ONLY task slice staged into its worktree (`.transcripts/`) at Subage
 every tool call and prompt is recorded; the full session is snapshotted on stop. The
 supervisor reads the global store; the retrospective distills it into memory.md, which
 is injected (role-scoped) into each init.md `# Memory` section.
-The gates read their per-task contract from `.agentic/task.env` (supervisor-written).
+The gates read their per-task contract from `.agentic/state/tasks/<TASK_ID>.env` (supervisor-written, main tree).

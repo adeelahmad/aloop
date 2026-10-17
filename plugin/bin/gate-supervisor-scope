@@ -66,7 +66,16 @@ case "$tool" in Write|Edit|MultiEdit|NotebookEdit) ;; *) exit 0 ;; esac
 # agent_type is present ⇒ it is doing its designated job; its own SubagentStop gate
 # constrains it. Never block a sub-agent here.
 agent_type="$(field agent_type)"
-[ -n "$agent_type" ] && exit 0
+# ...except the task contract and the supervisor's state: a worker that rewrites its contract
+# (.agentic/state/tasks/<TASK_ID>.env, or the worktree copy) widens its own scope or budget.
+if [ -n "$agent_type" ]; then
+  case "$file" in .agentic/state/*|*/.agentic/state/*|.agentic/task.env|*/.agentic/task.env)
+    echo "BLOCK[$GATE_NAME]: $file is the supervisor's task contract/state; a dispatched agent may not write it." >&2
+    echo "  Your task contract is fixed at dispatch. If it is wrong, say so in your output.md report." >&2
+    exit 2 ;;
+  esac
+  exit 0
+fi
 
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 lock="$root/.agentic/state/sprint.lock"          # fixed path (bin/_paths.sh), git-ignored

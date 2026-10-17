@@ -186,6 +186,6 @@ MIT — see `LICENSE`.
   (the `archivist`) distills it into `docs/agents/memory.md`, which is injected
   (role-scoped) into each `init.md` `# Memory` section.
 - The gates read their per-task contract (`TASK_ID`, `SCOPE_GLOBS`, `SCAFFOLD_SYMBOLS`,
-  `BASE_REF`, `BUDGET_*`) from `.agentic/task.env`, written by the supervisor
-  into each worktree at dispatch. `.agentic/` and `.transcripts/` are git-ignored and never
+  `BASE_REF`, `BUDGET_*`) from `.agentic/state/tasks/<TASK_ID>.env` in the main tree,
+  written by the supervisor before dispatch (a worktree `.agentic/task.env` must match it). `.agentic/` and `.transcripts/` are git-ignored and never
   merged.

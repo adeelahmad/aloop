@@ -76,29 +76,81 @@ _gate_enter_bound_worktree() {
 }
 _gate_enter_bound_worktree
 
-# Per-worktree task contract the supervisor writes at dispatch (.agentic/task.env):
-# TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS, BASE_REF, STORY_DIR,
-# AGENTIC_TRANSCRIPTS_DIR. Real env still overrides (only unset keys are loaded).
+# The per-task contract: TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS,
+# BASE_REF, STORY_DIR, AGENTIC_TRANSCRIPTS_DIR (+ BUDGET_*, read by bin/budget). Real env
+# still overrides (only unset keys are loaded).
 #
-# PARSED, NEVER SOURCED. The file sits in the worker's own worktree, so the worker can
-# edit it: sourcing it let `exit 0` pass the gate, and GATE_RUN_MATRIX=0 / SKIP_HOOKS=1
-# switch checks off. Only the contract keys above are read, as plain KEY=VALUE data
-# (one layer of quotes stripped, no expansion); every other line is ignored.
+# WHERE IT LIVES. The supervisor writes it in the MAIN tree, .agentic/state/tasks/<TASK_ID>.env,
+# and names the task on the dispatch prompt's first line (`TASK_ID: <id>`). On Claude Code
+# `isolation: "worktree"` creates the worktree (.claude/worktrees/agent-<id>) at dispatch, so
+# no one can pre-write a task.env inside it. The host records the dispatch prompt in the
+# sub-agent transcript (SubagentStop's agent_transcript_path), so the task id comes from the
+# host, not from the worker. A worktree .agentic/task.env (Codex/OpenCode, older sprints) is
+# only a hint: when the contract exists, any key the copy sets must match it, or the gate
+# blocks; with no contract the copy is the contract, as before.
+#
+# PARSED, NEVER SOURCED. The worktree copy is the worker's to edit: sourcing it let `exit 0`
+# pass the gate, and GATE_RUN_MATRIX=0 / SKIP_HOOKS=1 switch checks off. Only the contract
+# keys are read, as plain KEY=VALUE data (one layer of quotes stripped, no expansion).
 TASK_ENV_KEYS="TASK_ID ATTEMPT AGENT_ROLE SCOPE_GLOBS SCAFFOLD_SYMBOLS BASE_REF STORY_DIR AGENTIC_TRANSCRIPTS_DIR"
-load_task_env() {
-  local te line k v
-  te="$(repo_dir)/.agentic/task.env"
-  [ -f "$te" ] || return 0
+# Print the contract keys of a task.env-format file as KEY<TAB>VALUE lines.
+_task_env_kv() {
+  local line k v
+  [ -f "$1" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line#"${line%%[![:space:]]*}"}"
     line="${line#export }"
     case "$line" in ''|'#'*) continue ;; *=*) ;; *) continue ;; esac
     k="${line%%=*}"; v="${line#*=}"
-    case " $TASK_ENV_KEYS " in *" $k "*) ;; *) continue ;; esac
+    case " $TASK_ENV_KEYS " in *" $k "*) ;; BUDGET_*) case "$k" in *[!A-Z_]*) continue ;; esac ;; *) continue ;; esac
     case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
+    printf '%s\t%s\n' "$k" "$v"
+  done < "$1"
+}
+# The TASK_ID the host's dispatch prompt names (first user turn of the sub-agent transcript).
+_host_task_id() {
+  local tp
+  tp="$(printf '%s' "$GATE_PAYLOAD" | sed -nE 's/.*"agent_transcript_path"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+  [ -n "$tp" ] && [ -f "$tp" ] || return 0
+  grep -m1 '"type"[[:space:]]*:[[:space:]]*"user"' "$tp" 2>/dev/null \
+    | sed -nE 's/.*TASK_ID:[[:space:]]*([A-Za-z0-9._-]+).*/\1/p' | head -1
+}
+# First value of contract key $2 in task.env-format file $1 (the loader's first-wins rule).
+_task_env_get() {
+  local k v
+  while IFS=$'\t' read -r k v; do
+    [ "$k" = "$2" ] && { printf '%s\n' "$v"; return 0; }
+  done < <(_task_env_kv "$1")
+  return 1
+}
+load_task_env() {
+  local te contract="" tid k v cv
+  te="$(repo_dir)/.agentic/task.env"
+  # Which task: the host's dispatch prompt, else the task worktree's own name
+  # (.agentic/worktrees/<TASK_ID>, made by `aloop task-worktree add`), else the copy's hint.
+  tid="$(_host_task_id)"
+  if [ -z "$tid" ]; then
+    case "$(repo_dir)" in "$AGENTIC_HOME"/worktrees/*) tid="$(basename "$(repo_dir)")" ;; esac
+    [ -f "$AGENTIC_STATE/tasks/$tid.env" ] || tid=""
+  fi
+  [ -n "$tid" ] || tid="$(_task_env_get "$te" TASK_ID)"
+  case "$tid" in ''|*[!A-Za-z0-9._-]*) ;; *)
+    [ -f "$AGENTIC_STATE/tasks/$tid.env" ] && contract="$AGENTIC_STATE/tasks/$tid.env" ;;
+  esac
+  if [ -n "$contract" ]; then
+    while IFS=$'\t' read -r k v; do
+      cv="$(_task_env_get "$contract" "$k")" || cv=""
+      if [ "$cv" != "$v" ]; then
+        fail "the worktree's .agentic/task.env disagrees with the supervisor's contract on $k ('$v' vs '$cv' in $contract). The contract is the supervisor's: do not edit it."
+      fi
+    done < <(_task_env_kv "$te")
+    te="$contract"
+  fi
+  while IFS=$'\t' read -r k v; do
+    case "$k" in ''|BUDGET_*) continue ;; esac
     [ -n "${!k+x}" ] && continue
     export "$k=$v"
-  done < "$te"
+  done < <(_task_env_kv "$te")
 }
 load_task_env
 

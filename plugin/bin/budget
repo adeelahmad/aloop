@@ -122,6 +122,30 @@ def resolve(cwd, tasks_file=None, task=None, task_env=None, with_source=False):
     return (b, src) if with_source else b
 
 
+TASK_LINE = re.compile(r"TASK_ID:\s*([A-Za-z0-9._-]+)")
+
+
+def host_task_id(payload, agent_id):
+    """The TASK_ID the host's dispatch prompt names: first user turn of the sub-agent transcript."""
+    tp = transcript_for(payload, agent_id)
+    try:
+        with open(tp) as f:
+            for line in f:
+                if '"user"' in line:
+                    m = TASK_LINE.search(line)
+                    return m.group(1) if m else ""
+    except (OSError, TypeError):
+        pass
+    return ""
+
+
+def contract(cwd, task_id):
+    """The supervisor's task contract in the MAIN tree (.agentic/state/tasks/<TASK_ID>.env), or {}."""
+    if not task_id or not re.match(r"^[A-Za-z0-9._-]+$", task_id):
+        return {}
+    return read_kv(os.path.join(_paths.home(cwd, "state/tasks", make=False), task_id + ".env"))
+
+
 def transcript_for(payload, agent_id):
     """The sub-agent's own session log — Claude transcript or Codex rollout (_usage)."""
     return _usage.agent_transcript(payload, agent_id)
@@ -202,6 +226,10 @@ def find_worktree(payload, cwd, agent_id, role):
     wt = _task_worktree_of(cwd, project)
     if wt:
         return wt, "cwd"
+    top = sh("git", "-C", cwd, "rev-parse", "--show-toplevel")
+    if top and os.path.isfile(os.path.join(top, ".git")) and \
+            os.path.realpath(_paths.project(top)) == os.path.realpath(project):
+        return top, "cwd (host worktree)"      # Claude Code's isolation worktree has no task.env
     claimed = claimed_worktrees(cwd, agent_id)
     mine = []
     for te in glob.glob(os.path.join(project, ".agentic", "worktrees", "*", ".agentic", "task.env")) + \
@@ -305,12 +333,20 @@ def hook(mode):
             save_state(spath, st)
         return
 
+    host_tid = host_task_id(payload, agent_id)
+
     def resolve_for(top):
         env = read_kv(os.path.join(top, ".agentic", "task.env"))
+        # the supervisor's contract wins over the worker-editable worktree copy (M0.7)
+        sup = contract(cwd, host_tid or env.get("TASK_ID", ""))
+        if sup:
+            env = sup
         task = env.get("TASK_ID", "")
         tasks_file = os.path.join(env["STORY_DIR"], "tasks.md") if env.get("STORY_DIR") else None
         tn = re.sub(r"^.*[-_ ](T\d+)$", r"\1", task.split()[-1]) if task else None
         b, src = resolve(cwd, tasks_file, tn, env, with_source=True)
+        if sup:
+            src = src.replace("task.env BUDGET_*", "contract BUDGET_*")
         return env, task, b, src
 
     if st is None:

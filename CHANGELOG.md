@@ -50,8 +50,21 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   worker claiming `planner` skipped the worktree-isolation check. Gates now take the role
   from the host's hook payload (`agent_type`) and block if `task.env` contradicts it.
   2 conformance cases (26 in all) failed before.
+- **The task contract is the supervisor's (M0.7).** The playbook told the supervisor to
+  write `task.env` into the worker's worktree before dispatch, but on Claude Code
+  `isolation: "worktree"` creates that worktree (`.claude/worktrees/agent-<id>`) at
+  dispatch (measured with a live probe), so the contract could only be missing or
+  worker-written. The supervisor now writes `.agentic/state/tasks/<TASK_ID>.env` in the main
+  tree and puts `TASK_ID: <id>` on the dispatch prompt's first line; gates and the time box
+  find the contract from that line in the host's transcript. A worktree copy that disagrees
+  with the contract blocks the gate, and `gate-supervisor-scope` stops sub-agents writing
+  `.agentic/state/` or `.agentic/task.env`. 4 conformance cases (30 in all) and 4 unit
+  checks failed before.
 
 ### Fixed
+- **A Claude Code worker could get another task's budget.** With no `task.env` in its own
+  worktree, the time box guessed "the only green-worker worktree" and applied that task's
+  limits. It now takes the worker's own worktree from its cwd first.
 - **The supervisor could write source mid-sprint on Linux.** `gate-supervisor-scope`'s
   "recently refreshed lock" arm called `stat -f %m` first; on Linux that prints a
   filesystem report instead of failing, the arithmetic crashed under `set -u`, and a

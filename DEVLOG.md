@@ -184,3 +184,18 @@ Decisions (reversible; recorded per CLAUDE.md):
   parity. Moved to M1, after those fixtures exist.
 - GitHub repo slug stays `adeelahmad/agentic-agile` until the owner renames it (GitHub
   redirects the old URL, so docs keep working either way).
+
+## Supervisor-owned task contract (M0.7)
+Probe (Claude Code 2.1.x, haiku, ~$0.005): an `isolation: worktree` dispatch creates
+`<main>/.claude/worktrees/agent-<agent_id>` on branch `worktree-agent-<agent_id>` at dispatch.
+SubagentStart/Stop payloads carry `agent_id`, `agent_type` and `cwd` = that worktree;
+SubagentStop adds `agent_transcript_path`, whose first user turn is the dispatch prompt.
+So the supervisor could never pre-write `task.env` into the worktree on Claude Code.
+Decisions (reversible):
+- Contract keyed by TASK_ID (known before dispatch), in the main tree:
+  `.agentic/state/tasks/<TASK_ID>.env`. The dispatch prompt's first line `TASK_ID: <id>`
+  links the agent to it through the host-written transcript, not through worker files.
+- A worktree `task.env` stays as a fallback (Codex/OpenCode, older sprints); when both
+  exist, any differing key blocks. Not relying on the undocumented
+  `subagents/*.meta.json` (it does carry `toolUseId` and `worktreePath`).
+- Open: Bash writes into `.agentic/state/` are not guarded yet.

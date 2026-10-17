@@ -61,6 +61,15 @@ ok("stale lock from another session: inert, write allowed")
 open(LOCK, "w").write("s-main\n")
 r = run("src/lib.rs", agent_type="aloop:green-worker")
 assert r.returncode == 0, r
-ok("a dispatched sub-agent is never blocked by this gate")
+ok("a dispatched sub-agent may write source (its own gate constrains it)")
+
+# The task contract is the supervisor's (M0.7): a worker may not write it, in the main tree or its worktree.
+for path in (".agentic/state/tasks/S1-01-T1.env", ".agentic/task.env", ".agentic/state/agents/a1.json"):
+    r = run(path, agent_type="aloop:green-worker")
+    assert r.returncode == 2 and "task contract" in r.stderr, (path, r)
+ok("a sub-agent may not write the task contract or the supervisor's state")
+r = run(".agentic/scaffold-symbols", agent_type="aloop:red-worker")
+assert r.returncode == 0, r
+ok("a sub-agent may still write its own .agentic/ files (scaffold-symbols)")
 
 print("\n%d checks passed" % n)
