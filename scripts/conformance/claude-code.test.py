@@ -154,6 +154,16 @@ case(3, "RED whose tests fail the matrix's format check is rejected", "gate-red-
 case(3, "a formatted RED passes the same format check", "gate-red-verify", red_ok_wt, 0,
      extra={"STANDARDS_FILE": FMT_STANDARDS})
 
+# SCAFFOLD: `.agentic/scaffold-symbols` lines may carry notes after the symbol (live e2e run 6:
+# "ParseError (enum) @ src/lib.rs" was split into `(enum)`, `@`, … and each "defined 0 times").
+wt = worktree("scaffolder")
+write(os.path.join(wt, "src", "lib.rs"), LIB + "\npub fn sub(_a: i32, _b: i32) -> i32 {\n    panic!(\"SUB-AGENT-TODO\")\n}\n")
+write(os.path.join(wt, "tests", "sub.rs"), GREEN_TEST)
+write(os.path.join(wt, ".agentic", "scaffold-symbols"), "# symbols\nsub (fn) @ src/lib.rs\n")
+commit(wt, "scaffold")
+report("scaffolder", [("src/lib.rs::sub", "STUB")])
+case(3, "SCAFFOLD with annotated scaffold-symbols lines is accepted", "gate-scaffold-verify", wt, 0)
+
 # §6.4 RED cannot write production code
 wt = red_ok()
 write(os.path.join(wt, "src", "lib.rs"), GREEN_LIB)

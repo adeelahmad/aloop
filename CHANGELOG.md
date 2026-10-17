@@ -23,6 +23,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
+- **`gate-dispatch`** (PreToolUse on Agent/Task): the supervisor's dispatch of an execution
+  worker is refused until its prompt opens with `TASK_ID: <id>` and the contract exists.
+  e2e run 6 dispatched the structural reviewer before writing its contract, and its gate
+  blocked 25 times on a `STORY_DIR` the worker could not supply. `scripts/test/dispatch.test.py`.
+
 - **End-to-end live run (north star).** `make e2e-live YES=1` turns a one-line intent
   (a semver parser) into planned, tested, merged code in a real Claude Code session with
   the plugin, then checks the artifacts, gate verdicts, merge, tests and cost. First run:
@@ -78,6 +83,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- **Annotated `scaffold-symbols` lines were split into fake symbols** (`(enum)`, `@`, …), each
+  "defined 0 times". The first token of a line is the symbol; non-identifiers are dropped.
+- **Sub-agents read the plugin's own source** (19–30 commands per e2e run) to work out
+  formats `selfcheck` already reports. The agent prompts now say not to; run 6 had 2, and
+  cost its lowest yet: $0.65 in 11 min.
 - **A Claude Code worker could get another task's budget.** With no `task.env` in its own
   worktree, the time box guessed "the only green-worker worktree" and applied that task's
   limits. It now takes the worker's own worktree from its cwd first.
