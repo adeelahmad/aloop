@@ -58,7 +58,9 @@ for sym in $symbols; do
   if have_ctx_symbols; then
     file="$(ctx-symbols locate "$sym" --tree "$root" | head -1 | cut -d: -f1)"
   else
-    file="$(grep -rlE "\\b(fn|struct|enum|impl)\\b.*$sym" --include='*.rs' "$root" 2>/dev/null | grep -v '/target/' | head -1)"
+    # the same name-anchored definition match as symbol_count (`.*sym` also hit `fn sub_works`
+    # in tests/, so the answer depended on directory order)
+    file="$(grep -rlE "\\b(fn|struct|enum|trait|type|const|static|mod)\\s+$sym\\b" --include='*.rs' "$root" 2>/dev/null | grep -v '/target/' | head -1)"
   fi
   [ -z "$file" ] && fail "scaffolded symbol \`$sym\` not found on disk"
   grep -q 'SUB-AGENT-TODO' "$file" \
