@@ -22,7 +22,8 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 ## Gates (which hook fires each)
 | script | event · matcher | checks | exit 2 when |
 |--------|-----------------|--------|-------------|
-| gate-supervisor-scope     | PreToolUse · Write\|Edit\|MultiEdit | MAIN agent (no `agent_type`) may not write production source mid-sprint, nor hand-author planning artifacts (stories/tasks/validate/plan/intake/standards.md — dispatch the activity); sub-agents (`agent_type` present) exempt | supervisor writes source / hand-writes a planner-owned artifact |
+| gate-supervisor-scope     | PreToolUse · Write\|Edit\|MultiEdit\|Bash | MAIN agent (no `agent_type`) may not write production source mid-sprint, nor hand-author planning artifacts (stories/tasks/validate/plan/intake/standards.md — dispatch the activity); sub-agents (`agent_type` present) exempt | supervisor writes source / hand-writes a planner-owned artifact |
+| gate-dispatch             | PreToolUse · Agent\|Task | the MAIN agent's dispatch of an execution role opens with `TASK_ID: <id>` and that task's contract `.agentic/state/tasks/<id>.env` exists (repos with `.agentic/` only) | no TASK_ID line / contract not written yet |
 | gate-tooling              | SubagentStart · exec roles + supervisor self-check | md-db + ctx-symbols installed (execution may not run grep-degraded); runs `ensure-tools --sync` first | a backend is missing and can't be built |
 | gate-validate-artifact    | PostToolUse · Write         | md-db-validate the written artifact | artifact malformed |
 | gate-red-verify           | SubagentStop · red-worker   | worktree-isolated; appended output.md block (validate_comms); every new test FAILS BY ASSERTION; no regression; diff = tests+shims | no/stale output.md block / shared-tree run / a new test passes / prod code / regression |

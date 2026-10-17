@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# gate-dispatch — PreToolUse(Agent|Task) on the SUPERVISOR's dispatch of an execution worker.
+#
+# A worker's gates read its task contract (.agentic/state/tasks/<TASK_ID>.env), found through the
+# `TASK_ID: <id>` line the dispatch prompt opens with. Dispatched before that contract exists, the
+# worker's SubagentStop gate cannot find STORY_DIR and blocks on every stop — a block the worker
+# cannot fix (live e2e run 6: 25 blocks). So the dispatch itself is refused until it is right.
+#
+# Only aloop execution roles, only from the main session (a sub-agent's own Agent calls carry
+# agent_type), only in a repo with aloop state (.agentic/). Exit: 0 allow · 2 deny. SKIP_HOOKS=1.
+set -uo pipefail
+GATE_NAME=dispatch
+[ "${SKIP_HOOKS:-}" = "1" ] && exit 0
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+payload="$(cat 2>/dev/null || true)"
+
+command -v python3 >/dev/null 2>&1 || exit 0
+read -r role tid < <(printf '%s' "$payload" | python3 -c '
+import json, re, sys
+p = json.load(sys.stdin)
+if p.get("agent_type"):
+    print("- -"); sys.exit()
+ti = p.get("tool_input") or {}
+role = (ti.get("subagent_type") or "").split(":")[-1]
+m = re.match(r"\s*TASK_ID:\s*([A-Za-z0-9._-]+)", ti.get("prompt") or "")
+print(role or "-", m.group(1) if m else "-")' 2>/dev/null) || exit 0
+
+case "$role" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate) ;; *) exit 0 ;; esac
+# shellcheck source=/dev/null
+. "$HERE/_paths.sh"
+[ -d "$AGENTIC_HOME" ] || exit 0
+
+if [ "$tid" = "-" ]; then
+  echo "BLOCK[$GATE_NAME]: start the $role dispatch prompt with the line \`TASK_ID: <id>\` — its gates find the task contract through it." >&2
+  exit 2
+fi
+if [ ! -f "$AGENTIC_STATE/tasks/$tid.env" ]; then
+  echo "BLOCK[$GATE_NAME]: write the task contract before dispatching: $AGENTIC_STATE/tasks/$tid.env" >&2
+  echo "  (TASK_ID, ATTEMPT, AGENT_ROLE=$role, STORY_DIR, SCOPE_GLOBS, BASE_REF, BUDGET_* — see the skill's \"The task contract\")" >&2
+  exit 2
+fi
+exit 0

@@ -29,9 +29,12 @@ symbols="${SCAFFOLD_SYMBOLS:-}"
 if [ -z "$symbols" ]; then
   sf="$root/.agentic/scaffold-symbols"
   if [ -f "$sf" ]; then
-    symbols="$(grep -vE '^[[:space:]]*(#|$)' "$sf" | tr -s ' \t' '\n' | sort -u)"
+    # one symbol per line; anything after it on the line is a note ("Foo (enum) @ src/lib.rs")
+    symbols="$(grep -vE '^[[:space:]]*(#|$)' "$sf" | awk '{print $1}' | sort -u)"
   fi
 fi
+# keep only identifiers / paths (`Foo`, `crate::Foo`): punctuation is never a symbol
+symbols="$(printf '%s\n' $symbols | tr -d '`,' | grep -E '^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$' | sort -u)"
 [ -z "$symbols" ] && warn "no scaffold symbols resolved (set SCAFFOLD_SYMBOLS or write .agentic/scaffold-symbols); uniqueness check skipped"
 
 # 2) Each symbol defined exactly once across the tree.
