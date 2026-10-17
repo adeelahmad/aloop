@@ -174,7 +174,8 @@ def resolve_sprint_dir(cwd, arg=None):
 
 def sprint_facts(cwd, sdir, since, until):
     """Everything countable about one sprint, from files the harness owns."""
-    f = {"stories": 0, "tasks_planned": 0, "boxes": 0, "ticked": 0, "attempts": {}, "killed": [], "token_soft": [],
+    f = {"stories": 0, "tasks_planned": 0, "boxes": 0, "ticked": 0, "attempts": {}, "killed": [], "token_soft": [], "breaches": [], "near_hard_ok": 0, "ok_attempts": 0,
+         "blocked_tasks": set(),
          "attempt_tokens": 0, "gate_pass": {}, "gate_block": {}, "replans": 0, "kills_logged": 0,
          "first": None, "last": None}
     for story in sorted(glob.glob(os.path.join(sdir, "s[0-9]*-[0-9]*-*"))):
@@ -204,6 +205,12 @@ def sprint_facts(cwd, sdir, since, until):
             f["token_soft"].append("%s %s (%s, %s tokens, soft %s)" % (s.get("task") or "?", s["role"], s.get("attempt") or "?",
                                                                      fmt(s.get("tokens")), fmt(s["budget"].get("TOKENS_SOFT"))))
         if s.get("hook_killed") or s.get("killed"):
+            f["breaches"].append((s.get("task") or "?", (s.get("breach_class") or ["UNKNOWN"])[0]))
+        elif s.get("done") and s.get("tokens") is not None:
+            f["ok_attempts"] += 1
+            if s["tokens"] >= 0.8 * (s["budget"].get("TOKENS_HARD") or 1):
+                f["near_hard_ok"] += 1
+        if s.get("hook_killed") or s.get("killed"):
             f["killed"].append("%s %s (%s, %s tokens, %.1f min)" % (s.get("task") or "?", s["role"], s.get("attempt") or "?",
                                                                     fmt(s.get("tokens")), s.get("elapsed_min") or 0))
     for g in read_jsonl(os.path.join(_paths.home(cwd, "logs"), "gates.jsonl")):
@@ -213,6 +220,8 @@ def sprint_facts(cwd, sdir, since, until):
         if not mine:
             continue
         bucket = "gate_pass" if g.get("exit") == 0 else "gate_block"
+        if bucket == "gate_block" and g.get("task"):
+            f["blocked_tasks"].add(g["task"])
         f[bucket][g["gate"]] = f[bucket].get(g["gate"], 0) + 1
     try:
         for line in open(os.path.join(sdir, "execution.log")):
@@ -233,6 +242,43 @@ def sprint_facts(cwd, sdir, since, until):
     except OSError:
         f["rolled_over"], f["rollover"] = [], False
     return f
+
+
+CALIBRATION = {
+    "plan-smaller": "keep the budget and plan smaller",
+    "raise-time": "raise the time budget",
+    "raise-tokens": "raise the token budget",
+    "reduce-context": "reduce context",
+    "fix-environment": "fix the environment",
+}
+
+
+def calibration(f):
+    """ROADMAP §4.3 grace rule + calibration verdict, from harness facts only.
+    0–1 failed or hard-breached tasks → no nudge; 2+ → one verdict for the NEXT planning
+    cycle only (it is not carried further)."""
+    trouble = sorted(set(t for t, _ in f["breaches"]) | f["blocked_tasks"])
+    if len(trouble) < 2:
+        return trouble, None, ""
+    counts = {}
+    for _, c in f["breaches"]:
+        counts[c] = counts.get(c, 0) + 1
+    top = max(counts, key=counts.get) if counts else "UNKNOWN"
+    if top in ("TEST_SUITE_SLOW",):
+        v = "raise-time"
+    elif top in ("ENVIRONMENT_SLOW", "EXTERNAL_SERVICE", "HOST_FAILURE"):
+        v = "fix-environment"
+    elif top == "CONTEXT_PATHOLOGY":
+        v = "reduce-context"
+    elif top == "TASK_TOO_LARGE" and f["ok_attempts"] and f["near_hard_ok"] * 2 >= f["ok_attempts"]:
+        v = "raise-tokens"
+    else:
+        v = "plan-smaller"
+    why = "%d of %d tasks failed a gate or hit a hard limit; breach classes: %s; %d/%d passing attempts used >= 80%% of their token limit" % (
+        len(trouble), max(f["tasks_planned"], len(trouble)),
+        ", ".join("%s %d" % kv for kv in sorted(counts.items())) or "none (gate failures only)",
+        f["near_hard_ok"], f["ok_attempts"])
+    return trouble, v, why
 
 
 def section(text, title):
@@ -305,6 +351,15 @@ def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at)
         "- Full stats: `%s/stats.md` · execution log: `%s/execution.log`" % (rel, rel),
         "",
     ]
+    trouble, verdict, why = calibration(facts)
+    lines += ["## Planner feedback (for sprint %d's planning only)" % (n + 1)]
+    if verdict:
+        lines += ["**Plan smaller.** Calibration verdict: **%s** (`%s`)." % (CALIBRATION[verdict], verdict),
+                  "_Evidence: %s. Failure envelopes: `budget envelope <task>` for %s. A persistent budget"
+                  " change goes through the human (re-run the init skill) and is recorded in defaults.md._"
+                  % (why, ", ".join(trouble)), ""]
+    else:
+        lines += ["Grace rule: %d failed or hard-breached task(s) — no nudge." % len(trouble), ""]
     if facts["rollover"]:
         lines += ["## Rolled over: admission closed at the sprint token envelope",
                   "_Not a failure. These tasks were never started; plan them first next sprint "

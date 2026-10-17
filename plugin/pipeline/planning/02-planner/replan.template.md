@@ -21,6 +21,7 @@ contract, reorder, adjust commands, isolate the service). Do not retry them as-i
 ## Killed at hard limit (SPLIT these)
 - <SN-NN Tk> — <tokens used>/<tokens_hard> tokens, <minutes>/<time_hard> min, role <red|green>;
   breach class (harness): <CLASS> — <evidence>   (`budget classify <task>`);
+  failure envelope: `budget envelope <task>` (limit, observed, last gate, changed files, refs);
   last output.md block: <path>#<header>; transcript: .agentic/transcripts/<task>/
 
 ## Not started (may re-size if the split changes the dependency graph)

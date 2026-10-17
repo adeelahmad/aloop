@@ -36,6 +36,7 @@ Usage:
   budget admit TASK_ID                      before dispatch: 0 admit, 3 admission closed (sprint
                                             token envelope hard limit; task carried over)
   budget rollover-check SPRINT_DIR          gate-final: unticked boxes only for carried tasks
+  budget envelope TASK_ID                   the minimal failure envelope for the planner
 
 Tokens = the charge under TOKEN_METER (defaults.md, or BUDGET_TOKEN_METER in task.env):
   fresh   (default) every uncached input token + every output token so far
@@ -797,6 +798,53 @@ def rollover_check(sdir):
     return 2 if bad else 0
 
 
+def envelope(cwd, task):
+    """ROADMAP §4.3: the MINIMAL failure envelope the planner gets for a task — facts and
+    references only. Deeper evidence (transcript, diff) is read on demand, never inlined."""
+    atts = [s for _, s in all_states(cwd) if s.get("task") == task and not s.get("observe")]
+    if not atts:
+        print("budget envelope: no tracked attempt for %s" % task, file=sys.stderr)
+        return 1
+    s = max(atts, key=lambda a: a.get("start") or 0)
+    b = s.get("budget") or {}
+    tok_hit = s.get("tokens") is not None and s["tokens"] >= (b.get("TOKENS_HARD") or 1)
+    limit = ("token_hard" if tok_hit else "time_hard") if s.get("hard") else ("token_soft" if s.get("token_soft_limit") else "none")
+    gate = "none"
+    for g in _usage_jsonl(os.path.join(_paths.home(cwd, "logs"), "gates.jsonl")):
+        if g.get("task") == task and not g.get("selfcheck"):
+            gate = "%s %s" % (g.get("gate"), "pass" if g.get("exit") == 0 else "block")
+    wt = s.get("worktree") or ""
+    changed = sh("git", "-C", wt, "diff", "--name-only", "HEAD").split() if wt and os.path.isdir(wt) else []
+    cls = s.get("breach_class") or (classify(s) if s.get("hard") else ["-", ""])
+    print("\n".join([
+        "task: %s" % task, "attempt: %s" % (s.get("attempt") or "?"), "role: %s" % s["role"],
+        "limit: %s" % limit,
+        "observed: %s tokens (%s meter) of %s, %.1f of %s min" % (fmt_k(s.get("tokens")), b.get("TOKEN_METER", "context"),
+                                                                fmt_k(b.get("TOKENS_HARD")), s.get("elapsed_min") or 0, b.get("TIME_HARD_MIN")),
+        "breach_class: %s%s" % (cls[0], " — " + cls[1] if cls[1] else ""),
+        "last_gate: %s" % gate,
+        "changed: %s" % (", ".join(changed[:12]) + (" …" if len(changed) > 12 else "") if changed else "none in worktree"),
+        "refs:",
+        "  transcript: %s" % (s.get("transcript") or "?"),
+        "  events: .agentic/logs/events.jsonl (task=%s)" % task,
+        "  output: %s" % (os.path.join(s["story_dir"], "output.md") if s.get("story_dir") else "?"),
+        "  diff: git -C %s diff HEAD" % (wt or "?"),
+    ]))
+    return 0
+
+
+def _usage_jsonl(path):
+    try:
+        with open(path) as f:
+            for line in f:
+                try:
+                    yield json.loads(line)
+                except ValueError:
+                    continue
+    except OSError:
+        return
+
+
 def split_parent(root, story, tn):
     """`split_from: T3` under `## T5 — ...` in the story's tasks.md -> "T3"."""
     for tf in glob.glob(os.path.join(root, "docs", "agents", "sprint*", story.lower() + "-*", "tasks.md")):
@@ -874,6 +922,8 @@ def main(argv):
         return mark_killed(cwd, opts.get("_") or [])
     if cmd == "replans":
         return replans(cwd, (opts.get("_") or [""])[0])
+    if cmd == "envelope":
+        return envelope(cwd, (opts.get("_") or [""])[0])
     if cmd == "admit":
         return admit(cwd, (opts.get("_") or [""])[0])
     if cmd == "rollover-check":

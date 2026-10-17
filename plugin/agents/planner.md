@@ -40,6 +40,18 @@ limit: a handful of tests, one or two files, one behaviour. When in doubt, split
 A task that genuinely needs more may carry ONE override line under its heading in
 tasks.md — `budget: tokens_hard=<n> time_hard=<n>m` — use it sparingly and say why.
 
+## Feedback from the last sprint (read it, once)
+`docs/agents/NEXT.md` carries a **Planner feedback** section written by the harness. It
+applies to THIS planning cycle only:
+- "Grace rule: … no nudge" → plan as usual.
+- "Plan smaller" with a calibration verdict → follow the verdict (`plan-smaller`: smaller
+  tasks at the same budget; `raise-time` / `raise-tokens` / `reduce-context` /
+  `fix-environment`: propose that change to the human — a persistent budget change goes
+  through the init skill, never silently into tasks.md).
+For any listed task, `budget envelope <task>` prints the minimal failure envelope (limit,
+observed value, breach class, last gate, changed files, references). Read deeper evidence
+(transcript, diff) only when the envelope is not enough.
+
 ## Re-plan mode (mid-sprint split — dispatched with `mode: replan`)
 When the supervisor dispatches you with `mode: replan`, the sprint is PAUSED because
 one or more tasks hit their hard budget. Your init block lists which tasks are DONE

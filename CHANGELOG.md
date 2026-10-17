@@ -56,6 +56,13 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   `sprintN/rollover.md` with the reason, gate-final accepts unticked boxes only for those
   tasks (`budget rollover-check`), and NEXT.md lists them for the next planning cycle.
   Events: `sprint.token_soft_limit`, `sprint.admission_closed`, `sprint.rolled_over`.
+- **Planning feedback lifecycle** (ROADMAP §4.3). `budget envelope <task>` prints the
+  minimal failure envelope: limit, observed value, breach class, last gate, changed files
+  and references, with nothing inlined. NEXT.md gains a "Planner feedback" section that
+  applies the grace rule (0–1 failed or hard-breached tasks → no nudge; 2+ → one "plan
+  smaller" nudge for the next cycle only) with a calibration verdict derived from the
+  breach classes (`plan-smaller`, `raise-time`, `raise-tokens`, `reduce-context`,
+  `fix-environment`).
 
 ## [0.10.1] - 2026-09-23
 
