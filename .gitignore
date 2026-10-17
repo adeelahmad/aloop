@@ -7,3 +7,4 @@ target/
 eval-workspace/
 # release bundles built by `make package`
 package/
+__pycache__/

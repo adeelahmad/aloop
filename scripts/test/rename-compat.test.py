@@ -17,7 +17,8 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 PLUGIN = os.path.join(ROOT, "plugin")
 BIN = os.path.join(PLUGIN, "bin")
 T = tempfile.mkdtemp(prefix="aloop-rename-")
-ENV = dict(os.environ, HOME=os.path.join(T, "home"), CLAUDE_PLUGIN_DATA=os.path.join(T, "pdata"))
+ENV = dict(os.environ, HOME=os.path.join(T, "home"), CLAUDE_PLUGIN_DATA=os.path.join(T, "pdata"),
+           PYTHONDONTWRITEBYTECODE="1")
 n = 0
 
 
