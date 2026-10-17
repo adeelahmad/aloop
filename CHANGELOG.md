@@ -81,6 +81,13 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
   mode is explicit (`events authority --mode autonomous`) and skips approval unless an
   escalation class is hit.
+- **Host capability matrix and the context-boundary rule** (ROADMAP §4.4, §4.9).
+  `plugin/hosts/capabilities.json` + `bin/capabilities` state what each host advertises
+  (`unknown` counts as not advertised). At a sprint boundary the harness rotates (the host's
+  own `/clear` or `/new`, named in the sprint-close message) unless
+  `AGENTIC_CONTEXT_BOUNDARY=compact` and the host advertises compaction; keeping a session
+  needs a recorded reason. SessionStart records `context.rotated` / `context.compacted`,
+  and stats.md counts them.
 - **Usage accuracy is explicit** (ROADMAP §4.9, conformance 12). Each attempt's usage
   carries `accuracy: exact` and names any class the host never reports (Codex has no cache
   write) instead of a silent zero; stats.md shows it in the Metrics table.

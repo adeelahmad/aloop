@@ -65,6 +65,7 @@ with open(os.path.join(logs, "events.jsonl"), "w") as f:
                      ("semantic_target.resolved", {"change_ref": "C1"}), ("semantic_target.resolved", {"change_ref": "C2"})):
         f.write(json.dumps({"event": ev, "ids": {"sprint": "S1", "task": "S1-01-T1"}, "data": data}) + "\n")
     f.write(json.dumps({"event": "commit.created", "ids": {"sprint": "S2"}, "data": {"sha": "0" * 40}}) + "\n")
+    f.write(json.dumps({"event": "context.rotated", "ts": "2026-10-17T01:00:00Z", "ids": {}, "data": {}}) + "\n")
 
 sh(os.path.join(BIN, "stats"), "sprint-close")
 st = open(os.path.join(sprint, "stats.md")).read()
@@ -89,6 +90,7 @@ ok("cache-hit ratio, churn and context peak from the usage classes")
 
 assert row("Commits produced / test files added").endswith("| 1 / 1 |"), row("Commits produced")
 assert row("Time soft limits reached").endswith("| 1 |") and row("Semantic context served").endswith("| 2 |")
+assert row("Context rotations / compactions").endswith("| 1 / 0 |"), row("Context rotations")
 assert row("Usage accuracy").endswith("| exact (read from host logs) |"), row("Usage accuracy")
 ok("commits produced, test files added, time soft limits and semantic context served, from the event stream")
 

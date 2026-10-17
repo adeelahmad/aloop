@@ -134,7 +134,7 @@ These parts already exist but their semantics must change:
 
 ### 4.4 Context boundary: completing the model
 
-- ✅ *Done (Unreleased): `handoff.json` + resume rule (`stats resume-check`, SessionStart). Test: `scripts/test/handoff-resume.test.py`. Compaction detection is still open (it needs the host capability matrix, §4.9).*
+- ✅ *Done (Unreleased): `handoff.json` + resume rule (`stats resume-check`, SessionStart). Test: `scripts/test/handoff-resume.test.py`. Compaction detection and the rotation rule are done too (`bin/capabilities`, SessionStart events; test: `scripts/test/context-boundary.test.py`).*
 - A **canonical sprint handoff** built from accepted state. It records completed refs, accepted commits, open and carried work, invariants, the semantic targets needed next, decision and evidence refs, and the transient nudge. It references evidence and never inlines transcripts. `NEXT.md` becomes a rendered view of it.
 - **Compaction detection:** use explicit host compaction only when the adapter advertises it. Otherwise rotate to a fresh session, which is the correctness path. Keeping a session open across a boundary needs a recorded reason.
 - **Resume rule:** resume from git, artifacts, lineage, gate evidence and the handoff, never from "the agent said done". If evidence is missing, re-run the gate.
@@ -217,7 +217,7 @@ Results carry source refs and are attached to planning provenance. An unavailabl
 
 ### 4.10 Metrics
 
-✅ *Mostly done (Unreleased): the stats.md Metrics table. Test: `scripts/test/metrics.test.py`. Commits, test files added, time soft limits and semantic context served now come from the event stream. Still open: rotations/compactions and context-window share (they need the host capability matrix, §4.9).*
+✅ *Mostly done (Unreleased): the stats.md Metrics table. Test: `scripts/test/metrics.test.py`. Commits, test files added, time soft limits and semantic context served now come from the event stream. Rotations/compactions are counted from SessionStart events. Still open: context-window share (needs each model's window size).*
 
 The run report should add:
 - time soft preemptions;

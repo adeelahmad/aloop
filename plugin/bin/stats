@@ -248,7 +248,7 @@ def sprint_facts(cwd, sdir, since, until):
                 f["kills_logged"] += 1
     except OSError:
         pass
-    events_facts(cwd, sdir, f)
+    events_facts(cwd, sdir, f, since, until)
     try:
         f["rolled_over"] = re.findall(r"(?m)^- (S\d+-\d+-T\d+)\b", open(os.path.join(sdir, "rollover.md")).read())
         f["rollover"] = True
@@ -260,17 +260,20 @@ def sprint_facts(cwd, sdir, since, until):
 TEST_FILE = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*$|_test\.[a-z]+$|\.(test|spec)\.[a-z]+$")
 
 
-def events_facts(cwd, sdir, f):
+def events_facts(cwd, sdir, f, since="", until=""):
     """From the event stream: commits produced, tests added, time soft limits, semantic context served."""
     m = re.search(r"sprint(\d+)$", os.path.basename(os.path.abspath(sdir)))
     sp = "S%s" % m.group(1) if m else None
-    f.update(commits=[], tests_added=0, time_soft=0, semantic_served=0)
+    f.update(commits=[], tests_added=0, time_soft=0, semantic_served=0, rotated=0, compacted=0)
     try:
         import _events
         evs = list(_events.read(cwd))
     except Exception:  # noqa: BLE001 — telemetry never fails the report
         evs = []
     for e in evs:
+        if e.get("event") in ("context.rotated", "context.compacted") and since < (e.get("ts") or "") <= (until or "~"):
+            f["rotated" if e["event"] == "context.rotated" else "compacted"] += 1
+            continue
         if sp is None or (e.get("ids") or {}).get("sprint") != sp:
             continue
         ev = e.get("event")
@@ -338,6 +341,7 @@ def metrics(f):
         ("Commits produced / test files added", "%d / %d" % (len(f["commits"]), f["tests_added"])),
         ("Time soft limits reached", "%d" % f["time_soft"]),
         ("Usage accuracy", usage_accuracy(rows)),
+        ("Context rotations / compactions (this sprint)", "%d / %d" % (f["rotated"], f["compacted"])),
         ("Semantic context served (targets resolved instead of repo scans)", "%d" % f["semantic_served"]),
         ("Admission closures / tasks rolled over", "%d / %d" % (1 if f["rollover"] else 0, len(f["rolled_over"]))),
     ]
@@ -625,12 +629,20 @@ def hook():
         return 0
     summary = open(marker).read().strip()
     os.remove(marker)                               # announce exactly once
+    host = _usage.host_of(payload)
+    try:  # the boundary rule (ROADMAP §4.4): rotate unless the host advertises compaction
+        how = subprocess.run([os.path.join(os.path.dirname(os.path.realpath(__file__)), "capabilities"), "boundary", host],
+                             cwd=cwd, capture_output=True, text=True, timeout=20).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        how = ""
+    how = how or "rotate: start a fresh session with /clear"
     print(json.dumps({
         "systemMessage": "agentic-agile: " + summary,
         "decision": "block",
         "reason": ("[agentic-agile harness] " + summary + " The sprint is finished. Report these totals to the "
-                   "human, then tell them: run /clear — docs/agents/NEXT.md (the handoff) is loaded "
-                   "automatically into the fresh context. Do not start the next sprint in this context."),
+                   "human, then tell them the sprint boundary (%s) — docs/agents/NEXT.md (the handoff) "
+                   "is loaded automatically into the fresh context. Do not start the next sprint in this "
+                   "context." % how),
     }))
     return 0
 
