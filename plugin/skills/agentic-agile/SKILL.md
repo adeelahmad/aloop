@@ -433,6 +433,13 @@ call, SubagentStop) measures the worker from its own transcript and
   No model decides the kill, and no model tokens are spent after it. It also writes
   `.agentic/budget-exceeded`, so the worker's SubagentStop gate releases it *unverified*.
 
+Every **other** model role (intake, standards, planner, archivist, structural-reviewer,
+final-gate) is metered too, against its own profile (planning roles 300k/600k tokens,
+30/60 min; reviewers and final-gate 150k/250k, 20/30 min; override with
+`AGENTIC_BUDGET_<ROLE>="tokens_hard=… time_hard=…"` in defaults.md). These are
+**observe-only**: crossings are recorded as events for the next planning cycle, and the
+agent is never told, stopped or killed by `budget watch`.
+
 ## The feedback loop (exactly)
 
 For each task attempt:

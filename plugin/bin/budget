@@ -55,6 +55,15 @@ import _usage  # noqa: E402  (token usage from any host's session log)
 
 BUDGET_KEYS = ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS")
 WORKERS = ("red-worker", "scaffolder", "green-worker")
+# Every other model role is METERED too (ROADMAP §3.3), against its own limit profile.
+# Observe-only: crossings are recorded as events, the agent is never told or stopped
+# (a planner runs with the human present; its overruns feed the next planning cycle).
+# Override per project in defaults.md:  AGENTIC_BUDGET_PLANNER="tokens_hard=800000 time_hard=90"
+ROLE_PROFILES = {
+    "intake": (300000, 600000, 30, 60), "standards": (300000, 600000, 30, 60),
+    "planner": (300000, 600000, 30, 60), "archivist": (300000, 600000, 30, 60),
+    "structural-reviewer": (150000, 250000, 20, 30), "final-gate": (150000, 250000, 20, 30),
+}
 GRACE_DENIALS = 3          # at the hard limit: denied calls before one is let through to be stopped
 TASK_BUDGET = re.compile(r"^\s*budget:\s*(.+)$", re.I)
 
@@ -318,14 +327,76 @@ def harness_report(st, left, cls):
         pass
 
 
+def role_profile(cwd, role):
+    b = dict(zip(("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN"), ROLE_PROFILES[role]))
+    src = "built-in %s profile" % role
+    key = "AGENTIC_BUDGET_" + role.upper().replace("-", "_")
+    try:
+        for line in open(_paths.defaults_file(cwd)):
+            m = re.match(r"^\s*(?:export\s+)?%s\s*=\s*['\"]?([^'\"#\n]*)" % key, line)
+            if m:
+                for k, v in re.findall(r"(tokens_soft|tokens_hard|time_soft|time_hard)\s*=\s*(\d+)", m.group(1)):
+                    b[k.upper() + ("_MIN" if k.startswith("time") else "")] = int(v)
+                src = "defaults.md %s" % key
+    except OSError:
+        pass
+    b["TOKENS_SOFT"] = min(b["TOKENS_SOFT"], b["TOKENS_HARD"])
+    b["TIME_SOFT_MIN"] = min(b["TIME_SOFT_MIN"], b["TIME_HARD_MIN"])
+    b["TOKEN_METER"] = _paths.settings(cwd).get("TOKEN_METER") or "fresh"
+    return b, src
+
+
+def observe(mode, payload, agent_id, role):
+    """Meter a non-worker role: record soft/hard crossings, never emit anything."""
+    cwd = payload.get("cwd") or os.getcwd()
+    spath = os.path.join(state_dir(cwd), "%s.json" % safe(agent_id))
+    st = load_state(spath)
+    now = time.time()
+    if st is None:
+        b, src = role_profile(cwd, role)
+        st = {"agent_id": agent_id, "role": role, "task": "", "attempt": "", "story_dir": "", "start": now,
+              "budget": b, "budget_source": src, "observe": True, "found_by": "role profile",
+              "soft_warned": False, "final_warned": False, "hard": False, "done": None}
+    if mode == "stop":
+        st["done"] = now
+        save_state(spath, st)
+        return
+    st["done"] = None
+    b = st["budget"]
+    tp = transcript_for(payload, agent_id)
+    if tp:
+        st["transcript"] = tp
+    toks, cls = tokens_used(st.get("transcript"), b.get("TOKEN_METER", "fresh"))
+    if toks is not None:
+        st["tokens"], st["usage"] = toks, cls
+    toks = st.get("tokens")
+    mins = (now - st["start"]) / 60.0
+    st["elapsed_min"] = round(mins, 2)
+    extra = {"tokens": toks, "elapsed_min": round(mins, 2), "observe": True}
+    if toks is not None and toks >= b["TOKENS_SOFT"] and not st.get("token_soft_limit"):
+        st["token_soft_limit"] = now
+        log_event(cwd, "task.token_soft_limit", st, tokens_soft=b["TOKENS_SOFT"], **extra)
+    if mins >= b["TIME_SOFT_MIN"] and not st.get("time_soft_limit"):
+        st["time_soft_limit"] = now
+        log_event(cwd, "task.time_soft_limit", st, time_soft_min=b["TIME_SOFT_MIN"], **extra)
+    over_tok = toks is not None and toks >= b["TOKENS_HARD"]
+    if (over_tok or mins >= b["TIME_HARD_MIN"]) and not st["hard"]:
+        st["hard"] = now
+        log_event(cwd, "task.token_hard_limit" if over_tok else "task.time_hard_timeout", st, **extra)
+    save_state(spath, st)
+
+
 def hook(mode):
     if os.environ.get("SKIP_HOOKS") == "1" or os.environ.get("AGENTIC_NO_BUDGET") == "1":
         return
     raw = sys.stdin.read()
-    if not any(w in raw for w in WORKERS):          # cheap exit for every non-worker call
+    if not any(w in raw for w in WORKERS + tuple(ROLE_PROFILES)):   # cheap exit: no model role
         return
     payload = json.loads(raw)
     agent_id, agent_type = payload.get("agent_id") or "", payload.get("agent_type") or ""
+    other = next((r for r in ROLE_PROFILES if agent_type == r or agent_type.endswith(":" + r)), None)
+    if agent_id and other:
+        return observe(mode, payload, agent_id, other)
     role = next((w for w in WORKERS if agent_type == w or agent_type.endswith(":" + w)), None)
     if not agent_id or not role:
         return
@@ -498,7 +569,7 @@ def watch(cwd, interval, grace):
         now = time.time()
         stopped, kill = [], []
         states = all_states(cwd)
-        running = [(p, s) for p, s in states if not s.get("done")]
+        running = [(p, s) for p, s in states if not s.get("done") and not s.get("observe")]
         for p, s in states:
             if s.get("hook_killed") and not s.get("reported"):
                 s["reported"] = now
@@ -550,7 +621,7 @@ def status(cwd):
     for _, s in rows:
         refresh(s)
         b = s["budget"]
-        state = "killed" if s.get("killed") else "done" if s.get("done") else ("HARD" if s.get("hard") else ("soft" if s.get("soft_warned") else ("soft-tok" if s.get("token_soft_limit") else "ok")))
+        state = "observe" if s.get("observe") and not s.get("hard") else "obs-HARD" if s.get("observe") else "killed" if s.get("killed") else "done" if s.get("done") else ("HARD" if s.get("hard") else ("soft" if s.get("soft_warned") else ("soft-tok" if s.get("token_soft_limit") else "ok")))
         print("%-22s %-13s %-14s %-4s %-16s %-14s %-7s %s" % (
             s["agent_id"][:22], s["role"], (s.get("task") or "?")[:14], s.get("attempt") or "?",
             "%s/%s %s" % (fmt_k(s.get("tokens")), fmt_k(b["TOKENS_HARD"]), b.get("TOKEN_METER", "context")[0]),

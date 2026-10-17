@@ -38,6 +38,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   call's, never cumulative cache traffic. `TOKEN_METER=context` in defaults.md (or
   `BUDGET_TOKEN_METER=context` in a task.env) keeps the previous context + output charge;
   `budget resolve` / `status` show the meter in force.
+- **Budgets cover every model role** (ROADMAP §3.3). Intake, standards, planner,
+  archivist, structural-reviewer and final-gate are metered against per-role profiles
+  (overridable with `AGENTIC_BUDGET_<ROLE>` in defaults.md). They are observe-only:
+  crossings are recorded as events, and the agent is never told or stopped.
 
 ## [0.10.1] - 2026-09-23
 
