@@ -72,4 +72,23 @@ r = run(".agentic/scaffold-symbols", agent_type="aloop:red-worker")
 assert r.returncode == 0, r
 ok("a sub-agent may still write its own .agentic/ files (scaffold-symbols)")
 
+
+
+def bash(cmd, agent_type="aloop:green-worker"):
+    p = {"session_id": "s-main", "cwd": T, "tool_name": "Bash", "tool_input": {"command": cmd}, "agent_type": agent_type}
+    return subprocess.run([GATE], input=json.dumps(p), cwd=T, env=ENV, capture_output=True, text=True)
+
+
+for cmd in ("echo SCOPE_GLOBS=* >> .agentic/task.env",
+            "sed -i 's/BUDGET_TOKENS_HARD=.*/BUDGET_TOKENS_HARD=9999999/' /repo/.agentic/state/tasks/S1-01-T1.env",
+            "cp /tmp/x .agentic/state/tasks/S1-01-T1.env",
+            "printf 'x' | tee .agentic/task.env"):
+    r = bash(cmd)
+    assert r.returncode == 2 and "task contract" in r.stderr, (cmd, r)
+ok("a sub-agent may not rewrite the task contract through Bash")
+for cmd in ("cat .agentic/task.env", "grep SCOPE .agentic/state/tasks/S1-01-T1.env", "cargo test > out.txt"):
+    r = bash(cmd)
+    assert r.returncode == 0, (cmd, r)
+ok("a sub-agent may still read the contract and redirect other output")
+
 print("\n%d checks passed" % n)

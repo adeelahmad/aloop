@@ -55,6 +55,20 @@ for a, b in re.findall(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move 
   exit $?
 fi
 
+# A dispatched agent's Bash may READ the task contract but not rewrite it (redirect, tee,
+# sed -i, cp/mv/rm/...). Heuristic: the command names the contract AND has a write verb.
+if [ "$tool" = "Bash" ]; then
+  [ -n "$(field agent_type)" ] || exit 0
+  cmd="$(printf '%s' "$payload" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("tool_input") or {}).get("command") or "")' 2>/dev/null)"
+  printf '%s' "$cmd" | grep -qE '\.agentic/(state/|task\.env)' || exit 0
+  if printf '%s' "$cmd" | grep -qE '>[^&]*\.agentic/(state/|task\.env)|(^|[^[:alnum:]_-])(tee|sed[[:space:]]+-i|perl[[:space:]]+-[a-z]*i|cp|mv|rm|ln|install|truncate|dd|touch|chmod)([[:space:]]|$)'; then
+    echo "BLOCK[$GATE_NAME]: this command rewrites the supervisor's task contract/state (.agentic/state/ or .agentic/task.env); a dispatched agent may only read it." >&2
+    echo "  Your task contract is fixed at dispatch. If it is wrong, say so in your output.md report." >&2
+    exit 2
+  fi
+  exit 0
+fi
+
 # Only guard file-mutating tools that carry a path.
 case "$tool" in Write|Edit|MultiEdit|NotebookEdit) ;; *) exit 0 ;; esac
 [ -n "$file" ] || exit 0

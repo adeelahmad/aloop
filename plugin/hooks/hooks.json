@@ -6,7 +6,7 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/session-start\"", "timeout": 15 } ] }
     ],
     "PreToolUse": [
-      { "matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": [
+      { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-supervisor-scope\"" } ] },
       { "matcher": "Bash", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-commit-author\"", "timeout": 15 } ] },

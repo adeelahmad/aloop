@@ -72,6 +72,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   with the contract blocks the gate, and `gate-supervisor-scope` stops sub-agents writing
   `.agentic/state/` or `.agentic/task.env`. 4 conformance cases (30 in all) and 4 unit
   checks failed before.
+- **Workers could rewrite the contract through Bash.** `gate-supervisor-scope` now also
+  sees a sub-agent's Bash calls and blocks a command that names `.agentic/state/` or
+  `.agentic/task.env` together with a write (redirect, `tee`, `sed -i`, `cp`, `mv`, …);
+  reading it stays allowed. 2 checks failed before.
 
 ### Fixed
 - **A Claude Code worker could get another task's budget.** With no `task.env` in its own
