@@ -37,6 +37,9 @@ hard; 150k / 20 min soft — see `docs/agents/defaults.md`). A worker still runn
 the hard limit is STOPPED by the hook and the task comes back to you to split — never retried.
 So size each task so one worker can do its RED or its GREEN well inside the soft
 limit: a handful of tests, one or two files, one behaviour. When in doubt, split.
+If defaults.md sets `AGENTIC_TIME_MODE=auto`, propose ONE stable task duration for the
+project (with a min and a max) to the supervisor, who records it with `timebox propose`;
+ask for a revision only with evidence (a stats.md, an event id).
 A task that genuinely needs more may carry ONE override line under its heading in
 tasks.md — `budget: tokens_hard=<n> time_hard=<n>m` — use it sparingly and say why.
 
