@@ -115,14 +115,25 @@ pub fn count_symbol(root: &Path, symbol: &str) -> Result<Vec<(PathBuf, usize)>> 
 pub fn detect_all(root: &Path) -> Result<Vec<Finding>> {
     let index = index_tree(root)?;
     let mut out = Vec::new();
-    out.extend(detect_duplicate_definitions(&index));
+    out.extend(detect_duplicate_definitions(root, &index));
     out.extend(detect_duplicate_bodies(root, &index)?);
     out.extend(detect_orphans(root, &index)?);
     out.sort_by_key(|f| if f.severity() == Severity::High { 0 } else { 1 });
     Ok(out)
 }
 
-fn detect_duplicate_definitions(index: &[(PathBuf, String, SymbolDef)]) -> Vec<Finding> {
+/// A file under a `tests/` directory: in Rust each such file is its own integration-test crate.
+fn in_test_crate(root: &Path, file: &Path) -> bool {
+    file.strip_prefix(root)
+        .unwrap_or(file)
+        .components()
+        .any(|c| c.as_os_str() == "tests")
+}
+
+fn detect_duplicate_definitions(
+    root: &Path,
+    index: &[(PathBuf, String, SymbolDef)],
+) -> Vec<Finding> {
     let mut by_name: BTreeMap<String, Vec<(PathBuf, usize)>> = BTreeMap::new();
     for (file, _src, sym) in index {
         by_name
@@ -133,6 +144,13 @@ fn detect_duplicate_definitions(index: &[(PathBuf, String, SymbolDef)]) -> Vec<F
     by_name
         .into_iter()
         .filter(|(_, locs)| locs.len() >= 2)
+        // the same name once per integration-test file is one per crate: no collision
+        .filter(|(_, locs)| {
+            let mut files: Vec<&PathBuf> = locs.iter().map(|(f, _)| f).collect();
+            files.sort();
+            files.dedup();
+            !(files.len() == locs.len() && files.iter().all(|f| in_test_crate(root, f)))
+        })
         .map(|(name, mut locations)| {
             locations.sort();
             Finding::DuplicateDefinition { name, locations }
@@ -266,6 +284,36 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "a.rs", "pub fn dup() {}\n");
         write(dir.path(), "b.rs", "pub fn dup() {}\n");
+        let findings = detect_all(dir.path()).unwrap();
+        assert!(findings
+            .iter()
+            .any(|f| matches!(f, Finding::DuplicateDefinition { .. })
+                && f.severity() == Severity::High));
+    }
+
+    #[test]
+    fn same_name_in_separate_integration_test_crates_is_not_a_duplicate() {
+        // Each tests/*.rs is its own crate: `mod common;` and a local helper in two of them
+        // cannot collide (live e2e run 8 halted the chain 57 times on exactly this).
+        let dir = tempfile::tempdir().unwrap();
+        let t = "mod common;\nfn map() -> u32 { 1 }\n#[test]\nfn t() { assert_eq!(map(), 1); }\n";
+        write(dir.path(), "tests/count.rs", t);
+        write(dir.path(), "tests/top.rs", t);
+        write(dir.path(), "tests/common/mod.rs", "pub fn shared() {}\n");
+        let findings = detect_all(dir.path()).unwrap();
+        assert!(
+            !findings
+                .iter()
+                .any(|f| matches!(f, Finding::DuplicateDefinition { .. })),
+            "{findings:?}"
+        );
+    }
+
+    #[test]
+    fn a_test_crate_redefining_a_source_symbol_is_still_high() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "src/lib.rs", "pub fn top_n() {}\n");
+        write(dir.path(), "tests/top.rs", "fn top_n() {}\n");
         let findings = detect_all(dir.path()).unwrap();
         assert!(findings
             .iter()

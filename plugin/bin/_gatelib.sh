@@ -284,8 +284,13 @@ changed_paths() {
 
 # True if $1 matches any space-separated glob in $2.
 path_matches_any() {
-  local path="$1" globs="$2" g
-  for g in $globs; do
+  # Split on whitespace WITHOUT pathname expansion: `tests/**` must stay a pattern, not
+  # become the files that happen to exist in the cwd (live e2e run 8).
+  local path="$1" g
+  local -a globs
+  read -r -a globs <<<"$2"
+  for g in "${globs[@]}"; do
+    # shellcheck disable=SC2254  # $g is a glob pattern on purpose
     case "$path" in $g) return 0;; esac
   done
   return 1
