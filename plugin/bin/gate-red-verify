@@ -36,7 +36,7 @@ fi
 while IFS= read -r p; do
   [ -z "$p" ] && continue
   path_matches_any "$p" "$TEST_GLOBS" \
-    || fail "RED diff touches a non-test path: $p (allowed: $TEST_GLOBS)"
+    || fail "RED diff touches a non-test path: $p (allowed: $TEST_GLOBS). RED writes tests only: put shims in tests/common/mod.rs (marked // agentic:shim), then undo the change and commit: git checkout ${BASE_REF:-<base>} -- '$p' (a new file: git rm '$p'), then git commit -am 'RED: tests only'"
 done < <(changed_paths)
 
 # 3b) Format: RED's files must pass the matrix's format check (GREEN may not reformat them).

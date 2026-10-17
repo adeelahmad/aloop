@@ -278,6 +278,25 @@ wt = green()
 os.remove(os.path.join(wt, ".agentic", "task.env"))
 case(6, "a comma-separated SCOPE_GLOBS and a mistyped contract role don't block good work", "gate-green-verify", wt, 0,
      agent_type="aloop:green-worker", transcript=TRANSCRIPT)
+# Claude Code's worktree is .claude/worktrees/agent-<agent_id>. A worker that `cd`s back to
+# the main tree (to read its story) leaves the hook's cwd there; the gate must still check the
+# worktree the host made for that agent (live e2e run 5: 27 false "isolation dropped" blocks).
+cc = os.path.join(MAIN, ".claude", "worktrees", "agent-a1")
+sh("git", "worktree", "add", "-q", "-b", "worktree-agent-a1", cc)
+write(os.path.join(cc, "src", "lib.rs"), GREEN_LIB)
+write(os.path.join(cc, "tests", "sub.rs"), GREEN_TEST)
+commit(cc, "green in the host worktree")
+write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS='src/*.rs'\n" % STORY)
+report("green-worker", [("tests/sub.rs::sub_works", "PASS")])
+env = {k: v for k, v in ENV.items() if k != "REPO_DIR"}
+env["STANDARDS_FILE"] = os.path.join(MAIN, "standards.md")
+r = subprocess.run([os.path.join(BIN, "gate-green-verify")], cwd=MAIN, env=env, capture_output=True, text=True,
+                   input=json.dumps({"hook_event_name": "SubagentStop", "session_id": "s1", "agent_id": "a1",
+                                     "agent_type": "aloop:green-worker", "agent_transcript_path": TRANSCRIPT, "cwd": MAIN}))
+blocks = [l for l in r.stderr.splitlines() if l.startswith("BLOCK[")]
+results.append((7, "a worker whose last cwd is the main tree is gated in its host worktree", r.returncode == 0,
+                "exit %d %s" % (r.returncode, (blocks or [""])[0][:140])))
+sh("git", "worktree", "remove", "--force", cc)
 os.remove(CONTRACT)
 
 # §6.8 An accepted GREEN is mergeable

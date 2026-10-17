@@ -86,7 +86,10 @@ for cmd in ("echo SCOPE_GLOBS=* >> .agentic/task.env",
     r = bash(cmd)
     assert r.returncode == 2 and "task contract" in r.stderr, (cmd, r)
 ok("a sub-agent may not rewrite the task contract through Bash")
-for cmd in ("cat .agentic/task.env", "grep SCOPE .agentic/state/tasks/S1-01-T1.env", "cargo test > out.txt"):
+for cmd in ("cat .agentic/task.env", "grep SCOPE .agentic/state/tasks/S1-01-T1.env", "cargo test > out.txt",
+            # live e2e run 5: a read-only probe was blocked (a redirect elsewhere + a contract path later)
+            "cat .agentic/state/agents/*.json 2>/dev/null | head -40; echo ---; ls -la .agentic/task.env 2>&1",
+            "rm -rf target; cat .agentic/task.env"):
     r = bash(cmd)
     assert r.returncode == 0, (cmd, r)
 ok("a sub-agent may still read the contract and redirect other output")

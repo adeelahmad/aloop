@@ -69,9 +69,15 @@ _gate_enter_bound_worktree() {
   local payload="$GATE_PAYLOAD" aid reg wt
   aid="$(printf '%s' "$payload" | sed -nE 's/.*"agent_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
   [ -n "$aid" ] || return 0
-  reg="$AGENTIC_STATE/agents/$(printf '%s' "$aid" | tr -c 'A-Za-z0-9_.-' '_').json"
-  [ -f "$reg" ] || return 0
-  wt="$(sed -nE 's/.*"worktree"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$reg" | head -1)"
+  # Claude Code's `isolation: "worktree"` makes <main>/.claude/worktrees/agent-<agent_id>: the
+  # host's own record, so it wins. The agent may have cd'd back to the main tree (to read its
+  # story), so its cwd can't decide. Else a Codex/OpenCode `aloop bind` registration.
+  wt="$AGENTIC_PROJECT/.claude/worktrees/agent-$(printf '%s' "$aid" | tr -c 'A-Za-z0-9_.-' '_')"
+  if [ ! -e "$wt/.git" ]; then
+    reg="$AGENTIC_STATE/agents/$(printf '%s' "$aid" | tr -c 'A-Za-z0-9_.-' '_').json"
+    [ -f "$reg" ] || return 0
+    wt="$(sed -nE 's/.*"worktree"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$reg" | head -1)"
+  fi
   if [ -n "$wt" ] && [ -d "$wt" ]; then export REPO_DIR="$wt"; cd "$wt" || return 0; fi
 }
 _gate_enter_bound_worktree

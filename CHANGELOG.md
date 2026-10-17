@@ -100,6 +100,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - **GREEN looped on RED's formatting** (19 blocks in e2e run 3): RED's test file failed
   `cargo fmt --check`, and GREEN may not touch tests. RED and SCAFFOLD gates now run the
   matrix's format check, so the file is fixed by the role that wrote it.
+- **False "isolation dropped" blocks** (27 in e2e run 5): a worker that `cd`s to the main
+  tree to read its story left the hook's cwd there. Gates now check the worktree Claude
+  Code made for that agent (`.claude/worktrees/agent-<agent_id>`) first. The Bash contract
+  guard is per simple command now (run 5 blocked a read-only probe), and RED's
+  out-of-scope message says how to undo the change.
 - **The supervisor could write source mid-sprint on Linux.** `gate-supervisor-scope`'s
   "recently refreshed lock" arm called `stat -f %m` first; on Linux that prints a
   filesystem report instead of failing, the arithmetic crashed under `set -u`, and a

@@ -59,9 +59,17 @@ fi
 # sed -i, cp/mv/rm/...). Heuristic: the command names the contract AND has a write verb.
 if [ "$tool" = "Bash" ]; then
   [ -n "$(field agent_type)" ] || exit 0
-  cmd="$(printf '%s' "$payload" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("tool_input") or {}).get("command") or "")' 2>/dev/null)"
-  printf '%s' "$cmd" | grep -qE '\.agentic/(state/|task\.env)' || exit 0
-  if printf '%s' "$cmd" | grep -qE '>[^&]*\.agentic/(state/|task\.env)|(^|[^[:alnum:]_-])(tee|sed[[:space:]]+-i|perl[[:space:]]+-[a-z]*i|cp|mv|rm|ln|install|truncate|dd|touch|chmod)([[:space:]]|$)'; then
+  # Per simple command (split on ; | & newlines): a redirect INTO the contract, or a write
+  # verb in the same segment as a contract path.
+  if printf '%s' "$payload" | python3 -c '
+import json, re, sys
+cmd = (json.load(sys.stdin).get("tool_input") or {}).get("command") or ""
+P = r"\.agentic/(?:state/|task\.env)"
+VERB = re.compile(r"(?:^|[\s(])(?:tee|sed\s+-i\S*|perl\s+-\w*i|cp|mv|rm|ln|install|truncate|dd|touch|chmod)(?=\s|$)")
+for seg in re.split(r"[;&|\n]+", cmd):
+    if re.search(r">>?\s*[\x27\x22]?[^\s;&|]*" + P, seg) or (re.search(P, seg) and VERB.search(seg)):
+        sys.exit(0)
+sys.exit(1)' 2>/dev/null; then
     echo "BLOCK[$GATE_NAME]: this command rewrites the supervisor's task contract/state (.agentic/state/ or .agentic/task.env); a dispatched agent may only read it." >&2
     echo "  Your task contract is fixed at dispatch. If it is wrong, say so in your output.md report." >&2
     exit 2
