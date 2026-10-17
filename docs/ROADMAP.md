@@ -96,7 +96,7 @@ These parts already exist but their semantics must change:
 
 ### 4.2 Sprint budget and admission control
 
-- A sprint aggregate token envelope (soft/hard).
+- A sprint aggregate token envelope (soft/hard). ✅ *Done (Unreleased): `budget admit`, `rollover.md`, gate-final `rollover-check`. Test: `scripts/test/sprint-admission.test.py`.*
   - **Soft:** a rollover warning. Optionally, stop starting non-critical work.
   - **Hard:**
     - close admission;

@@ -15,6 +15,10 @@ DEFAULTS = {
     "MAX_REPLANS": 2,
     # budget token charge: fresh (uncached input + output) | context (context in use + output)
     "TOKEN_METER": "fresh",
+    # sprint aggregate envelope (every metered attempt in the sprint, TOKEN_METER charge):
+    # soft = rollover warning; hard = admission closes, not-started tasks carry over
+    "SPRINT_TOKENS_SOFT": 4000000,
+    "SPRINT_TOKENS_HARD": 6000000,
     "MODEL_PLANNING": "claude-opus-5-5",
     "MODEL_WORKER": "sonnet",
     "GITIGNORE": "yes",
@@ -32,7 +36,8 @@ DEFAULTS = {
     "MODEL_PLANNING_OPENCODE": "",
     "MODEL_WORKER_OPENCODE": "",
 }
-NUMERIC = {"TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS"}
+NUMERIC = {"TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS",
+           "SPRINT_TOKENS_SOFT", "SPRINT_TOKENS_HARD"}
 SETTING = re.compile(r"^\s*(?:export\s+)?AGENTIC_([A-Z_]+)\s*=\s*['\"]?([^'\"#\n]*?)['\"]?\s*(?:#.*)?$")
 
 

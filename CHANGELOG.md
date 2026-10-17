@@ -49,6 +49,14 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   the event, `budget watch` and the new `budget classify`. The planner confirms or
   overrides it (`breach:` line) and acts per class (SKILL.md "Breach classes").
 
+### Added
+- **Sprint token envelope and admission control** (ROADMAP §4.2). `budget admit <task>`
+  runs before each dispatch. At `SPRINT_TOKENS_SOFT` it prints one rollover warning, and
+  at `SPRINT_TOKENS_HARD` admission closes (exit 3). Refused tasks are carried over in
+  `sprintN/rollover.md` with the reason, gate-final accepts unticked boxes only for those
+  tasks (`budget rollover-check`), and NEXT.md lists them for the next planning cycle.
+  Events: `sprint.token_soft_limit`, `sprint.admission_closed`, `sprint.rolled_over`.
+
 ## [0.10.1] - 2026-09-23
 
 ### Fixed

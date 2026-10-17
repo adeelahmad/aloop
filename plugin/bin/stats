@@ -227,6 +227,11 @@ def sprint_facts(cwd, sdir, since, until):
                 f["kills_logged"] += 1
     except OSError:
         pass
+    try:
+        f["rolled_over"] = re.findall(r"(?m)^- (S\d+-\d+-T\d+)\b", open(os.path.join(sdir, "rollover.md")).read())
+        f["rollover"] = True
+    except OSError:
+        f["rolled_over"], f["rollover"] = [], False
     return f
 
 
@@ -247,6 +252,7 @@ def render_stats(n, sdir, facts, sprint_t, session_t, project_t, prompts, closed
              "| Gate passes | %s |" % (", ".join("%s %d" % kv for kv in sorted(facts["gate_pass"].items())) or "0"),
              "| Gate blocks (retries triggered) | %s |" % (", ".join("%s %d" % kv for kv in sorted(facts["gate_block"].items())) or "0"),
              "| Attempts past the soft token limit (telemetry) | %d |" % len(facts["token_soft"]),
+             "| Admission closed (sprint envelope) | %s |" % ("yes, %d tasks carried over" % len(facts["rolled_over"]) if facts["rollover"] else "no"),
              "| Attempts stopped at hard budget | %d |" % len(facts["killed"]),
              "| Mid-sprint re-plans | %d |" % facts["replans"],
              "| Human messages | %d |" % prompts,
@@ -299,6 +305,11 @@ def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at)
         "- Full stats: `%s/stats.md` · execution log: `%s/execution.log`" % (rel, rel),
         "",
     ]
+    if facts["rollover"]:
+        lines += ["## Rolled over: admission closed at the sprint token envelope",
+                  "_Not a failure. These tasks were never started; plan them first next sprint "
+                  "(see `%s/rollover.md`)._" % rel, ""]
+        lines += ["- " + t for t in facts["rolled_over"]] + [""]
     if facts["token_soft"]:
         lines += ["## Planner input: tasks that ran past the soft token limit",
                   "_Size similar tasks smaller next sprint (the worker was not stopped; this is telemetry)._", ""]

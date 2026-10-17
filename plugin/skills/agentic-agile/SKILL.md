@@ -528,6 +528,18 @@ planner's judgment. Every replacement task must still fit the normal budgets.
 
 For wave K, for each task `T<k>`:
 
+**Admission** — before a task's FIRST dispatch, run `budget admit SN-NN-Tk`. The sprint
+has an aggregate token envelope (`SPRINT_TOKENS_SOFT` / `SPRINT_TOKENS_HARD` in
+defaults.md; default 4M / 6M, summed over every worker attempt's charge):
+- exit 0 → dispatch. A `ROLLOVER WARNING` line (soft, printed once) means: prefer
+  critical-path tasks from here on.
+- exit 3 → **admission closed**: do not dispatch it. The task is listed as carried over
+  in `sprintN/rollover.md` with the reason. Let in-flight tasks finish under their own
+  limits, run `budget admit` for every remaining not-started task (each is recorded), then
+  close the sprint through FINAL-GATE as usual: it accepts unticked boxes only for the
+  carried tasks, and NEXT.md hands them to the next planning cycle. A rollover is **not**
+  a failure and needs no human.
+
 **RED** — dispatch `red-worker`.
 - The worker writes every test bullet in the task's `plan.md` section at the exact
   `path::fn`, against **minimal `mod common` shims** (each shim carries the marker

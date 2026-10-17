@@ -33,6 +33,9 @@ Usage:
   budget status                             table of tracked attempts
   budget replans TASK_ID                    how many times TASK_ID was split (cap check)
   budget classify AGENT_ID|TASK_ID...       the breach class of a stopped attempt + its evidence
+  budget admit TASK_ID                      before dispatch: 0 admit, 3 admission closed (sprint
+                                            token envelope hard limit; task carried over)
+  budget rollover-check SPRINT_DIR          gate-final: unticked boxes only for carried tasks
 
 Tokens = the charge under TOKEN_METER (defaults.md, or BUDGET_TOKEN_METER in task.env):
   fresh   (default) every uncached input token + every output token so far
@@ -705,6 +708,95 @@ def status(cwd):
     return 0
 
 
+# ── sprint envelope + admission control (ROADMAP §4.2) ────────────────
+def sprint_dir_of(cwd, task):
+    m = re.match(r"^S(\d+)-\d+", task or "")
+    return os.path.join(_paths.docs(cwd), "sprint%s" % m.group(1)) if m else ""
+
+
+def sprint_charge(cwd, sdir):
+    """Sum of every metered attempt's charge in this sprint (workers by story dir)."""
+    total = 0
+    for _, s in all_states(cwd):
+        if (s.get("story_dir") or "").startswith(sdir.rstrip("/") + "/"):
+            total += s.get("tokens") or 0
+    return total
+
+
+def rollover_tasks(sdir):
+    try:
+        return re.findall(r"(?m)^- (S\d+-\d+-T\d+)\b", open(os.path.join(sdir, "rollover.md")).read())
+    except OSError:
+        return []
+
+
+def admit(cwd, task):
+    """Supervisor, before dispatching TASK_ID: 0 admit · 3 admission closed (carried over).
+    Soft envelope → a one-time rollover warning; hard → admission closes for the rest of
+    the sprint, the reason is recorded, and every refused task is listed as carried over.
+    In-flight attempts finish under their own limits. A rollover is not a failure."""
+    sdir = sprint_dir_of(cwd, task)
+    if not sdir:
+        print("budget admit: TASK_ID must look like S1-02-T3", file=sys.stderr)
+        return 64
+    os.makedirs(sdir, exist_ok=True)
+    st = _paths.settings(cwd)
+    soft, hard = st["SPRINT_TOKENS_SOFT"], st["SPRINT_TOKENS_HARD"]
+    used = sprint_charge(cwd, sdir)
+    spath = os.path.join(state_dir(cwd), "%s.sprint.json" % os.path.basename(sdir))
+    sp = load_state(spath) or {"sprint": os.path.basename(sdir)}
+    ev = {"agent_id": "", "task": task, "role": "supervisor", "attempt": "", "story_dir": sdir}
+    rf = os.path.join(sdir, "rollover.md")
+    if used >= hard and not sp.get("admission_closed"):
+        sp["admission_closed"] = time.time()
+        log_event(cwd, "sprint.admission_closed", ev, tokens=used, sprint_tokens_hard=hard)
+        with open(rf, "w") as f:
+            f.write("---\ntype: rollover\nsprint: %s\nclosed_at: %s\n---\n# Rollover — admission closed\n\n"
+                    "Reason: sprint token envelope reached (%s of %s, TOKEN_METER charge). In-flight tasks "
+                    "finished under their own limits; the tasks below were not started and carry over "
+                    "to the next planning cycle. This is not a failure.\n\n## Carried over\n"
+                    % (os.path.basename(sdir)[6:], time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                       fmt_k(used), fmt_k(hard)))
+    if sp.get("admission_closed"):
+        if task not in rollover_tasks(sdir):
+            with open(rf, "a") as f:
+                f.write("- %s\n" % task)
+            log_event(cwd, "sprint.rolled_over", ev, tokens=used)
+        save_state(spath, sp)
+        print("ADMISSION CLOSED %s: sprint envelope %s/%s — do not dispatch; carried over in %s"
+              % (task, fmt_k(used), fmt_k(hard), os.path.relpath(rf, _paths.project(cwd))))
+        return 3
+    if used >= soft and not sp.get("soft_warned"):
+        sp["soft_warned"] = time.time()
+        log_event(cwd, "sprint.token_soft_limit", ev, tokens=used, sprint_tokens_soft=soft)
+        print("ROLLOVER WARNING: sprint envelope %s/%s (soft %s). Prefer critical-path tasks; "
+              "admission closes at the hard limit." % (fmt_k(used), fmt_k(hard), fmt_k(soft)))
+    save_state(spath, sp)
+    print("ADMIT %s: sprint envelope %s/%s" % (task, fmt_k(used), fmt_k(hard)))
+    return 0
+
+
+def rollover_check(sdir):
+    """gate-final on a rolled-over sprint: an unticked plan-ready.md box is allowed only
+    when it belongs to a carried-over task (its own line or its `## Tn` section names it)."""
+    carried = rollover_tasks(sdir)
+    bad = []
+    for pr in glob.glob(os.path.join(sdir, "s[0-9]*-[0-9]*-*", "plan-ready.md")):
+        story = re.match(r"^(s\d+-\d+)", os.path.basename(os.path.dirname(pr))).group(1).upper()
+        sec = ""
+        for line in open(pr):
+            h = re.match(r"^#+\s+(T\d+)\b", line)
+            if h:
+                sec = h.group(1)
+            if re.match(r"^\s*- \[ \]", line):
+                names = set(re.findall(r"\b(?:S\d+-\d+-)?(T\d+)\b", line)) | ({sec} if sec else set())
+                if not any("%s-%s" % (story, t) in carried for t in names):
+                    bad.append("%s: %s" % (os.path.relpath(pr, sdir), line.strip()))
+    for b in bad:
+        print("unticked and not carried over: " + b, file=sys.stderr)
+    return 2 if bad else 0
+
+
 def split_parent(root, story, tn):
     """`split_from: T3` under `## T5 — ...` in the story's tasks.md -> "T3"."""
     for tf in glob.glob(os.path.join(root, "docs", "agents", "sprint*", story.lower() + "-*", "tasks.md")):
@@ -782,6 +874,10 @@ def main(argv):
         return mark_killed(cwd, opts.get("_") or [])
     if cmd == "replans":
         return replans(cwd, (opts.get("_") or [""])[0])
+    if cmd == "admit":
+        return admit(cwd, (opts.get("_") or [""])[0])
+    if cmd == "rollover-check":
+        return rollover_check((opts.get("_") or [""])[0])
     if cmd == "classify":
         found = 0
         for _, s in all_states(cwd):
