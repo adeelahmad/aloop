@@ -21,7 +21,8 @@ HOOKS = json.load(open(os.path.join(ROOT, "hooks", "hooks.json")))["hooks"]
 ALIASES = {"apply_patch": ["Write", "Edit"], "spawn_agent": ["Agent"]}
 T = tempfile.mkdtemp(prefix="agentic-codex-")
 ENV = dict(os.environ, HOME=os.path.join(T, "home"), CLAUDE_PLUGIN_ROOT=ROOT, PLUGIN_ROOT=ROOT,
-           CLAUDE_PLUGIN_DATA=os.path.join(T, "pdata"), CODEX_HOME=os.path.join(T, "codex"))
+           CLAUDE_PLUGIN_DATA=os.path.join(T, "pdata"), CODEX_HOME=os.path.join(T, "codex"),
+           AGENTIC_NO_AUTOINSTALL="1")  # no background cargo build into the temp dir (it filled the disk)
 ENV.pop("AGENTIC_HOST", None)
 PASS = [0]
 

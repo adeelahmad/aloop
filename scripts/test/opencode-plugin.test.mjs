@@ -16,6 +16,7 @@ const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: T, encoding:
 // isolated HOME + fake backends so gate-tooling passes without a Rust build
 process.env.HOME = join(T, "home")
 process.env.CLAUDE_PLUGIN_DATA = join(T, "pdata")
+process.env.AGENTIC_NO_AUTOINSTALL = "1"  // no background cargo build into the temp dir
 mkdirSync(join(process.env.CLAUDE_PLUGIN_DATA, "bin"), { recursive: true })
 for (const t of ["md-db", "ctx-symbols"]) {
   const f = join(process.env.CLAUDE_PLUGIN_DATA, "bin", t)
