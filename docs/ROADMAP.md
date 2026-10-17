@@ -161,7 +161,7 @@ These parts already exist but their semantics must change:
 
 ### 4.7 Provenance and lineage
 
-- ✅ *Done (Unreleased): envelope + `bin/events` (emit/query/lineage); emitted by budget, gates, worktrees. Test: `scripts/test/events.test.py`. Still open: intent/plan/human/commit emitters, decision rationale, authority record.*
+- ✅ *Done (Unreleased): envelope + `bin/events` (emit/query/lineage); emitted by budget, gates, worktrees. Test: `scripts/test/events.test.py`. Decision rationale (`events decide`) and the authority record (`events authority`) are done too. Still open: intent, plan and commit emitters.*
 - **A normalized event stream** (`aladdin.event/1`) for the events listed in the table below. Its envelope carries IDs, `parent_event_id` / `caused_by`, role, host, model, authority, decision, and artifact and evidence refs. It references transcripts and never copies them.
 - **Structured decision rationale** at durable boundaries (plan, split, target, implementation, replan, acceptance). Each record gives a one-line reason, evidence refs and an authority ref. There is no chain-of-thought capture.
 - **An authority record per run:** `initiated_by`, policy profile, `autonomy_mode`, approved scope, overrides.

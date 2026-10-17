@@ -67,6 +67,54 @@ def emit(cwd, event, task="", attempt="", agent_id="", role="", host="", model="
         return ""
 
 
+DECISION_KINDS = ("plan", "split", "target", "implementation", "replan", "acceptance")
+AUTONOMY = ("reviewed", "autonomous")
+
+
+def authority_file(cwd=None):
+    return os.path.join(_paths.home(cwd, "state"), "authority.json")
+
+
+def record_authority(cwd, initiated_by, autonomy_mode, scope, policy="default", overrides=None):
+    """The run's authority record (who started it, under which policy and approval mode,
+    for which scope, with which overrides). Stored in .agentic/state/authority.json and
+    emitted as human.approval; decisions point at it."""
+    if autonomy_mode not in AUTONOMY:
+        raise ValueError("autonomy_mode must be one of %s" % ", ".join(AUTONOMY))
+    if not initiated_by or not scope:
+        raise ValueError("an authority record needs initiated_by and scope")
+    auth = {"initiated_by": initiated_by, "policy": policy, "autonomy_mode": autonomy_mode,
+            "scope": scope, "overrides": overrides or {}}
+    eid = emit(cwd, "human.approval", role="human", authority=auth, refs={"authority": authority_file(cwd)})
+    auth["event_id"] = eid
+    with open(authority_file(cwd), "w") as f:
+        json.dump(auth, f, indent=1)
+    return eid
+
+
+def current_authority(cwd=None):
+    try:
+        with open(authority_file(cwd)) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def record_decision(cwd, kind, reason, task="", evidence=None, authority_ref=None, parent_event_id=None, role=""):
+    """Structured rationale at a durable boundary: ONE line of reason, evidence refs and an
+    authority ref. No chain-of-thought is captured."""
+    if kind not in DECISION_KINDS:
+        raise ValueError("decision kind must be one of %s" % ", ".join(DECISION_KINDS))
+    reason = (reason or "").strip()
+    if not reason or "\n" in reason or len(reason) > 200:
+        raise ValueError("a decision reason is one line of at most 200 characters")
+    auth = authority_ref or (current_authority(cwd) or {}).get("event_id")
+    if not auth:
+        raise ValueError("no authority: record one first (events authority ...) or pass --authority")
+    return emit(cwd, "decision.recorded", task=task, role=role, parent_event_id=parent_event_id, caused_by=auth,
+                decision={"kind": kind, "reason": reason, "evidence_refs": list(evidence or []), "authority_ref": auth})
+
+
 def read(cwd=None):
     try:
         with open(path(cwd)) as f:

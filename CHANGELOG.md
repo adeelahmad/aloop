@@ -69,6 +69,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   every real gate verdict (`gate.passed` / `gate.failed`) and the worktree lifecycle
   (`worktree.created` / `merged` / `discarded`) are emitted into it. `events query` and
   `events lineage <task>` answer from the stream, with references only and no transcripts.
+  `events authority` records the run's authority (who approved it, the mode, the scope and
+  any overrides). `events decide` records one-line decisions with evidence refs, linked to
+  that authority. A decision without an authority, with a multi-line reason or with an
+  unknown kind is refused.
 - **Canonical sprint handoff and the resume rule** (ROADMAP §4.4). sprint-close writes
   `sprintN/handoff.json` (`aladdin.handoff/1`) from accepted state: completed tasks with
   their gate verdict and merge event, unverified, open and carried tasks, the nudge and

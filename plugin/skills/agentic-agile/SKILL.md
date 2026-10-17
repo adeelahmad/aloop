@@ -273,6 +273,14 @@ sprint at a time: dispatch the planner, review its output, present it for the hu
 approval, then — only on "go" — start that sprint's execution. Do NOT batch-write every
 future sprint's Stage-2 and chain straight into execution.
 
+**Provenance (on "go", and at every durable boundary).** Record who approved what, once
+per sprint, before the first dispatch:
+`events authority --initiated-by <human> --mode reviewed|autonomous --scope "sprint N as approved"`
+(plus `--override KEY=VALUE` for any limit the human changed). At each split, re-plan,
+target or acceptance decision, record ONE line of rationale with its evidence:
+`events decide split|replan|acceptance|… --task SN-NN-Tk --reason "<one line>" --evidence <ref>`.
+No chain-of-thought — a reason, refs and the authority (`events lineage <task>` shows it).
+
 1. **stories.md** — the contract. Every story carries the five-part Intent
    (What's wanted · Constraints · Failure scenarios · Success scenarios ·
    Connections). A story missing failure-scenarios or connections is rejected.

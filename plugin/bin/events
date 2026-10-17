@@ -9,6 +9,13 @@ Usage:
                                        matching events, one compact line each
   events lineage TASK_ID               the task's chain: dispatch → attempts → gates →
                                        limits/decisions → worktree outcome (no transcripts)
+  events authority --initiated-by WHO --mode reviewed|autonomous --scope "..."
+                   [--policy P] [--override key=value ...]
+                                       the run's authority record (human.approval);
+                                       decisions default to it
+  events decide KIND --reason "one line" [--task T] [--evidence ref ...] [--authority EVENT_ID]
+                                       structured rationale (plan|split|target|
+                                       implementation|replan|acceptance)
 Emitting never fails a hook: an unknown event type is the only error (exit 64).
 """
 import json
@@ -20,7 +27,7 @@ import _events  # noqa: E402
 
 
 def parse(argv):
-    opts, pos, k = {"ref": [], "data": []}, [], None
+    opts, pos, k = {"ref": [], "data": [], "evidence": [], "override": []}, [], None
     for a in argv:
         if k:
             (opts[k].append(a) if isinstance(opts.get(k), list) else opts.__setitem__(k, a))
@@ -34,6 +41,10 @@ def parse(argv):
 
 def line(ev):
     ids = ev.get("ids") or {}
+    d = ev.get("decision") or {}
+    if d:
+        return "%s %-24s %-10s %-12s %s: %s" % (ev.get("ts", "?"), ev.get("event"), ids.get("task", "-"), ev.get("role") or "-",
+                                                d.get("kind"), d.get("reason"))
     extra = " ".join("%s=%s" % kv for kv in sorted((ev.get("data") or {}).items()) if kv[0] not in ("observe",))
     return "%s %-24s %-10s %-12s %s%s" % (ev.get("ts", "?"), ev.get("event", "?"), ids.get("task", "-"),
                                          ev.get("role") or "-", extra, (" parent=" + ev["parent_event_id"][:8]) if ev.get("parent_event_id") else "")
@@ -57,6 +68,21 @@ def main(argv):
                                **dict(d.split("=", 1) for d in opts["data"] if "=" in d))
         except ValueError as e:
             print("events: %s" % e, file=sys.stderr)
+            return 64
+        print(eid)
+        return 0
+    if cmd in ("authority", "decide"):
+        try:
+            if cmd == "authority":
+                eid = _events.record_authority(cwd, opts.get("initiated_by", ""), opts.get("mode", ""), opts.get("scope", ""),
+                                               policy=opts.get("policy", "default"),
+                                               overrides=dict(o.split("=", 1) for o in opts["override"] if "=" in o))
+            else:
+                eid = _events.record_decision(cwd, pos[0] if pos else "", opts.get("reason", ""), task=opts.get("task", ""),
+                                              evidence=opts["evidence"], authority_ref=opts.get("authority"),
+                                              parent_event_id=opts.get("parent"), role=opts.get("role", ""))
+        except ValueError as e:
+            print("events %s: %s" % (cmd, e), file=sys.stderr)
             return 64
         print(eid)
         return 0

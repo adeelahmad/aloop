@@ -94,4 +94,23 @@ q = sh(EV, "query", "--event", "worktree.merged")
 assert "S1-02-T5" in q and "S1-02-T4" not in q
 ok("events lineage / query answer from the stream alone")
 
+# 6) authority + decisions: a decision without an authority is refused; with one it links
+r = run(EV, "decide", "split", "--task", "S1-02-T3", "--reason", "too large")
+assert r.returncode == 64 and "no authority" in r.stderr, r.stderr
+auth = sh(EV, "authority", "--initiated-by", "adeel", "--mode", "autonomous", "--scope", "sprint 1 as approved",
+          "--override", "TOKENS_HARD=300000")
+assert run(EV, "authority", "--initiated-by", "x", "--mode", "yolo", "--scope", "s").returncode == 64
+a = json.load(open(os.path.join(T, ".agentic", "state", "authority.json")))
+assert a["event_id"] == auth and a["autonomy_mode"] == "autonomous" and a["overrides"] == {"TOKENS_HARD": "300000"}
+d = sh(EV, "decide", "split", "--task", "S1-02-T3", "--reason", "TASK_TOO_LARGE: two behaviours in one task",
+       "--evidence", ".agentic/logs/events.jsonl#task.token_hard_limit", "--parent", root)
+assert run(EV, "decide", "split", "--reason", "line one\nline two").returncode == 64
+assert run(EV, "decide", "vibes", "--reason", "x").returncode == 64
+ev = [x for x in events() if x["event_id"] == d][0]
+assert ev["decision"] == {"kind": "split", "reason": "TASK_TOO_LARGE: two behaviours in one task",
+                          "evidence_refs": [".agentic/logs/events.jsonl#task.token_hard_limit"], "authority_ref": auth}
+assert ev["caused_by"] == auth and ev["parent_event_id"] == root
+assert "split: TASK_TOO_LARGE: two behaviours in one task" in sh(EV, "lineage", "S1-02-T3")
+ok("authority record + one-line decisions with evidence and authority refs; multi-line or unknown kinds refused")
+
 print("\n%d checks passed" % PASS[0])
