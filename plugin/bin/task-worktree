@@ -41,7 +41,14 @@ case "$cmd" in
     if [ -n "$tip" ] && [ "$tip" != "$base" ] && git -C "$AGENTIC_PROJECT" merge-base --is-ancestor "$tip" HEAD 2>/dev/null; then
       ev=worktree.merged
     fi
-    "$HERE/events" emit "$ev" --task "$task" --ref "worktree=$wt" --data "branch=agentic/$task" >/dev/null 2>&1 || true
+    mid="$("$HERE/events" emit "$ev" --task "$task" --ref "worktree=$wt" --data "branch=agentic/$task" 2>/dev/null)"
+    if [ "$ev" = worktree.merged ]; then
+      # one commit.created per accepted commit, so a sha traces back to its task (events trace)
+      git -C "$AGENTIC_PROJECT" log --reverse --format='%H %s' "${base:+$base..}$tip" 2>/dev/null |
+        while read -r sha subject; do
+          "$HERE/events" emit commit.created --task "$task" --parent "$mid" --data "sha=$sha" --data "subject=$subject" >/dev/null 2>&1 || true
+        done
+    fi
     git -C "$AGENTIC_PROJECT" worktree remove --force "$wt" >&2 2>/dev/null || rm -rf "$wt"
     git -C "$AGENTIC_PROJECT" worktree prune >/dev/null 2>&1 || true
     rm -f "$AGENTIC_HOME/worktrees/.$task.base" ;;

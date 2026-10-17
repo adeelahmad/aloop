@@ -9,6 +9,8 @@ Usage:
                                        matching events, one compact line each
   events lineage TASK_ID               the task's chain: dispatch → attempts → gates →
                                        limits/decisions → worktree outcome (no transcripts)
+  events trace SHA                     commit → task → gates/decisions → plan → intent →
+                                       approver, from the stream alone (exit 1: unknown commit)
   events authority --initiated-by WHO --mode reviewed|autonomous --scope "..."
                    [--policy P] [--override key=value ...]
                                        the run's authority record (human.approval);
@@ -48,6 +50,50 @@ def line(ev):
     extra = " ".join("%s=%s" % kv for kv in sorted((ev.get("data") or {}).items()) if kv[0] not in ("observe",))
     return "%s %-24s %-10s %-12s %s%s" % (ev.get("ts", "?"), ev.get("event", "?"), ids.get("task", "-"),
                                          ev.get("role") or "-", extra, (" parent=" + ev["parent_event_id"][:8]) if ev.get("parent_event_id") else "")
+
+
+def trace(cwd, sha):
+    """commit → attempt → decision → gate → plan → intent → approver, refs only."""
+    evs = list(_events.read(cwd))
+    commit = next((e for e in evs if e.get("event") == "commit.created" and sha
+                   and str((e.get("data") or {}).get("sha", "")).startswith(sha)), None)
+    if not commit:
+        print("events trace: no commit.created for %s" % sha, file=sys.stderr)
+        return 1
+    d, task = commit["data"], (commit.get("ids") or {}).get("task", "")
+    sprint = (commit.get("ids") or {}).get("sprint", "")
+    print("commit   %s %s" % (d["sha"][:12], d.get("subject", "")))
+    print("task     %s" % task)
+    for e in evs:
+        if (e.get("ids") or {}).get("task") != task:
+            continue
+        if e["event"] in ("gate.passed", "gate.failed", "decision.recorded", "task.token_hard_limit",
+                          "task.time_hard_timeout", "worktree.merged"):
+            print("  %s" % line(e))
+    plan = None
+    for e in evs:
+        if e.get("event") in ("plan.created", "plan.revised") and (e.get("data") or {}).get("sprint") == sprint \
+                and e.get("ts", "") <= commit.get("ts", ""):
+            plan = e
+    if not plan:
+        print("plan     (missing: no plan.created for %s — was gate-stage2-complete run?)" % (sprint or "this sprint"))
+        return 0
+    print("plan     %s %s %s" % (plan["event"], sprint, " ".join("%s=%s" % kv for kv in sorted((plan.get("refs") or {}).items()))))
+    by_id = {e.get("event_id"): e for e in evs}
+    intent = by_id.get(plan.get("caused_by"))
+    if intent:
+        iid = (intent.get("data") or {}).get("intent_id", "")
+        recv = next((e for e in evs if e.get("event") == "intent.received" and (e.get("data") or {}).get("intent_id") == iid), {})
+        print("intent   %s %s raw=%s" % (iid, (intent.get("refs") or {}).get("intent", ""), (recv.get("refs") or {}).get("raw", "-")))
+    else:
+        print("intent   (missing: the plan names no intent.normalized)")
+    appr = [e for e in evs if e.get("event") == "plan.approved" and e.get("caused_by") == plan.get("event_id")]
+    if appr:
+        a = appr[-1].get("authority") or {}
+        print("approved %s (%s) scope=%r" % (a.get("initiated_by"), a.get("autonomy_mode"), a.get("scope")))
+    else:
+        print("approved (missing: no plan.approved for this plan)")
+    return 0
 
 
 def main(argv):
@@ -97,6 +143,8 @@ def main(argv):
                 continue
             print(line(ev))
         return 0
+    if cmd == "trace":
+        return trace(cwd, pos[0] if pos else "")
     if cmd == "lineage":
         task = pos[0] if pos else ""
         evs = [ev for ev in _events.read(cwd) if (ev.get("ids") or {}).get("task", ev.get("task")) == task]

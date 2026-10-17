@@ -103,6 +103,13 @@ def record_authority(cwd, initiated_by, autonomy_mode, scope, policy="default", 
     auth["event_id"] = eid
     with open(authority_file(cwd), "w") as f:
         json.dump(auth, f, indent=1)
+    plan = None
+    for ev in read(cwd):
+        if ev.get("event") in ("plan.created", "plan.revised"):
+            plan = ev
+    if plan:  # the approval covers the latest frozen plan
+        emit(cwd, "plan.approved", role="human", parent_event_id=eid, caused_by=plan.get("event_id"),
+             authority=auth, refs=plan.get("refs"), sprint=(plan.get("data") or {}).get("sprint", ""))
     return eid
 
 

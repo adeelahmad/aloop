@@ -146,11 +146,19 @@ def cmd_freeze(sdir):
         if alias not in live and not e.get("retired"):
             e.update(retired=True, retired_at=now)
             retired.append(alias)
+    m = re.search(r"sprint(\d+)$", os.path.basename(os.path.abspath(sdir)))
+    sprint = "S%s" % m.group(1) if m else ""
     if new or retired or not os.path.exists(map_path(sdir)):
         with open(map_path(sdir), "w") as f:
             json.dump({"schema": SCHEMA, "ids": dict(sorted(frozen.items()))}, f, indent=1)
-        _events.emit(os.getcwd(), "artifact.updated", role="supervisor",
-                     refs={"ids": map_path(sdir)}, issued=new, retired=retired)
+        cwd = os.getcwd()
+        first = not any(e.get("event") in ("plan.created", "plan.revised") and (e.get("data") or {}).get("sprint") == sprint
+                        for e in _events.read(cwd))
+        intent = _events.last(cwd, event="intent.normalized")
+        _events.emit(cwd, "plan.created" if first else "plan.revised", role="planner",
+                     caused_by=intent and intent.get("event_id"), refs={"ids": map_path(sdir)},
+                     sprint=sprint, issued=new, retired=retired,
+                     intent_id=intent and (intent.get("data") or {}).get("intent_id"))
     print("[ids] frozen: %d issued, %d retired, %d live" % (len(new), len(retired), len(live)), file=sys.stderr)
     return 0
 

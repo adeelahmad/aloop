@@ -81,6 +81,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
   mode is explicit (`events authority --mode autonomous`) and skips approval unless an
   escalation class is hit.
+- **Commit → intent trace** (ROADMAP §4.7, milestone 7). gate-stage2-complete emits
+  `plan.created` / `plan.revised`, caused by the intent; `events authority` emits
+  `plan.approved` for the latest plan; `task-worktree remove` emits `commit.created` per
+  merged commit. `events trace SHA` walks commit → task → gates → plan → intent → approver
+  from the event stream alone.
 - **Semantic change targets, first slice** (ROADMAP §4.6). The planner may write
   `<story>/targets.json` (`change_ref / operation / path / symbol | planned_symbol / reason /
   evidence_refs / constraints`). `bin/targets check` proves each target against tasks.md and
