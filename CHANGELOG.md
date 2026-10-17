@@ -40,6 +40,13 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   once the repo has a sprint lock. `scripts/test/fail-closed.test.py`.
 
 ### Security
+- **No role gate ran on Claude Code plugin installs.** Claude Code names a plugin's
+  sub-agents `aloop:<agent>`, and a plain-name hook matcher is an exact list, so the
+  `red-worker`, `green-worker`, … SubagentStop/SubagentStart matchers never matched: every
+  "gate" verdict came from the workers' own optional self-checks. Found by the first live
+  end-to-end run (all 7 verdicts were self-checks) and confirmed with a probe plugin.
+  Matchers now list both `<role>` and `aloop:<role>`; `scripts/test/hook-matchers.test.py`
+  failed before.
 - **A worker could pass its own gate by editing `task.env`.** The gate library *sourced*
   `.agentic/task.env`, which sits in the worker's worktree: appending `exit 0` passed a
   failing GREEN, and `GATE_RUN_MATRIX=0` or `SKIP_HOOKS=1` switched checks off. The file
