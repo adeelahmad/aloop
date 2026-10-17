@@ -141,6 +141,7 @@ These parts already exist but their semantics must change:
 
 ### 4.5 Identity and referential integrity
 
+- ✅ *Done (Unreleased): `bin/ids` (freeze/check/resolve) run by gate-stage2-complete; events carry `story_uid`/`task_uid`. Test: `scripts/test/ids-integrity.test.py`. Aliases stay in the markdown; the frozen map is the rewrite layer.*
 - Models keep emitting short aliases (`S1-03`, `T2`, `C7`). On ingest the orchestrator:
   1. issues canonical IDs (ULID / UUIDv7);
   2. rewrites **structured** references (never regex over prose);

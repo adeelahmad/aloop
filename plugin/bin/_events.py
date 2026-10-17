@@ -45,6 +45,19 @@ def ids_for(task="", attempt="", agent_id=""):
                               ("agent", agent_id or "")) if v}
 
 
+def canonical(cwd, ids):
+    """story_uid / task_uid from the frozen sprintN/ids.json (ROADMAP §4.5), when there is one."""
+    sp = ids.get("sprint")
+    if not sp:
+        return {}
+    try:
+        with open(os.path.join(_paths.docs(cwd), "sprint" + sp[1:], "ids.json")) as f:
+            m = json.load(f).get("ids", {})
+    except (OSError, ValueError):
+        return {}
+    return {k + "_uid": m[ids[k]]["id"] for k in ("story", "task") if ids.get(k) in m}
+
+
 def emit(cwd, event, task="", attempt="", agent_id="", role="", host="", model="", parent_event_id=None,
          caused_by=None, authority=None, decision=None, refs=None, **data):
     """Append one aladdin.event/1 record; returns its event_id ("" on any failure)."""
@@ -59,6 +72,7 @@ def emit(cwd, event, task="", attempt="", agent_id="", role="", host="", model="
           "refs": {k: v for k, v in (refs or {}).items() if v}, "data": data}
     # flat aliases kept for readers of the pre-1 lines (stats, older tooling)
     ev.update({"agent_id": agent_id, "task": task, "attempt": str(attempt or "")})
+    ev["ids"].update(canonical(cwd, ev["ids"]))
     try:
         with open(path(cwd), "a") as f:
             f.write(json.dumps(ev) + "\n")

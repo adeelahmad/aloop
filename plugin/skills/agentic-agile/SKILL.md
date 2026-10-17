@@ -330,7 +330,10 @@ Also make sure `docs/agents/defaults.md` exists — if not, run the init flow fi
 `gate-stage2-complete` blocks unless **every** story in `stories.md` has a
 `sN-NN-<slug>/` dir with `tasks.md` + `validate.md` + `plan.md`, no `TBW` remains, the
 sprint is **self-contained** (no reference to a later sprint's stories, no work deferred
-into one), and md-db validates the tree. Partial Stage-2 is forbidden — all-or-nothing per sprint.
+into one), the structured references hold (`ids freeze`: each dir's `story:` frontmatter
+matches it, every dir is listed in stories.md, validate.md `## Tn` exist in tasks.md,
+`split_from` names a retired task, a retired number is never reused), and md-db validates
+the tree. On pass every story and task alias gets a frozen canonical id in `sprintN/ids.json`. Partial Stage-2 is forbidden — all-or-nothing per sprint.
 Do not dispatch until both exit 0. (The PostToolUse `gate-validate-artifact`
 hook validates each artifact as you write it, regardless.)
 

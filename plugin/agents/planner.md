@@ -78,7 +78,8 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
   transcript for what was already learned (why it overran, which part was hard).
 - REMOVE the killed task's own `## T<old>` section and plan.md/validate.md entries —
   the split tasks replace it (nothing left unticked for FINAL-GATE). Never reuse a
-  retired task number; new tasks take the next free numbers.
+  retired task number; new tasks take the next free numbers (`ids freeze` in
+  gate-stage2-complete blocks a reused number or a `split_from` naming a task that never existed).
 - The killed attempt's worktree is discarded (never merged), so plan the split from the
   last MERGED state, not from the killed attempt's partial code.
 - Update sprintN/plan.md waves so the split tasks slot in where the original was.

@@ -64,7 +64,12 @@ if [ -n "$this_n" ]; then
   fi
 fi
 
-# 4) Structural validation via md-db (fallback to frontmatter check).
+# 4) Identity + referential integrity (ROADMAP §4.5): issue canonical ids for every story
+#    and task alias, check the structured references between artifacts, freeze the map.
+"$BIN_DIR/ids" freeze "$sprint_dir" \
+  || { echo "BLOCK[$GATE_NAME]: broken cross-artifact reference in $sprint_dir (see above)" >&2; exit 2; }
+
+# 5) Structural validation via md-db (fallback to frontmatter check).
 if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1; then
   md-db validate "$sprint_dir" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/planning-artifacts.kdl" \
     || { echo "BLOCK[$GATE_NAME]: md-db rejected $sprint_dir" >&2; exit 2; }

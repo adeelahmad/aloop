@@ -81,6 +81,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
   mode is explicit (`events authority --mode autonomous`) and skips approval unless an
   escalation class is hit.
+- **Canonical ids and referential integrity** (ROADMAP §4.5). `bin/ids freeze` checks the
+  structured references between planning artifacts, never prose, and issues each story and
+  task alias a frozen UUIDv7 in `sprintN/ids.json`. A split task's original is retired and
+  its number can never be reused. gate-stage2-complete runs it, and events for a frozen
+  task carry `story_uid` and `task_uid`.
 - **Planner lesson candidates** (ROADMAP §4.3). `bin/lessons add` records a candidate with
   `symptom / cause / change / applies_to / evidence_refs` and emits `memory.candidate`.
   It refuses empty fields, missing evidence and any change that would weaken a gate.
