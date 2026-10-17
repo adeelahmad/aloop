@@ -11,6 +11,8 @@ import subprocess
 import sys
 import tempfile
 
+sys.dont_write_bytecode = True                 # loading bin/ scripts must not leave __pycache__ there
+
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 PLUGIN = os.path.join(ROOT, "plugin")
 BIN = os.path.join(PLUGIN, "bin")
