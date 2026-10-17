@@ -332,4 +332,4 @@ New with this roadmap:
 
 ## 8. Tracking
 
-When the work completes, report each requirement as `IMPLEMENTED_TESTED` (with evidence), `IMPLEMENTED_UNTESTED`, `BLOCKED_HOST` or `NOT_IMPLEMENTED`.
+Live status: [TRACKING.md](TRACKING.md), checked by `scripts/check-tracking.py` in `make test-hosts`. When the work completes, report each requirement as `IMPLEMENTED_TESTED` (with evidence), `IMPLEMENTED_UNTESTED`, `BLOCKED_HOST` or `NOT_IMPLEMENTED`.
