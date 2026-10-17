@@ -23,6 +23,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
+- **`aloop init` seeds `docs/agents/memory.md`** as a schema-valid empty table, and
+  `gate-memory` prints a valid skeleton when it blocks. e2e run 7's archivist guessed
+  `type: agent-memory` and the supervisor's stop was blocked 15 times.
 - **`gate-dispatch`** (PreToolUse on Agent/Task): the supervisor's dispatch of an execution
   worker is refused until its prompt opens with `TASK_ID: <id>` and the contract exists.
   e2e run 6 dispatched the structural reviewer before writing its contract, and its gate
@@ -83,6 +86,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- `gate-red-verify` no longer blocks a RED report that lists a test already on the base as
+  PASS (an earlier task's test, for context); only a NEW test may not pass. e2e run 7: 22 blocks.
+- `make shellcheck` no longer reports a lint error as "shellcheck not installed" and passes.
+- `gate-scaffold-verify` skips a `symbol path kind` header row and `Trait for Type` impl
+  lines in `.agentic/scaffold-symbols`.
 - **Annotated `scaffold-symbols` lines were split into fake symbols** (`(enum)`, `@`, …), each
   "defined 0 times". The first token of a line is the symbol; non-identifiers are dropped.
 - **Sub-agents read the plugin's own source** (19–30 commands per e2e run) to work out

@@ -154,6 +154,11 @@ case(3, "RED whose tests fail the matrix's format check is rejected", "gate-red-
 case(3, "a formatted RED passes the same format check", "gate-red-verify", red_ok_wt, 0,
      extra={"STANDARDS_FILE": FMT_STANDARDS})
 
+# A later task's RED report also lists the earlier tasks' tests, which already pass on the base
+# (live e2e run 7: "green (T1, unchanged)" rows blocked T2's RED 22 times). Only a NEW test may not PASS.
+report("red-worker", [("tests/add.rs::add_works", "PASS"), ("tests/sub.rs::sub_works", "FAIL")])
+case(3, "RED that reports a test already on the base as PASS is accepted", "gate-red-verify", red_ok_wt, 0)
+
 # SCAFFOLD: `.agentic/scaffold-symbols` lines may carry notes after the symbol (live e2e run 6:
 # "ParseError (enum) @ src/lib.rs" was split into `(enum)`, `@`, … and each "defined 0 times").
 wt = worktree("scaffolder")
@@ -163,6 +168,10 @@ write(os.path.join(wt, ".agentic", "scaffold-symbols"), "# symbols\nsub (fn) @ s
 commit(wt, "scaffold")
 report("scaffolder", [("src/lib.rs::sub", "STUB")])
 case(3, "SCAFFOLD with annotated scaffold-symbols lines is accepted", "gate-scaffold-verify", wt, 0)
+# ...or a tab-separated table with a header row and trait-impl lines (live e2e run 7: `symbol`
+# and `Display` were each "defined 0 times").
+write(os.path.join(wt, ".agentic", "scaffold-symbols"), "symbol\tpath\tkind\nsub\tsrc/lib.rs\tfn\nDisplay for Sub\tsrc/lib.rs\timpl\n")
+case(3, "SCAFFOLD with a header row and trait-impl lines in scaffold-symbols is accepted", "gate-scaffold-verify", wt, 0)
 
 # §6.4 RED cannot write production code
 wt = red_ok()
@@ -362,6 +371,22 @@ if md_db():
         r = sh(os.path.join(BIN, "gate-validate-artifact"), f, check=False)
         results.append((2, title, r.returncode == 2 and "BLOCK[gate-validate-artifact]" in r.stderr,
                         "exit %d %s" % (r.returncode, r.stderr.strip()[-140:])))
+    # memory.md: `aloop init` seeds a schema-valid one, so no agent has to guess its frontmatter
+    # (live e2e run 7: the archivist wrote `type: agent-memory`, the supervisor's stop was blocked 15 times).
+    seed = os.path.join(T, "seed")
+    os.makedirs(seed)
+    sh("git", "init", "-q", cwd=seed)
+    sh(os.path.join(BIN, "aloop-init"), "--apply", cwd=seed)
+    mem = os.path.join(seed, "docs", "agents", "memory.md")
+    menv = dict(ENV, CLAUDE_PLUGIN_ROOT=ROOT)
+    r = subprocess.run([os.path.join(BIN, "gate-memory"), mem], cwd=seed, env=menv, capture_output=True, text=True) \
+        if os.path.isfile(mem) else None
+    results.append((2, "aloop init seeds a memory.md that passes gate-memory", bool(r) and r.returncode == 0,
+                    "no memory.md seeded" if r is None else "exit %d %s" % (r.returncode, r.stderr.strip()[-140:])))
+    write(mem, "---\ntype: agent-memory\n---\n# memory\n")
+    r = subprocess.run([os.path.join(BIN, "gate-memory"), mem], cwd=seed, env=menv, capture_output=True, text=True)
+    results.append((2, "a malformed memory.md is rejected with the valid skeleton", r.returncode == 2 and "type: memory" in r.stderr,
+                    "exit %d %s" % (r.returncode, r.stderr.strip()[-140:])))
 else:
     results.append((2, "md-db available for the schema gate (needs cargo)", False, "no md-db and no cargo"))
 
