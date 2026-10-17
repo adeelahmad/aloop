@@ -282,7 +282,14 @@ changed_paths() {
   if [ -n "${BASE_REF:-}" ]; then
     git -C "$root" diff --name-only "$BASE_REF" 2>/dev/null | changed_paths_filter
   else
-    { git -C "$root" diff --name-only 2>/dev/null
+    # Workers commit their work, so the uncommitted diff alone would miss it: also take
+    # what this branch committed since it left the main tree's HEAD.
+    local common main_head base=""
+    common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+    main_head="$(git -C "${common%/.git}" rev-parse HEAD 2>/dev/null)"
+    [ -n "$main_head" ] && base="$(git -C "$root" merge-base HEAD "$main_head" 2>/dev/null)"
+    { [ -n "$base" ] && git -C "$root" diff --name-only "$base" HEAD 2>/dev/null
+      git -C "$root" diff --name-only 2>/dev/null
       git -C "$root" diff --name-only --cached 2>/dev/null
       git -C "$root" ls-files --others --exclude-standard 2>/dev/null; } | sort -u | changed_paths_filter
   fi

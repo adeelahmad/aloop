@@ -62,11 +62,13 @@ wt = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T2").stdout.strip()
 gate = dict(AGENT_ROLE="green-worker", TASK_ID="S1-01-T2", ATTEMPT="1", STORY_DIR=SD, GATE_RUN_MATRIX="0")
 write(os.path.join(wt, "src", "report.py"), "def render(rows):\n    return list(rows)\n")
 write(os.path.join(wt, "src", "export.py"), "def write_csv(rows):\n    return ''\n")
+sh("git", "add", "-A", cwd=wt); sh("git", "commit", "-q", "-m", "S1-01-T2 green", cwd=wt)  # workers commit
 r = sh(os.path.join(BIN, "gate-green-verify"), cwd=wt, check=False, **gate)
 assert r.returncode == 0 and "SCOPE_GLOBS derived from targets.json: src/export.py src/report.py" in r.stderr, r.stderr
 ok("GREEN gate passes an in-scope diff, with the scope derived from targets.json")
 
 write(os.path.join(wt, "src", "app.py"), "def main():\n    pass\n")
+sh("git", "add", "-A", cwd=wt); sh("git", "commit", "-q", "-m", "S1-01-T2 more", cwd=wt)
 r = sh(os.path.join(BIN, "gate-green-verify"), cwd=wt, check=False, **gate)
 assert r.returncode == 2 and "out-of-scope path: src/app.py" in r.stderr, r.stderr
 ok("a file outside the task's targets (another task's) is blocked")
