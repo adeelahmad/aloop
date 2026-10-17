@@ -1,8 +1,8 @@
 [package]
 name = "ctx-symbols"
-version = "0.10.1"
+version = "0.11.0"
 edition = "2021"
-description = "Minimal AST symbol resolver for agentic-agile gates (count/locate/search/conflicts). Harvested from ctxconfig's code-intelligence layer."
+description = "Minimal AST symbol resolver for aloop gates (count/locate/search/conflicts). Harvested from ctxconfig's code-intelligence layer."
 license = "MIT"
 
 [[bin]]

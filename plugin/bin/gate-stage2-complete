@@ -5,6 +5,8 @@
 set -uo pipefail
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; export PATH="$BIN_DIR:$PATH"  # md-db shim -> real binary
 GATE_NAME="gate-stage2-complete"
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"   # a crash blocks, never allows
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${CLAUDE_PLUGIN_ROOT:=$(cd "$HERE/.." && pwd)}"
 
@@ -79,7 +81,11 @@ done
 
 # 6) Structural validation via md-db (fallback to frontmatter check).
 if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1; then
-  md-db validate "$sprint_dir" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/planning-artifacts.kdl" \
+  # Only the planning artifacts: the tree also holds init.md/output.md comms and stats.md,
+  # which this schema does not know (validating the whole dir blocked valid plans).
+  find "$sprint_dir" -type f \( -name stories.md -o -name tasks.md -o -name validate.md \
+       -o -name plan.md -o -name plan-ready.md \) \
+    | md-db validate --stdin-list --schema "${CLAUDE_PLUGIN_ROOT}/schemas/planning-artifacts.kdl" \
     || { echo "BLOCK[$GATE_NAME]: md-db rejected $sprint_dir" >&2; exit 2; }
 else
   echo "WARN[$GATE_NAME]: md-db absent; structural validation limited to dir/frontmatter checks" >&2

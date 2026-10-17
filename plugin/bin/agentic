@@ -1,36 +1,9 @@
 #!/usr/bin/env bash
-# agentic — one entrypoint for every agentic-agile tool, on every host.
-#
-#   agentic <tool> [args…]      e.g.  agentic selfcheck · agentic budget watch
-#                                     agentic md-db validate … · agentic stats show
-#   agentic --list              the tools
-#   agentic --root              this plugin's root (for absolute paths)
-#
-# Claude Code puts this plugin's bin/ on PATH itself. Codex has no such mechanism and
-# OpenCode needs its plugin to add it, so `agentic install <host>` links THIS one name
-# into ~/.local/bin — one unambiguous command instead of dozens of generic ones.
-set -uo pipefail
+# agentic — the pre-rename name of `aloop`, kept so existing scripts, prompts and
+# ~/.local/bin links keep working. Everything is forwarded to aloop unchanged.
 src="${BASH_SOURCE[0]}"
-while [ -L "$src" ]; do                      # resolve the ~/.local/bin symlink
+while [ -L "$src" ]; do
   dir="$(cd "$(dirname "$src")" && pwd)"; src="$(readlink "$src")"
   case "$src" in /*) ;; *) src="$dir/$src" ;; esac
 done
-BIN="$(cd "$(dirname "$src")" && pwd)"
-export PATH="$BIN:$PATH"
-
-case "${1:-}" in
-  ""|-h|--help)
-    sed -n '2,11p' "$src" | sed 's/^# \{0,1\}//'; exit 0 ;;
-  --root) cd "$BIN/.." && pwd; exit 0 ;;
-  --list)
-    for f in "$BIN"/*; do
-      b="$(basename "$f")"
-      case "$b" in agentic|_*|*.md|*.py) continue ;; esac
-      [ -x "$f" ] && echo "$b"
-    done; exit 0 ;;
-esac
-tool="$1"; shift
-case "$tool" in init) tool=agentic-init ;; esac     # `agentic init --show|--apply …`
-case "$tool" in */*|.*|_*) echo "agentic: bad tool name '$tool'" >&2; exit 64 ;; esac
-[ -x "$BIN/$tool" ] || { echo "agentic: unknown tool '$tool' (agentic --list)" >&2; exit 64; }
-exec "$BIN/$tool" "$@"
+exec "$(cd "$(dirname "$src")" && pwd)/aloop" "$@"

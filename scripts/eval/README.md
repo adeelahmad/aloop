@@ -9,7 +9,7 @@ Runs the eval suites (the skill suite and the 9 per-agent suites) the
 
 | Suite | File |
 |-------|------|
-| skill | `plugin/skills/agentic-agile/evals/evals.json` |
+| skill | `plugin/skills/aloop/evals/evals.json` |
 | agents (×9) | `plugin/evals/agents/<role>.json` |
 
 ## Pieces

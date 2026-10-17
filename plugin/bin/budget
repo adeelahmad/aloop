@@ -50,6 +50,7 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -105,7 +106,7 @@ def read_kv(path):
 
 
 def conf_values(cwd):
-    """docs/agents/defaults.md (written by agentic-init) — parsed, never executed."""
+    """docs/agents/defaults.md (written by aloop-init) — parsed, never executed."""
     st = _paths.settings(cwd)
     return {k: st[k] for k in BUDGET_KEYS}
 
@@ -153,6 +154,47 @@ def resolve(cwd, tasks_file=None, task=None, task_env=None, with_source=False):
     return (b, src) if with_source else b
 
 
+TASK_LINE = re.compile(r"TASK_ID:\s*([A-Za-z0-9._-]+)")
+
+
+def host_task_id(payload, agent_id):
+    """The TASK_ID the host's dispatch prompt names: first user turn of the sub-agent transcript."""
+    tp = transcript_for(payload, agent_id)
+    try:
+        with open(tp) as f:
+            for line in f:
+                if '"user"' in line:
+                    m = TASK_LINE.search(line)
+                    return m.group(1) if m else ""
+    except (OSError, TypeError):
+        pass
+    return ""
+
+
+def contract(cwd, task_id):
+    """The supervisor's task contract in the MAIN tree (.agentic/state/tasks/<TASK_ID>.env), or {}."""
+    if not task_id or not re.match(r"^[A-Za-z0-9._-]+$", task_id):
+        return {}
+    return read_kv(os.path.join(_paths.home(cwd, "state/tasks", make=False), task_id + ".env"))
+
+
+def copy_contract(cwd, top, task_id):
+    """Put a copy of the supervisor's contract in the worker's worktree (Claude Code makes the
+    worktree at dispatch, so no one could write it before), so `selfcheck` there finds the
+    task. The gates compare the copy with the contract, so editing it gains nothing."""
+    src = os.path.join(_paths.home(cwd, "state/tasks", make=False), task_id + ".env")
+    dst = os.path.join(top, ".agentic", "task.env")
+    if not os.path.isfile(os.path.join(top, ".git")) or not os.path.isfile(src):
+        return
+    if os.path.exists(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
+        return                                  # current (a re-dispatch rewrites the contract: refresh)
+    try:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(src, dst)
+    except OSError:
+        pass
+
+
 def transcript_for(payload, agent_id):
     """The sub-agent's own session log — Claude transcript or Codex rollout (_usage)."""
     return _usage.agent_transcript(payload, agent_id)
@@ -165,7 +207,7 @@ def tokens_used(path, meter="fresh"):
 
 
 def bound_worktree(cwd, agent_id):
-    """Codex/OpenCode workers bind their worktree with `agentic bind` (host-adapter)."""
+    """Codex/OpenCode workers bind their worktree with `aloop bind` (host-adapter)."""
     st = load_state(os.path.join(_paths.home(cwd, "state/agents"), "%s.json" % safe(agent_id)))
     wt = (st or {}).get("worktree") or ""
     return wt if wt and os.path.isdir(wt) else ""
@@ -218,7 +260,7 @@ def claimed_worktrees(cwd, agent_id):
 def find_worktree(payload, cwd, agent_id, role):
     """Which worktree is this worker in? Independent of the tool call's cwd, because workers
     often address their worktree with `git -C <wt>` / absolute paths from the main tree.
-      1. a recorded binding (`agentic bind`, or an earlier call of this attempt)
+      1. a recorded binding (`aloop bind`, or an earlier call of this attempt)
       2. a path the tool call names that lies inside a task worktree
       3. the tool call's cwd
       4. the ONE unclaimed task worktree whose task.env names this role (first calls that
@@ -234,6 +276,10 @@ def find_worktree(payload, cwd, agent_id, role):
     wt = _task_worktree_of(cwd, project)
     if wt:
         return wt, "cwd"
+    top = sh("git", "-C", cwd, "rev-parse", "--show-toplevel")
+    if top and os.path.isfile(os.path.join(top, ".git")) and \
+            os.path.realpath(_paths.project(top)) == os.path.realpath(project):
+        return top, "cwd (host worktree)"      # Claude Code's isolation worktree has no task.env
     claimed = claimed_worktrees(cwd, agent_id)
     mine = []
     for te in glob.glob(os.path.join(project, ".agentic", "worktrees", "*", ".agentic", "task.env")) + \
@@ -487,6 +533,9 @@ def hook(mode):
     cwd = payload.get("cwd") or os.getcwd()
     wt, how = find_worktree(payload, cwd, agent_id, role)
     top = wt or sh("git", "-C", cwd, "rev-parse", "--show-toplevel") or cwd
+    host_tid = host_task_id(payload, agent_id)
+    if host_tid and mode != "stop":
+        copy_contract(cwd, top, host_tid)
     spath = os.path.join(state_dir(cwd), "%s.json" % safe(agent_id))
     st = load_state(spath)
     now = time.time()
@@ -499,10 +548,16 @@ def hook(mode):
 
     def resolve_for(top):
         env = read_kv(os.path.join(top, ".agentic", "task.env"))
+        # the supervisor's contract wins over the worker-editable worktree copy (M0.7)
+        sup = contract(cwd, host_tid or env.get("TASK_ID", ""))
+        if sup:
+            env = sup
         task = env.get("TASK_ID", "")
         tasks_file = os.path.join(env["STORY_DIR"], "tasks.md") if env.get("STORY_DIR") else None
         tn = re.sub(r"^.*[-_ ](T\d+)$", r"\1", task.split()[-1]) if task else None
         b, src = resolve(cwd, tasks_file, tn, env, with_source=True)
+        if sup:
+            src = src.replace("task.env BUDGET_*", "contract BUDGET_*")
         return env, task, b, src
 
     if st is None:
@@ -582,7 +637,7 @@ def hook(mode):
         msg = ("HARD BUDGET EXCEEDED (%s). You are stopped now. Do nothing else: no report, no "
                "tests, no edits. The harness has recorded this attempt in %s (status: re-plan) and "
                "the task goes back to the planner." % (left, report))
-        stop = ("agentic-agile: HARD BUDGET — %s %s stopped by the time-box hook (%s). "
+        stop = ("aloop: HARD BUDGET — %s %s stopped by the time-box hook (%s). "
                 "Not a pass; the supervisor re-plans this task." % (role, st.get("task") or "", left))
         if mode == "pre":
             st["denials"] = st.get("denials", 0) + 1

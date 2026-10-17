@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# transcripts — full interaction capture for agentic-agile (file-based, never blocks).
+# transcripts — full interaction capture for aloop (file-based, never blocks).
 #
 # Records EVERYTHING that flows through the hooks — not a thin event log:
 #   <store>/<task>/events.jsonl      live stream: the FULL hook payload per tool call
@@ -76,7 +76,7 @@ snapshot_transcript() { # $1 payload
 }
 
 cmd="${1:-}"; shift || true
-# Only capture in an agentic-agile project (docs/agents/ exists): in any other repo the
+# Only capture in an aloop project (docs/agents/ exists): in any other repo the
 # plugin must not create .agentic/ — an un-ignored run-data dir is how transcripts leak.
 case "$cmd" in init|stage-in|record|prompt|snapshot|stop) [ -d "$AGENTIC_DOCS" ] || exit 0 ;; esac
 case "$cmd" in

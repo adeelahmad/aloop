@@ -1,4 +1,4 @@
-// ctx-symbols — minimal AST symbol resolver for the agentic-agile gates.
+// ctx-symbols — minimal AST symbol resolver for the aloop gates.
 //
 //   ctx-symbols count   <symbol> --tree .   # prints how many times <symbol> is DEFINED (gate: == 1)
 //   ctx-symbols locate  <symbol> --tree .   # prints file:line:col for each definition

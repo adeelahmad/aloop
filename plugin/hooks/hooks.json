@@ -6,7 +6,7 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/session-start\"", "timeout": 15 } ] }
     ],
     "PreToolUse": [
-      { "matcher": "Write|Edit|MultiEdit|NotebookEdit", "hooks": [
+      { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-supervisor-scope\"" } ] },
       { "matcher": "Bash", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-commit-author\"", "timeout": 15 } ] },
@@ -19,7 +19,7 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" prompt" } ] }
     ],
     "SubagentStart": [
-      { "matcher": "red-worker|scaffolder|green-worker|structural-reviewer|final-gate", "hooks": [
+      { "matcher": "red-worker|aloop:red-worker|scaffolder|aloop:scaffolder|green-worker|aloop:green-worker|structural-reviewer|aloop:structural-reviewer|final-gate|aloop:final-gate", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-tooling\"" },
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/worktree-hygiene\"" } ] },
       { "matcher": "*", "hooks": [
@@ -39,25 +39,25 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/stats\" hook", "timeout": 60 } ] }
     ],
     "SubagentStop": [
-      { "matcher": "intake", "hooks": [
+      { "matcher": "intake|aloop:intake", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-intake\"" } ] },
-      { "matcher": "standards", "hooks": [
+      { "matcher": "standards|aloop:standards", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-standards-cited\"" } ] },
-      { "matcher": "planner", "hooks": [
+      { "matcher": "planner|aloop:planner", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-stage2-complete\"" } ] },
-      { "matcher": "archivist", "hooks": [
+      { "matcher": "archivist|aloop:archivist", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-memory\"" } ] },
-      { "matcher": "red-worker", "hooks": [
+      { "matcher": "red-worker|aloop:red-worker", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-red-verify\"" } ] },
-      { "matcher": "scaffolder", "hooks": [
+      { "matcher": "scaffolder|aloop:scaffolder", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-scaffold-verify\"" } ] },
-      { "matcher": "green-worker", "hooks": [
+      { "matcher": "green-worker|aloop:green-worker", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-green-verify\"" } ] },
-      { "matcher": "structural-reviewer", "hooks": [
+      { "matcher": "structural-reviewer|aloop:structural-reviewer", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-structural-integrity\"" } ] },
-      { "matcher": "final-gate", "hooks": [
+      { "matcher": "final-gate|aloop:final-gate", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-final\"" } ] },
-      { "matcher": "red-worker|scaffolder|green-worker|intake|standards|planner|archivist|structural-reviewer|final-gate", "hooks": [
+      { "matcher": "red-worker|aloop:red-worker|scaffolder|aloop:scaffolder|green-worker|aloop:green-worker|intake|aloop:intake|standards|aloop:standards|planner|aloop:planner|archivist|aloop:archivist|structural-reviewer|aloop:structural-reviewer|final-gate|aloop:final-gate", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook stop", "timeout": 15 } ] },
       { "matcher": "*", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/host-adapter\" hook", "timeout": 15 },

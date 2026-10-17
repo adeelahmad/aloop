@@ -26,7 +26,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$HERE/.." && pwd)}"
-DATA="${CLAUDE_PLUGIN_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/agentic-agile}"
+DATA="${CLAUDE_PLUGIN_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/aloop}"
 TOOLS_BIN="$DATA/bin"
 LOG="$DATA/install.log"
 LOCK="$DATA/install.lock"
@@ -69,7 +69,7 @@ build_running() {
 do_build() {
   command -v cargo >/dev/null 2>&1 || { echo "cargo not found — install Rust (https://rustup.rs) or put md-db + ctx-symbols on PATH yourself"; return 1; }
   local tgt="$DATA/target" rc=0
-  echo "==> $(date -u +%FT%TZ) building agentic-agile tools v$VERSION"
+  echo "==> $(date -u +%FT%TZ) building aloop tools v$VERSION"
   # cd (not --manifest-path): cargo discovers .cargo/config.toml from the cwd.
   ( cd "$ROOT/tools/ctx-symbols" && CARGO_TARGET_DIR="$tgt/ctx-symbols" cargo build --release --locked ) \
     && cp "$tgt/ctx-symbols/release/ctx-symbols" "$TOOLS_BIN/ctx-symbols" || rc=1
@@ -131,7 +131,7 @@ elif build_running; then
 else
   status="md-db/ctx-symbols are NOT installed and could not be built (no cargo?). Run \`make install\` or see $LOG. Planning still works (grep fallback); execution is blocked by gate-tooling."
 fi
-ctx="agentic-agile tools — do NOT search for them. ${status}. Call every tool as \`agentic <tool>\` (e.g. \`agentic selfcheck\`, \`agentic budget status\`, \`agentic stats show\`; \`agentic --list\` shows them). If \`agentic\` is not on PATH use the absolute path $ROOT/bin/agentic. On Claude Code and OpenCode the bare names (\`selfcheck\`, \`md-db\`, …) work too. Schemas: $ROOT/schemas/."
+ctx="aloop tools — do NOT search for them. ${status}. Call every tool as \`aloop <tool>\` (e.g. \`aloop selfcheck\`, \`aloop budget status\`, \`aloop stats show\`; \`aloop --list\` shows them). If \`agentic\` is not on PATH use the absolute path $ROOT/bin/agentic. On Claude Code and OpenCode the bare names (\`selfcheck\`, \`md-db\`, …) work too. Schemas: $ROOT/schemas/."
 
 if command -v python3 >/dev/null 2>&1; then
   CTX="$ctx" python3 -c 'import json,os;print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":os.environ["CTX"]}}))'

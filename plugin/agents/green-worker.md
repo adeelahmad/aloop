@@ -23,7 +23,8 @@ your init block's `### Budget` line has the exact numbers). Plan for it:
 - At the HARD limit your tool calls are denied except appending your output.md report,
   and the supervisor kills you. The task is then split by the planner — not retried.
 - Tools are on PATH — never search for them: `selfcheck`, `md-db`, `ctx-symbols`,
-  `log-execution`, `budget status`. Call them by bare name.
+  `log-execution`, `budget status`. Call them by bare name. Never read this plugin's own files (its `bin/`, `schemas/`, `pipeline/`, skills): your prompt
+  and init block say what to write, and `selfcheck` names exactly what a gate wants.
 - Start from your task's change targets when the story has `targets.json`:
   `targets target <Tn> <STORY_DIR>` then `targets context <Cn> <STORY_DIR>` — not a repo scan.
 
@@ -49,6 +50,8 @@ tested, what was stubbed). When done you MUST **append** your report as a new bl
     ### Next
     structural review / next task
 
+Commit your work on your worktree's branch (`git add -A && git commit -m "<TASK_ID> <phase>"`;
+the gate blocks uncommitted work, because the supervisor merges your branch).
 Then run `selfcheck` and fix anything before reporting done —
 the SubagentStop gate BLOCKS unless your latest `output.md` block exists, is from
 green-worker, and carries `### Summary` / `### Result` / `### Next`.

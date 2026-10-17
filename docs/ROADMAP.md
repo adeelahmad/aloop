@@ -1,10 +1,39 @@
-# Roadmap — agentic-agile → Aladdin
+# Roadmap — aloop → Aladdin
 
 *Internal working document. Revision 0.2 of the Aladdin spec, reduced to what is **not built yet**.*
 
 ![Aladdin's Loop (aloop)](diagrams/aladdins-loop.webp)
 
 ---
+
+## 0. At a glance
+
+What the project is today: [OVERVIEW.md](OVERVIEW.md). Sections 1–8 below are the full
+spec; this table is the plan. Versions are targets, not promises.
+
+| Milestone | Target | Contents | Status |
+|---|---|---|---|
+| **M0 — Hygiene** | v0.10.x | Mark `DESIGN` / `ARCHITECTURE` / `KICKSTART` historical; fix stale counts (8 → 9 roles) and the README CI section; add the `CONTRIBUTING.md` the README badge links to; one live-session smoke test of the hook wiring (open since `DEVLOG` v0.1) | done: live smoke test `make smoke-live YES=1` (6 checks, ~$0.004 on haiku); its first run found the Linux fail-open in `gate-supervisor-scope` (fixed, regression test added) |
+| **M0.8 — North-star run** | v0.11.x | `make e2e-live YES=1`: a one-line intent (semver parser) goes through retrospective, intake, standards, planner, RED/SCAFFOLD/GREEN per task, structural review and the final gate to merged, tested code in a real Claude Code session, with the approval given up front. Reason: nothing had ever run the whole loop live; the first run found that no role gate fired on plugin installs | run 1: done end to end, 19 min, $1.15 (sonnet supervisor, haiku workers), 22 tests on main, 9/11 checks; found and fixed the `aloop:<role>` matcher bug, a selfcheck crash and copy-merging. Run 2: **11/11**, 12m46s, $0.92, host gates on every role, worktree branches merged with `--no-ff`; found gates looping on the supervisor's contract slips (fixed). Run 3: 11/11, 12m00s, **$0.79**; found GREEN looping on RED's unformatted tests (fixed: RED/SCAFFOLD run the format check) and selfcheck missing the contract in Claude Code worktrees (fixed: the contract is copied in). Run 4 (all fixes): 11/11, 17m56s, $1.10, 12 gate blocks and no loops (28 → 17 → 12). Cost varies $0.79–1.15 per run; next: cut it (scaffold symbol parsing slips such as `(enum,`, supervisor turns), then a second intent beyond the semver fixture. Run 5: 11/11 but 29 min, $1.83, 44 blocks (the planner made 5 tasks; 27 false isolation blocks after workers `cd`'d to the main tree, fixed; subagents also read the plugin's own source, which costs tokens). Next: rerun green, then the gaps it showed (a test-coverage loss when a RED re-plan drops tests; supervisor-written GREEN instructions overreaching the next task) |
+| **M0.6 — Gates fail closed** | v0.11.x | A gate that crashes (exit 1, e.g. an unbound variable) is a non-blocking hook error on Claude Code, so the action goes through. Make every gate trap unexpected errors into exit 2 with the reason, and add a conformance case per gate. Reason: the smoke run showed one real instance | done: `_failclosed.sh` on all 10 sub-agent gates + supervisor-scope inside a sprint; `scripts/test/fail-closed.test.py` (5 checks). Left fail-open on purpose: `gate-commit-author` and `gate-validate-artifact` outside a sprint, which see every session on the machine |
+| **M0.7 — Supervisor-owned task contract** | v0.11.x | The contract lives in the main tree, `.agentic/state/tasks/<TASK_ID>.env`, and the dispatch prompt's first line names the task; gates and the time box find it from the host's transcript, a worktree `task.env` that disagrees blocks, and sub-agents may not Write/Edit `.agentic/state/` or `task.env`. Settled by a live probe: Claude Code's `isolation: "worktree"` makes `.claude/worktrees/agent-<id>` at dispatch, so a pre-written in-worktree contract was impossible there. Bash writes are guarded too (a command naming the contract with a write verb is blocked; a heuristic, so an obfuscated write still gets through). On hosts with no sub-agent transcript the worktree's `TASK_ID` (or its `.agentic/worktrees/<id>` path) picks the contract | done: `make conformance` (30) + `scripts/test/{budget-worktree,supervisor-scope}.test.py` |
+| **M0.5 — Rename to aloop** | v0.11.0 | Plugin, marketplace, skill, CLI (`aloop`, `aloop init`), OpenCode plugin file and docs renamed; `agentic`, `agentic init`, `agentic-init` and `agentic bind` kept as aliases; OpenCode/Codex installs clean up pre-rename files. Data layout and settings keys unchanged (moved to M1). GitHub repo rename is the owner's call | done: `scripts/test/rename-compat.test.py` |
+| **M1 — Trustworthy state** | v0.12 | Session 1: conformance fixtures around current behaviour, canonical IDs and the reference remap (§4.5); then move the data layout to the new name (`.agentic/` → `.aloop/`, `AGENTIC_*` → `ALOOP_*`) with a read-old fallback, proven by those fixtures | in progress: §6.2–6.9 fixtures pass on today's gates (`make conformance`, 30 checks incl. task.env tampering and the main-tree contract; found and fixed the whole-directory schema-gate bug); next: canonical IDs and the reference remap (§4.5) |
+| **M2 — Budgets that plan** | v0.13 | Sessions 2 and 4: budget semantics (§3.1–3.5), sprint envelope and admission control (§4.2), breach classes, failure envelope, grace rule, lesson candidates (§4.3) | not started |
+| **M3 — Clean boundaries** | v0.14 | Session 3: canonical handoff, rotation and the resume rule (§4.4) | not started |
+| **M4 — Intent in, autonomy optional** | v0.15 | Session 5: Intent Contract, clarification policy, autonomous mode (§4.1) | not started |
+| **M5 — Narrow context** | v0.16 | Session 6: semantic execution map, shadow workspace, `target` / `context` CLI (§4.6) | not started |
+| **M6 — Audit** | v0.17 | Sessions 7–8: event stream, rationale, authority, lineage query (§4.7); provider seam (§4.8) | not started |
+| **M7 — Any host** | v0.18 | Session 9: `HostAdapter`, capability matrix, `.aladdin/config.yaml`, host swap, metrics (§4.9–4.10) | not started |
+| **M8 — Aladdin 1.0** | v1.0 | Session 10: `/aladdin` + `aladdin` CLI with aliases, site, measured public runs (§4.11). The rename to aloop shipped early in v0.11.0 | not started |
+
+**Order rationale:** identity and conformance fixtures first, so every later change is
+measured against today's behaviour; budgets and handoff next, because they shape every run;
+the semantic map and audit trail after, since they build on canonical IDs; portability and
+the rebrand last, once the conformance suite (§6) can prove parity.
+
+**Exit for each milestone:** the §5 exit criterion holds, the §6 conformance items it
+touches pass on Claude Code, and each requirement is reported per §8.
 
 ## 1. Goal
 

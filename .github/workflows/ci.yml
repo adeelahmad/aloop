@@ -1,6 +1,6 @@
 # CI — the checks `make ci` + `make validate` run, mirrored on every push/PR.
 # Documented in README.md ("Continuous integration"). Four independent jobs:
-#   rust       — ctx-symbols + md-db: fmt-check, clippy -D warnings, tests
+#   rust       — ctx-symbols + md-db: fmt-check, clippy -D warnings, tests; §6 conformance fixtures
 #   shellcheck — lints every gate script (errors fail the build)
 #   plugin     — JSON sanity + eval-suite validation + `claude plugin validate --strict`
 #   hosts      — Codex hooks emulation + OpenCode plugin end-to-end (no network, no tokens)
@@ -38,6 +38,8 @@ jobs:
         run: make clippy
       - name: test (ctx-symbols + md-db)
         run: make test
+      - name: conformance fixtures (ROADMAP §6, real gates on a fixture crate)
+        run: make conformance
 
   shellcheck:
     name: shellcheck (gate scripts)

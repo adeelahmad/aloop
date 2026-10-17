@@ -6,13 +6,15 @@ never calls them directly. Shared helpers live in `_gatelib.sh`.
 ## Exit-code convention (gates)
 - `0`  PASS (allow the event)
 - `2`  BLOCK the event + write the reason to stderr (fed back to the supervisor)
-- other non-zero  error
+- any other exit is a gate bug and is turned into `2` (BLOCK, "failing closed") by `_failclosed.sh`, which every sub-agent gate loads; `gate-supervisor-scope` arms it only once the repo has a sprint lock, because it sees every session on the machine
 Transcripts hooks (`transcripts`) ALWAYS exit `0` — they must never block an agent.
 
 ## Per-task contract
-Gates read `.agentic/task.env` (the supervisor writes it into each worktree at
-dispatch): `TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS, BASE_REF,
-STORY_DIR, BUDGET_*`. Real env overrides. Store paths are NOT part of the contract:
+Gates read the supervisor's contract `<main tree>/.agentic/state/tasks/<TASK_ID>.env`
+(written before dispatch; the dispatch prompt's first line `TASK_ID: <id>` names it):
+`TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS, BASE_REF, STORY_DIR,
+BUDGET_*`. A worktree `.agentic/task.env` is a fallback and must match the contract when
+both exist. Parsed, never sourced. Real env overrides. Store paths are NOT part of the contract:
 `_paths.sh` / `_paths.py` fix them (`<main tree>/.agentic/{transcripts,budget,ledger,logs,state}`,
 `docs/agents/{defaults.md,NEXT.md}`). A missing backend (md-db /
 ctx-symbols) → WARN + grep fallback; never a silent pass.
@@ -43,13 +45,13 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 | `log-execution` | append a transition line to `execution.log` |
 | `ensure-tools` | SessionStart — builds md-db + ctx-symbols into `$CLAUDE_PLUGIN_DATA/bin` on first run / version change (background), tells the model where the tools are. `--sync` build now · `--wait` · `--resolve T` real binary path |
 | `md-db`, `ctx-symbols` | PATH shims (this `bin/` is on PATH in every session): exec the real binary, building it once if needed. Gates test presence with `ensure-tools --resolve`, never `command -v` |
-| `agentic` | the one entrypoint: `agentic <tool> …` (`agentic --list`); `agentic init` = agentic-init, `agentic install` = install. Linked into `~/.local/bin` for Codex/OpenCode |
-| `install` | `agentic install codex\|opencode [--project DIR\|--global] [--uninstall]` — renders agents/skills/commands (+ the OpenCode plugin from `hosts/opencode/`) from this plugin's sources; `status`; `claude` |
-| `host-adapter` | SubagentStart/Stop: register sub-agents (`.agentic/state/agents/`) for the ledger; PreToolUse on Codex: a worker must `agentic bind <worktree>` first, then its commands/patches must stay in it (denied otherwise) |
+| `aloop` | the one entrypoint: `aloop <tool> …` (`aloop --list`); `aloop init` = aloop-init, `aloop install` = install. Linked into `~/.local/bin` for Codex/OpenCode |
+| `install` | `aloop install codex\|opencode [--project DIR\|--global] [--uninstall]` — renders agents/skills/commands (+ the OpenCode plugin from `hosts/opencode/`) from this plugin's sources; `status`; `claude` |
+| `host-adapter` | SubagentStart/Stop: register sub-agents (`.agentic/state/agents/`) for the ledger; PreToolUse on Codex: a worker must `aloop bind <worktree>` first, then its commands/patches must stay in it (denied otherwise) |
 | `task-worktree` | `add\|path\|remove <TASK_ID>` — per-task worktree at `.agentic/worktrees/<TASK_ID>` (branch `agentic/<TASK_ID>`) for hosts without built-in isolation |
-| `bind` | a worker's first command on Codex/OpenCode: validates its worktree (`agentic bind <path>`) |
+| `bind` | a worker's first command on Codex/OpenCode: validates its worktree (`aloop bind <path>`) |
 | `_usage.py` | token usage from any host's log: Claude transcripts, Codex rollouts (`.jsonl`/`.zst`, cumulative totals → per-call rows), the OpenCode plugin's usage log |
-| `agentic-init` | project setup: `--show` the defaults for the human, `--apply KEY=VALUE…` writes `docs/agents/defaults.md`, the managed `.gitignore` lines and the repo-local git author; `--ensure-gitignore` (SessionStart, worktree-hygiene) re-adds them |
+| `aloop-init` | project setup: `--show` the defaults for the human, `--apply KEY=VALUE…` writes `docs/agents/defaults.md`, the managed `.gitignore` lines and the repo-local git author; `--ensure-gitignore` (SessionStart, worktree-hygiene) re-adds them |
 | `session-start` | SessionStart — re-applies the managed `.gitignore` lines (if init opted in) and loads `docs/agents/NEXT.md` into the context (the post-`/clear` handoff) |
 | `gate-commit-author` | PreToolUse · Bash — a `git commit` must use the configured author: denies `--author`/`-c user.*`/`GIT_AUTHOR_*` overrides, a mismatched repo identity, and Claude co-author/attribution trailers (unless `CLAUDE_COAUTHOR=yes`) |
 | `stats` | `hook` (Stop + SubagentStop): rewrites `.agentic/ledger/<session>.jsonl` from the transcripts (tokens per API call, main + sub-agents) and, once after a sprint closed, shows the totals + tells the supervisor to ask for `/clear`. `sprint-close` (run by gate-final on pass): `sprintN/stats.md` + `NEXT.md`. `show`: session / sprint / project totals |

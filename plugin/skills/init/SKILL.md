@@ -1,28 +1,28 @@
 ---
 name: init
 description: >-
-  Explicit entry point for the agentic-agile workflow — set up the project (limits,
+  Explicit entry point for the aloop workflow — set up the project (limits,
   models, .gitignore, commit author, whether docs/agents is tracked) with the human's
-  confirmation, then start sprint planning. Invoke with /agentic-agile:init.
+  confirmation, then start sprint planning. Invoke with /aloop:init.
 disable-model-invocation: true
 ---
 
-# agentic-agile — init (entry point)
+# aloop — init (entry point)
 
 **Do this now, in order.**
 
 ## 0. Host
 
 On Claude Code nothing to do. On **Codex** or **OpenCode**, the human runs
-`agentic install codex` / `agentic install opencode` once (it generates the agents, skills
-and — for OpenCode — the plugin; see the agentic-agile skill's host table). If `agentic`
+`aloop install codex` / `aloop install opencode` once (it generates the agents, skills
+and — for OpenCode — the plugin; see the aloop skill's host table). If `aloop`
 is not found, the plugin isn't installed for this host yet — say so and stop.
 
 ## 1. Project settings — show the defaults, get the human's confirmation
 
 Run:
 
-    agentic init --show
+    aloop init --show
 
 It prints a table of the proposed settings (the current ones if
 `docs/agents/defaults.md` already exists). Present that table to the human **as is**, then
@@ -37,7 +37,7 @@ ask — one question per topic, the default first (Claude Code: `AskUserQuestion
    token ledger, logs — never meant for GitHub)? Default **yes**.
 4. **Track `docs/agents/` in git?** Default **no** (it is then git-ignored too).
 5. **Commit author** — every commit is authored by *the human*, not Claude: default is the
-   identity `agentic-init --show` detected from git config (name + email). Confirm or
+   identity `aloop-init --show` detected from git config (name + email). Confirm or
    give another. And: allow Claude co-author / "Generated with Claude Code" trailers?
    Default **no**.
 
@@ -46,7 +46,7 @@ that the human sees and confirms them.
 
 ## 2. Save them — the harness writes the file, not you
 
-    agentic init --apply TOKENS_SOFT=… TOKENS_HARD=… TIME_SOFT_MIN=… TIME_HARD_MIN=… \
+    aloop init --apply TOKENS_SOFT=… TOKENS_HARD=… TIME_SOFT_MIN=… TIME_HARD_MIN=… \
       MAX_REPLANS=… MODEL_PLANNING=… MODEL_WORKER=… GITIGNORE=yes|no TRACK_DOCS=no|yes \
       COMMIT_AUTHOR_NAME="…" COMMIT_AUTHOR_EMAIL="…" CLAUDE_COAUTHOR=no|yes
 
@@ -63,7 +63,7 @@ track it, ask before running `git rm -r --cached docs/agents` — never run it u
 
 ## 3. Start planning
 
-Load the canonical supervisor playbook — the `agentic-agile` skill in this plugin — adopt
+Load the canonical supervisor playbook — the `aloop` skill in this plugin — adopt
 the supervisor role and begin **Stage-1 planning** with the human (retrospective → intake →
 standards → planner). Do **not** start the autonomous RED → SCAFFOLD → GREEN →
 STRUCTURAL-REVIEW → FINAL-GATE run until the human approves the completed Stage-2 plan.

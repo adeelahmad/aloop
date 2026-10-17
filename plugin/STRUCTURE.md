@@ -1,4 +1,4 @@
-# agentic-agile plugin — structure
+# aloop plugin — structure
 
 Read this file, then walk `pipeline/`. The tree is the documentation.
 
@@ -58,7 +58,7 @@ init.md and output.md are NEW artifacts with fixed sections -> fully md-db-valid
 ## v0.2 additions
 
     .claude-plugin/plugin.json   the installable manifest (now present)
-    skills/agentic-agile/SKILL.md the supervisor's playbook (canonical)
+    skills/aloop/SKILL.md the supervisor's playbook (canonical)
     pipeline/planning/retrospective/  runs FIRST every planning session (the archivist)
     agents/archivist.md          read-only; distills memory from the transcripts
     schemas/memory.kdl           validates docs/agents/memory.md
@@ -71,4 +71,4 @@ gets a READ-ONLY task slice staged into its worktree (`.transcripts/`) at Subage
 every tool call and prompt is recorded; the full session is snapshotted on stop. The
 supervisor reads the global store; the retrospective distills it into memory.md, which
 is injected (role-scoped) into each init.md `# Memory` section.
-The gates read their per-task contract from `.agentic/task.env` (supervisor-written).
+The gates read their per-task contract from `.agentic/state/tasks/<TASK_ID>.env` (supervisor-written, main tree).
