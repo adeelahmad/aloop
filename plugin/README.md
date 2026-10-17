@@ -1,4 +1,4 @@
-# agentic-agile
+# aloop
 
 A Claude Code plugin that packages **two-stage agile planning** (interactive,
 human-gated) and **two-phase TDD execution** (autonomous, hook-enforced) into one
@@ -12,7 +12,7 @@ back to the supervisor.
   STRUCTURAL-REVIEW, then once per sprint a FINAL-GATE. One worktree-isolated
   sub-agent per task; merge on pass, abandon the chain on a foundation-poisoning halt.
 
-See `skills/agentic-agile/SKILL.md` for the full supervisor playbook and
+See `skills/aloop/SKILL.md` for the full supervisor playbook and
 `STRUCTURE.md` for the design source layout.
 
 ## Prerequisites
@@ -58,7 +58,7 @@ itself stops the worker (PostToolUse `continue: false`) — no model decides the
 
 ## Init, layout, stats and the handoff
 
-`/agentic-agile:init` shows the defaults and asks you to confirm: the limits, the
+`/aloop:init` shows the defaults and asks you to confirm: the limits, the
 models, adding `.agentic/` + `.transcripts/` to `.gitignore`, whether `docs/agents/` is
 tracked in git (default **no**), and the commit author (default: **your** git identity,
 no Claude co-author trailers — `gate-commit-author` enforces it). The harness saves the
@@ -78,7 +78,7 @@ From a marketplace (this repo ships `.claude-plugin/marketplace.json` at its roo
 
 ```
 /plugin marketplace add adeelahmad/agentic-agile
-/plugin install agentic-agile@agentic-agile-marketplace
+/plugin install aloop@aloop-marketplace
 ```
 
 (For local dev, point `marketplace add` at your checkout: `./path/to/repo`.)
@@ -88,51 +88,51 @@ From a marketplace (this repo ships `.claude-plugin/marketplace.json` at its roo
 The same plugin runs on **Codex** and **OpenCode** with every feature: skills, the 9
 role agents, all gates, the time box and hard stop, worktree isolation, the token
 ledger, sprint stats and the post-`/clear` handoff. Run the installer from a clone (or
-from `agentic --root` once installed anywhere):
+from `aloop --root` once installed anywhere):
 
 ```bash
 git clone https://github.com/adeelahmad/agentic-agile && cd your-project
 
 # Codex — Codex reads this repo's .claude-plugin manifests + hooks/hooks.json natively
-/path/to/agentic-agile/plugin/bin/agentic install codex      # .codex/agents/*.toml + ~/.local/bin/agentic
+/path/to/aloop/plugin/bin/aloop install codex      # .codex/agents/*.toml + ~/.local/bin/aloop
 codex plugin marketplace add adeelahmad/agentic-agile
-codex plugin add agentic-agile@agentic-agile-marketplace
-#   then in Codex: /hooks → trust the agentic-agile hooks (Codex runs only trusted hooks)
+codex plugin add aloop@aloop-marketplace
+#   then in Codex: /hooks → trust the aloop hooks (Codex runs only trusted hooks)
 
 # OpenCode — no bundle format, so the installer renders everything into .opencode/
-/path/to/agentic-agile/plugin/bin/agentic install opencode   # agents, skills, /agentic-init, plugin
-#   restart opencode; start with /agentic-init
+/path/to/aloop/plugin/bin/aloop install opencode   # agents, skills, /aloop-init, plugin
+#   restart opencode; start with /aloop-init
 ```
 
 `--global` installs into `~/.codex` / `~/.config/opencode` instead of the project;
-`--uninstall` removes what was generated; `agentic install status` shows what's where.
+`--uninstall` removes what was generated; `aloop install status` shows what's where.
 
 | Capability | Claude Code | Codex | OpenCode |
 |---|---|---|---|
 | Hooks | `hooks/hooks.json` | the same file (native) | plugin → the same scripts |
 | Agents | `agents/*.md` | generated `.codex/agents/*.toml` | generated `.opencode/agents/*.md` |
-| Worker isolation | `isolation: "worktree"` | `agentic task-worktree` + `agentic bind` (hook-enforced) | same (plugin rewrites into the worktree) |
-| Tools on PATH | plugin `bin/` | `~/.local/bin/agentic` | plugin `shell.env` |
+| Worker isolation | `isolation: "worktree"` | `aloop task-worktree` + `aloop bind` (hook-enforced) | same (plugin rewrites into the worktree) |
+| Tools on PATH | plugin `bin/` | `~/.local/bin/aloop` | plugin `shell.env` |
 | Token source | transcripts | rollouts (`.jsonl`/`.zst`) | plugin-written usage log |
 | Hard stop | PostToolUse `continue:false` | same | `session.abort` |
 
 Models: Codex agents use the session's model at `high` (planning) / `medium` (workers)
 reasoning effort unless `MODEL_*_CODEX` is set; OpenCode agents use
 `anthropic/claude-opus-5-5` / `anthropic/claude-sonnet-5` unless `MODEL_*_OPENCODE` is set
-(all in `docs/agents/defaults.md`; `agentic init --apply` re-renders installed hosts).
+(all in `docs/agents/defaults.md`; `aloop init --apply` re-renders installed hosts).
 Both are covered in CI by `make test-hosts` (Codex hook-runner emulation + OpenCode
 plugin against a mock client).
 
 ## Invoking it
 
-The `agentic-agile` skill is the supervisor — it dispatches the 9 sub-agents and
+The `aloop` skill is the supervisor — it dispatches the 9 sub-agents and
 gates; you don't call them directly. Start it either way:
 
 - **Implicitly** — it's model-invoked, so asking to build/ship/implement/fix something
   via a sprint or TDD auto-triggers it (e.g. *"build a rate limiter as a sprint, tests
   first"*).
-- **Explicitly** — `/agentic-agile:init` (a thin entry-point alias; the underlying
-  skill is also directly invokable as `/agentic-agile:agentic-agile`).
+- **Explicitly** — `/aloop:init` (a thin entry-point alias; the underlying
+  skill is also directly invokable as `/aloop:aloop`).
 
 Planning is human-gated: the skill stops for your Stage-2 approval before it begins the
 autonomous RED → SCAFFOLD → GREEN → STRUCTURAL → FINAL execution run.
@@ -155,7 +155,7 @@ All optional, each with a safe fallback (see `bin/_gatelib.sh`):
 
 ```
 .claude-plugin/plugin.json   manifest
-skills/agentic-agile/SKILL.md the supervisor playbook (canonical)
+skills/aloop/SKILL.md the supervisor playbook (canonical)
 agents/<role>.md             9 dispatchable personas
 hooks/hooks.json             gate wiring by agent_type (SubagentStop/Stop/PostToolUse)
 bin/                         gate bodies + _gatelib.sh + log-execution

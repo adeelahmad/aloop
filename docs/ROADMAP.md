@@ -1,4 +1,4 @@
-# Roadmap — agentic-agile → Aladdin
+# Roadmap — aloop → Aladdin
 
 *Internal working document. Revision 0.2 of the Aladdin spec, reduced to what is **not built yet**.*
 
@@ -14,14 +14,15 @@ spec; this table is the plan. Versions are targets, not promises.
 | Milestone | Target | Contents | Status |
 |---|---|---|---|
 | **M0 — Hygiene** | v0.10.x | Mark `DESIGN` / `ARCHITECTURE` / `KICKSTART` historical; fix stale counts (8 → 9 roles) and the README CI section; add the `CONTRIBUTING.md` the README badge links to; one live-session smoke test of the hook wiring (open since `DEVLOG` v0.1) | in progress: docs, CONTRIBUTING and stale counts done; live smoke test open |
-| **M1 — Trustworthy state** | v0.11 | Session 1: conformance fixtures around current behaviour, canonical IDs and the reference remap (§4.5) | not started |
-| **M2 — Budgets that plan** | v0.12 | Sessions 2 and 4: budget semantics (§3.1–3.5), sprint envelope and admission control (§4.2), breach classes, failure envelope, grace rule, lesson candidates (§4.3) | not started |
-| **M3 — Clean boundaries** | v0.13 | Session 3: canonical handoff, rotation and the resume rule (§4.4) | not started |
-| **M4 — Intent in, autonomy optional** | v0.14 | Session 5: Intent Contract, clarification policy, autonomous mode (§4.1) | not started |
-| **M5 — Narrow context** | v0.15 | Session 6: semantic execution map, shadow workspace, `target` / `context` CLI (§4.6) | not started |
-| **M6 — Audit** | v0.16 | Sessions 7–8: event stream, rationale, authority, lineage query (§4.7); provider seam (§4.8) | not started |
-| **M7 — Any host** | v0.17 | Session 9: `HostAdapter`, capability matrix, `.aladdin/config.yaml`, host swap, metrics (§4.9–4.10) | not started |
-| **M8 — Aladdin 1.0** | v1.0 | Session 10: rebrand, `/aladdin` + `aladdin` CLI with aliases, README, site, measured public runs (§4.11) | not started |
+| **M0.5 — Rename to aloop** | v0.11.0 | Plugin, marketplace, skill, CLI (`aloop`, `aloop init`), OpenCode plugin file and docs renamed; `agentic`, `agentic init`, `agentic-init` and `agentic bind` kept as aliases; OpenCode/Codex installs clean up pre-rename files. Data layout and settings keys unchanged (moved to M1). GitHub repo rename is the owner's call | done: `scripts/test/rename-compat.test.py` |
+| **M1 — Trustworthy state** | v0.12 | Session 1: conformance fixtures around current behaviour, canonical IDs and the reference remap (§4.5); then move the data layout to the new name (`.agentic/` → `.aloop/`, `AGENTIC_*` → `ALOOP_*`) with a read-old fallback, proven by those fixtures | not started |
+| **M2 — Budgets that plan** | v0.13 | Sessions 2 and 4: budget semantics (§3.1–3.5), sprint envelope and admission control (§4.2), breach classes, failure envelope, grace rule, lesson candidates (§4.3) | not started |
+| **M3 — Clean boundaries** | v0.14 | Session 3: canonical handoff, rotation and the resume rule (§4.4) | not started |
+| **M4 — Intent in, autonomy optional** | v0.15 | Session 5: Intent Contract, clarification policy, autonomous mode (§4.1) | not started |
+| **M5 — Narrow context** | v0.16 | Session 6: semantic execution map, shadow workspace, `target` / `context` CLI (§4.6) | not started |
+| **M6 — Audit** | v0.17 | Sessions 7–8: event stream, rationale, authority, lineage query (§4.7); provider seam (§4.8) | not started |
+| **M7 — Any host** | v0.18 | Session 9: `HostAdapter`, capability matrix, `.aladdin/config.yaml`, host swap, metrics (§4.9–4.10) | not started |
+| **M8 — Aladdin 1.0** | v1.0 | Session 10: `/aladdin` + `aladdin` CLI with aliases, site, measured public runs (§4.11). The rename to aloop shipped early in v0.11.0 | not started |
 
 **Order rationale:** identity and conformance fixtures first, so every later change is
 measured against today's behaviour; budgets and handoff next, because they shape every run;

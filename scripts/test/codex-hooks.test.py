@@ -101,7 +101,7 @@ for t in ("md-db", "ctx-symbols"):
     os.chmod(p, 0o755)
 sh("git", "init", "-q"); sh("git", "config", "user.email", "ada@x.io"); sh("git", "config", "user.name", "Ada")
 sh("git", "commit", "-q", "--allow-empty", "-m", "init")
-sh(os.path.join(BIN, "agentic-init"), "--apply", "TOKENS_SOFT=100", "TOKENS_HARD=200")
+sh(os.path.join(BIN, "aloop-init"), "--apply", "TOKENS_SOFT=100", "TOKENS_HARD=200")
 os.makedirs(os.path.join(T, "docs/agents/sprint1/s1-01-x"))
 open(os.path.join(T, "docs/agents/NEXT.md"), "w").write("NEXT-MARKER\n")
 main_tp = rollout("main0", [(50, 5)])
@@ -109,7 +109,7 @@ base = {"session_id": "main0", "transcript_path": main_tp}
 
 # SessionStart: handoff + tool orientation reach the model
 r = fire("SessionStart", dict(base, source="startup"))
-assert "NEXT-MARKER" in context(r) and "agentic" in context(r); ok("SessionStart injects the handoff + tool orientation")
+assert "NEXT-MARKER" in context(r) and "aloop" in context(r); ok("SessionStart injects the handoff + tool orientation")
 
 # supervisor (no agent_id) patching source mid-sprint is blocked; apply_patch matches Write|Edit
 fire("PreToolUse", dict(base, tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n*** Add File: docs/agents/sprint1/s1-01-x/init.md\n+x\n*** End Patch"}))
@@ -128,7 +128,7 @@ ok("unbound worker's shell command is refused")
 wt = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T1")
 open(os.path.join(wt, ".agentic/task.env"), "w").write(
     "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=%s\n" % os.path.join(T, "docs/agents/sprint1/s1-01-x"))
-assert not denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "agentic bind " + wt}))); ok("`agentic bind` allowed")
+assert not denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "aloop bind " + wt}))); ok("`aloop bind` allowed")
 assert denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "cargo test"}))); ok("command outside the worktree refused")
 assert not denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "cd %s && cargo test" % wt}))); ok("command inside the worktree allowed")
 assert denied(fire("PreToolUse", dict(worker, tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n*** Add File: tests/a.rs\n+x\n*** End Patch"})))
@@ -160,7 +160,7 @@ rows = [json.loads(l) for l in open(os.path.join(T, ".agentic/ledger/main0.jsonl
 assert {r["agent"] for r in rows} == {"main", "th-red"} and sum(r["out"] for r in rows) == 25; ok("ledger = main rollout + worker rollout")
 
 # Claude Code regression: the same hooks must NOT confine a Claude worker (native isolation)
-claude = {"session_id": "c1", "transcript_path": os.path.join(T, "cc", "c1.jsonl"), "agent_id": "a-claude", "agent_type": "agentic-agile:red-worker"}
+claude = {"session_id": "c1", "transcript_path": os.path.join(T, "cc", "c1.jsonl"), "agent_id": "a-claude", "agent_type": "aloop:red-worker"}
 r = subprocess.run(["sh", "-c", HOOKS["PreToolUse"][-1]["hooks"][0]["command"]], cwd=T, env=ENV, capture_output=True, text=True,
                    input=json.dumps(dict(claude, hook_event_name="PreToolUse", cwd=T, tool_name="Bash", tool_input={"command": "cargo test"})))
 assert "deny" not in r.stdout; ok("Claude Code worker (no turn_id, no bind) is not confined by host-adapter")

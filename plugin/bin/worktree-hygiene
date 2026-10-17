@@ -56,10 +56,10 @@ fi
 main="$(git -C "$WT" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | head -1)"
 [ -n "$main" ] || main="$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null)"
 # A project that ran init has its .gitignore choice in docs/agents/defaults.md —
-# agentic-init owns the managed lines then. Without it, fall back to the minimal
+# aloop-init owns the managed lines then. Without it, fall back to the minimal
 # protective pair below so run data can never leak into a commit.
 if [ -n "$main" ] && [ -f "$main/docs/agents/defaults.md" ]; then
-  ( cd "$main" && "$(dirname "${BASH_SOURCE[0]}")/agentic-init" --ensure-gitignore ) >/dev/null 2>&1 || true
+  ( cd "$main" && "$(dirname "${BASH_SOURCE[0]}")/aloop-init" --ensure-gitignore ) >/dev/null 2>&1 || true
 elif [ -n "$main" ]; then
   gi="$main/.gitignore"
   touch "$gi" 2>/dev/null || true

@@ -14,10 +14,10 @@ if [ -n "$cwd" ] && [ -d "$cwd" ]; then cd "$cwd" || exit 0; fi
 # shellcheck source=/dev/null
 . "$HERE/_paths.sh"
 
-"$HERE/agentic-init" --ensure-gitignore >/dev/null 2>&1 || true
+"$HERE/aloop-init" --ensure-gitignore >/dev/null 2>&1 || true
 
 [ -f "$AGENTIC_NEXT" ] || exit 0
-ctx="agentic-agile handoff — docs/agents/NEXT.md, loaded automatically by the SessionStart hook:
+ctx="aloop handoff — docs/agents/NEXT.md, loaded automatically by the SessionStart hook:
 
 $(head -c 12000 "$AGENTIC_NEXT")"
 if command -v python3 >/dev/null 2>&1; then

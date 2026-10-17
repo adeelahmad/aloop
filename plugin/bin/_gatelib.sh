@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# _gatelib.sh — shared helpers for the agentic-agile gate bodies (Rust target).
+# _gatelib.sh — shared helpers for the aloop gate bodies (Rust target).
 #
 # Gates are wired in hooks.json (SubagentStop / Stop) matched by agent_type. The
 # supervisor sets the per-dispatch contract via environment variables; every var
@@ -55,7 +55,7 @@ repo_dir() {
 
 # Hosts without built-in sub-agent isolation (Codex, OpenCode) run the SubagentStop gate
 # in the session's cwd — the MAIN tree. A worker there bound its worktree with
-# `agentic bind` (host-adapter recorded it under .agentic/state/agents/<agent_id>.json),
+# `aloop bind` (host-adapter recorded it under .agentic/state/agents/<agent_id>.json),
 # so the gate moves into that worktree before checking anything. Reads the hook payload
 # from stdin with a bounded wait (a self-check has no payload and just proceeds).
 _gate_enter_bound_worktree() {

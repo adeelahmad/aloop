@@ -8,7 +8,7 @@ SubagentStart / SubagentStop (every host): register the sub-agent in
   token ledger and the gates can find it on hosts without Claude's subagents/ dir.
 
 PreToolUse (Codex, OpenCode — Claude Code isolates workers itself): worktree isolation.
-  - A worker's first command must be `agentic bind <worktree>`; the hook records the
+  - A worker's first command must be `aloop bind <worktree>`; the hook records the
     binding (it sees the agent id). Before that, a writing worker's tool calls are denied.
   - After it, every Bash command must run inside the worktree (`cd <worktree> && …`) and
     every patched/written path must be under it — otherwise the call is denied with the
@@ -29,7 +29,7 @@ import _paths  # noqa: E402
 import _usage  # noqa: E402
 
 WRITERS = ("red-worker", "scaffolder", "green-worker")
-BIND = re.compile(r"(?:^|[;&|]\s*|\s)(?:\S*/)?(?:agentic\s+bind|bin/bind)\s+(\S+)")
+BIND = re.compile(r"(?:^|[;&|]\s*|\s)(?:\S*/)?(?:(?:aloop|agentic)\s+bind|bin/bind)\s+(\S+)")
 PATCH_PATHS = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
 
 
@@ -58,7 +58,7 @@ def save(p, d):
 
 def deny(msg):
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
-                                             "permissionDecisionReason": "agentic-agile isolation: " + msg}}))
+                                             "permissionDecisionReason": "aloop isolation: " + msg}}))
 
 
 def under(path, root):
@@ -84,12 +84,12 @@ def pre_tool(payload, cwd, agent_id, role, host):
                 reg["worktree"] = target
                 reg["bound_at"] = time.time()
                 save(p, reg)
-            return                                   # let `agentic bind` itself run and report
+            return                                   # let `aloop bind` itself run and report
     if role not in WRITERS or host != "codex":
         return        # readers aren't confined; Claude Code isolates natively; OpenCode rewrites args itself
     if not wt:
         if tool in ("Bash", "bash", "shell", "apply_patch", "Write", "Edit", "MultiEdit", "write", "edit"):
-            deny("bind your worktree first — your first command must be `agentic bind <worktree>` "
+            deny("bind your worktree first — your first command must be `aloop bind <worktree>` "
                  "(the absolute path from your dispatch message). Until then shell commands and edits are refused.")
         return
     if tool in ("Bash", "bash", "shell"):

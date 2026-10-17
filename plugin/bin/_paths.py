@@ -1,4 +1,4 @@
-"""_paths.py — Python mirror of bin/_paths.sh: THE agentic-agile file layout.
+"""_paths.py — Python mirror of bin/_paths.sh: THE aloop file layout.
 
 No model picks these names and no environment variable overrides them. See _paths.sh
 for the full map. <project> is the MAIN worktree, so linked worktrees share it.
@@ -20,7 +20,7 @@ DEFAULTS = {
     "COMMIT_AUTHOR_NAME": "",
     "COMMIT_AUTHOR_EMAIL": "",
     "CLAUDE_COAUTHOR": "no",
-    # Other hosts (agentic install codex|opencode). Empty = sensible default:
+    # Other hosts (aloop install codex|opencode). Empty = sensible default:
     # Codex -> the session's model (Claude model ids don't exist there) at these efforts;
     # OpenCode -> anthropic/<MODEL_PLANNING|MODEL_WORKER>.
     "MODEL_PLANNING_CODEX": "",

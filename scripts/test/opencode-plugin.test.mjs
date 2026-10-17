@@ -1,5 +1,5 @@
 // End-to-end test of the OpenCode plugin against a mock OpenCode client.
-// Runs the REAL generated plugin (agentic install opencode) and the REAL bin/ scripts in a
+// Runs the REAL generated plugin (aloop install opencode) and the REAL bin/ scripts in a
 // throw-away git repo. No OpenCode, no network, no tokens.   node scripts/test/opencode-plugin.test.mjs
 import { execFileSync } from "node:child_process"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
@@ -23,11 +23,11 @@ for (const t of ["md-db", "ctx-symbols"]) {
 }
 sh("git", ["init", "-q"]); sh("git", ["config", "user.email", "ada@x.io"]); sh("git", ["config", "user.name", "Ada"])
 sh("git", ["commit", "-q", "--allow-empty", "-m", "init"])
-sh(join(BIN, "agentic-init"), ["--apply", "TOKENS_SOFT=100", "TOKENS_HARD=200"])
+sh(join(BIN, "aloop-init"), ["--apply", "TOKENS_SOFT=100", "TOKENS_HARD=200"])
 mkdirSync(join(T, "docs/agents/sprint1/s1-01-x"), { recursive: true })
 writeFileSync(join(T, "docs/agents/NEXT.md"), "# handoff\nNEXT-MARKER plan sprint 2\n")
-sh(join(BIN, "agentic"), ["install", "opencode"])
-const pluginFile = join(T, ".opencode/plugins/agentic-agile.js")
+sh(join(BIN, "aloop"), ["install", "opencode"])
+const pluginFile = join(T, ".opencode/plugins/aloop.js")
 assert.ok(!readFileSync(pluginFile, "utf8").includes("__AGENTIC_ROOT__"), "root substituted")
 
 // mock OpenCode client
@@ -78,7 +78,7 @@ await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "chil
   /bind your worktree first/, "unbound worker is refused")
 const wt = sh(join(BIN, "task-worktree"), ["add", "S1-01-T1"]).trim()
 writeFileSync(join(wt, ".agentic/task.env"), `TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=${join(T, "docs/agents/sprint1/s1-01-x")}\n`)
-await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "5" }, { args: { command: `agentic bind ${wt}` } })
+await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "5" }, { args: { command: `aloop bind ${wt}` } })
 const bashArgs = { command: "cargo test" }
 await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "6" }, { args: bashArgs })
 assert.equal(bashArgs.workdir, wt); ok("bound worker's bash runs in its worktree")

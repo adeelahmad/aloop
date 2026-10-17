@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Versioning policy
 
-`agentic-agile` versions the **plugin** (`plugin/.claude-plugin/plugin.json`) and the
+`aloop` (formerly `agentic-agile`) versions the **plugin** (`plugin/.claude-plugin/plugin.json`) and the
 bundled `ctx-symbols` crate together under one SemVer line:
 
 - **MAJOR** — breaking changes to the gate contract (hook events/`agent_type`
@@ -19,6 +19,22 @@ bundled `ctx-symbols` crate together under one SemVer line:
 
 Keep `plugin.json` `version`, the `ctx-symbols` `Cargo.toml` `version`, and the git
 tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
+
+## [0.11.0] - 2026-10-17
+
+### Changed
+- **Renamed to aloop (Aladdin's Loop).** The plugin is `aloop@aloop-marketplace`, the
+  skill is `/aloop:aloop` (entry point `/aloop:init`), the CLI is `aloop <tool>` and
+  `aloop init`, and the OpenCode plugin file is `aloop.js`. Upgrade: uninstall
+  `agentic-agile@agentic-agile-marketplace`, then install `aloop@aloop-marketplace`
+  (README → *Upgrading from agentic-agile*).
+
+### Compatibility
+- `agentic`, `agentic init`, `agentic-init` and `agentic bind` still work as aliases.
+- `aloop install opencode|codex` links both `~/.local/bin/aloop` and `~/.local/bin/agentic`,
+  and removes the pre-rename generated files (OpenCode would otherwise load both plugins).
+- Project data is untouched: `.agentic/`, `docs/agents/`, `agentic/<task>` branches and the
+  `AGENTIC_*` settings keys keep their names (a migrated layout is planned for M1).
 
 ## [0.10.1] - 2026-09-23
 

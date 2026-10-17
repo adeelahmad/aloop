@@ -1,12 +1,12 @@
 {
-  "name": "agentic-agile-marketplace",
+  "name": "aloop-marketplace",
   "owner": { "name": "Adeel Ahmad" },
   "description": "Agentic agile planning + autonomous TDD execution for Claude Code, Codex and OpenCode, with deterministic hook gates.",
   "plugins": [
     {
-      "name": "agentic-agile",
+      "name": "aloop",
       "source": "./plugin",
-      "displayName": "Agentic Agile",
+      "displayName": "Aladdin (aloop)",
       "description": "Two-stage planning + two-phase TDD execution with deterministic hook gates, per-task transcripts, and a memory-producing retrospective.",
       "author": { "name": "Adeel Ahmad" },
       "homepage": "https://github.com/adeelahmad/agentic-agile",

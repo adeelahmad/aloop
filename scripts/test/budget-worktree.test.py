@@ -39,7 +39,7 @@ def call(agent, tool, tool_input, mode="post", tokens=None, role="green-worker")
             f.write(json.dumps({"timestamp": "2026-09-23T10:00:00Z", "message": {"id": "m%d" % tokens, "model": "claude-sonnet-5",
                                 "usage": {"input_tokens": tokens, "output_tokens": 0}}}) + "\n")
     payload = {"hook_event_name": "PostToolUse" if mode == "post" else "PreToolUse", "session_id": "sess",
-               "transcript_path": tp, "cwd": T, "agent_id": agent, "agent_type": "agentic-agile:" + role,
+               "transcript_path": tp, "cwd": T, "agent_id": agent, "agent_type": "aloop:" + role,
                "tool_name": tool, "tool_input": tool_input, "tool_response": "ok"}
     return sh(os.path.join(BIN, "budget"), "hook", mode, inp=json.dumps(payload))
 
@@ -99,7 +99,7 @@ st = sh(os.path.join(BIN, "budget"), "status")
 assert "task.env BUDGET_*" in st and "path in tool call" in st; ok("budget status shows the budget source and how the worktree was found")
 
 # 6) docs/agents/defaults.md still applies from the first call (the user's working fix)
-sh(os.path.join(BIN, "agentic-init"), "--apply", "TOKENS_SOFT=180000", "TOKENS_HARD=260000")
+sh(os.path.join(BIN, "aloop-init"), "--apply", "TOKENS_SOFT=180000", "TOKENS_HARD=260000")
 b = sh(os.path.join(BIN, "budget"), "resolve")
 assert "BUDGET_TOKENS_HARD=260000" in b and "defaults.md" in b; ok("defaults.md applies project-wide")
 

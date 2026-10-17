@@ -1,5 +1,5 @@
 ---
-name: agentic-agile
+name: aloop
 description: >-
   Use this skill to plan and build software in a sprint with strict TDD and
   deterministic, hook-enforced gates. Two-stage planning (interactive, human-gated)
@@ -16,7 +16,7 @@ description: >-
 model: sonnet
 ---
 
-# agentic-agile — the supervisor's playbook
+# aloop — the supervisor's playbook
 
 You are the **supervisor**: the agent that loaded this skill. You are present in
 both phases. You own every planning artifact, `plan-ready.md`, and
@@ -41,8 +41,8 @@ value as the Agent call's `model` on every dispatch of that group.
 ## Project setup comes first (init) — and where everything lives
 
 If `docs/agents/defaults.md` does not exist, the project was never initialized: run the
-init flow (`skills/init/SKILL.md` steps 1–2 — `agentic init --show`, ask the human, then
-`agentic init --apply …`) **before any planning**. It confirms with the human the limits,
+init flow (`skills/init/SKILL.md` steps 1–2 — `aloop init --show`, ask the human, then
+`aloop init --apply …`) **before any planning**. It confirms with the human the limits,
 models, the `.gitignore` edit, whether `docs/agents/` is tracked (default no), and the
 commit author (default: the human's git identity, no Claude trailers). The harness writes
 the file; you never hand-edit `defaults.md`, `NEXT.md` or `stats.md` (a hook blocks it).
@@ -69,32 +69,32 @@ starts the session on Sonnet (`/model sonnet` or `claude --model sonnet`).
 
 The gates, time box, ledger, stats and handoff are the SAME scripts on every host (Codex
 runs this plugin's `hooks/hooks.json` natively; OpenCode runs them through the plugin
-`agentic install opencode` generates). Only the dispatch vocabulary differs:
+`aloop install opencode` generates). Only the dispatch vocabulary differs:
 
 | Playbook step | Claude Code | Codex | OpenCode |
 |---|---|---|---|
-| Install | `/plugin install` | `agentic install codex` + `codex plugin add agentic-agile@agentic-agile-marketplace`, then trust hooks in `/hooks` | `agentic install opencode`, restart |
+| Install | `/plugin install` | `aloop install codex` + `codex plugin add aloop@aloop-marketplace`, then trust hooks in `/hooks` | `aloop install opencode`, restart |
 | Dispatch a role | Agent tool, `subagent_type: <role>` | `spawn_agent`, `agent_type: <role>` | `task` tool, `subagent_type: <role>` |
-| Worker isolation | `isolation: "worktree"` | `agentic task-worktree add <TASK_ID>` → path; the worker's FIRST command is `agentic bind <path>` (hooks then confine it) | same as Codex (the plugin then rewrites its commands/edits into the worktree) |
+| Worker isolation | `isolation: "worktree"` | `aloop task-worktree add <TASK_ID>` → path; the worker's FIRST command is `aloop bind <path>` (hooks then confine it) | same as Codex (the plugin then rewrites its commands/edits into the worktree) |
 | Parallel / wait | `run_in_background` + `budget watch` | several `spawn_agent`, then `wait_agent` | several `task` calls in one message |
 | Stop a worker (backstop) | `TaskStop` | `close_agent` | — (the plugin aborts it) |
-| Merge a passed task | merge the worktree branch | merge `agentic/<TASK_ID>`, then `agentic task-worktree remove <TASK_ID>` | same as Codex |
+| Merge a passed task | merge the worktree branch | merge `agentic/<TASK_ID>`, then `aloop task-worktree remove <TASK_ID>` | same as Codex |
 | Fresh context per sprint | `/clear` | `/clear` or `/new` | `/new` |
 
 On Codex/OpenCode the dispatch message MUST contain the worktree line — e.g. "Your
-worktree: /abs/.agentic/worktrees/S1-02-T3. First command: `agentic bind
+worktree: /abs/.agentic/worktrees/S1-02-T3. First command: `aloop bind
 /abs/.agentic/worktrees/S1-02-T3`." — and `task.env` is written into that worktree before
 dispatch, exactly as on Claude Code. Models per role come from the generated agent files
-(`agentic install` renders them from `docs/agents/defaults.md`).
+(`aloop install` renders them from `docs/agents/defaults.md`).
 
 ## Tools are on PATH — never search for them
 
 On Claude Code this plugin's `bin/` is on PATH in every session and sub-agent (OpenCode:
-the plugin adds it; Codex: `agentic` is linked into ~/.local/bin), and a SessionStart
+the plugin adds it; Codex: `aloop` is linked into ~/.local/bin), and a SessionStart
 hook (`ensure-tools`) installs `md-db` + `ctx-symbols` on first use (background build
-from the bundled source). Call everything as `agentic <tool>` — `agentic selfcheck`, `agentic md-db …`,
-`agentic budget …`, `agentic log-execution …` (on Claude Code and OpenCode the bare
-names work too; on Codex only `agentic` is on PATH, linked by `agentic install codex`).
+from the bundled source). Call everything as `aloop <tool>` — `aloop selfcheck`, `aloop md-db …`,
+`aloop budget …`, `aloop log-execution …` (on Claude Code and OpenCode the bare
+names work too; on Codex only `aloop` is on PATH, linked by `aloop install codex`).
 Never `find`/`which`/`ls` for them, and never tell a worker where they are — they know.
 If a backend reports "not installed", run `ensure-tools --sync` once (needs cargo).
 
@@ -338,7 +338,7 @@ worktree.
 ```
 docs/agents/
   memory.md                                      (you + human, at each retrospective)
-  defaults.md                                    (agentic-init) confirmed limits, models, git settings
+  defaults.md                                    (aloop-init) confirmed limits, models, git settings
   NEXT.md                                        (stats sprint-close) the post-/clear handoff
   sprintN/stats.md                               (stats sprint-close) the sprint's numbers
 <project>/.agentic/                              run data, fixed layout (bin/_paths.sh), git-ignored:
@@ -414,7 +414,7 @@ may carry a planner-authored `budget:` override line in tasks.md (or `BUDGET_*` 
 its worktree's `task.env`). Tokens = the worker's current context + all its output
 tokens; time = wall clock since its first tool call. The hook finds the worker's
 worktree from the paths its tool calls name (`git -C <wt>`, `cd <wt>`, absolute paths),
-not only from the call's cwd; `agentic budget status` shows, per attempt, where its
+not only from the call's cwd; `aloop budget status` shows, per attempt, where its
 budget came from and how its worktree was found.
 
 The hooks enforce it — you don't: `budget hook` (PreToolUse/PostToolUse on every tool
@@ -676,7 +676,7 @@ All of these are on PATH — call them by bare name.
   `status`, `mark-killed`, `replans` (split-cap check); `hook` is the hook entrypoint.
 - `stats show` — token totals (this session, per sprint, whole project); `stats
   sprint-close` is run by gate-final, not by you.
-- `agentic-init` — project setup (`--show` / `--apply`), used by the init skill.
+- `aloop-init` — project setup (`--show` / `--apply`), used by the init skill.
 - `gate-supervisor-scope` — PreToolUse guard; blocks the supervisor from writing
   production source while a sprint is live this session (code goes through workers).
 - `transcripts …` — full interaction capture (managed by hooks; `transcripts --help`).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# _paths.sh — THE one definition of where agentic-agile keeps its files. Every script
+# _paths.sh — THE one definition of where aloop keeps its files. Every script
 # sources this (Python scripts mirror it in bin/_paths.py). No model picks these names,
 # no task.env variable overrides them — so every project gets the same layout.
 #

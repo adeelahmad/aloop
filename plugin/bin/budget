@@ -80,7 +80,7 @@ def read_kv(path):
 
 
 def conf_values(cwd):
-    """docs/agents/defaults.md (written by agentic-init) — parsed, never executed."""
+    """docs/agents/defaults.md (written by aloop-init) — parsed, never executed."""
     st = _paths.settings(cwd)
     return {k: st[k] for k in BUDGET_KEYS}
 
@@ -133,7 +133,7 @@ def tokens_used(path):
 
 
 def bound_worktree(cwd, agent_id):
-    """Codex/OpenCode workers bind their worktree with `agentic bind` (host-adapter)."""
+    """Codex/OpenCode workers bind their worktree with `aloop bind` (host-adapter)."""
     st = load_state(os.path.join(_paths.home(cwd, "state/agents"), "%s.json" % safe(agent_id)))
     wt = (st or {}).get("worktree") or ""
     return wt if wt and os.path.isdir(wt) else ""
@@ -186,7 +186,7 @@ def claimed_worktrees(cwd, agent_id):
 def find_worktree(payload, cwd, agent_id, role):
     """Which worktree is this worker in? Independent of the tool call's cwd, because workers
     often address their worktree with `git -C <wt>` / absolute paths from the main tree.
-      1. a recorded binding (`agentic bind`, or an earlier call of this attempt)
+      1. a recorded binding (`aloop bind`, or an earlier call of this attempt)
       2. a path the tool call names that lies inside a task worktree
       3. the tool call's cwd
       4. the ONE unclaimed task worktree whose task.env names this role (first calls that
@@ -371,7 +371,7 @@ def hook(mode):
                "`## <task> · attempt N · %s · <ts>` block to %s with `status: re-plan` (budget exceeded), a "
                "### Summary of what is done and what is left, ### Result, ### Next — that tool call is "
                "your last. Do not run tests or edit code. The task goes back to the planner to be split." % (left, role, report))
-        stop = ("agentic-agile: HARD BUDGET — %s %s stopped by the time-box hook (%s). "
+        stop = ("aloop: HARD BUDGET — %s %s stopped by the time-box hook (%s). "
                 "Not a pass; the supervisor re-plans this task." % (role, st.get("task") or "", left))
         just_crossed = st["hard"] == now
         if mode == "pre":

@@ -1,12 +1,12 @@
-# What agentic-agile is
+# What aloop is
 
-*Product definition as of v0.10.1 (2026-09-23), written from the code, not the design docs.
-Working name for the next generation: **Aladdin** / "Aladdin's Loop" (**aloop**) — see
-[ROADMAP.md](ROADMAP.md).*
+*Product definition as of v0.11.0 (2026-10-17), written from the code, not the design docs.
+**aloop** is "Aladdin's Loop", renamed from agentic-agile in v0.11.0; the old command names
+still work as aliases. The 1.0 target is **Aladdin**; see [ROADMAP.md](ROADMAP.md).*
 
 ## In one sentence
 
-**agentic-agile is a coding-agent plugin that turns a request into a planned, test-first,
+**aloop is a coding-agent plugin that turns a request into a planned, test-first,
 gate-verified sprint: a human approves the plan, then cheap worker agents build it in
 isolated git worktrees while deterministic hooks decide what is accepted.**
 
@@ -18,7 +18,7 @@ Coding agents are good at producing code and bad at proving it is right. Left al
 skip tests, weaken assertions, wander out of scope, rewrite each other's work and say
 "done" when they are not. Prompting harder does not fix this, because a prompt is advice.
 
-agentic-agile moves the rules out of the prompt and into **hooks**: small scripts the host
+aloop moves the rules out of the prompt and into **hooks**: small scripts the host
 runs on every agent event, which can block a stop or a tool call and return the reason.
 The model can ignore a skill; it cannot ignore an exit code.
 
@@ -37,7 +37,7 @@ The model can ignore a skill; it cannot ignore an exit code.
                   standards → planner                          RED → SCAFFOLD → GREEN → STRUCTURAL-REVIEW
 ```
 
-1. **Init** (`/agentic-agile:init`) confirms limits, models, `.gitignore`, whether
+1. **Init** (`/aloop:init`) confirms limits, models, `.gitignore`, whether
    `docs/agents/` is tracked and the commit author, then writes `docs/agents/defaults.md`.
 2. **Planning** — with the human present. The supervisor *dispatches* (never writes):
    - `archivist` (retrospective) distills recurring failures into `memory.md`;
@@ -63,12 +63,12 @@ The model can ignore a skill; it cannot ignore an exit code.
 
 | Part | Where | What it is |
 |---|---|---|
-| Supervisor playbook | [`plugin/skills/agentic-agile/SKILL.md`](../plugin/skills/agentic-agile/SKILL.md) | The skill the main agent runs; `init` is its entry point |
+| Supervisor playbook | [`plugin/skills/aloop/SKILL.md`](../plugin/skills/aloop/SKILL.md) | The skill the main agent runs; `init` is its entry point |
 | 9 roles | [`plugin/agents/`](../plugin/agents/) | `archivist`, `intake`, `standards`, `planner` (Opus) · `red-worker`, `scaffolder`, `green-worker`, `structural-reviewer`, `final-gate` (Sonnet) |
 | Pipeline source | [`plugin/pipeline/`](../plugin/pipeline/) | Per activity: `persona.md`, `init.template.md`, `artifacts.md`, `gate.md` |
 | Hook wiring | [`plugin/hooks/hooks.json`](../plugin/hooks/hooks.json) | SessionStart, PreToolUse, PostToolUse, SubagentStart/Stop, Stop, UserPromptSubmit |
 | Gates | [`plugin/bin/gate-*`](../plugin/bin/README.md) | 15 bash gates; exit `0` pass, `2` block with reason |
-| Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `budget` (time box), `stats` (token ledger), `transcripts` (full capture), `host-adapter`, `install`, `agentic-init`, worktree helpers |
+| Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `budget` (time box), `stats` (token ledger), `transcripts` (full capture), `host-adapter`, `install`, `aloop-init`, worktree helpers |
 | Schemas | [`plugin/schemas/*.kdl`](../plugin/schemas/) | What `md-db validate` enforces on every planning and comms artifact |
 | `ctx-symbols` | [`plugin/tools/ctx-symbols/`](../plugin/tools/ctx-symbols/) | Rust, tree-sitter symbol resolver (Rust, Python, JS/TS, Go): count, locate, conflicts |
 | `md-db` | [`plugin/tools/md-db/`](../plugin/tools/md-db/) | Vendored Rust markdown-as-database validator (AGPL-3.0 subtree) |
@@ -116,7 +116,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 |---|---|---|
 | [README](../README.md) | current | Install, usage, measured run |
 | **OVERVIEW.md** (this) | current | What the project is |
-| [ROADMAP.md](ROADMAP.md) | current | Where it is going (agentic-agile → Aladdin) |
+| [ROADMAP.md](ROADMAP.md) | current | Where it is going (aloop → Aladdin 1.0) |
 | [plugin/README.md](../plugin/README.md), [plugin/bin/README.md](../plugin/bin/README.md) | current | Operating the plugin; gate contract |
 | [plugin/STRUCTURE.md](../plugin/STRUCTURE.md) | current | How the plugin tree is organised |
 | [CHANGELOG.md](../CHANGELOG.md) | current | What changed per version |

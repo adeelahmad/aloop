@@ -1,6 +1,6 @@
 # ctx-symbols
 
-Minimal AST symbol resolver that backs two agentic-agile gates
+Minimal AST symbol resolver that backs two aloop gates
 (`gate-scaffold-verify`, `gate-structural-integrity`). Harvested from the
 `ctxconfig` code-intelligence layer — `src/ast.rs` (`AstParser::{locate_symbol,
 search, process_content}`), `src/plan/resolver.rs` (`resolve_symbol`),

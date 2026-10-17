@@ -43,13 +43,13 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 | `log-execution` | append a transition line to `execution.log` |
 | `ensure-tools` | SessionStart — builds md-db + ctx-symbols into `$CLAUDE_PLUGIN_DATA/bin` on first run / version change (background), tells the model where the tools are. `--sync` build now · `--wait` · `--resolve T` real binary path |
 | `md-db`, `ctx-symbols` | PATH shims (this `bin/` is on PATH in every session): exec the real binary, building it once if needed. Gates test presence with `ensure-tools --resolve`, never `command -v` |
-| `agentic` | the one entrypoint: `agentic <tool> …` (`agentic --list`); `agentic init` = agentic-init, `agentic install` = install. Linked into `~/.local/bin` for Codex/OpenCode |
-| `install` | `agentic install codex\|opencode [--project DIR\|--global] [--uninstall]` — renders agents/skills/commands (+ the OpenCode plugin from `hosts/opencode/`) from this plugin's sources; `status`; `claude` |
-| `host-adapter` | SubagentStart/Stop: register sub-agents (`.agentic/state/agents/`) for the ledger; PreToolUse on Codex: a worker must `agentic bind <worktree>` first, then its commands/patches must stay in it (denied otherwise) |
+| `aloop` | the one entrypoint: `aloop <tool> …` (`aloop --list`); `aloop init` = aloop-init, `aloop install` = install. Linked into `~/.local/bin` for Codex/OpenCode |
+| `install` | `aloop install codex\|opencode [--project DIR\|--global] [--uninstall]` — renders agents/skills/commands (+ the OpenCode plugin from `hosts/opencode/`) from this plugin's sources; `status`; `claude` |
+| `host-adapter` | SubagentStart/Stop: register sub-agents (`.agentic/state/agents/`) for the ledger; PreToolUse on Codex: a worker must `aloop bind <worktree>` first, then its commands/patches must stay in it (denied otherwise) |
 | `task-worktree` | `add\|path\|remove <TASK_ID>` — per-task worktree at `.agentic/worktrees/<TASK_ID>` (branch `agentic/<TASK_ID>`) for hosts without built-in isolation |
-| `bind` | a worker's first command on Codex/OpenCode: validates its worktree (`agentic bind <path>`) |
+| `bind` | a worker's first command on Codex/OpenCode: validates its worktree (`aloop bind <path>`) |
 | `_usage.py` | token usage from any host's log: Claude transcripts, Codex rollouts (`.jsonl`/`.zst`, cumulative totals → per-call rows), the OpenCode plugin's usage log |
-| `agentic-init` | project setup: `--show` the defaults for the human, `--apply KEY=VALUE…` writes `docs/agents/defaults.md`, the managed `.gitignore` lines and the repo-local git author; `--ensure-gitignore` (SessionStart, worktree-hygiene) re-adds them |
+| `aloop-init` | project setup: `--show` the defaults for the human, `--apply KEY=VALUE…` writes `docs/agents/defaults.md`, the managed `.gitignore` lines and the repo-local git author; `--ensure-gitignore` (SessionStart, worktree-hygiene) re-adds them |
 | `session-start` | SessionStart — re-applies the managed `.gitignore` lines (if init opted in) and loads `docs/agents/NEXT.md` into the context (the post-`/clear` handoff) |
 | `gate-commit-author` | PreToolUse · Bash — a `git commit` must use the configured author: denies `--author`/`-c user.*`/`GIT_AUTHOR_*` overrides, a mismatched repo identity, and Claude co-author/attribution trailers (unless `CLAUDE_COAUTHOR=yes`) |
 | `stats` | `hook` (Stop + SubagentStop): rewrites `.agentic/ledger/<session>.jsonl` from the transcripts (tokens per API call, main + sub-agents) and, once after a sprint closed, shows the totals + tells the supervisor to ask for `/clear`. `sprint-close` (run by gate-final on pass): `sprintN/stats.md` + `NEXT.md`. `show`: session / sprint / project totals |

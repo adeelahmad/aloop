@@ -1,4 +1,4 @@
-# agentic-agile plugin — structure
+# aloop plugin — structure
 
 Read this file, then walk `pipeline/`. The tree is the documentation.
 
@@ -58,7 +58,7 @@ init.md and output.md are NEW artifacts with fixed sections -> fully md-db-valid
 ## v0.2 additions
 
     .claude-plugin/plugin.json   the installable manifest (now present)
-    skills/agentic-agile/SKILL.md the supervisor's playbook (canonical)
+    skills/aloop/SKILL.md the supervisor's playbook (canonical)
     pipeline/planning/retrospective/  runs FIRST every planning session (the archivist)
     agents/archivist.md          read-only; distills memory from the transcripts
     schemas/memory.kdl           validates docs/agents/memory.md
