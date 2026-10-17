@@ -81,6 +81,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
   mode is explicit (`events authority --mode autonomous`) and skips approval unless an
   escalation class is hit.
+- **More run metrics** (ROADMAP §4.10). The Metrics table adds commits produced and test
+  files added (from `commit.created`), time soft limits reached, and semantic context
+  served (`targets target|context` emit `semantic_target.resolved`).
 - **Commit → intent trace** (ROADMAP §4.7, milestone 7). gate-stage2-complete emits
   `plan.created` / `plan.revised`, caused by the intent; `events authority` emits
   `plan.approved` for the latest plan; `task-worktree remove` emits `commit.created` per

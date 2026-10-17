@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ROADMAP §4.10: the sprint report's Metrics table, derived from harness files only
 (attempt states, the gate log) — percentiles, breaches by role/class, hard-breach waste,
-tokens per accepted task, first-pass rates, re-plan rate, cache-hit/churn, context peak.
+tokens per accepted task, first-pass rates, re-plan rate, cache-hit/churn, context peak, and\nfrom the event stream: commits, tests added, time soft limits, semantic context served.
     python3 scripts/test/metrics.test.py
 """
 import json
@@ -54,6 +54,18 @@ with open(os.path.join(logs, "gates.jsonl"), "w") as f:
         f.write(json.dumps({"ts": "2026-10-17T01:00:00Z", "gate": "gate-green-verify", "role": "green-worker", "task": task,
                             "attempt": "1", "story_dir": story, "exit": rc, "selfcheck": False}) + "\n")
 
+# a merged commit adding one test file and one source file, plus time/semantic events
+os.makedirs(os.path.join(T, "tests"))
+open(os.path.join(T, "tests", "test_x.py"), "w").write("def test_x():\n    pass\n")
+open(os.path.join(T, "x.py"), "w").write("X = 1\n")
+sh("git", "add", "-A", "tests", "x.py"); sh("git", "commit", "-q", "-m", "feat: x")
+sha = sh("git", "rev-parse", "HEAD")
+with open(os.path.join(logs, "events.jsonl"), "w") as f:
+    for ev, data in (("commit.created", {"sha": sha}), ("task.time_soft_limit", {}),
+                     ("semantic_target.resolved", {"change_ref": "C1"}), ("semantic_target.resolved", {"change_ref": "C2"})):
+        f.write(json.dumps({"event": ev, "ids": {"sprint": "S1", "task": "S1-01-T1"}, "data": data}) + "\n")
+    f.write(json.dumps({"event": "commit.created", "ids": {"sprint": "S2"}, "data": {"sha": "0" * 40}}) + "\n")
+
 sh(os.path.join(BIN, "stats"), "sprint-close")
 st = open(os.path.join(sprint, "stats.md")).read()
 row = lambda name: [l for l in st.splitlines() if l.startswith("| " + name)][0]  # noqa: E731
@@ -74,5 +86,9 @@ ok("first-pass rate per gate and re-plan rate")
 assert row("Cache-hit ratio").endswith("| 80% |") and row("Cache churn").endswith("| 0.12 |"), (row("Cache-hit"), row("Cache churn"))
 assert row("Context peak").endswith("| 270.0k |")
 ok("cache-hit ratio, churn and context peak from the usage classes")
+
+assert row("Commits produced / test files added").endswith("| 1 / 1 |"), row("Commits produced")
+assert row("Time soft limits reached").endswith("| 1 |") and row("Semantic context served").endswith("| 2 |")
+ok("commits produced, test files added, time soft limits and semantic context served, from the event stream")
 
 print("\n%d checks passed" % PASS[0])

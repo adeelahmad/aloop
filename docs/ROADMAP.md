@@ -215,7 +215,7 @@ Results carry source refs and are attached to planning provenance. An unavailabl
 
 ### 4.10 Metrics
 
-✅ *Mostly done (Unreleased): the stats.md Metrics table. Test: `scripts/test/metrics.test.py`. Still open: time soft preemptions, rotations/compactions, tests added/commits, semantic context served (they need §4.4/§4.6).*
+✅ *Mostly done (Unreleased): the stats.md Metrics table. Test: `scripts/test/metrics.test.py`. Commits, test files added, time soft limits and semantic context served now come from the event stream. Still open: rotations/compactions and context-window share (they need the host capability matrix, §4.9).*
 
 The run report should add:
 - time soft preemptions;

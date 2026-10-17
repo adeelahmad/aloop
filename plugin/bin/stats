@@ -33,6 +33,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -247,12 +248,45 @@ def sprint_facts(cwd, sdir, since, until):
                 f["kills_logged"] += 1
     except OSError:
         pass
+    events_facts(cwd, sdir, f)
     try:
         f["rolled_over"] = re.findall(r"(?m)^- (S\d+-\d+-T\d+)\b", open(os.path.join(sdir, "rollover.md")).read())
         f["rollover"] = True
     except OSError:
         f["rolled_over"], f["rollover"] = [], False
     return f
+
+
+TEST_FILE = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*$|_test\.[a-z]+$|\.(test|spec)\.[a-z]+$")
+
+
+def events_facts(cwd, sdir, f):
+    """From the event stream: commits produced, tests added, time soft limits, semantic context served."""
+    m = re.search(r"sprint(\d+)$", os.path.basename(os.path.abspath(sdir)))
+    sp = "S%s" % m.group(1) if m else None
+    f.update(commits=[], tests_added=0, time_soft=0, semantic_served=0)
+    try:
+        import _events
+        evs = list(_events.read(cwd))
+    except Exception:  # noqa: BLE001 — telemetry never fails the report
+        evs = []
+    for e in evs:
+        if sp is None or (e.get("ids") or {}).get("sprint") != sp:
+            continue
+        ev = e.get("event")
+        if ev == "commit.created" and (e.get("data") or {}).get("sha"):
+            f["commits"].append(e["data"]["sha"])
+        elif ev in ("task.time_soft_limit", "task.time_soft_preempt"):
+            f["time_soft"] += 1
+        elif ev == "semantic_target.resolved":
+            f["semantic_served"] += 1
+    for sha in f["commits"]:
+        try:
+            out = subprocess.run(["git", "-C", _paths.project(cwd), "show", "--name-status", "--format=", sha],
+                                 capture_output=True, text=True).stdout
+        except OSError:
+            continue
+        f["tests_added"] += sum(1 for ln in out.splitlines() if ln.startswith("A\t") and TEST_FILE.search(ln[2:]))
 
 
 def pct(vals, p):
@@ -301,6 +335,9 @@ def metrics(f):
         ("Cache-hit ratio (cache read / prompt tokens)", "%.0f%%" % (100.0 * u["cache_read"] / prompt) if prompt else "-"),
         ("Cache churn (cache write / cache read)", "%.2f" % (float(u["cache_write"]) / u["cache_read"]) if u["cache_read"] else "-"),
         ("Context peak (largest context in use)", fmt(peak) if peak else "-"),
+        ("Commits produced / test files added", "%d / %d" % (len(f["commits"]), f["tests_added"])),
+        ("Time soft limits reached", "%d" % f["time_soft"]),
+        ("Semantic context served (targets resolved instead of repo scans)", "%d" % f["semantic_served"]),
         ("Admission closures / tasks rolled over", "%d / %d" % (1 if f["rollover"] else 0, len(f["rolled_over"]))),
     ]
 

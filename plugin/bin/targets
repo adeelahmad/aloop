@@ -32,6 +32,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _events  # noqa: E402
+
 OPS = ("create", "modify", "extend", "refactor", "replace", "delete")
 NEEDS_REAL = ("modify", "extend", "refactor", "replace", "delete")
 REF = re.compile(r"^C\d+$")
@@ -178,6 +181,17 @@ def context(t, root, budget):
     return text if len(text) <= cap else text[:cap] + "\n… (truncated at --budget %d tokens)" % budget
 
 
+def served(sdir, t, how):
+    """semantic_target.resolved: a worker started from a target instead of scanning (§4.10)."""
+    m = re.match(r"^s(\d+)-(\d+)-", os.path.basename(os.path.abspath(sdir)))
+    task = "S%s-%s-%s" % (m.group(1), m.group(2), t.get("task")) if m else ""
+    try:
+        _events.emit(os.getcwd(), "semantic_target.resolved", task=task, refs={"targets": os.path.join(sdir, "targets.json")},
+                     change_ref=t.get("change_ref"), via=how)
+    except Exception:  # noqa: BLE001 — telemetry never fails the caller
+        pass
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip())
@@ -219,6 +233,7 @@ def main(argv):
         mine = [t for t in targets if t.get("task") == pos[0]]
         for t in mine:
             print(resolve(t, root))
+            served(sdir, t, "target")
         return 0 if mine else 1
     match = [t for t in targets if t.get("change_ref") == pos[0]]
     if not match:
@@ -226,6 +241,7 @@ def main(argv):
         return 1
     if cmd == "context":
         print(context(match[0], root, int(opts.get("budget", 2000))))
+        served(sdir, match[0], "context")
         return 0
     print("targets %s: no structural (LSP) backend is configured; %s needs references and the call "
           "hierarchy, which the regex/ctx-symbols backends cannot answer. Not guessing." % (cmd, cmd), file=sys.stderr)
