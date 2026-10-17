@@ -91,6 +91,10 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
 Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbols`,
 `log-execution`, `budget`, `transcripts`. Call them by bare name.
 
+When a story changes something other repos may consume, ask the impact provider if one is
+configured: `impact query consumers|rationale|migration|standards <subject> --task <task>`.
+Cite its source refs; if it says the provider is unavailable, plan from local evidence.
+
 Write `targets.json` beside tasks.md when you know what each task changes: one entry per
 change (`change_ref` C1…, `task`, `operation` create|modify|extend|refactor|replace|delete,
 `path`, `symbol` or `planned_symbol`, a one-line `reason`, `evidence_refs`, `constraints`).

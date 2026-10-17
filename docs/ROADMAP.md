@@ -186,6 +186,8 @@ Event types:
 
 ### 4.8 Cross-project impact provider seam
 
+✅ *Done (Unreleased): `bin/impact` + the `aladdin.impact/1` provider contract. Test: `scripts/test/impact-provider.test.py`. An MCP-backed provider plugs in as the command.*
+
 An optional MCP/provider contract that planners may query for:
 - downstream consumers;
 - historical rationale;

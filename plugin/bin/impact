@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""impact — the cross-project impact provider seam (ROADMAP §4.8). Optional.
+
+A planner may ask an external provider (an org index, an MCP bridge, a script) what a
+change touches beyond this repo. This tool owns only the contract; it builds no index.
+
+Usage:
+  impact query consumers|rationale|migration|standards SUBJECT [--task S1-01-T1]
+        ask the provider; print each result with its source ref; save the answer under
+        docs/agents/impact/ and record it in the event stream (planning provenance).
+        An unavailable provider is reported and planning continues (exit 0).
+  impact status
+        which provider is configured
+
+Provider: AGENTIC_IMPACT_PROVIDER in docs/agents/defaults.md (or the environment), a
+command run as `<command> KIND SUBJECT` that prints
+  {"schema": "aladdin.impact/1", "results": [{"summary": "...", "source_ref": "..."}]}
+A result without a source_ref is dropped and counted: no claim without a source.
+"""
+import hashlib
+import json
+import os
+import shlex
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _events  # noqa: E402
+import _paths  # noqa: E402
+
+KINDS = ("consumers", "rationale", "migration", "standards")
+SCHEMA = "aladdin.impact/1"
+TIMEOUT = 30
+
+
+def provider(cwd):
+    return os.environ.get("AGENTIC_IMPACT_PROVIDER") or _paths.settings(cwd).get("IMPACT_PROVIDER") or ""
+
+
+def unavailable(why):
+    print("WARN[impact]: provider unavailable: %s. Planning continues without cross-project impact." % why,
+          file=sys.stderr)
+    return 0
+
+
+def ask(cmd, kind, subject):
+    """(results, dropped) or raises RuntimeError with the reason the provider is unusable."""
+    try:
+        r = subprocess.run(shlex.split(cmd) + [kind, subject], capture_output=True, text=True, timeout=TIMEOUT)
+    except (OSError, ValueError) as e:
+        raise RuntimeError("cannot run %r (%s)" % (cmd, e))
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("no answer within %ds" % TIMEOUT)
+    if r.returncode != 0:
+        raise RuntimeError("exit %d: %s" % (r.returncode, (r.stderr.strip().splitlines() or ["-"])[-1]))
+    try:
+        doc = json.loads(r.stdout)
+    except ValueError:
+        raise RuntimeError("answer is not JSON")
+    if not isinstance(doc, dict) or doc.get("schema") != SCHEMA or not isinstance(doc.get("results"), list):
+        raise RuntimeError("answer is not %s" % SCHEMA)
+    keep = [{"summary": str(x["summary"]).strip(), "source_ref": str(x["source_ref"]).strip()}
+            for x in doc["results"] if isinstance(x, dict) and str(x.get("summary", "")).strip()
+            and str(x.get("source_ref", "")).strip()]
+    return keep, len(doc["results"]) - len(keep)
+
+
+def cmd_query(cwd, kind, subject, task=""):
+    if kind not in KINDS:
+        print("impact: KIND must be one of %s" % ", ".join(KINDS), file=sys.stderr)
+        return 64
+    cmd = provider(cwd)
+    if not cmd:
+        return unavailable("none configured (AGENTIC_IMPACT_PROVIDER)")
+    try:
+        results, dropped = ask(cmd, kind, subject)
+    except RuntimeError as e:
+        return unavailable(str(e))
+    out_dir = os.path.join(_paths.docs(cwd), "impact")
+    os.makedirs(out_dir, exist_ok=True)
+    name = "%s-%s.json" % (kind, hashlib.sha256(subject.encode()).hexdigest()[:10])
+    path = os.path.join(out_dir, name)
+    with open(path, "w") as f:
+        json.dump({"schema": SCHEMA, "kind": kind, "subject": subject, "provider": cmd,
+                   "asked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                   "results": results, "dropped_without_source": dropped}, f, indent=1)
+    _events.emit(cwd, "artifact.created", task=task, role="planner", refs={"impact": path},
+                 kind="impact." + kind, subject=subject, results=len(results), dropped=dropped)
+    for x in results:
+        print("- %s [%s]" % (x["summary"], x["source_ref"]))
+    if not results:
+        print("- no %s reported for %s" % (kind, subject))
+    if dropped:
+        print("WARN[impact]: dropped %d result(s) without a source_ref" % dropped, file=sys.stderr)
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    cwd = os.getcwd()
+    if argv[0] == "status":
+        print("impact provider: %s" % (provider(cwd) or "none (optional; planning runs without it)"))
+        return 0
+    if argv[0] == "query" and len(argv) >= 3:
+        task = argv[argv.index("--task") + 1] if "--task" in argv[:-1] else ""
+        return cmd_query(cwd, argv[1], argv[2], task)
+    print("impact: unknown or incomplete command (see impact --help)", file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
