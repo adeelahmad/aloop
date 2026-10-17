@@ -72,6 +72,7 @@ for l in open(sys.argv[1]):
         cost, turns = e.get("total_cost_usd") or 0, e.get("num_turns") or 0
 print("cost: $%.2f · supervisor turns: %s · wall: %dm%02ds" % (cost, turns, int(sys.argv[2]) // 60, int(sys.argv[2]) % 60))
 PY
+echo "sub-agent reads of the plugin's own source: $(grep -o '"command": *"[^"]*'"$PLUGIN"'/[^"]*' "$T/out.jsonl" | wc -l)"
 [ -f .agentic/logs/gates.jsonl ] && echo "gate verdicts: $(grep -c . .agentic/logs/gates.jsonl) ($(grep -c '"exit":2' .agentic/logs/gates.jsonl) blocks)"
 echo "run dir: $T"
 exit $((fails > 0))

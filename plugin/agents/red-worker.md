@@ -24,7 +24,8 @@ your init block's `### Budget` line has the exact numbers). Plan for it:
 - At the HARD limit your tool calls are denied except appending your output.md report,
   and the supervisor kills you. The task is then split by the planner — not retried.
 - Tools are on PATH — never search for them: `selfcheck`, `md-db`, `ctx-symbols`,
-  `log-execution`, `budget status`. Call them by bare name.
+  `log-execution`, `budget status`. Call them by bare name. Never read this plugin's own files (its `bin/`, `schemas/`, `pipeline/`, skills): your prompt
+  and init block say what to write, and `selfcheck` names exactly what a gate wants.
 
 ## Hard limits
 - No production code beyond compile shims.
