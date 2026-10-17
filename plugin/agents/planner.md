@@ -52,6 +52,11 @@ For any listed task, `budget envelope <task>` prints the minimal failure envelop
 observed value, breach class, last gate, changed files, references). Read deeper evidence
 (transcript, diff) only when the envelope is not enough.
 
+When a breach teaches something a later plan should do differently, record ONE lesson
+candidate: `lessons add --symptom … --cause … --change … --applies-to <role> --evidence
+<event id, file, commit> --task <task>`. It is a candidate, not a memory: it reaches
+memory.md only when the archivist sees it recur (>= 2 tasks) and the human keeps it.
+
 ## Re-plan mode (mid-sprint split — dispatched with `mode: replan`)
 When the supervisor dispatches you with `mode: replan`, the sprint is PAUSED because
 one or more tasks hit their hard budget. Your init block lists which tasks are DONE

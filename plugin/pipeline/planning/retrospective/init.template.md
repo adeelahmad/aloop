@@ -20,6 +20,7 @@ Edit code, plans, or memory.md directly; relax any invariant.
 # Inputs
 - <transcripts store> (global global.jsonl + per-task transcripts)
 - docs/agents/sprint*/sN-NN-*/   (init.md/output.md comms + findings)
+- `lessons recurring`            (planner lesson candidates seen in >= 2 tasks)
 
 # Acceptance
 Each candidate is 1-2 lines, role-tagged, recurrence >= 2 (or a human keep), and

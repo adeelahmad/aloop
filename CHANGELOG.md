@@ -81,6 +81,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
   mode is explicit (`events authority --mode autonomous`) and skips approval unless an
   escalation class is hit.
+- **Planner lesson candidates** (ROADMAP §4.3). `bin/lessons add` records a candidate with
+  `symptom / cause / change / applies_to / evidence_refs` and emits `memory.candidate`.
+  It refuses empty fields, missing evidence and any change that would weaken a gate.
+  `lessons recurring` hands the archivist the groups seen in two or more tasks, as
+  memory.md rows. gate-memory blocks a row that promotes a one-off without a human `keep`.
+  There is no second memory system.
 - **Canonical sprint handoff and the resume rule** (ROADMAP §4.4). sprint-close writes
   `sprintN/handoff.json` (`aladdin.handoff/1`) from accepted state: completed tasks with
   their gate verdict and merge event, unverified, open and carried tasks, the nudge and

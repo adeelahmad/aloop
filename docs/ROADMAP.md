@@ -111,7 +111,7 @@ These parts already exist but their semantics must change:
 
 ### 4.3 Planning feedback lifecycle
 
-- ✅ *Done (Unreleased): failure envelope (`budget envelope`), grace rule and calibration verdict in NEXT.md. Test: `scripts/test/planner-feedback.test.py`. Lesson candidates are still open.*
+- ✅ *Done (Unreleased): failure envelope (`budget envelope`), grace rule and calibration verdict in NEXT.md. Test: `scripts/test/planner-feedback.test.py`. Lesson candidates: `bin/lessons` + gate-memory recurrence check. Test: `scripts/test/lesson-candidates.test.py`.*
 - **A minimal failure envelope for the planner.** It carries:
   - the task, attempt, role and limit type;
   - the observed value;
