@@ -43,7 +43,7 @@ Evolve **agentic-agile** into **Aladdin**. Aladdin is an intent-driven, test-dri
 
 These parts already exist but their semantics must change:
 
-1. **The soft token limit becomes telemetry only.** Today the worker is told to wrap up. Instead:
+1. **The soft token limit becomes telemetry only.** ✅ *Done (Unreleased): `budget` records the event silently; stats.md and NEXT.md surface it. Test: `scripts/test/budget-soft-telemetry.test.py`.* Previously the worker was told to wrap up. Now:
    - emit `task.token_soft_limit` and record it;
    - let the worker continue;
    - feed the event to the *next* planning cycle.

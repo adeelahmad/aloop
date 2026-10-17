@@ -174,7 +174,7 @@ def resolve_sprint_dir(cwd, arg=None):
 
 def sprint_facts(cwd, sdir, since, until):
     """Everything countable about one sprint, from files the harness owns."""
-    f = {"stories": 0, "tasks_planned": 0, "boxes": 0, "ticked": 0, "attempts": {}, "killed": [],
+    f = {"stories": 0, "tasks_planned": 0, "boxes": 0, "ticked": 0, "attempts": {}, "killed": [], "token_soft": [],
          "attempt_tokens": 0, "gate_pass": {}, "gate_block": {}, "replans": 0, "kills_logged": 0,
          "first": None, "last": None}
     for story in sorted(glob.glob(os.path.join(sdir, "s[0-9]*-[0-9]*-*"))):
@@ -200,6 +200,9 @@ def sprint_facts(cwd, sdir, since, until):
             continue
         f["attempts"][s["role"]] = f["attempts"].get(s["role"], 0) + 1
         f["attempt_tokens"] += s.get("tokens") or 0
+        if s.get("token_soft_limit"):
+            f["token_soft"].append("%s %s (%s, %s tokens, soft %s)" % (s.get("task") or "?", s["role"], s.get("attempt") or "?",
+                                                                     fmt(s.get("tokens")), fmt(s["budget"].get("TOKENS_SOFT"))))
         if s.get("hook_killed") or s.get("killed"):
             f["killed"].append("%s %s (%s, %s tokens, %.1f min)" % (s.get("task") or "?", s["role"], s.get("attempt") or "?",
                                                                     fmt(s.get("tokens")), s.get("elapsed_min") or 0))
@@ -243,6 +246,7 @@ def render_stats(n, sdir, facts, sprint_t, session_t, project_t, prompts, closed
              "| Worker attempts | %s |" % (", ".join("%s %d" % (r, a[r]) for r in sorted(a)) or "0"),
              "| Gate passes | %s |" % (", ".join("%s %d" % kv for kv in sorted(facts["gate_pass"].items())) or "0"),
              "| Gate blocks (retries triggered) | %s |" % (", ".join("%s %d" % kv for kv in sorted(facts["gate_block"].items())) or "0"),
+             "| Attempts past the soft token limit (telemetry) | %d |" % len(facts["token_soft"]),
              "| Attempts stopped at hard budget | %d |" % len(facts["killed"]),
              "| Mid-sprint re-plans | %d |" % facts["replans"],
              "| Human messages | %d |" % prompts,
@@ -254,6 +258,8 @@ def render_stats(n, sdir, facts, sprint_t, session_t, project_t, prompts, closed
              "- Sprint by role: %s" % (", ".join("%s %s" % (k, fmt(v)) for k, v in sorted(sprint_t["by_role"].items(), key=lambda kv: -kv[1])) or "-"),
              "- Sprint by model: %s" % (", ".join("%s %s" % (k, fmt(v)) for k, v in sorted(sprint_t["by_model"].items(), key=lambda kv: -kv[1])) or "-"),
              ""]
+    if facts["token_soft"]:
+        lines += ["## Past the soft token limit (not told; kept working)", ""] + ["- " + k for k in facts["token_soft"]] + [""]
     if facts["killed"]:
         lines += ["## Stopped at the hard budget", ""] + ["- " + k for k in facts["killed"]] + [""]
     return "\n".join(lines)
@@ -292,6 +298,12 @@ def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at)
         % (n, facts["stories"], facts["tasks_planned"], facts["ticked"], facts["boxes"], facts["replans"], len(facts["killed"])),
         "- Full stats: `%s/stats.md` · execution log: `%s/execution.log`" % (rel, rel),
         "",
+    ]
+    if facts["token_soft"]:
+        lines += ["## Planner input: tasks that ran past the soft token limit",
+                  "_Size similar tasks smaller next sprint (the worker was not stopped; this is telemetry)._", ""]
+        lines += ["- " + k for k in facts["token_soft"]] + [""]
+    lines += [
         "## Carried over from sprint %d (its \"Out of scope\")" % n,
         carry,
         "",

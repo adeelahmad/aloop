@@ -89,7 +89,7 @@ const patchArgs = { patchText: `*** Begin Patch\n*** Add File: ${join(T, "src/li
 await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "child", callID: "8" }, { args: patchArgs })
 assert.ok(patchArgs.patchText.includes(`*** Add File: ${join(wt, "src/lib.rs")}`)); ok("patch paths rewritten into the worktree")
 
-// token ledger + time box: usage recorded per assistant message; soft warning then hard stop
+// token ledger + time box: usage recorded per assistant message; soft token telemetry then hard stop
 const usage = (id, input, output) => ({ type: "message.updated", properties: { info: {
   id, sessionID: "child", role: "assistant", mode: "red-worker", providerID: "anthropic", modelID: "claude-sonnet-5",
   time: { created: Date.now(), completed: Date.now() }, tokens: { input, output, reasoning: 0, cache: { read: 0, write: 0 } } } } })
@@ -98,7 +98,8 @@ const sub = join(T, ".agentic/host/opencode/root/subagents/agent-child.jsonl")
 assert.ok(existsSync(sub)); ok("sub-agent usage written Claude-shaped")
 const out1 = { title: "", output: "done", metadata: {} }
 await hooks["tool.execute.after"]({ tool: "bash", sessionID: "child", callID: "9", args: { command: `cd ${wt} && ls` } }, out1)
-assert.ok(/SOFT BUDGET/.test(out1.output)); ok("soft limit warning appended to the tool output")
+assert.ok(!/BUDGET/.test(out1.output)); ok("soft token limit: nothing appended to the tool output (telemetry only)")
+assert.ok(/"event": "task.token_soft_limit"/.test(readFileSync(join(T, ".agentic/logs/events.jsonl"), "utf8"))); ok("task.token_soft_limit recorded")
 await hooks.event({ event: usage("m2", 400, 10) })
 const out2 = { title: "", output: "", metadata: {} }
 await hooks["tool.execute.after"]({ tool: "bash", sessionID: "child", callID: "10", args: {} }, out2)

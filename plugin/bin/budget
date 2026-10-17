@@ -7,8 +7,11 @@ each with a SOFT and a HARD limit:
     tokens   soft 150k  hard 250k    (context in use + all output tokens, see below)
     time     soft 20m   hard 30m     (wall clock since the attempt's first tool call)
 
-  SOFT crossed  -> the worker is told, inside its own tool results (PostToolUse
+  SOFT time     -> the worker is told, inside its own tool results (PostToolUse
                    additionalContext): how much is left, finish or wrap up gracefully.
+  SOFT tokens   -> telemetry only: the worker is NOT told and keeps going. The crossing is
+                   recorded (state `token_soft_limit`, event `task.token_soft_limit` in
+                   .agentic/logs/events.jsonl) and fed to the next planning cycle (stats).
   HARD crossed  -> the worker's tool calls are denied (PreToolUse) except appending its
                    report to output.md, a `.agentic/budget-exceeded` marker lets its
                    SubagentStop gate release it, and `budget watch` tells the supervisor
@@ -244,6 +247,19 @@ def load_state(path):
         return None
 
 
+def log_event(cwd, name, st, **extra):
+    """One line in .agentic/logs/events.jsonl — the harness event stream (never fails)."""
+    ev = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "event": name,
+          "agent_id": st.get("agent_id"), "task": st.get("task"), "role": st.get("role"),
+          "attempt": st.get("attempt"), "story_dir": st.get("story_dir")}
+    ev.update(extra)
+    try:
+        with open(os.path.join(_paths.home(cwd, "logs"), "events.jsonl"), "a") as f:
+            f.write(json.dumps(ev) + "\n")
+    except OSError:
+        pass
+
+
 def save_state(path, st):
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
@@ -349,7 +365,8 @@ def hook(mode):
     t_hard = b["TOKENS_HARD"]
     m_hard = b["TIME_HARD_MIN"]
     over_hard = (toks is not None and toks >= t_hard) or mins >= m_hard
-    over_soft = (toks is not None and toks >= b["TOKENS_SOFT"]) or mins >= b["TIME_SOFT_MIN"]
+    over_soft_time = mins >= b["TIME_SOFT_MIN"]
+    over_soft_tokens = toks is not None and toks >= b["TOKENS_SOFT"]
     near_hard = (toks is not None and toks >= 0.9 * t_hard) or mins >= 0.9 * m_hard
     left = "%s of %s tokens used (%s left), %.1f of %d min used (%.1f min left); budget from %s" % (
         fmt_k(toks), fmt_k(t_hard), fmt_k(max(t_hard - toks, 0)) if toks is not None else "?",
@@ -364,6 +381,11 @@ def hook(mode):
                 f.write("role=%s attempt=%s agent_id=%s at=%d %s\n" % (role, st["attempt"], agent_id, now, left))
         except OSError:
             pass
+    if over_soft_tokens and not st.get("token_soft_limit"):
+        # telemetry only (ROADMAP §3.1): record it for the planner, never tell the worker
+        st["token_soft_limit"] = now
+        log_event(cwd, "task.token_soft_limit", st, tokens=toks, tokens_soft=b["TOKENS_SOFT"],
+                  elapsed_min=round(mins, 2))
     save_state(spath, st)
 
     if st["hard"]:
@@ -403,11 +425,11 @@ def hook(mode):
             "discarded. Wrap up NOW: finish the smallest complete step, run selfcheck once, "
             "append your output.md report. If the task cannot fit, say so in ### Next "
             "(status: re-plan) so the planner can split it." % left))
-    elif over_soft and not st["soft_warned"]:
+    elif over_soft_time and not st["soft_warned"]:
         st["soft_warned"] = True
         save_state(spath, st)
         emit("PostToolUse", context=(
-            "SOFT BUDGET LIMIT reached: %s. Complete this task within what is left or end it "
+            "SOFT TIME LIMIT reached: %s. Complete this task within what is left or end it "
             "gracefully — no exploration, no refactors, no re-reading files you already read. "
             "If it will not fit, append your output.md report now with status: re-plan "
             "and what remains, rather than being killed at the hard limit." % left))
@@ -496,7 +518,7 @@ def status(cwd):
     for _, s in rows:
         refresh(s)
         b = s["budget"]
-        state = "killed" if s.get("killed") else "done" if s.get("done") else ("HARD" if s.get("hard") else ("soft" if s.get("soft_warned") else "ok"))
+        state = "killed" if s.get("killed") else "done" if s.get("done") else ("HARD" if s.get("hard") else ("soft" if s.get("soft_warned") else ("soft-tok" if s.get("token_soft_limit") else "ok")))
         print("%-22s %-13s %-14s %-4s %-16s %-14s %-7s %s" % (
             s["agent_id"][:22], s["role"], (s.get("task") or "?")[:14], s.get("attempt") or "?",
             "%s/%s" % (fmt_k(s.get("tokens")), fmt_k(b["TOKENS_HARD"])),

@@ -20,6 +20,14 @@ bundled `ctx-symbols` crate together under one SemVer line:
 Keep `plugin.json` `version`, the `ctx-symbols` `Cargo.toml` `version`, and the git
 tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
+## [Unreleased]
+
+### Changed
+- **The soft token limit is telemetry only** (ROADMAP §3.1). Crossing it no longer tells
+  the worker to wrap up; `budget` records `task.token_soft_limit` once per attempt in
+  `.agentic/logs/events.jsonl`, `stats.md` counts it, and `NEXT.md` lists those tasks as
+  planner input. The soft *time* limit still warns, and hard limits are unchanged.
+
 ## [0.10.1] - 2026-09-23
 
 ### Fixed

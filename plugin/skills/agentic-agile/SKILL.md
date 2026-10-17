@@ -419,8 +419,11 @@ budget came from and how its worktree was found.
 
 The hooks enforce it — you don't: `budget hook` (PreToolUse/PostToolUse on every tool
 call, SubagentStop) measures the worker from its own transcript and
-- at the **soft** limit tells the worker, inside its tool result, what is left and to
-  finish or end gracefully (and once more at 90% of hard);
+- at the **soft time** limit tells the worker, inside its tool result, what is left and to
+  finish or end gracefully (and once more at 90% of hard, tokens or time);
+- at the **soft token** limit tells the worker nothing: it is telemetry only. The hook
+  records `task.token_soft_limit` (`.agentic/logs/events.jsonl`) and the next sprint's
+  `stats.md` / `NEXT.md` list those tasks so the planner sizes similar work smaller;
 - at the **hard** limit gives the worker one chance to append its output.md report
   (`status: re-plan`), denies every other tool call (3 refusals), then **stops the worker
   itself** — PostToolUse `continue: false`. No model decides the kill. It also writes
