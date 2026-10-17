@@ -23,6 +23,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
+- **`gate-final` checks every planned test is on main**: each `path::fn` bullet in a story's
+  `plan.md` must exist at its path. `plan-ready.md` lists only what RED wrote, so a test a
+  re-plan dropped used to vanish unnoticed (e2e run 6).
 - **`aloop init` seeds `docs/agents/memory.md`** as a schema-valid empty table, and
   `gate-memory` prints a valid skeleton when it blocks. e2e run 7's archivist guessed
   `type: agent-memory` and the supervisor's stop was blocked 15 times.
