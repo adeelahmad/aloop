@@ -28,6 +28,16 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   passes or edits `src/` is rejected, suppressions and out-of-scope diffs are blocked,
   shared-tree workers are blocked, an accepted GREEN merges, a hard breach is released as
   "not a pass"). Items not covered yet are printed with the reason. Runs in CI's rust job.
+  §6.2 adds 4 schema checks through the real md-db (20 checks in all).
+
+### Fixed
+- **Valid planner artifacts were blocked by the schema gate.** `gate-validate-artifact`,
+  `gate-intake` and `gate-memory` ran md-db on the written file's whole directory, and
+  `gate-stage2-complete` on the whole sprint tree. Those directories also hold the
+  `init.md`/`output.md` comms (and `stats.md`), which the schema does not know, so every
+  valid `tasks.md`/`validate.md`/`stories.md` write in a story that had comms was blocked.
+  They now validate only the written file (stage-2: only the planning artifacts). Found by
+  the new §6.2 fixture.
 
 ## [0.11.0] - 2026-10-17
 

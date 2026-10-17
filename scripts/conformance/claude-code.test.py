@@ -192,9 +192,50 @@ said = any("NOT verified" in l for l in lines) and any("do not merge" in l for l
 results.append((9, "a hard-breached worker is released as 'not a pass, do not merge'", rc == 0 and said,
                 "exit %d %s" % (rc, (lines[0] if lines else "")[:140])))
 
+# §6.2 Planner artifacts are schema-valid (gate-validate-artifact runs md-db on every planner write)
+def md_db():
+    """The real md-db binary, put where ensure-tools finds it; built from the bundled source if needed."""
+    data_bin = os.path.join(T, "pdata", "bin")
+    os.makedirs(data_bin, exist_ok=True)
+    ENV["CLAUDE_PLUGIN_DATA"] = os.path.join(T, "pdata")
+    r = sh(os.path.join(BIN, "ensure-tools"), "--resolve", "md-db", check=False)
+    if r.returncode == 0 and r.stdout.strip():
+        return r.stdout.strip()
+    src = os.path.join(ROOT, "tools", "md-db")
+    if shutil.which("cargo") is None:
+        return None
+    env = dict(ENV)
+    env.pop("CARGO_TARGET_DIR")                    # reuse the crate's own (CI-cached) target dir
+    sh("cargo", "build", "--release", "-q", cwd=src, env=env)
+    dst = os.path.join(data_bin, "md-db")
+    shutil.copy(os.path.join(src, "target", "release", "md-db"), dst)
+    return dst
+
+
+STORIES = ("---\ntype: stories\nsprint: 1\n---\n# Sprint 1\n\n## Sprint goal\nsub\n\n## Sprint demo\nrun it\n\n"
+           "## Definition of Done\ntests pass\n\n## Out of scope\nmul\n\n## User stories\n### S1-01 sub\n\n"
+           "## Story dependency graph\nS1-01\n")
+if md_db():
+    plan = os.path.join(MAIN, "docs", "agents", "sprint1")
+    write(os.path.join(plan, "stories.md"), STORIES)
+    write(os.path.join(STORY, "tasks.md"), "---\ntype: tasks\nstory: S1-01\n---\n# Tasks\n\n## T1 — sub\n")
+    for f, title in ((os.path.join(plan, "stories.md"), "a schema-valid stories.md is accepted"),
+                     (os.path.join(STORY, "tasks.md"), "a schema-valid tasks.md is accepted")):
+        r = sh(os.path.join(BIN, "gate-validate-artifact"), f, check=False)
+        results.append((2, title, r.returncode == 0, "exit %d %s" % (r.returncode, r.stderr.strip()[:140])))
+    bad = (("stories.md", plan, STORIES.split("## Sprint demo")[0], "stories.md missing required sections is rejected"),
+           ("tasks.md", STORY, "---\ntype: tasks\nstory: X1\n---\n# Tasks\n", "tasks.md with a malformed story id is rejected"))
+    for name, d, text, title in bad:
+        f = os.path.join(d, name)
+        write(f, text)
+        r = sh(os.path.join(BIN, "gate-validate-artifact"), f, check=False)
+        results.append((2, title, r.returncode == 2 and "BLOCK[gate-validate-artifact]" in r.stderr,
+                        "exit %d %s" % (r.returncode, r.stderr.strip()[-140:])))
+else:
+    results.append((2, "md-db available for the schema gate (needs cargo)", False, "no md-db and no cargo"))
+
 NOT_COVERED = {
     1: "Intent Contract does not exist yet (M4)",
-    2: "covered by md-db's own tests (make test) and gate-validate-artifact; a fixture here needs the md-db binary (next slice)",
     10: "event stream does not exist yet (M6); transcripts are covered by scripts/test/*",
     11: "lineage query does not exist yet (M6)",
     12: "usage exactness is covered by scripts/test/codex-hooks + opencode-plugin; no 'estimated' marker yet (M2)",

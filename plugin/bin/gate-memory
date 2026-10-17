@@ -20,7 +20,7 @@ if [ -z "$f" ] || [ ! -f "$f" ]; then
 fi
 
 if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1 && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/schemas/memory.kdl" ]; then
-  md-db validate "$(dirname "$f")" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/memory.kdl" \
+  md-db validate "$f" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/memory.kdl" \
     || { echo "BLOCK[$GATE_NAME]: $f failed memory.kdl" >&2; exit 2; }
 fi
 
