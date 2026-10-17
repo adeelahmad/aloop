@@ -28,7 +28,7 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   passes or edits `src/` is rejected, suppressions and out-of-scope diffs are blocked,
   shared-tree workers are blocked, an accepted GREEN merges, a hard breach is released as
   "not a pass"). Items not covered yet are printed with the reason. Runs in CI's rust job.
-  §6.2 adds 4 schema checks through the real md-db; task.env tampering adds 4 more (24 in all).
+  §6.2 adds 4 schema checks through the real md-db; task.env tampering adds 6 more (26 in all).
 
 - **Live smoke test (M0).** `make smoke-live YES=1` runs one short real Claude Code
   session with the plugin and checks the handoff injection, the supervisor-scope block,
@@ -46,6 +46,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   is now parsed as data and only the contract keys are read (`selfcheck` too). Four new
   conformance cases cover it; they failed before the fix. Remaining exposure (a worker
   rewriting its contract keys) is ROADMAP M0.7.
+- **A worker could relabel its own role.** `AGENT_ROLE` came from `task.env`, so a RED
+  worker claiming `planner` skipped the worktree-isolation check. Gates now take the role
+  from the host's hook payload (`agent_type`) and block if `task.env` contradicts it.
+  2 conformance cases (26 in all) failed before.
 
 ### Fixed
 - **The supervisor could write source mid-sprint on Linux.** `gate-supervisor-scope`'s

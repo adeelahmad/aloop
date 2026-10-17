@@ -61,11 +61,12 @@ repo_dir() {
 # `aloop bind` (host-adapter recorded it under .agentic/state/agents/<agent_id>.json),
 # so the gate moves into that worktree before checking anything. Reads the hook payload
 # from stdin with a bounded wait (a self-check has no payload and just proceeds).
+# The hook payload (stdin), read once with a bounded wait; a self-check has none.
+GATE_PAYLOAD=""
+[ -t 0 ] || IFS= read -r -d '' -t 2 GATE_PAYLOAD || true
 _gate_enter_bound_worktree() {
   [ -z "${REPO_DIR:-}" ] || return 0
-  [ -t 0 ] && return 0
-  local payload="" aid reg wt
-  IFS= read -r -d '' -t 2 payload || true
+  local payload="$GATE_PAYLOAD" aid reg wt
   aid="$(printf '%s' "$payload" | sed -nE 's/.*"agent_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
   [ -n "$aid" ] || return 0
   reg="$AGENTIC_STATE/agents/$(printf '%s' "$aid" | tr -c 'A-Za-z0-9_.-' '_').json"
@@ -100,6 +101,21 @@ load_task_env() {
   done < "$te"
 }
 load_task_env
+
+# The role comes from the HOST (the hook payload's agent_type), not from task.env, which the
+# worker can edit: claiming AGENT_ROLE=planner would otherwise skip the worktree-isolation
+# check that only applies to writing roles. A contradiction is tampering (or a mis-dispatch).
+_gate_bind_role() {
+  local at role
+  at="$(printf '%s' "$GATE_PAYLOAD" | sed -nE 's/.*"agent_type"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+  [ -n "$at" ] || return 0
+  role="${at##*:}"
+  if [ -n "${AGENT_ROLE:-}" ] && [ "$AGENT_ROLE" != "$role" ]; then
+    fail "task.env says AGENT_ROLE=$AGENT_ROLE but the host dispatched a '$role' — the contract was edited or the wrong agent was dispatched for this worktree."
+  fi
+  export AGENT_ROLE="$role"
+}
+_gate_bind_role
 
 # Budget overrun release (bin/budget). A worker that hit its HARD time/token limit is
 # being stopped — its SubagentStop gate must not block the stop (exit 2 would make it keep

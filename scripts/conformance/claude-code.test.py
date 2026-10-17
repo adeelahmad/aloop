@@ -11,6 +11,7 @@ verdict (0 = accept, 2 = block) is the expected one. No network, no tokens; need
 Items this suite does not cover yet are listed at the end with the reason, so the gap is
 explicit rather than silent.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -88,14 +89,16 @@ def worktree(role, scope=""):
     return wt
 
 
-def gate(name, cwd, extra=None):
+def gate(name, cwd, extra=None, agent_type=None):
     env = dict(ENV, REPO_DIR=cwd, STANDARDS_FILE=os.path.join(MAIN, "standards.md"), **(extra or {}))
-    r = sh(os.path.join(BIN, name), cwd=cwd, env=env, check=False)
+    payload = json.dumps({"hook_event_name": "SubagentStop", "session_id": "s1", "agent_id": "a1",
+                          "agent_type": agent_type}) if agent_type else ""
+    r = subprocess.run([os.path.join(BIN, name)], cwd=cwd, env=env, capture_output=True, text=True, input=payload)
     return r.returncode, (r.stderr or r.stdout).strip().splitlines()
 
 
-def case(item, title, name, cwd, expect, must_say=None, extra=None):
-    rc, lines = gate(name, cwd, extra)
+def case(item, title, name, cwd, expect, must_say=None, extra=None, agent_type=None):
+    rc, lines = gate(name, cwd, extra, agent_type)
     blocks = [l for l in lines if l.startswith("BLOCK[")]
     good = rc == expect and (must_say is None or any(must_say in l for l in blocks))
     detail = blocks[0] if blocks else (lines[-1] if lines else "")
@@ -199,6 +202,16 @@ os.remove(os.path.join(MAIN, ".agentic", "task.env"))
 report("green-worker", [("tests/sub.rs::sub_works", "PASS")])
 case(7, "a GREEN worker running in the shared main tree is blocked", "gate-green-verify", MAIN, 2, "worktree isolation dropped",
      extra={"AGENT_ROLE": "green-worker", "STORY_DIR": STORY})
+
+# the role comes from the host, not from the worker-editable task.env
+write(os.path.join(MAIN, ".agentic", "task.env"),
+      "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=planner\nSTORY_DIR=%s\n" % STORY)
+report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
+case(7, "a RED worker that relabels itself AGENT_ROLE=planner is still caught", "gate-red-verify", MAIN, 2,
+     "the host dispatched a 'red-worker'", agent_type="aloop:red-worker")
+os.remove(os.path.join(MAIN, ".agentic", "task.env"))
+case(7, "with no task.env role, the host's role still enforces isolation", "gate-red-verify", MAIN, 2,
+     "worktree isolation dropped", extra={"STORY_DIR": STORY}, agent_type="aloop:red-worker")
 
 # §6.8 An accepted GREEN is mergeable
 r = sh("git", "merge", "--no-ff", "-qm", "accept", "agentic/case%d" % int(os.path.basename(green_ok_wt)[2:]), check=False)
