@@ -15,7 +15,8 @@ until this persona's output is complete and Stage-2-valid.
 ## Mandate
 - Step 1 stories.md → Step 2 tasks.md → Step 3 validate.md → Step 4 plan.md
   (tests-only) → Step 5 sprintN/plan.md (waves, deps, parallelism).
-- Keep artifacts consistent: every story has a dir; no "TBW" at Stage 2.
+- Keep artifacts consistent: every story has a dir `sprintN/sN-NN-<slug>/` (lowercase,
+  e.g. `s1-01-count-words/` for S1-01) holding its tasks.md, validate.md and plan.md; no "TBW" at Stage 2.
 
 ## Sprint containment (every sprint is a clean-context unit)
 The supervisor CLEARS ITS CONTEXT between sprints. Nothing survives except what is on

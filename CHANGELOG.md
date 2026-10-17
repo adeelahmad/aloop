@@ -91,6 +91,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- `ensure-tools` rebuilds the bundled md-db / ctx-symbols when their sources change, not
+  only on a version bump; e2e run 9 ran a stale ctx-symbols that still had the duplicate bug.
+- `gate-stage2-complete` names the expected `sN-NN-<slug>/` story dir (and a misnamed one it
+  found); the planner prompt states the naming. e2e run 9: 56 planner retries on `S1-01/`.
 - Scope globs are no longer expanded against the worktree: `tests/**` became the files that
   happened to exist, so GREEN was blocked for an in-scope `tests/common/mod.rs` (e2e run 8: 29 blocks).
 - `ctx-symbols conflicts` no longer reports the same name in two integration-test files

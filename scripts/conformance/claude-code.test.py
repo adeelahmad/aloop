@@ -404,6 +404,16 @@ if md_db():
     r = subprocess.run([os.path.join(BIN, "gate-memory"), mem], cwd=seed, env=menv, capture_output=True, text=True)
     results.append((2, "a malformed memory.md is rejected with the valid skeleton", r.returncode == 2 and "type: memory" in r.stderr,
                     "exit %d %s" % (r.returncode, r.stderr.strip()[-140:])))
+    # A story dir named `S1-01/` (live e2e run 9): the block names the expected `s1-01-<slug>/`
+    # (the planner retried 56 times on a bare "no story dir for S1-01").
+    st2 = os.path.join(T, "st2", "docs", "agents", "sprint1")
+    write(os.path.join(st2, "stories.md"), STORIES)
+    for f in ("tasks.md", "validate.md", "plan.md"):
+        write(os.path.join(st2, "S1-01", f), "x\n")
+    r = sh(os.path.join(BIN, "gate-stage2-complete"), st2, check=False)
+    results.append((2, "a misnamed story dir is blocked with the expected name", r.returncode == 2
+                    and "s1-01-<slug>" in r.stderr and "S1-01" in r.stderr.split("found")[-1],
+                    "exit %d %s" % (r.returncode, r.stderr.strip()[-160:])))
 else:
     results.append((2, "md-db available for the schema gate (needs cargo)", False, "no md-db and no cargo"))
 

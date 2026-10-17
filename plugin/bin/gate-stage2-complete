@@ -32,7 +32,12 @@ if [ -f "$stories" ]; then
     # match dir like s1-01-<slug> for S1-01
     lc="$(echo "$id" | tr 'A-Z' 'a-z')"          # s1-01
     dir="$(find "$sprint_dir" -maxdepth 1 -type d -name "${lc}-*" | head -1)"
-    [ -n "$dir" ] || { echo "BLOCK[$GATE_NAME]: no story dir for $id" >&2; exit 2; }
+    if [ -z "$dir" ]; then
+      echo "BLOCK[$GATE_NAME]: no story dir for $id: expected $sprint_dir/${lc}-<slug>/ (lowercase, e.g. ${lc}-count-words/) holding tasks.md, validate.md and plan.md" >&2
+      other="$(find "$sprint_dir" -maxdepth 1 -type d -iname "${lc}*" | head -1)"
+      [ -n "$other" ] && echo "  found $other: rename it, e.g. git mv '$other' '$sprint_dir/${lc}-<slug>'" >&2
+      exit 2
+    fi
     for f in tasks.md validate.md plan.md; do
       [ -f "$dir/$f" ] || { echo "BLOCK[$GATE_NAME]: $id missing $f" >&2; exit 2; }
     done
