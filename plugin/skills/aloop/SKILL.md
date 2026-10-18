@@ -68,6 +68,9 @@ project that still has `.agentic/` keeps using it until `aloop layout migrate` m
 | `docs/agents/NEXT.md` | orchestrator handoff, reloaded after `/clear` | ignored unless tracked |
 | `docs/agents/sprintN/` | sprint artifacts + `stats.md` | ignored unless tracked |
 
+The sprint is always `docs/agents/sprintN/`, never under `.aladdin/` (run data, never
+committed): `gate-stage2-complete` and `gate-dispatch` refuse a sprint or `STORY_DIR` there.
+
 Commits are authored by the configured human author only; `gate-commit-author` blocks a
 commit with another author or (unless allowed) a Claude co-author / attribution trailer.
 Build each task's commit message with `events commit-msg <task>` (task title, recorded

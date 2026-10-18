@@ -92,4 +92,24 @@ assert r.returncode == 0 and "Stage-2 complete" in r.stderr, r
 assert rows()[-1]["exit"] == 0 and rows()[-1]["selfcheck"] is False
 ok("a complete plan passes and is logged as a pass")
 
+# The sprint lives in docs/agents/sprintN/, never in the run-data dir (live e2e run 24: a haiku
+# supervisor had the whole sprint planned under .aladdin/sprint1/, git-ignored and never
+# committed, and this gate passed it). A complete plan there is refused, named or discovered.
+H = os.path.join(T, "hidden")
+for home in (".aladdin", ".agentic"):
+    hp = os.path.join(H, home, "sprint1")
+    for rel, text in (("stories.md", "---\ntype: stories\nsprint: 1\n---\n- S1-01 export\n"),
+                      ("s1-01-export/tasks.md", "---\ntype: tasks\nstory: S1-01\n---\n## T1 — a\n"),
+                      ("s1-01-export/validate.md", "---\ntype: validate\nstory: S1-01\n---\n## T1\n"),
+                      ("s1-01-export/plan.md", "---\ntype: plan\nstory: S1-01\nscope: tests only\n---\n")):
+        write(os.path.join("hidden", home, "sprint1", rel), text)
+    if not os.path.isdir(os.path.join(H, ".git")):
+        subprocess.run(["git", "init", "-q"], cwd=H, check=True)
+    r = subprocess.run([GATE, hp], cwd=H, env=dict(ENV, AGENTIC_SELFCHECK="1"), capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r.returncode == 2 and "docs/agents/sprint1" in r.stderr and home in r.stderr, (home, r)
+    r = subprocess.run([GATE], cwd=H, env=dict(ENV, AGENTIC_SELFCHECK="1"), capture_output=True, text=True, stdin=subprocess.DEVNULL)
+    assert r.returncode == 2 and "docs/agents/sprint1" in r.stderr, (home, "discovered", r)
+    subprocess.run(["rm", "-rf", os.path.join(H, home)], check=True)
+ok("a sprint planned in the run-data dir (.aladdin/, .agentic/) is refused with the docs/agents/sprintN/ path, named or discovered")
+
 print("\n%d checks passed" % n)

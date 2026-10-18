@@ -135,7 +135,7 @@ conformance: ## ROADMAP §6 conformance fixtures on today's gates (needs cargo; 
 .PHONY: e2e-live
 e2e-live: ## Live end-to-end run: one-line intent -> planned, tested, merged code (YES=1; spends dollars)
 	@test -n "$(YES)" || { echo "spends tokens: make e2e-live YES=1"; exit 2; }
-	scripts/smoke/e2e-live.sh --yes $(if $(INTENT),--intent $(INTENT)) $(if $(HOST),--host $(HOST))
+	scripts/smoke/e2e-live.sh --yes $(if $(INTENT),--intent $(INTENT)) $(if $(HOST),--host $(HOST)) $(if $(MODEL),--model $(MODEL))
 
 .PHONY: smoke-live
 smoke-live: ## Live Claude Code session: hooks fire, supervisor write blocked, transcripts + ledger (YES=1; spends ~$0.005)
