@@ -110,6 +110,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - **Usage accuracy is explicit** (ROADMAP §4.9, conformance 12). Each attempt's usage
   carries `accuracy: exact` and names any class the host never reports (Codex has no cache
   write) instead of a silent zero; stats.md shows it in the Metrics table.
+- **README reordered product-first** (ROADMAP §4.11): intent, demo (the measured §0 runs), test-driven
+  agents, how the loop works, why failing first matters, gates, install, hosts, evidence, audit,
+  architecture, limitations. ROADMAP §0 milestone statuses now match the code (M1–M7 done, M8 in progress).
 - **`aladdin` entry point** (ROADMAP §4.11). `aladdin "<intent>"` records the Intent Contract
   (plus the raw words) and says how to start the run; `aladdin status|resume|report` read the
   harness files (sweep, the resume rule, NEXT.md, stats.md); `aladdin target|context|refs|…`

@@ -24,22 +24,86 @@
   ---
   
   # aloop
+# Aladdin — intent is all you need
+
+**aloop** (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified
+software on Claude Code, Codex and OpenCode. You approve the plan; cheap workers build it in
+isolated git worktrees; deterministic hooks decide what is accepted. No model is trusted to
+say "done" — a gate has to see it.
+
+```
+aladdin "add CSV export to the report"      # records the intent, tells you how to start
+/aladdin add CSV export to the report       # …or say it inside your host; /aloop is the same
+```
 
 *Formerly **agentic-agile**; see [Upgrading from agentic-agile](#upgrading-from-agentic-agile).*
+**New here?** [What this project is](docs/OVERVIEW.md) · [Roadmap](docs/ROADMAP.md) · [Operator playbook](plugin/skills/aloop/SKILL.md)
 
-A Claude Code **plugin marketplace** containing the `aloop` plugin:
-**two-stage agile planning** (interactive, human-gated) followed by **two-phase TDD
-execution** (autonomous, hook-enforced). Determinism comes from hooks, not model
-goodwill — every sub-agent stop is intercepted by a deterministic gate that can
-block the stop and feed the failure reason back to the supervisor.
+## Demo
 
-> This repository is self-contained and publishable as-is. The plugin lives in
-> [`plugin/`](plugin/); the marketplace catalog is
-> [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
+A one-line intent, start to merged code, in a real Claude Code session with the approval
+given up front — reproducible with `make e2e-live YES=1` (spends about a dollar):
 
-**New here?** [What this project is](docs/OVERVIEW.md) · [Roadmap](docs/ROADMAP.md)
+| Intent | Result | Time | Cost |
+|---|---|---|---|
+| a semver parser (run 6) | 11/11 checks, tests on main, worktree branches merged `--no-ff` | 11m10s | $0.65 |
+| a word-frequency tool, two dependent stories (run 9) | 12/12 checks | 19m42s | $1.56 |
 
-## Quick start
+Every run and what it found is logged in [ROADMAP §0](docs/ROADMAP.md#0-at-a-glance) (M0.8). The
+numbers come from the harness's own `stats.md`, not from the model.
+
+## Test-driven agents
+
+Do not merely give an agent a goal. Give it a **failing proof of what is missing**, then make it
+earn GREEN. Each task runs as a chain of sub-agents, each stopped by a hook that can block the
+stop and hand the reason back:
+
+- **RED** writes the tests the plan named — and must fail them (`gate-red-verify`).
+- **SCAFFOLD** declares the symbols the tests need — no bodies (`gate-scaffold-verify`).
+- **GREEN** makes the tests pass touching only the task's files (`gate-green-verify`).
+- **STRUCTURAL-REVIEW** checks symbol uniqueness, duplicates and orphans (`ctx-symbols`).
+- **FINAL-GATE** runs the sprint's whole matrix once; every planned test must be on main.
+
+## How the loop works
+
+1. **Intent → contract.** `intake` turns your words into an internal Intent Contract
+   (success *and* failure scenarios, open questions classed assume / default / ask / spike).
+2. **Planning, with you.** `standards` then `planner` produce the sprint contract and, per story,
+   `tasks.md` / `validate.md` / `plan.md` — or a single semantic plan (`targets.json`) they are
+   rendered from. The supervisor **stops for your approval**; nothing is built before Stage 2 is approved.
+3. **Execution, without you.** One worktree-isolated worker per task through the chain above;
+   the supervisor spends no tokens watching (`sweep wait` wakes on events) and acts on facts:
+   accept, retry, re-plan, roll over, spawn.
+4. **Budgets that plan.** Every attempt is boxed in tokens and minutes (soft warning, hard stop);
+   a hard breach is classified and re-planned, never retried as-is; the sprint has its own envelope
+   and admission control.
+5. **Close and rotate.** The harness writes `stats.md` and a canonical `handoff.json` → `NEXT.md`;
+   the next session resumes from evidence (`aladdin resume`), on the same host or another one (`host swap`).
+
+## Why failing first matters
+
+A passing test written after the code proves the code does what the code does. A failing test
+written before it proves the code is *missing* — and GREEN is then a claim the gate can check,
+not a sentence the model can say. It also keeps workers small: each one gets its task's contract,
+its tests and the resolved change targets (`targets context`), never the whole repo.
+
+## Models explore. Gates decide.
+
+Determinism is structural, not vibes. Hooks enforce what the model cannot talk its way past:
+
+- the supervisor cannot write production source (`gate-supervisor-scope`) or dispatch with its
+  backends missing (`gate-tooling`);
+- a worker cannot leave its worktree, touch files outside its task, or pass a stop whose gate failed;
+- a gate that crashes **blocks** (`_failclosed.sh`) — never a silent pass, never a false block when a
+  backend is absent (it degrades to a flagged, weaker check);
+- a host that cannot block natively is wrapped by an outer controller (`host check` fails CI otherwise).
+  A BLOCK is never downgraded to WARN.
+
+Models pick the route (`strongest | strong | economical`, resolved per host); the gates decide what lands.
+
+## Install / run
+
+### Quick start
 
 ```bash
 # 1) Have a Rust toolchain >= 1.82 (rustup.rs or `brew install rust`). The plugin
@@ -78,78 +142,29 @@ clone — full parity (hooks, agents, gates, time box, ledger, stats, handoff). 
 > `/plugin` → Marketplaces), then `/reload-plugins`. Step 1 (the Rust-built `ctx-symbols`
 > + `md-db`) is what makes the gates run at full strength; without it they degrade to grep.
 
-## Using it
+### Run it
 
-The plugin ships one skill — **`aloop`** — which acts as the *supervisor*. You
-don't invoke the 9 sub-agents or the gates directly; the skill dispatches them and
-reacts to gate verdicts. Two ways to start it inside Claude Code:
+- **Just ask** inside the host: the skill is model-invoked and triggers on build / fix /
+  improve / add requests even if you never say "agile" — or invoke `/aladdin`, `/aloop` or `/aloop:init`.
+- **From a shell:** `aladdin "<intent>"` records the intent; `aladdin status` (one line per task from
+  the harness files, tasks to re-gate, token totals); `aladdin resume` (what the next session
+  loads); `aladdin report` (the sprint's `stats.md`); `aladdin target | context | refs | callers`
+  (the semantic queries). Every tool is also `aloop <tool>` (`aloop --list`).
+- **Settings** live in `.aladdin/config.yaml` (budgets, models, context, semantic, provenance, git);
+  `aloop config migrate` creates it from an older `docs/agents/defaults.md`, which is then rendered from it.
 
-- **Just ask.** The skill is model-invoked, so it auto-triggers on build / ship /
-  implement / add-a-feature / fix-via-TDD requests — even if you never say "agile":
+## Supported harnesses
 
-  ```
-  Build a rate limiter as a sprint with strict TDD.
-  Plan and implement the CSV export feature — tests first, with gates.
-  ```
+| Host | Install | Gates | Isolation |
+|---|---|---|---|
+| **Claude Code** | `/plugin install aloop@aloop-marketplace` | native hooks | host worktrees (`isolation: "worktree"`) |
+| **Codex** | `aloop install codex` | native hooks | `task-worktree` + `aloop bind` |
+| **OpenCode** | `aloop install opencode` | outer (the plugin wraps every tool call) | `task-worktree` + `aloop bind` |
 
-- **Explicitly**, via the namespaced entry-point command:
+One `HostAdapter` interface behind all three (`aloop host describe`); the same conformance suite
+runs on every host (`make test-hosts`), and a sprint can move between them from portable state.
 
-  ```
-  /aloop:init
-  ```
-
-  (`init` is a thin alias that loads the same supervisor playbook; the underlying
-  skill is also directly invokable as `/aloop:aloop`.)
-
-Once started:
-
-1. **Planning (you're in the loop):** intake → standards → planner produce the sprint
-   contract + per-story `tasks.md` / `validate.md` / `plan.md`. The skill **stops for
-   your approval** — it will not start building until Stage-2 is approved.
-2. **Execution (autonomous):** after approval it runs RED → SCAFFOLD → GREEN →
-   STRUCTURAL-REVIEW per wave, then a once-per-sprint FINAL-GATE, each enforced by a
-   deterministic hook gate.
-
-The gate backends (`ctx-symbols`, `md-db`) are built and put on PATH automatically on
-the first session (step 1). Until they exist, planning gates WARN and fall back to grep
-(never a false block, never a silent pass); execution waits for them.
-
-Planning agents run on Opus 5.5 and everything else (orchestrator and workers) on
-Sonnet. Every worker attempt is time-boxed (tokens + minutes, soft warning then hard
-stop), and a task that overruns is split mid-sprint by the planner rather than retried.
-Each sprint is planned to be self-contained, so context can be cleared between sprints.
-Budgets, models, the `.gitignore` and the commit author are confirmed with you at
-`/aloop:init` and saved in `docs/agents/defaults.md`. When a sprint closes the
-harness writes `sprintN/stats.md` (tasks, attempts, gate blocks, tokens, human messages)
-and `docs/agents/NEXT.md`, which reloads the orchestrator after `/clear`.
-
-## What it does
-
-- **Planning** (human present, one sprint at a time): the supervisor *dispatches* the
-  `intake` → `standards` → `planner` agents to produce the sprint contract + per-story
-  `tasks.md` / `validate.md` / `plan.md` — then stops for your approval.
-- **Execution** (human absent): per wave, RED → SCAFFOLD → GREEN → STRUCTURAL-REVIEW,
-  then once per sprint a FINAL-GATE. One **git-worktree-isolated** sub-agent per task
-  (the harness's built-in `isolation: "worktree"`, on any committed git repo); merge on
-  pass, abandon the chain on a foundation-poisoning halt.
-- **Determinism is structural, not vibes.** Hooks enforce the invariants the model
-  can't talk its way past: the supervisor can't write production source
-  (`gate-supervisor-scope`), can't start execution with its backends missing
-  (`gate-tooling`), can't drop worktree isolation, and can't pass a sub-agent stop whose
-  gate failed (`gate-red/scaffold/green/structural/final-verify`).
-- **Agent comms** are a story-bound, append-only `init.md` ⇄ `output.md` pair: the
-  supervisor appends each dispatch's contract, the agent appends its report — the full
-  negotiation history, enforced (`validate_comms` blocks a dispatch that left no report).
-- **Transcripts**: full capture — every tool call's input *and* output, every user
-  prompt, and a complete session snapshot (all messages + thinking) per task, plus a
-  thin cross-task causal stream. Each sub-agent gets a READ-ONLY slice; the supervisor
-  reads the whole store.
-- **Retrospective + memory**: every planning session distills recurring failures (and
-  your own insights) into `docs/agents/memory.md`, injected into each sub-agent's contract.
-
-Full operator playbook: [`plugin/skills/aloop/SKILL.md`](plugin/skills/aloop/SKILL.md).
-
-## Token efficiency (a measured run)
+## Evidence
 
 **TheNoteBook** — a full Go backend — was built with this plugin from a `README` +
 `/aloop:init` + a handful of prompts. Measured directly from the Claude Code
@@ -176,7 +191,41 @@ structural, not luck:
 
 These mechanisms are codebase-agnostic — greenfield is simply what's measured here.
 
-## Prerequisites
+Live runs: `make smoke-live YES=1` (hook wiring, ~$0.004) and `make e2e-live YES=1` (the whole
+loop, ~$1). Offline: `make ci` — Rust fmt/clippy/tests, shellcheck, 30 Python/Node suites,
+the gate conformance fixtures (`make conformance`), eval-suite validation. Every ROADMAP
+requirement is tracked with its test in [docs/TRACKING.md](docs/TRACKING.md).
+
+## Audit
+
+Every run leaves an `aladdin.event/1` stream (`.agentic/logs/events.jsonl`): intent received,
+plan approved, task dispatched, gate verdicts, worktrees merged, commits created, decisions with
+their one-line rationale and authority — never a transcript copy.
+
+```
+aloop events trace <sha>        # commit → task → gates → plan → intent → approver
+aloop events lineage <task>     # dispatch → attempts → gates → merge
+aloop events graph --format dot # the whole run as a graph
+aloop stats show                # tokens by class, every session of the project
+```
+
+Usage is reported by class (fresh input, cache read/write, output, context) and marked
+`estimated` where a host does not report it. Commit messages are built from the task and its
+change rationale.
+
+## Architecture
+
+```
+.claude-plugin/marketplace.json   marketplace catalog (source: ./plugin)
+plugin/                           the installable plugin (see plugin/README.md)
+  bin/        the tools and gates (aladdin, aloop, gate-*, budget, sweep, targets, events, host, config …)
+  agents/     the 9 roles · skills/ the supervisor playbooks (aloop, aladdin, init)
+  hooks/      hooks.json (aloop:<role> matchers) · hosts/ capabilities, routes, the OpenCode plugin
+  schemas/    KDL schemas for the planning artifacts · tools/ ctx-symbols + md-db sources
+docs/                             OVERVIEW.md ROADMAP.md TRACKING.md + the design history
+```
+
+### Prerequisites
 
 | Tool | Required? | Purpose | Install |
 |------|-----------|---------|---------|
@@ -188,20 +237,7 @@ Both backends are optional: absent → gates WARN and fall back to grep (never a
 block, never a silent pass). See [`plugin/README.md`](plugin/README.md) for the gate
 env-contract and how to retarget a non-Rust repo.
 
-## Layout
-
-```
-.claude-plugin/marketplace.json   marketplace catalog (source: ./plugin)
-plugin/                           the installable plugin (see plugin/README.md)
-docs/                             what it is, roadmap, design history
-  OVERVIEW.md ROADMAP.md           start here: definition + plan
-  ARCHITECTURE.md DESIGN.md KICKSTART.md   historical design package
-  PLATFORM-NOTES.md
-  agentic-agile-design.html diagrams/
-DEVLOG.md                         build journal + review dispositions
-```
-
-## Development (Makefile)
+### Development (Makefile)
 
 `make` (no target) prints all targets. Common ones:
 
@@ -227,14 +263,14 @@ eval-validate · version-check` (fast, no tokens); **pre-push** runs the full
 (e.g. `SKIP_HOOKS=1 git commit …`) for an intentional WIP commit or a known-failing
 local dependency.
 
-## Versioning & changelog
+### Versioning & changelog
 
 [SemVer](https://semver.org); see [`CHANGELOG.md`](CHANGELOG.md). Keep the version in
 `plugin/.claude-plugin/plugin.json`, `plugin/tools/ctx-symbols/Cargo.toml`, and the
 top `CHANGELOG.md` entry in lockstep — `make version-check` (and `make release`)
 enforce this. Tag releases `vMAJOR.MINOR.PATCH`.
 
-## First publish
+### First publish
 
 ```bash
 git init && git add -A && git commit -m "aloop v0.1.0"
@@ -245,7 +281,7 @@ make release        # tags v0.1.0
 make publish        # pushes branch + tags
 ```
 
-## Continuous integration
+### Continuous integration
 
 `.github/workflows/ci.yml` runs on every push/PR:
 
@@ -256,14 +292,19 @@ make publish        # pushes branch + tags
 - **plugin** — JSON sanity on the manifest + marketplace, eval-suite validation, version
   lockstep, then `claude plugin validate ./plugin --strict`.
 
-## Status
 
-Published at [github.com/adeelahmad/agentic-agile](https://github.com/adeelahmad/agentic-agile).
-The standards matrix targets **Rust** by default (retarget by editing `standards.md` +
-the gates — see [`plugin/README.md`](plugin/README.md)). Gate bodies are unit-tested and
-verified offline (positive + negative); CI runs `plugin validate` but not a live session,
-so smoke-test the hook wiring in a real Claude Code session before relying on it
-end-to-end.
+## Limitations
+
+- The standards matrix targets **Rust** by default; retarget it by editing `standards.md` and the
+  gates (see [`plugin/README.md`](plugin/README.md)). The loop itself is language-agnostic.
+- Gates run at full strength only with the Rust-built `ctx-symbols` + `md-db`; without them they
+  degrade to a grep fallback that is flagged as weaker.
+- `refs` / `callers` / `callees` need a configured LSP server (`AGENTIC_LSP_COMMAND`); without one
+  they say so and exit 4 rather than guess.
+- CI validates the plugin and runs every offline suite, but not a live session; the live runs
+  (`make smoke-live`, `make e2e-live`) spend tokens and are run by hand.
+- The on-disk layout keeps its pre-rename names (`.agentic/`, `AGENTIC_*`, `docs/agents/`) for the
+  migration window; `.aladdin/config.yaml` is the human's file.
 
 ## License
 
