@@ -22,7 +22,8 @@ Usage:
   budget resolve [--tasks FILE --task Tn] [--worktree WT]   the resolved BUDGET_* lines + their source
   budget hook pre|post|stop                 hook mode (reads the hook JSON on stdin)
   budget watch [--interval S] [--grace S]   supervisor: block until a worker must be
-                                            killed or none is running; prints KILL lines
+                                            killed, one was released STUCK, or none is running;
+                                            prints STOPPED / KILL / STUCK lines
   budget mark-killed AGENT_ID...            after TaskStop: stop tracking those attempts
   budget status                             table of tracked attempts
   budget replans TASK_ID                    how many times TASK_ID was split (cap check)
@@ -491,6 +492,23 @@ def refresh(st):
     return bool(st.get("hard")) or st["elapsed_min"] >= b["TIME_HARD_MIN"] or (st.get("tokens") or 0) >= b["TOKENS_HARD"]
 
 
+def stuck_releases(cwd):
+    """Gates leave .agentic/state/stuck/<TASK>.<ATTEMPT> when they release a worker that
+    repeated one block N times (see _gatelib.sh). Report each once: the first line of the
+    marker plus the reason, then rename it *.reported."""
+    d = _paths.home(cwd, "state/stuck", make=False)
+    out = []
+    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        p = os.path.join(d, name)
+        if name.endswith(".reported") or not os.path.isfile(p):
+            continue
+        with open(p) as f:
+            head, _, reason = f.read().partition("\n")
+        out.append("%s reason=%r" % (head.strip(), reason.strip()[:300]))
+        os.replace(p, p + ".reported")
+    return out
+
+
 def watch(cwd, interval, grace):
     """The supervisor's sleep. Returns when a worker was STOPPED by the time-box hook, a
     worker is past its HARD limit + grace and still running (the hook's backstop: TaskStop
@@ -512,12 +530,21 @@ def watch(cwd, interval, grace):
                 save_state(p, s)
                 if now - s["hard"] >= grace:
                     kill.append(s)
+        stuck = stuck_releases(cwd)
         line = "%s agent_id=%s task=%s role=%s attempt=%s tokens=%s/%s elapsed=%.1f/%dmin"
         for tag, group in (("STOPPED", stopped), ("KILL", kill)):
             for s in group:
                 print(line % (tag, s["agent_id"], s.get("task") or "?", s["role"], s.get("attempt") or "?",
                               fmt_k(s.get("tokens")), fmt_k(s["budget"]["TOKENS_HARD"]), s.get("elapsed_min") or 0,
                               s["budget"]["TIME_HARD_MIN"]))
+        for s_ in stuck:
+            print("STUCK %s" % s_)
+        if stuck:
+            print("-> STUCK lines: that worker hit the same gate block N times in a row and was released UNVERIFIED "
+                  "(not a pass). Do not merge; discard its worktree, then re-dispatch the task with a Feedback block "
+                  "that addresses the quoted reason (a new attempt), or re-plan it.")
+            if not (stopped or kill):
+                return 3
         if stopped or kill:
             if kill:
                 print("-> KILL lines: the hook could not stop these — TaskStop each, then `budget mark-killed <agent_id>`.")

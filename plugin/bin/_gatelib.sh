@@ -35,19 +35,53 @@ export PATH="$GATELIB_DIR:$PATH"   # bare `md-db`/`ctx-symbols` -> shim -> real 
 # stats count attempts/failures from here, not from anything a model wrote.
 # shellcheck source=/dev/null
 . "$GATELIB_DIR/_failclosed.sh"
+# A block's reason is logged as a checksum, so the same block repeating is detectable.
+GATE_BLOCK_REASON=""
 _gate_log_verdict() {
   local rc=$?
   _gate_fail_closed "$rc"; rc=$?                 # a crashed gate blocks (see _failclosed.sh)
   mkdir -p "$AGENTIC_LOGS" 2>/dev/null || return "$rc"
-  printf '{"ts":"%s","gate":"%s","role":"%s","task":"%s","attempt":"%s","story_dir":"%s","exit":%d,"selfcheck":%s}\n' \
-    "$(date -u +%FT%TZ)" "${GATE_NAME:-?}" "${AGENT_ROLE:-}" "${TASK_ID:-}" "${ATTEMPT:-}" "${STORY_DIR:-}" \
-    "$rc" "$([ "${AGENTIC_SELFCHECK:-}" = 1 ] && echo true || echo false)" >> "$AGENTIC_LOGS/gates.jsonl" 2>/dev/null
+  local self rh="" released=""
+  self="$([ "${AGENTIC_SELFCHECK:-}" = 1 ] && echo true || echo false)"
+  if [ "$rc" -eq 2 ]; then
+    rh="$(printf '%s' "$GATE_BLOCK_REASON" | cksum | cut -d' ' -f1)"
+    _gate_stuck "$rh" "$self" && { rc=0; released=',"released":"stuck"'; }
+  fi
+  printf '{"ts":"%s","gate":"%s","role":"%s","task":"%s","attempt":"%s","story_dir":"%s","wt":"%s","exit":%d,"selfcheck":%s,"reason":"%s"%s}\n' \
+    "$(date -u +%FT%TZ)" "${GATE_NAME:-?}" "${AGENT_ROLE:-}" "${TASK_ID:-}" "${ATTEMPT:-}" "${STORY_DIR:-}" "$(repo_dir)" \
+    "$rc" "$self" "$rh" "$released" >> "$AGENTIC_LOGS/gates.jsonl" 2>/dev/null
   return "$rc"
 }
 trap '_gate_log_verdict; exit $?' EXIT
 
+# Stuck release. A worker that hits the SAME block AGENTIC_STUCK_BLOCKS times in a row (same
+# gate, task and attempt, host-run verdicts only) is not going to fix it: in live run 10 a RED
+# worker stopped 29 times on one unchanged reason and burnt its whole time box. The Nth
+# identical block releases the stop UNVERIFIED: not a pass, never merged. The release leaves
+# `.agentic/state/stuck/<TASK_ID>.<ATTEMPT>` with the reason, which `budget watch` reports as
+# a STUCK line; the supervisor re-dispatches the task with feedback that addresses the
+# reason (a new attempt starts the count over), or re-plans it. A different reason resets the
+# count, and a self-check never releases. The key includes the worktree, so one worker's
+# repeats count and a re-dispatch in a fresh worktree starts over. Returns 0 on the release.
+_gate_stuck() {
+  local rh="$1" self="$2" n="${AGENTIC_STUCK_BLOCKS:-3}" prior log="$AGENTIC_LOGS/gates.jsonl"
+  [ "$self" = false ] && [ -n "${TASK_ID:-}" ] && [ -n "${ATTEMPT:-}" ] || return 1
+  case "${AGENT_ROLE:-}" in red-worker|scaffolder|green-worker) ;; *) return 1 ;; esac
+  [ "$n" -ge 2 ] 2>/dev/null && [ -f "$log" ] || return 1
+  prior="$(grep -F "\"gate\":\"${GATE_NAME:-?}\"" "$log" | grep -F "\"task\":\"$TASK_ID\",\"attempt\":\"$ATTEMPT\"" \
+    | grep -F "\"wt\":\"$(repo_dir)\"" | grep -F '"selfcheck":false' | tail -n $((n - 1)) | grep -c -F "\"exit\":2,\"selfcheck\":false,\"reason\":\"$rh\"}")"
+  [ "$prior" -ge $((n - 1)) ] || return 1
+  mkdir -p "$AGENTIC_STATE/stuck" 2>/dev/null
+  printf 'role=%s gate=%s task=%s attempt=%s blocks=%s\n%s\n' "${AGENT_ROLE:-}" "${GATE_NAME:-?}" "$TASK_ID" "$ATTEMPT" "$n" \
+    "$GATE_BLOCK_REASON" > "$AGENTIC_STATE/stuck/$TASK_ID.$ATTEMPT" 2>/dev/null
+  echo "[${GATE_NAME:-gate}] STUCK — the same block $n times in a row; stop released, NOT verified." >&2
+  echo "  This attempt is not a pass. Supervisor: do not merge; discard the worktree and re-dispatch" >&2
+  echo "  $TASK_ID with a Feedback block that addresses the reason (.agentic/state/stuck/$TASK_ID.$ATTEMPT), or re-plan." >&2
+  return 0
+}
+
 warn() { echo "WARN[$GATE_NAME]: $*" >&2; }
-fail() { echo "BLOCK[$GATE_NAME]: $*" >&2; exit 2; }
+fail() { GATE_BLOCK_REASON="$*"; echo "BLOCK[$GATE_NAME]: $*" >&2; exit 2; }
 note() { echo "[$GATE_NAME] $*" >&2; }
 
 # Resolve REPO_DIR.

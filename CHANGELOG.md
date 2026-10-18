@@ -23,6 +23,14 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
+- Stuck release: a worker that hits the same gate block 3 times in a row (one gate, task,
+  attempt and worktree; `AGENTIC_STUCK_BLOCKS`) is released **unverified** instead of
+  looping until its time box (live run 10 lost 29 minutes to a RED worker that stopped 29
+  times on one unchanged reason). The release is not a pass: the gate leaves
+  `.agentic/state/stuck/<task>.<attempt>` with the reason, `budget watch` prints a `STUCK`
+  line once, and the supervisor re-dispatches with feedback or re-plans. A different reason
+  or a new attempt resets the count; a self-check never releases. Every gate verdict now
+  logs its worktree and a checksum of the block reason. 7 conformance checks (§6.9).
 - **Second live e2e intent**: `make e2e-live YES=1 INTENT=wordfreq` runs two dependent stories
   (word counting, then top-N ranking).
 - **`gate-final` checks every planned test is on main**: each `path::fn` bullet in a story's

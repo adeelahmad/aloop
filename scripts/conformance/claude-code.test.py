@@ -351,6 +351,50 @@ said = any("NOT verified" in l for l in lines) and any("do not merge" in l for l
 results.append((9, "a hard-breached worker is released as 'not a pass, do not merge'", rc == 0 and said,
                 "exit %d %s" % (rc, (lines[0] if lines else "")[:140])))
 
+# §6.9 Stuck release: the same block N times in a row (one gate, task, attempt) releases the
+# stop UNVERIFIED with a marker for the supervisor; live run 10 lost 29 minutes to a RED worker
+# that stopped 29 times on one unchanged reason. A different reason or a new attempt resets.
+def stuck_wt(attempt):
+    wt = worktree("red-worker")
+    write(os.path.join(wt, ".agentic", "task.env"),
+          "TASK_ID=S1-01-T1\nATTEMPT=%d\nAGENT_ROLE=red-worker\nSTORY_DIR=%s\nBASE_REF=main\n" % (attempt, STORY))
+    write(os.path.join(wt, "tests", "common", "mod.rs"), SHIM)
+    write(os.path.join(wt, "tests", "sub.rs"), RED_TEST.replace("2);", "0);"))   # passes: not RED
+    commit(wt, "red")
+    return wt
+
+
+wt = stuck_wt(7)
+report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])          # block A: the test passes with no production code
+rcs = [gate("gate-red-verify", wt)[0] for _ in range(2)]
+rc, lines = gate("gate-red-verify", wt)
+marker = os.path.join(MAIN, ".agentic", "state", "stuck", "S1-01-T1.7")
+said = any("STUCK" in l for l in lines) and any("NOT verified" in l for l in lines) and any("do not merge" in l for l in lines)
+results.append((9, "the third identical block releases the worker unverified, with a stuck marker", rcs == [2, 2] and rc == 0 and said
+                and os.path.isfile(marker) and "attempt=7" in open(marker).read(), "exits %s then %d %s" % (rcs, rc, (lines[0] if lines else "")[:120])))
+sh("git", "worktree", "remove", "--force", wt)
+wt = stuck_wt(8)
+case(9, "a new attempt starts the stuck count over", "gate-red-verify", wt, 2)
+sh("git", "worktree", "remove", "--force", wt)
+wt = stuck_wt(9)
+rcs = [gate("gate-red-verify", wt)[0] for _ in range(2)]                             # A, A
+report("red-worker", [("tests/sub.rs::sub_works", "PASS")])          # block B: a PASS row in RED
+rcs += [gate("gate-red-verify", wt)[0] for _ in range(2)]                            # B, B
+rc, lines = gate("gate-red-verify", wt)                                              # B: the third B
+results.append((9, "a different reason resets the count; the third identical one releases", rcs == [2, 2, 2, 2] and rc == 0,
+                "exits %s then %d" % (rcs, rc)))
+sh("git", "worktree", "remove", "--force", wt)
+wt = stuck_wt(10)
+case(9, "a self-check never releases a stuck worker", "gate-red-verify", wt, 2, extra={"AGENTIC_SELFCHECK": "1"})
+rcs = [gate("gate-red-verify", wt, {"AGENTIC_SELFCHECK": "1"})[0] for _ in range(3)]
+results.append((9, "three identical self-check blocks still block", rcs == [2, 2, 2], "exits %s" % rcs))
+sh("git", "worktree", "remove", "--force", wt)
+r = subprocess.run([os.path.join(BIN, "budget"), "watch", "--interval", "1", "--grace", "1"], cwd=MAIN, env=ENV, capture_output=True, text=True)
+results.append((9, "budget watch reports the stuck release once as a STUCK line", "STUCK role=red-worker gate=gate-red-verify task=S1-01-T1 attempt=7" in r.stdout
+                and "reason=" in r.stdout, r.stdout.strip().splitlines()[0][:140] if r.stdout.strip() else "no output"))
+r = subprocess.run([os.path.join(BIN, "budget"), "watch", "--interval", "1", "--grace", "1"], cwd=MAIN, env=ENV, capture_output=True, text=True)
+results.append((9, "a reported stuck release is not reported again", "STUCK" not in r.stdout, r.stdout.strip()[:140]))
+
 # FINAL: every test the story's plan.md names must exist on main. A RED re-plan that drops a
 # planned test otherwise loses coverage silently (live e2e run 6), since plan-ready.md only
 # lists what RED actually wrote.

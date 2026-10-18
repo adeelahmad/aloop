@@ -95,7 +95,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 - The full planning → execution loop on Claude Code; Codex and OpenCode via generated
   agents and the same gates.
 - CI on every PR: Rust fmt/clippy/tests for both backends, shellcheck on every gate, the
-  ROADMAP §6 conformance fixtures (real gates on a fixture crate, 47 checks), the host tests
+  ROADMAP §6 conformance fixtures (real gates on a fixture crate, 54 checks), the host tests
   (budget/worktree, Codex hooks emulation, supervisor scope, hook matchers, dispatch,
   ensure-tools, fail-closed: 68 checks; OpenCode end-to-end: 18), `claude plugin validate
   --strict`, eval-suite and version-lockstep checks.
