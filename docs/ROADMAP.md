@@ -227,7 +227,7 @@ Results carry source refs and are attached to planning provenance. An unavailabl
 
 ### 4.9 Portable host core
 
-- **Extract a `HostAdapter` interface:**
+- ✅ *Done (Unreleased): `_host.py` + `bin/host` (Claude reference, Codex and OpenCode adapters; `host check` runs in CI). Test: `scripts/test/host-adapter.test.py`.* **Extract a `HostAdapter` interface:**
   - `Capabilities`
   - `Spawn` / `Wait` / `Send` / `Cancel`
   - `Subscribe`
@@ -240,7 +240,7 @@ Results carry source refs and are attached to planning provenance. An unavailabl
   Claude Code is the reference implementation, and Codex and OpenCode become adapters behind it.
 - ✅ *Usage reporting done (Unreleased): classes apart, `accuracy` + `unreported` per attempt. Test: `scripts/test/budget-meter.test.py`.* **Usage reporting** distinguishes fresh input, output, cache read, cache write and current context against the context window. Estimated counts are marked `estimated`.
 - **A host capability matrix** covering usage, compaction, live messaging (for the time soft-stop), lifecycle and gate blocking.
-- **Gate equivalence:** if a host cannot block natively, the outer controller enforces it. Never downgrade BLOCK to WARN.
+- ✅ *Done (Unreleased): `enforce_gate` is `native` or `outer`; `host check` fails on anything else.* **Gate equivalence:** if a host cannot block natively, the outer controller enforces it. Never downgrade BLOCK to WARN.
 - **A portable project config** in `.aladdin/config.yaml` (budgets, context, semantic, models, provenance, memory), replacing `docs/agents/defaults.md` with a migration path.
 - **Host swap:** a sprint started on one host resumes on another from portable state.
 

@@ -50,6 +50,13 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   overrides it (`breach:` line) and acts per class (SKILL.md "Breach classes").
 
 ### Added
+- **The `HostAdapter` interface** (ROADMAP §4.9). `_host.py` names, per host, the one place
+  the harness does each thing: capabilities, the dispatch vocabulary (spawn / wait / send /
+  cancel / subscribe), model and transcript resolution, usage and context pressure,
+  compact / rotate, the worktree seam, gate install and enforcement, tool policy. Claude
+  Code is the reference; Codex and OpenCode are adapters. `aloop host describe` prints the
+  contract, `host check` (in `make test-hosts`) fails if an adapter is incomplete or would
+  enforce a gate as a warning. What a host lacks raises `Unsupported`; nothing is faked.
 - **Abstract model routes** (ROADMAP §3.6). Roles map to `strongest | strong | economical`
   and each host resolves the route to its own id (`plugin/hosts/routes.json`; Codex: the
   session's model). `AGENTIC_MODEL_PLANNING` / `AGENTIC_MODEL_WORKER` default to
