@@ -39,6 +39,18 @@
         "The issue is escalated to the next planning session",
         "The sprint is not certified done while the matrix is red"
       ]
+    },
+    {
+      "id": 4,
+      "kind": "edge",
+      "prompt": "Certify sprint 1. tests/common/mod.rs starts with #![allow(dead_code)]; the standards matrix is green, every plan-ready.md is ticked and `selfcheck final-gate` passes.",
+      "context": "Live e2e run 21: the persona's own grep treated the shared test-helper allow(dead_code) as a suppression and failed the sprint, costing a GREEN re-dispatch.",
+      "expected_output": "The final-gate certifies the sprint: the gate's suppression check passed, and an allow(dead_code) in tests/common/ is not a test suppression. No task is sent back.",
+      "assertions": [
+        "The sprint is certified done",
+        "allow(dead_code) in tests/common/ is not reported as a suppression failure",
+        "No GREEN re-dispatch or test edit is requested"
+      ]
     }
   ]
 }
