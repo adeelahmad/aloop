@@ -392,6 +392,8 @@ per worktree (transient, git-ignored, removed on stop):
   .agentic/task.env        optional copy of the contract (Codex/OpenCode, older sprints);
                            it must match the contract when both exist
   .agentic/budget-exceeded marker the time-box hook writes at a HARD limit
+main tree: .agentic/state/stuck/<task>.<attempt>  a gate released a worker that repeated
+                           one block 3 times (unverified; `budget watch` reports it once)
                            STORY_DIR is the ABSOLUTE path to sN-NN-<slug>/ (the comms dir).
   .agentic/scaffold-symbols  scaffolder-written production-symbol list (scaffold gate)
   .transcripts/            READ-ONLY task transcript staged in for the worker
@@ -501,6 +503,11 @@ Your job during execution is small, and that is on purpose (it keeps your contex
    attempt states, not from worker prose. Act on those lines:
    - finished workers → read the gate verdict + latest `output.md` block, and proceed as
      in the feedback loop (tick/merge on pass, retry within the gate-retry budget);
+   - `budget watch` printed `STUCK …` lines (a worker hit the same gate block 3 times in a
+     row and its stop was released **unverified**; the reason is quoted on the line and in
+     `.agentic/state/stuck/<task>.<attempt>`) → not a pass: do not merge, discard its
+     worktree, and re-dispatch the task with a `### Feedback` block that addresses that
+     reason (a new attempt), or re-plan it if the reason is the plan's;
    - `budget watch` printed `STOPPED …` lines (the hook already ended those workers) or
      `KILL …` lines (backstop: the hook could not — `TaskStop` each, then `budget
      mark-killed <agent_id>`) → log `log-execution wave-K budget SN-NN kill Tn
@@ -615,7 +622,10 @@ before GREEN).
   commits the gate verified. Workers commit their own work; the gate blocks uncommitted work.
 
 **STRUCTURAL-REVIEW** — dispatch `structural-reviewer` (read-only) after the
-wave's GREEN merges.
+wave's GREEN merges. Its contract is like any worker's (`TASK_ID` such as `S1-SR-W1`); a
+review of a whole wave has no single story, so its `STORY_DIR` is the **sprint dir**
+(`docs/agents/sprintN/`): append its dispatch block to that dir's `init.md`, and it reports
+to that dir's `output.md`. A review of one story uses that story's dir.
 - Detects orphan modules, parallel implementations of one abstraction, and
   duplicate helpers (`ctx-symbols conflicts`, grep fallback). Writes findings to
   `output.md`; fixes nothing.

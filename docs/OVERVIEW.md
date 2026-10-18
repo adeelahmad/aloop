@@ -95,9 +95,16 @@ The model can ignore a skill; it cannot ignore an exit code.
 **Working and tested:**
 - The full planning → execution loop on Claude Code; Codex and OpenCode via generated
   agents and the same gates.
-- CI on every PR: Rust fmt/clippy/tests for both backends, shellcheck on every gate, Codex
-  hooks emulation + OpenCode end-to-end (18 checks), `claude plugin validate --strict`,
-  eval-suite and version-lockstep checks.
+- CI on every PR: Rust fmt/clippy/tests for both backends, shellcheck on every gate, the
+  ROADMAP §6 conformance fixtures (real gates on a fixture crate, 54 checks), the host tests
+  (budget/worktree, Codex hooks emulation, supervisor scope, hook matchers, dispatch,
+  ensure-tools, fail-closed: 73 checks; OpenCode end-to-end: 20), `claude plugin validate
+  --strict`, eval-suite and version-lockstep checks.
+- The north-star run, `make e2e-live YES=1 [INTENT=wordfreq]`: a one-line intent becomes
+  planned, test-first, gate-verified, merged code in a real Claude Code session with the
+  approval given up front. Two intents pass every check (semver parser: 11/11, ~$0.65–1.15,
+  11–19 min; word frequencies with two dependent stories: 12/12, $0.86–1.56, 13–45 min). Every run so
+  far has found a gate false positive that unit tests missed; ROADMAP M0.8 lists them.
 - One measured real run (*TheNoteBook*, a Go backend): ~17K LOC, 322 tests, 74 commits in 6
   sprints for ~1.55M output tokens, 76% of it on Sonnet. See the
   [README](../README.md#token-efficiency-a-measured-run).

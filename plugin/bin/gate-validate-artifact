@@ -32,8 +32,14 @@ if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1; then
   # Validate THIS file only. Its directory also holds init.md/output.md (and the sprint dir
   # holds stats.md, story dirs, ...), which this schema does not know, so validating the
   # directory blocked every valid planner write.
-  md-db validate "$f" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/$schema" \
-    || { echo "BLOCK[gate-validate-artifact]: $f failed $schema" >&2; exit 2; }
+  # The diagnostics go to stderr WITH the block: a PostToolUse block hands the model only
+  # stderr, and a bare "failed the schema" made the planner guess (live e2e run 11: every
+  # planning artifact was written twice before it passed, 12 of 25 gate verdicts).
+  if ! out="$(md-db validate "$f" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/$schema" --format text 2>&1)"; then
+    echo "BLOCK[gate-validate-artifact]: $f failed $schema — fix these and write it again:" >&2
+    printf '%s\n' "$out" | grep -E '^[[:space:]]*(error|warning)\[|^[[:space:]]*= hint:|^[[:space:]]*-->' | head -40 >&2
+    exit 2
+  fi
 else
   echo "WARN[gate-validate-artifact]: md-db absent; frontmatter-only fallback for $f" >&2
   [ -f "$f" ] || exit 0

@@ -2,7 +2,7 @@
 // Runs the REAL generated plugin (aloop install opencode) and the REAL bin/ scripts in a
 // throw-away git repo. No OpenCode, no network, no tokens.   node scripts/test/opencode-plugin.test.mjs
 import { execFileSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -11,10 +11,13 @@ import assert from "node:assert/strict"
 const ROOT = join(fileURLToPath(import.meta.url), "..", "..", "..", "plugin")
 const BIN = join(ROOT, "bin")
 const T = mkdtempSync(join(tmpdir(), "agentic-oc-"))
+process.on("exit", () => rmSync(T, { recursive: true, force: true }))   // a leaked dir held ~500MB
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: T, encoding: "utf8", ...opts })
 
-// isolated HOME + fake backends so gate-tooling passes without a Rust build
+// isolated HOME + fake backends so gate-tooling passes without a Rust build; the SessionStart
+// hook would otherwise start a real background cargo build over the fakes (350MB per run)
 process.env.HOME = join(T, "home")
+process.env.AGENTIC_NO_AUTOINSTALL = "1"
 process.env.CLAUDE_PLUGIN_DATA = join(T, "pdata")
 process.env.AGENTIC_NO_AUTOINSTALL = "1"  // no background cargo build into the temp dir
 mkdirSync(join(process.env.CLAUDE_PLUGIN_DATA, "bin"), { recursive: true })
@@ -43,6 +46,7 @@ const client = {
   tui: { showToast: async (a) => { calls.toast.push(a) } },
 }
 const { AgenticAgile } = await import(pathToFileURL(pluginFile).href)
+process.env.AGENTIC_STUCK_BLOCKS = "99"      // the plugin captures its env at load; the stuck release is tested on a second instance
 const hooks = await AgenticAgile({ client, directory: T, worktree: T, project: {}, $: null })
 let pass = 0
 const ok = (name) => { pass++; console.log("ok -", name) }
@@ -119,10 +123,22 @@ await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "12
 assert.ok(!/BLOCKED/.test(taskOut.output)); ok("budget-stopped worker is released by its gate")
 execFileSync("rm", ["-f", join(wt, ".agentic/budget-exceeded")])
 const taskOut2 = { title: "", output: "worker done", metadata: { sessionId: "child" } }
-const before = calls.prompt.length
+let before = calls.prompt.length
 await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "13", args: {} }, taskOut2)
-assert.ok(/BLOCKED after 3 fix rounds/.test(taskOut2.output) && calls.prompt.length - before === 3)
+assert.ok(/BLOCKED after 3 fix rounds/.test(taskOut2.output) && calls.prompt.length - before === 3, taskOut2.output)
 ok("gate block re-prompts the sub-agent 3x, then reports to the supervisor")
+// the stuck release (default threshold, a fresh plugin instance): those identical blocks are already
+// logged, so the next one releases the worker UNVERIFIED and the supervisor is told so, never a silent pass
+delete process.env.AGENTIC_STUCK_BLOCKS
+const hooks2 = await AgenticAgile({ client, directory: T, worktree: T, project: {}, $: null })
+await hooks2.event({ event: { type: "session.created", properties: { info: { id: "child", parentID: "root" } } } })
+await hooks2["chat.message"]({ sessionID: "child", agent: "red-worker" }, { message: {}, parts: [{ type: "text", text: "task" }] })
+const taskOut3 = { title: "", output: "worker done", metadata: { sessionId: "child" } }
+before = calls.prompt.length
+await hooks2["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "14", args: {} }, taskOut3)
+assert.ok(/STUCK — released UNVERIFIED/.test(taskOut3.output) && /Do not merge/.test(taskOut3.output) && calls.prompt.length === before,
+  taskOut3.output)
+ok("a worker stuck on one block is released unverified and reported as such, not re-prompted")
 
 // Stop: a closed sprint is announced once (toast + prompt back into the session)
 mkdirSync(join(T, ".agentic/state"), { recursive: true })
