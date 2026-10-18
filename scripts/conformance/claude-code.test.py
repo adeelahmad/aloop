@@ -460,6 +460,16 @@ write(os.path.join(STORY, "plan.md"), PLAN + "- `tests/sub.rs::sub_handles_negat
 case(6, "FINAL blocks when a planned test is missing from main", "gate-final", MAIN, 2, "sub_handles_negatives", extra=fenv)
 os.remove(os.path.join(STORY, "plan.md"))
 
+# FINAL's own report (live e2e run 29): the final-gate worker's Write to the main tree's output.md
+# was refused, it wrote a worktree copy the host discarded, and its stop passed anyway, so the
+# supervisor wrote the sign-off block itself. Dispatched under a contract, the final gate must
+# have appended its own block, and the block says how (a shell heredoc).
+fwt = worktree("final-gate")
+report("structural-reviewer", [("structure", "PASS")])
+case(6, "FINAL dispatched under a contract blocks until its own output.md block is the latest", "gate-final", fwt, 2, "cat >>")
+report("final-gate", [("matrix", "PASS")])
+case(6, "FINAL dispatched under a contract passes once it appended its own block", "gate-final", fwt, 0)
+
 # §6.2 Planner artifacts are schema-valid (gate-validate-artifact runs md-db on every planner write)
 def md_db():
     """The real md-db binary, put where ensure-tools finds it; built from the bundled source if needed."""
