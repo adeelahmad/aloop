@@ -35,7 +35,8 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.9 | Usage reporting: classes apart, exact or marked, unreported classes named | IMPLEMENTED_TESTED | `scripts/test/budget-meter.test.py` |
 | 4.9 | Host capability matrix | IMPLEMENTED_TESTED | `scripts/test/context-boundary.test.py` |
 | 4.9 | HostAdapter interface extraction, gate equivalence (outer enforcement) | IMPLEMENTED_TESTED | `scripts/test/host-adapter.test.py` |
-| 4.9 | Portable `.aladdin/config.yaml`, host swap | NOT_IMPLEMENTED | overlaps PR #7 |
+| 4.9 | Portable `.aladdin/config.yaml` with migration | IMPLEMENTED_TESTED | `scripts/test/portable-config.test.py` |
+| 4.9 | Host swap: resume a sprint on another host from portable state | NOT_IMPLEMENTED | needs a two-host run |
 | 4.10 | Metrics table (percentiles, breaches, waste, rates, cache, context peak) | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Commits, tests added, time soft limits, semantic context served | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Rotations / compactions | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |

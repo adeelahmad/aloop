@@ -33,7 +33,8 @@ ORDER = ["TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_RE
          "MODEL_PLANNING", "MODEL_WORKER", "GITIGNORE", "TRACK_DOCS",
          "COMMIT_AUTHOR_NAME", "COMMIT_AUTHOR_EMAIL", "CLAUDE_COAUTHOR",
          "MODEL_PLANNING_CODEX", "MODEL_WORKER_CODEX", "EFFORT_PLANNING_CODEX", "EFFORT_WORKER_CODEX",
-         "MODEL_PLANNING_OPENCODE", "MODEL_WORKER_OPENCODE"]
+         "MODEL_PLANNING_OPENCODE", "MODEL_WORKER_OPENCODE",
+         "TIME_MODE", "CONTEXT_BOUNDARY", "LSP_COMMAND", "IMPACT_PROVIDER"]
 EXPLAIN = {
     "TOKENS_SOFT": "tokens — telemetry only: recorded for the next planning cycle, worker not told",
     "TOKENS_HARD": "tokens — worker is stopped by the hook; its task is split by the planner",
@@ -56,6 +57,10 @@ EXPLAIN = {
     "EFFORT_WORKER_CODEX": "Codex workers' reasoning effort",
     "MODEL_PLANNING_OPENCODE": "OpenCode planning agents' model (empty = anthropic/<MODEL_PLANNING>)",
     "MODEL_WORKER_OPENCODE": "OpenCode workers' model (empty = anthropic/<MODEL_WORKER>)",
+    "TIME_MODE": "fixed (TIME_*_MIN) or auto (one project timebox, `aloop timebox`)",
+    "CONTEXT_BOUNDARY": "rotate (fresh session per sprint) or compact (only where the host advertises it)",
+    "LSP_COMMAND": "language server for `targets refs|callers|callees` (empty = none, reported not guessed)",
+    "IMPACT_PROVIDER": "cross-project impact provider command (empty = none)",
 }
 
 
@@ -153,15 +158,21 @@ Curated at each retrospective (schema: schemas/memory.kdl). One row per lesson.
 """
 
 
-def render(vals, who):
+def render(vals, who, rendered_from=None, extra=None):
     today = datetime.date.today().isoformat()
     lines = ["---", "type: agentic-defaults", "confirmed_at: %s" % today, "---",
-             "# aloop — project defaults", "",
-             "Confirmed by %s on %s via `aloop-init --apply`. The hooks read these values;" % (who or "the human", today),
-             "change them only by re-running the init skill (the supervisor may not hand-edit this file).", "",
-             "## Settings", "", "```conf"]
+             "# aloop — project defaults", ""]
+    if rendered_from:
+        lines += ["Rendered from `%s` by `aloop config sync`; edit THAT file (this one is overwritten" % rendered_from,
+                  "on every session start). The hooks read these values.", ""]
+    else:
+        lines += ["Confirmed by %s on %s via `aloop-init --apply`. The hooks read these values;" % (who or "the human", today),
+                  "change them only by re-running the init skill (the supervisor may not hand-edit this file).", ""]
+    lines += ["## Settings", "", "```conf"]
     for k in ORDER:
         lines.append("AGENTIC_%s=%s" % (k, vals[k]))
+    for k, v in sorted((extra or {}).items()):
+        lines.append('AGENTIC_%s="%s"' % (k, v))
     lines += ["```", "", "## What they mean", ""]
     for k in ORDER:
         lines.append("- `AGENTIC_%s` — %s" % (k, EXPLAIN[k]))
@@ -199,9 +210,19 @@ def apply(cwd, pairs):
         print("aloop-init: a soft limit may not exceed its hard limit", file=sys.stderr)
         return 64
     os.makedirs(_paths.docs(cwd), exist_ok=True)
-    with open(_paths.defaults_file(cwd), "w") as f:
-        f.write(render(vals, vals["COMMIT_AUTHOR_NAME"]))
-    print("wrote %s" % _paths.defaults_file(cwd))
+    import _config  # noqa: E402
+    if os.path.exists(_config.path(cwd)):            # the portable config is the human's file: keep it true
+        roles = _config.load(cwd) or {}
+        full = dict(vals)
+        full.update({k: v for k, v in roles.items() if k.startswith("BUDGET_")})
+        with open(_config.path(cwd), "w") as f:
+            f.write(_config.render(full))
+        print("wrote %s" % _config.FILE)
+        subprocess.run([os.path.join(os.path.dirname(os.path.realpath(__file__)), "config"), "sync"], cwd=cwd)
+    else:
+        with open(_paths.defaults_file(cwd), "w") as f:
+            f.write(render(vals, vals["COMMIT_AUTHOR_NAME"]))
+        print("wrote %s" % _paths.defaults_file(cwd))
     memory = os.path.join(_paths.docs(cwd), "memory.md")
     if not os.path.exists(memory):                   # seeded so no agent guesses its schema
         with open(memory, "w") as f:

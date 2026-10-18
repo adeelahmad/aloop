@@ -102,4 +102,12 @@ def settings(cwd=None):
                         vals[k] = v
         except OSError:
             pass
+    import _config  # the portable config (.aladdin/config.yaml) wins when it exists
+    for k, v in (_config.load(cwd) or {}).items():
+        if k in DEFAULTS:
+            if k in NUMERIC:
+                if str(v).isdigit():
+                    vals[k] = int(v)
+            else:
+                vals[k] = v
     return vals

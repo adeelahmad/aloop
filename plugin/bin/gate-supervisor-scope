@@ -127,7 +127,8 @@ case "$file" in docs/agents/*|*/docs/agents/*)
     exit 2 ;;
   defaults.md|NEXT.md|stats.md)
     echo "BLOCK[$GATE_NAME]: $base is written by the harness, never by hand:" >&2
-    echo "    defaults.md → \`aloop-init --apply …\` (the init skill, after the human confirms)" >&2
+    echo "    defaults.md → \`aloop-init --apply …\` (the init skill, after the human confirms)," >&2
+    echo "                  or edit .aladdin/config.yaml and run \`aloop config sync\`" >&2
     echo "    NEXT.md / sprintN/stats.md → \`stats sprint-close\` (runs when FINAL-GATE passes)" >&2
     exit 2 ;;
   esac ;;

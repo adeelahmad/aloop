@@ -14,6 +14,7 @@ if [ -n "$cwd" ] && [ -d "$cwd" ]; then cd "$cwd" || exit 0; fi
 # shellcheck source=/dev/null
 . "$HERE/_paths.sh"
 
+"$HERE/config" sync >/dev/null 2>&1 || true             # .aladdin/config.yaml -> defaults.md
 "$HERE/aloop-init" --ensure-gitignore >/dev/null 2>&1 || true
 
 # the context boundary, observed (ROADMAP §4.4): a cleared session is a rotation, a host

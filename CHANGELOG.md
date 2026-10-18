@@ -50,6 +50,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   overrides it (`breach:` line) and acts per class (SKILL.md "Breach classes").
 
 ### Added
+- **Portable project config** (ROADMAP §4.9). `.aladdin/config.yaml` (budgets, context,
+  semantic, models, provenance, memory, git, plus per-role budget profiles) replaces
+  `docs/agents/defaults.md` as the human's file. `aloop config migrate` writes it from the
+  current settings; when it exists it is authoritative and defaults.md is rendered from it
+  (`config sync`, run by SessionStart and `aloop-init --apply`), so the bash gates read the
+  same values. `config check` refuses unknown sections, keys, bad numbers and schema.
 - **The `HostAdapter` interface** (ROADMAP §4.9). `_host.py` names, per host, the one place
   the harness does each thing: capabilities, the dispatch vocabulary (spawn / wait / send /
   cancel / subscribe), model and transcript resolution, usage and context pressure,
