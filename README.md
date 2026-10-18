@@ -46,11 +46,13 @@ given up front — reproducible with `make e2e-live YES=1` (spends about a dolla
 
 | Intent | Result | Time | Cost |
 |---|---|---|---|
-| a semver parser (run 6) | 11/11 checks, tests on main, worktree branches merged `--no-ff` | 11m10s | $0.65 |
-| a word-frequency tool, two dependent stories (run 9) | 12/12 checks | 19m42s | $1.56 |
+| a semver parser ([run 6](docs/evidence/README.md)) | 11/11 checks, tests on main, worktree branches merged `--no-ff` | 11m10s | $0.65 |
+| a word-frequency tool, two dependent stories ([run 9](docs/evidence/README.md)) | 12/12 checks | 19m42s | $1.56 |
+| the same tool on v0.12.0 ([run 19](docs/evidence/README.md)) | 13/13 checks, 1 supervisor wake, every merged commit traces to its task | 15m24s | $1.01 |
 
-Every run and what it found is logged in [ROADMAP §0](docs/ROADMAP.md#0-at-a-glance) (M0.8). The
-numbers come from the harness's own `stats.md`, not from the model.
+Every public number is a row in [docs/evidence/README.md](docs/evidence/README.md), with the command
+that reproduces it; what each run found and fixed is logged in [ROADMAP §0](docs/ROADMAP.md#0-at-a-glance)
+(M0.8). The numbers come from the harness (`run-summary` reads the session's own `result` lines), not from the model.
 
 ## Test-driven agents
 
@@ -192,7 +194,7 @@ structural, not luck:
 These mechanisms are codebase-agnostic — greenfield is simply what's measured here.
 
 Live runs: `make smoke-live YES=1` (hook wiring, ~$0.004) and `make e2e-live YES=1` (the whole
-loop, ~$1). Offline: `make ci` — Rust fmt/clippy/tests, shellcheck, 30 Python/Node suites,
+loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci` — Rust fmt/clippy/tests, shellcheck, 30 Python/Node suites,
 the gate conformance fixtures (`make conformance`), eval-suite validation. Every ROADMAP
 requirement is tracked with its test in [docs/TRACKING.md](docs/TRACKING.md).
 
