@@ -178,6 +178,10 @@ If a backend reports "not installed", run `ensure-tools --sync` once (needs carg
 Every session opens with a **retrospective**, then **intake → standards → planner**. Each is documented in
 `pipeline/planning/<NN>-*/` (persona, init template, artifacts, gate). Write the
 artifacts under `docs/agents/sprintN/`.
+Dispatch the planning roles in the **foreground** (`run_in_background: false`); intake
+and standards may go together as two Agent calls in ONE message. Never poll for their files
+with `sleep` loops: a foreground call returns when the agent is done (live run 29: 5 polling
+turns).
 
 ## Prerequisites
 - A POSIX shell + git with worktrees. The gates and `bin/transcripts` are bash.
@@ -408,7 +412,8 @@ main tree: .aladdin/state/stuck/<task>.<attempt>  a gate released a worker (or, 
   `### Next`. A fresh BLOCK per attempt appended to the one file — never a rewrite of an
   earlier block. **Enforced:** every worker gate runs `validate_comms`, which BLOCKS
   unless the latest `output.md` block is present, from the dispatched role, and
-  well-formed. This is the inter-agent channel, not an optional artifact.
+  well-formed. This is the inter-agent channel, not an optional artifact. You never write
+  an agent's block for it: if its block is missing, re-dispatch it (live run 29).
 - `plan-ready.md` — **you** write it once per story after RED is verified; tick a
   box `[ ]→[x]` ONLY when that task's GREEN gate passes. A re-spawn (on fail)
   always precedes ticking, so there is no partial-tick race.

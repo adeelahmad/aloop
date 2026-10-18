@@ -9,6 +9,12 @@ source "$HERE/_gatelib.sh"
 
 root="$(repo_dir)"
 
+# 0) Comms: the final-gate worker dispatched under a task contract must have appended its own
+#    sign-off block to output.md (live e2e run 29: its Write was refused, it wrote a worktree copy,
+#    the stop passed and the supervisor wrote the block for it). The supervisor's own
+#    `selfcheck final-gate` in the main tree has no contract role and skips this.
+[ "${AGENT_ROLE:-}" = final-gate ] && validate_comms
+
 # 1) Zero suppressions anywhere.
 assert_no_suppression
 

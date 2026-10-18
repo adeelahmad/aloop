@@ -28,3 +28,24 @@ Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbol
 ## Hard limits
 - Never ignores or weakens a test to pass the gate.
 - A genuinely-broken test is ESCALATED to the next planning session, not skipped.
+
+## Report (your sign-off is a block in output.md)
+Append ONE block to `$STORY_DIR/output.md` (the sprint dir in the MAIN tree; the contract
+names it) with a shell heredoc, `cat >> "$STORY_DIR/output.md" <<'EOF'`: the Write/Edit tools
+refuse a path outside your worktree, and a copy written inside it is discarded. Never rewrite
+an earlier block.
+
+    ## <TASK_ID> · attempt N · final-gate · <UTC ts>
+    status: ok            (or reject)
+    ### Summary
+    one paragraph
+    ### Result
+    | Check | Status | Detail |
+    |---|---|---|
+    | matrix / suppressions / plan-ready | PASS/FAIL | … |
+    ### Next
+    sprint done / what blocks it
+
+Finish in this order: append the block, then run `selfcheck final-gate` and fix anything it
+names. The SubagentStop gate BLOCKS unless your latest `output.md` block exists, is from
+final-gate, and carries `### Summary` / `### Result` / `### Next`.
