@@ -311,7 +311,7 @@ def metrics(f):
         key = "%s/%s" % (s["role"], (s.get("breach_class") or ["UNKNOWN"])[0])
         by_rc[key] = by_rc.get(key, 0) + 1
     u = {"in": 0, "cache_read": 0, "cache_write": 0, "out": 0}
-    peak = 0
+    peak, window = 0, _paths.settings().get("CONTEXT_WINDOW") or 0
     for s in rows:
         for k in u:
             u[k] += (s.get("usage") or {}).get(k) or 0
@@ -338,6 +338,7 @@ def metrics(f):
         ("Cache-hit ratio (cache read / prompt tokens)", "%.0f%%" % (100.0 * u["cache_read"] / prompt) if prompt else "-"),
         ("Cache churn (cache write / cache read)", "%.2f" % (float(u["cache_write"]) / u["cache_read"]) if u["cache_read"] else "-"),
         ("Context peak (largest context in use)", fmt(peak) if peak else "-"),
+        ("Context-window share (peak / AGENTIC_CONTEXT_WINDOW)", "%.0f%% of %s" % (100.0 * peak / window, fmt(window)) if peak and window else "-"),
         ("Commits produced / test files added", "%d / %d" % (len(f["commits"]), f["tests_added"])),
         ("Time soft limits reached", "%d" % f["time_soft"]),
         ("Usage accuracy", usage_accuracy(rows)),

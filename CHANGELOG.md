@@ -137,6 +137,24 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - **Usage accuracy is explicit** (ROADMAP §4.9, conformance 12). Each attempt's usage
   carries `accuracy: exact` and names any class the host never reports (Codex has no cache
   write) instead of a silent zero; stats.md shows it in the Metrics table.
+- **`aladdin` entry point** (ROADMAP §4.11). `aladdin "<intent>"` records the Intent Contract
+  (plus the raw words) and says how to start the run; `aladdin status|resume|report` read the
+  harness files (sweep, the resume rule, NEXT.md, stats.md); `aladdin target|context|refs|…`
+  are the semantic queries; every aloop tool answers under the new name. A `/aladdin` skill
+  defers to `/aloop`; installs link `~/.local/bin/aladdin` and copy the skill. The stray
+  `bin/aloop-init.orig` left by the rename merge is gone.
+- **Context-window share** (ROADMAP §4.10). stats.md divides the context peak by the new
+  `AGENTIC_CONTEXT_WINDOW` setting (`context.window` in `.aladdin/config.yaml`, default 200000):
+  hosts do not report the window, so the human states it instead of the harness guessing.
+- **Host swap** (ROADMAP §4.9). `aloop host swap --to codex|opencode|claude` hands a sprint to
+  another host from portable state only: the sprint dir (handoff.json / plan-ready.md),
+  `.aladdin/config.yaml` and `.agentic/logs`. A missing piece or a live worker worktree blocks;
+  the target's capability gaps are named; SessionStart on the new host resumes the sprint under
+  the same resume rule and records the rotation. Test: `scripts/test/host-swap.test.py`.
+- **The semantic plan as the execution source** (ROADMAP §4.6). With `tasks` in a story's
+  `targets.json`, `targets render` writes tasks.md, validate.md and plan.md as deterministic
+  views over it, and `targets check` (gate-stage2-complete) refuses a hand-edited view, so the
+  md files cannot fork from the plan. Test: `scripts/test/plan-render.test.py`.
 - **Diff scope derived from change targets** (ROADMAP §4.6). When the supervisor gives no
   `SCOPE_GLOBS` and the story has `targets.json`, gate-green-verify enforces the task's
   target paths (`targets scope`) instead of skipping the scope check.

@@ -10,13 +10,110 @@ Usage:
                                       gates natively or from outside — never as a warning (exit 2
                                       otherwise). Run by make test-hosts.
   host worktree create|remove|diff TASK_ID   the worktree seam through the adapter
+  host swap --to H [SPRINT_DIR]       hand the sprint to another host from portable state only:
+                                      .aladdin/config.yaml, the sprint dir (handoff.json /
+                                      plan-ready.md), .agentic/logs (events + gate verdicts). Live
+                                      worker worktrees or a missing piece block (exit 2); the
+                                      target's capability gaps are named. Writes
+                                      .agentic/state/host-swap.json, which SessionStart on the new
+                                      host consumes, and emits sprint.context_handoff.
 """
+import datetime
+import glob
 import json
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _config  # noqa: E402
+import _events  # noqa: E402
 import _host  # noqa: E402
+import _paths  # noqa: E402
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+SWAP = "host-swap.json"
+
+
+def swap_file(cwd):
+    return os.path.join(_paths.home(cwd, "state"), SWAP)
+
+
+def sprint_dir(cwd, arg=None):
+    if arg and os.path.isdir(arg):
+        return os.path.abspath(arg)
+    num = lambda d: int(os.path.basename(d)[6:]) if os.path.basename(d)[6:].isdigit() else None  # noqa: E731
+    dirs = [d for d in glob.glob(os.path.join(_paths.docs(cwd), "sprint*")) if num(d) is not None]
+    return max(dirs, key=num) if dirs else None
+
+
+def live_worktrees(cwd):
+    """Worker worktrees still attached: a swap mid-dispatch would orphan them."""
+    r = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=cwd, capture_output=True, text=True)
+    paths = [ln[len("worktree "):] for ln in r.stdout.splitlines() if ln.startswith("worktree ")]
+    return [p for p in paths[1:] if "/.claude/worktrees/" in p or "/.agentic/worktrees/" in p or "/worktrees/" in p]
+
+
+def swap(cwd, to, sdir_arg=None):
+    src = _host.adapter().name
+    try:
+        dst = _host.adapter(to)
+    except ValueError as e:
+        print("host swap: %s" % e, file=sys.stderr)
+        return 64
+    if dst.name == src:
+        print("host swap: already on %s (set AGENTIC_HOST or --to another host)" % src, file=sys.stderr)
+        return 2
+    root, bad = _paths.project(cwd), []
+    rel = lambda p: os.path.relpath(p, root)  # noqa: E731
+    if not os.path.isfile(_config.path(cwd)):
+        bad.append("no %s — run `aloop config migrate` so every host reads the same settings" % _config.FILE)
+    elif _config.check(cwd):
+        bad.append("%s is invalid (see `aloop config check`)" % _config.FILE)
+    sdir = sprint_dir(cwd, sdir_arg)
+    if not sdir:
+        bad.append("no docs/agents/sprintN dir: nothing to resume")
+    handoff = os.path.join(sdir, "handoff.json") if sdir else None
+    if sdir and not (os.path.isfile(handoff) or glob.glob(os.path.join(sdir, "s*-*-*", "plan-ready.md"))
+                     or os.path.isfile(os.path.join(sdir, "stories.md"))):
+        bad.append("%s has neither handoff.json, plan-ready.md nor stories.md: nothing to resume from" % rel(sdir))
+    events = os.path.join(root, ".agentic", "logs", "events.jsonl")
+    if not os.path.isfile(events):
+        bad.append("no .agentic/logs/events.jsonl: the run has no provenance to resume from")
+    live = live_worktrees(root)
+    if live:
+        bad.append("%d worker worktree(s) still live (%s): finish or `task-worktree remove` them first — a swap would orphan them"
+                   % (len(live), ", ".join(rel(p) for p in live)))
+    for b in bad:
+        print("BLOCK[host swap]: %s" % b, file=sys.stderr)
+    if bad:
+        return 2
+    gaps = []
+    for cap, have in _host.adapter(src).capabilities().items():
+        want = dst.capabilities().get(cap)
+        if want != have:
+            gaps.append("%s: %s → %s" % (cap, have, want))
+    resume = subprocess.run([os.path.join(HERE, "stats"), "resume-check", sdir], cwd=root, capture_output=True, text=True).stdout
+    rec = {"schema": "aladdin.host-swap/1", "from": src, "to": dst.name,
+           "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "sprint": rel(sdir), "handoff": rel(handoff) if os.path.isfile(handoff) else None,
+           "next": "docs/agents/NEXT.md" if os.path.isfile(_paths.next_file(cwd)) else None,
+           "config": _config.FILE, "events": ".agentic/logs/events.jsonl",
+           "capability_gaps": gaps, "rerun": [ln for ln in resume.splitlines() if ln.startswith("RE-RUN")]}
+    with open(swap_file(cwd), "w") as f:
+        json.dump(rec, f, indent=1)
+    _events.emit(root, "sprint.context_handoff", role="supervisor", host=src,
+                 refs={"swap": ".agentic/state/" + SWAP, "sprint": rec["sprint"], "handoff": rec["handoff"]},
+                 **{"from": src, "to": dst.name, "capability_gaps": gaps})
+    print("host swap: %s → %s from portable state (%s%s, %s, %s)" % (
+        src, dst.name, rec["sprint"], " + handoff.json" if rec["handoff"] else "", _config.FILE, rec["events"]))
+    for g in gaps:
+        print("  capability on %s differs — %s (the harness takes the correctness path)" % (dst.name, g))
+    for ln in rec["rerun"]:
+        print("  " + ln)
+    print("  next: `aloop install %s` in this project if not done, then start %s here; its SessionStart resumes the sprint."
+          % (dst.name, dst.name))
+    return 0
 
 
 def main(argv):
@@ -52,6 +149,13 @@ def main(argv):
             else:
                 print("%-9s interface complete · gates enforced: %s" % (n, mode))
         return 2 if bad else 0
+    if argv[0] == "swap":
+        if "--to" not in argv[:-1]:
+            print("host swap: --to HOST is required", file=sys.stderr)
+            return 64
+        to = argv[argv.index("--to") + 1]
+        rest = [a for i, a in enumerate(argv[1:], 1) if a != "--to" and argv[i - 1] != "--to"]
+        return swap(cwd, to, rest[0] if rest else None)
     if argv[0] == "worktree" and len(argv) >= 3:
         op, task = argv[1], argv[2]
         try:

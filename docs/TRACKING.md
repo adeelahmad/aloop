@@ -26,7 +26,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.6 | Structured change targets, shadow workspace, `target` / `context` | IMPLEMENTED_TESTED | `scripts/test/semantic-targets.test.py` |
 | 4.6 | LSP / structural adapter (refs, callers, callees) | IMPLEMENTED_TESTED | `scripts/test/lsp-adapter.test.py` |
 | 4.6 | Semantic plan as the execution source: GREEN diff scope derived from targets | IMPLEMENTED_TESTED | `scripts/test/targets-scope.test.py` |
-| 4.6 | Semantic plan as the execution source: tasks.md / plan.md rendered from it | NOT_IMPLEMENTED | — |
+| 4.6 | Semantic plan as the execution source: tasks.md / validate.md / plan.md rendered from it (`targets render`) | IMPLEMENTED_TESTED | `scripts/test/plan-render.test.py` |
 | 4.7 | Event stream `aladdin.event/1` | IMPLEMENTED_TESTED | `scripts/test/events.test.py` |
 | 4.7 | Decision rationale + authority record | IMPLEMENTED_TESTED | `scripts/test/events.test.py` |
 | 4.7 | Lineage: commit → intent → approver | IMPLEMENTED_TESTED | `scripts/test/commit-trace.test.py` |
@@ -36,9 +36,11 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.9 | Host capability matrix | IMPLEMENTED_TESTED | `scripts/test/context-boundary.test.py` |
 | 4.9 | HostAdapter interface extraction, gate equivalence (outer enforcement) | IMPLEMENTED_TESTED | `scripts/test/host-adapter.test.py` |
 | 4.9 | Portable `.aladdin/config.yaml` with migration | IMPLEMENTED_TESTED | `scripts/test/portable-config.test.py` |
-| 4.9 | Host swap: resume a sprint on another host from portable state | NOT_IMPLEMENTED | needs a two-host run |
+| 4.9 | Host swap: resume a sprint on another host from portable state (`host swap`) | IMPLEMENTED_TESTED | `scripts/test/host-swap.test.py` |
 | 4.10 | Metrics table (percentiles, breaches, waste, rates, cache, context peak) | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Commits, tests added, time soft limits, semantic context served | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Rotations / compactions | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
-| 4.10 | Context-window share | NOT_IMPLEMENTED | needs each model's context window size |
-| 4.11 | Rebrand and product surface | NOT_IMPLEMENTED | PR #7 starts the rename |
+| 4.10 | Context-window share (peak / `AGENTIC_CONTEXT_WINDOW`) | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
+| 4.11 | Entry points: `aladdin` CLI (intent, run, status, resume, report, semantic queries) and `/aladdin` | IMPLEMENTED_TESTED | `scripts/test/aladdin-cli.test.py` |
+| 4.11 | Compatibility aliases (`agentic`, `/aloop`, `.agentic/` alongside `.aladdin/`) | IMPLEMENTED_TESTED | `scripts/test/rename-compat.test.py` |
+| 4.11 | README reordered product-first; site / GitHub Pages; every public claim linked to a measured run | NOT_IMPLEMENTED | after the loop is stable; the measured runs exist (M0.8) |

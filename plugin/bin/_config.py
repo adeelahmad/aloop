@@ -20,7 +20,7 @@ MAP = {
                 "time_hard_min": "TIME_HARD_MIN", "max_replans": "MAX_REPLANS", "token_meter": "TOKEN_METER",
                 "sprint_tokens_soft": "SPRINT_TOKENS_SOFT", "sprint_tokens_hard": "SPRINT_TOKENS_HARD",
                 "time_mode": "TIME_MODE"},
-    "context": {"boundary": "CONTEXT_BOUNDARY"},
+    "context": {"boundary": "CONTEXT_BOUNDARY", "window": "CONTEXT_WINDOW"},
     "semantic": {"lsp_command": "LSP_COMMAND"},
     "models": {"planning": "MODEL_PLANNING", "worker": "MODEL_WORKER",
                "planning_codex": "MODEL_PLANNING_CODEX", "worker_codex": "MODEL_WORKER_CODEX",

@@ -86,7 +86,8 @@ ok("first-pass rate per gate and re-plan rate")
 
 assert row("Cache-hit ratio").endswith("| 80% |") and row("Cache churn").endswith("| 0.12 |"), (row("Cache-hit"), row("Cache churn"))
 assert row("Context peak").endswith("| 270.0k |")
-ok("cache-hit ratio, churn and context peak from the usage classes")
+assert row("Context-window share").endswith("| 135% of 200.0k |"), row("Context-window share")   # the default window; the peak overran it
+ok("cache-hit ratio, churn, context peak and context-window share from the usage classes")
 
 assert row("Commits produced / test files added").endswith("| 1 / 1 |"), row("Commits produced")
 assert row("Time soft limits reached").endswith("| 1 |") and row("Semantic context served").endswith("| 2 |")

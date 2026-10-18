@@ -68,7 +68,7 @@ shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent
 	  shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh plugin/bin/_failclosed.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
 	       plugin/bin/selfcheck plugin/bin/transcripts plugin/bin/worktree-create plugin/bin/worktree-remove \
 	       plugin/bin/worktree-hygiene plugin/bin/ensure-tools plugin/bin/md-db plugin/bin/ctx-symbols \
-	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/aloop plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree; fi
+	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/aloop plugin/bin/aladdin plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree; fi
 
 .PHONY: pycheck
 pycheck: ## Byte-compile the Python hook scripts
@@ -103,8 +103,11 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/model-routes.test.py
 	python3 scripts/test/host-adapter.test.py
 	python3 scripts/test/portable-config.test.py
+	python3 scripts/test/host-swap.test.py
+	python3 scripts/test/aladdin-cli.test.py
 	plugin/bin/host check
 	python3 scripts/test/targets-scope.test.py
+	python3 scripts/test/plan-render.test.py
 	python3 scripts/check-tracking.py
 	python3 scripts/test/codex-hooks.test.py
 	python3 scripts/test/rename-compat.test.py

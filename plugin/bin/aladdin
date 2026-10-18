@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# aladdin — the product entry point (ROADMAP §4.11). Intent is all you need.
+#
+#   aladdin "<intent>"             record the intent (an Intent Contract skeleton with its own
+#                                  id, docs/agents/intents/<id>.json) and print how to start
+#                                  the run on this host. Nothing is launched and no model is
+#                                  called: the loop runs inside the host, under its hooks.
+#   aladdin run ["<intent>"]       the same; without an intent, the pending one
+#   aladdin status [SPRINT_DIR]    where the run is: one line per task from the harness files
+#                                  (sweep), token totals (stats show), tasks to re-gate
+#   aladdin resume [SPRINT_DIR]    what the next session resumes from: NEXT.md / handoff.json
+#                                  and the resume rule (exactly what SessionStart loads)
+#   aladdin report [SPRINT_DIR]    the sprint's stats.md (metrics, calibration) or, before the
+#                                  sprint closes, the live sweep and token totals
+#   aladdin target|context|refs|callers|callees|shadow|scope …   the semantic queries (targets)
+#   aladdin <tool> [args…]         every aloop tool, unchanged (aladdin --list)
+#
+# `aloop` and `agentic` keep working; `aladdin` adds the product verbs on top of them.
+set -uo pipefail
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+  dir="$(cd "$(dirname "$src")" && pwd)"; src="$(readlink "$src")"
+  case "$src" in /*) ;; *) src="$dir/$src" ;; esac
+done
+BIN="$(cd "$(dirname "$src")" && pwd)"
+export PATH="$BIN:$PATH"
+# shellcheck source=/dev/null
+. "$BIN/_paths.sh"
+host="${AGENTIC_HOST:-claude}"
+
+latest_sprint() {                     # the newest docs/agents/sprintN, or nothing
+  [ -n "${1:-}" ] && [ -d "$1" ] && { printf '%s\n' "$1"; return 0; }
+  find "$AGENTIC_DOCS" -maxdepth 1 -type d -name 'sprint[0-9]*' 2>/dev/null | sort -V | tail -1
+}
+
+how_to_start() {                      # the one line the human says to the host; the loop does the rest
+  cat <<MSG
+Start $host in this project and say:
+  /aladdin $1
+(or just say it in your own words — the skill triggers on any build/fix/change request)
+The supervisor plans with you (two human-gated stages), then workers build each task in an
+isolated worktree under RED → SCAFFOLD → GREEN → review → final gate. Follow it with
+\`aladdin status\`; resume a fresh session with \`aladdin resume\`.
+MSG
+}
+
+run_intent() {
+  local text="$1" file
+  if [ -z "$text" ]; then
+    file="$(find "$AGENTIC_DOCS/intents" -maxdepth 1 -name '*.json' 2>/dev/null | sort | tail -1)"
+    [ -n "$file" ] || { echo "aladdin: no intent yet — aladdin \"<what you want>\"" >&2; exit 64; }
+    raw="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("provenance",{}).get("raw_ref") or "")' "$file" 2>/dev/null)"
+    text="$([ -n "$raw" ] && cat "$AGENTIC_PROJECT/$raw" 2>/dev/null || true)"
+    echo "intent: $file"
+  else
+    mkdir -p "$AGENTIC_DOCS/intents"
+    raw="docs/agents/intents/raw-$(date -u +%Y%m%dT%H%M%SZ)-$$.txt"      # the words as given, kept beside the contract
+    printf '%s\n' "$text" > "$AGENTIC_PROJECT/$raw"
+    file="$("$BIN/intent" new --source prompt --raw "$text" --raw-ref "$raw")" || { echo "aladdin: could not record the intent" >&2; exit 2; }
+    echo "intent recorded: $file (raw text: $raw)"
+  fi
+  how_to_start "$text"
+}
+
+status() {
+  local sd; sd="$(latest_sprint "${1:-}")"
+  if [ -z "$sd" ]; then
+    echo "no sprint yet in $AGENTIC_DOCS — start one: aladdin \"<intent>\""
+  else
+    echo "sprint: $sd"
+    "$BIN/sweep" "$sd" 2>/dev/null || echo "(no tasks planned yet: the sprint is in planning)"
+    "$BIN/stats" resume-check "$sd" 2>/dev/null || true
+  fi
+  "$BIN/stats" show 2>/dev/null || true
+}
+
+resume() {
+  local sd; sd="$(latest_sprint "${1:-}")"
+  if [ -f "$AGENTIC_NEXT" ]; then
+    echo "handoff (docs/agents/NEXT.md — SessionStart loads this into the fresh session):"
+    cat "$AGENTIC_NEXT"
+  elif [ -n "$sd" ]; then
+    echo "no NEXT.md yet: sprint $sd is mid-flight; resume from plan-ready.md and the gate evidence"
+  else
+    echo "nothing to resume in $AGENTIC_DOCS — start with: aladdin \"<intent>\""; return 0
+  fi
+  [ -n "$sd" ] && "$BIN/stats" resume-check "$sd" 2>/dev/null
+  echo
+  echo "Open a fresh $host session in this project (rotation, not compaction): the SessionStart hook loads the handoff."
+}
+
+report() {
+  local sd; sd="$(latest_sprint "${1:-}")"
+  [ -n "$sd" ] || { echo "no sprint to report on in $AGENTIC_DOCS" >&2; exit 1; }
+  if [ -f "$sd/stats.md" ]; then
+    cat "$sd/stats.md"
+  else
+    echo "sprint $sd has not closed yet (no stats.md); live state:"
+    status "$sd"
+  fi
+}
+
+case "${1:-}" in
+  -h|--help|"") sed -n '2,19p' "$src" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  --list|--root) exec "$BIN/aloop" "$@" ;;
+  run) shift; run_intent "${1:-}" ;;
+  status) shift; status "${1:-}" ;;
+  resume) shift; resume "${1:-}" ;;
+  report) shift; report "${1:-}" ;;
+  target|context|refs|callers|callees|shadow|scope) exec "$BIN/targets" "$@" ;;
+  *)
+    if [ -x "$BIN/$1" ] || [ "$1" = init ]; then exec "$BIN/aloop" "$@"; fi
+    case "$1" in -*|*/*) echo "aladdin: unknown option or tool '$1' (aladdin --help)" >&2; exit 64 ;; esac
+    run_intent "$*" ;;        # anything else is the intent itself
+esac

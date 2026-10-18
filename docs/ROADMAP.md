@@ -180,7 +180,7 @@ These parts already exist but their semantics must change:
 
 ### 4.6 Semantic execution map
 
-- 🟡 *Partly done (Unreleased): structured targets, shadow workspace and `targets target|context|shadow` (`bin/targets`, checked by gate-stage2-complete). Test: `scripts/test/semantic-targets.test.py`. The LSP adapter seam is done too (`AGENTIC_LSP_COMMAND`, `_lsp.py`; test: `scripts/test/lsp-adapter.test.py`). GREEN's diff scope is derived from the targets when no SCOPE_GLOBS is given (test: `scripts/test/targets-scope.test.py`). Open: making the rest of the semantic plan the execution source (tasks.md/plan.md as rendered views).*
+- ✅ *Done (Unreleased): structured targets, shadow workspace and `targets target|context|shadow` (`bin/targets`, checked by gate-stage2-complete). Test: `scripts/test/semantic-targets.test.py`. The LSP adapter seam is done too (`AGENTIC_LSP_COMMAND`, `_lsp.py`; test: `scripts/test/lsp-adapter.test.py`). GREEN's diff scope is derived from the targets when no SCOPE_GLOBS is given (test: `scripts/test/targets-scope.test.py`). With `tasks` in targets.json the plan is the execution source: `targets render` writes tasks.md, validate.md and plan.md as deterministic views and `targets check` (gate-stage2-complete) refuses a hand-edited view (test: `scripts/test/plan-render.test.py`). Open: `refs`/`callers`/`callees` need a configured LSP server, so the narrow-context CLI is complete only where one exists.*
 - **Structured change targets:**
   - `change_ref`
   - `operation` (create | modify | extend | refactor | replace | delete)
@@ -242,11 +242,11 @@ Results carry source refs and are attached to planning provenance. An unavailabl
 - **A host capability matrix** covering usage, compaction, live messaging (for the time soft-stop), lifecycle and gate blocking.
 - ✅ *Done (Unreleased): `enforce_gate` is `native` or `outer`; `host check` fails on anything else.* **Gate equivalence:** if a host cannot block natively, the outer controller enforces it. Never downgrade BLOCK to WARN.
 - ✅ *Done (Unreleased): `bin/config` migrate/sync/check/show; config.yaml is authoritative, defaults.md is rendered from it. Test: `scripts/test/portable-config.test.py`.* **A portable project config** in `.aladdin/config.yaml` (budgets, context, semantic, models, provenance, memory), replacing `docs/agents/defaults.md` with a migration path.
-- **Host swap:** a sprint started on one host resumes on another from portable state.
+- ✅ *Done (Unreleased): `host swap --to H` hands the sprint over from the sprint dir, `.aladdin/config.yaml` and `.agentic/logs` only; live worker worktrees or a missing piece block; SessionStart on the new host resumes with the resume rule and records the rotation. Test: `scripts/test/host-swap.test.py`.* **Host swap:** a sprint started on one host resumes on another from portable state.
 
 ### 4.10 Metrics
 
-✅ *Mostly done (Unreleased): the stats.md Metrics table. Test: `scripts/test/metrics.test.py`. Commits, test files added, time soft limits and semantic context served now come from the event stream. Rotations/compactions are counted from SessionStart events. Still open: context-window share (needs each model's window size).*
+✅ *Done (Unreleased): the stats.md Metrics table. Test: `scripts/test/metrics.test.py`. Commits, test files added, time soft limits and semantic context served now come from the event stream. Rotations/compactions are counted from SessionStart events. Context-window share divides the context peak by `AGENTIC_CONTEXT_WINDOW` (`context.window` in config.yaml; hosts do not report the window, so the human sets it; default 200000).*
 
 The run report should add:
 - time soft preemptions;
@@ -269,6 +269,7 @@ No extra model calls are made just for telemetry.
 
 ### 4.11 Rebrand and product surface (last)
 
+- 🟡 *Partly done (Unreleased): `bin/aladdin` (`"<intent>"`, `run`, `status`, `resume`, `report`, the semantic queries, every aloop tool) and the `/aladdin` skill, linked and copied by the installers beside `aloop` / `agentic`. Test: `scripts/test/aladdin-cli.test.py`. Open: the product-first README, the site, and linking every public claim to a measured run.*
 - **New entry points:** `/aladdin` and an `aladdin` CLI (`"<intent>"`, `run`, `status`, `resume`, `report`, plus the semantic queries). Natural-language auto-trigger inside hosts.
 - **Compatibility aliases for one migration window:**
   - `/agentic-agile:init`

@@ -122,6 +122,10 @@ the first write passes (live runs 12–14 hit each of these):
   `planned_symbol` — `create` for a new file (the path must not exist yet), `extend` for a new
   symbol in an existing file (`"operation": "extend", "path": "src/lib.rs", "planned_symbol": "count_words"`);
 - `modify|refactor|replace|delete` need a `symbol` that exists (or `planned_symbol` for `extend`).
+Prefer the whole plan in targets.json: add `story` and `tasks` (`id` T1…, `title`, `summary`,
+optional `budget`, `tests` [{path, fn, assert}], optional `validate` [{run, expect}]) and run
+`targets render <STORY_DIR>` — tasks.md, validate.md and plan.md are then rendered from it,
+and a hand edit to any of them is refused by the gate. Edit targets.json and re-render instead.
 
 ## Hard limits
 - Writes no production code; does not start RED.
