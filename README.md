@@ -37,7 +37,7 @@ aladdin "add CSV export to the report"      # records the intent, tells you how 
 ```
 
 *Formerly **agentic-agile**; see [Upgrading from agentic-agile](#upgrading-from-agentic-agile).*
-**New here?** [What this project is](docs/OVERVIEW.md) · [Roadmap](docs/ROADMAP.md) · [Operator playbook](plugin/skills/aloop/SKILL.md)
+**New here?** [What this project is](docs/OVERVIEW.md) · [Roadmap](docs/ROADMAP.md) · [Operator playbook](plugin/skills/aloop/SKILL.md) · [The site](docs/index.html)
 
 ## Demo
 

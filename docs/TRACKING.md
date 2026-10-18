@@ -44,4 +44,4 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.11 | Entry points: `aladdin` CLI (intent, run, status, resume, report, semantic queries) and `/aladdin` | IMPLEMENTED_TESTED | `scripts/test/aladdin-cli.test.py` |
 | 4.11 | Compatibility aliases (`agentic`, `/aloop`, `.agentic/` alongside `.aladdin/`) | IMPLEMENTED_TESTED | `scripts/test/rename-compat.test.py` |
 | 4.11 | README reordered product-first (intent → demo → TDD agents → loop → gates → install → hosts → evidence → audit → architecture → limitations) | IMPLEMENTED_UNTESTED | prose; its claims cite ROADMAP §0 runs and `make e2e-live` |
-| 4.11 | Site / GitHub Pages with the lamp motif, RED explainer and audit tree | NOT_IMPLEMENTED | after the README; static, from the same sources |
+| 4.11 | Site (`docs/index.html`, GitHub Pages from `/docs`) with the lamp motif, RED explainer and audit tree; numbers sourced from §0 | IMPLEMENTED_TESTED | `scripts/test/site.test.py` |

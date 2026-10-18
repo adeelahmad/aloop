@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aladdin — intent is all you need</title>
+<meta name="description" content="aloop (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. Models explore. Gates decide.">
+<style>
+  :root { --bg:#0f1117; --panel:#171a23; --ink:#e8e6df; --muted:#9a9890; --gold:#d9a441; --red:#d9534f; --green:#5cb85c; --line:#2a2e3a; }
+  @media (prefers-color-scheme: light) { :root { --bg:#faf8f2; --panel:#ffffff; --ink:#1d1d1b; --muted:#5f5e58; --line:#e2dfd4; } }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif }
+  main { max-width:880px; margin:0 auto; padding:0 16px 64px }
+  header { text-align:center; padding:56px 0 24px }
+  h1 { font-size:2.4rem; margin:16px 0 8px; letter-spacing:-.01em }
+  h2 { margin-top:48px; border-top:1px solid var(--line); padding-top:24px }
+  .tag { color:var(--gold); font-weight:600; letter-spacing:.08em; text-transform:uppercase; font-size:.8rem }
+  .lead { color:var(--muted); font-size:1.15rem; max-width:640px; margin:0 auto }
+  pre, code { font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace }
+  pre { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow:auto }
+  .red { color:var(--red) } .green { color:var(--green) } .gold { color:var(--gold) }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px }
+  .tree { white-space:pre }
+  a { color:var(--gold) }
+  footer { color:var(--muted); font-size:.9rem; margin-top:48px; border-top:1px solid var(--line); padding-top:16px }
+  table { border-collapse:collapse; width:100% } td, th { border-bottom:1px solid var(--line); padding:8px 6px; text-align:left }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <!-- the lamp: an original motif (a lantern of gates), no borrowed visual language -->
+  <svg id="lamp" width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="Aladdin's loop: a lamp whose flame is a passing gate">
+    <defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f3cf6c"/><stop offset="1" stop-color="#b47a1e"/></linearGradient></defs>
+    <path d="M22 86 q48 30 96 0 l-6 18 q-42 22 -84 0 z" fill="url(#g)"/>
+    <path d="M30 84 q40 -22 80 0 l-4 -16 q-36 -14 -72 0 z" fill="url(#g)" opacity=".9"/>
+    <path d="M112 76 q18 -6 16 -22 q-2 -10 -12 -8" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M28 74 q-16 2 -18 14 q-1 8 8 10" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/>
+    <ellipse cx="70" cy="62" rx="10" ry="4" fill="#b47a1e"/>
+    <!-- the flame is a loop: red (failing) → green (passing) -->
+    <path d="M70 58 q-14 -14 -4 -30 q2 10 10 12 q8 -8 2 -22 q18 14 8 36 q-6 8 -16 4 z" fill="#d9534f"/>
+    <path d="M70 56 q-8 -10 -2 -20 q2 6 7 8 q5 -6 2 -14 q10 10 4 24 q-4 5 -11 2 z" fill="#5cb85c"/>
+  </svg>
+  <div class="tag">aloop · Aladdin's Loop</div>
+  <h1>Intent is all you need.</h1>
+  <p class="lead">One line of intent becomes planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. A human approves the plan; cheap workers build it in isolated worktrees; deterministic hooks decide what is accepted.</p>
+  <pre>aladdin "add CSV export to the report"</pre>
+  <p><a href="https://github.com/adeelahmad/agentic-agile">GitHub</a> · <a href="https://github.com/adeelahmad/agentic-agile#install--run">Install</a> · <a href="https://github.com/adeelahmad/agentic-agile/blob/master/docs/ROADMAP.md">Roadmap</a></p>
+</header>
+
+<h2 id="red">Give the agent something to make false.</h2>
+<p>Do not merely give an agent a goal. Give it a <span class="red">failing proof of what is missing</span>, then make it earn <span class="green">GREEN</span>. A test written after the code proves the code does what the code does. A test written before it proves the code is <em>missing</em> — and "done" becomes a claim a gate can check, not a sentence a model can say.</p>
+<div class="grid">
+  <div class="card"><strong class="red">RED</strong><br>writes the tests the plan named — and must fail them. <code>gate-red-verify</code></div>
+  <div class="card"><strong class="gold">SCAFFOLD</strong><br>declares the symbols the tests need; no bodies. <code>gate-scaffold-verify</code></div>
+  <div class="card"><strong class="green">GREEN</strong><br>makes the tests pass, touching only the task's files. <code>gate-green-verify</code></div>
+  <div class="card"><strong>REVIEW · FINAL</strong><br>symbol uniqueness, duplicates, orphans; then the sprint's whole matrix once. Every planned test must be on main.</div>
+</div>
+<p>Each step is a sub-agent whose <em>stop</em> is intercepted by a hook. The hook can block the stop and hand the reason back. A gate that crashes blocks. A host that cannot block natively is wrapped from outside. A BLOCK is never downgraded to a warning.</p>
+
+<h2 id="gates">Models explore. Gates decide.</h2>
+<table>
+  <tr><th>The model may</th><th>The gate decides</th></tr>
+  <tr><td>plan, split, pick a route (<code>strongest · strong · economical</code>)</td><td>whether the plan has tests for every task and targets that exist or are declared</td></tr>
+  <tr><td>write tests, scaffolds, code, reviews</td><td>whether RED fails, SCAFFOLD has no bodies, GREEN passes inside its scope</td></tr>
+  <tr><td>say it is done</td><td>nothing — done is a passing gate verdict in the event stream</td></tr>
+  <tr><td>spend tokens and minutes</td><td>within a box: soft warning, hard stop, breach classified and re-planned, never retried as-is</td></tr>
+</table>
+
+<h2 id="audit">The audit tree</h2>
+<p>Every run leaves an <code>aladdin.event/1</code> stream. One command walks a commit back to the human who approved it, with no transcript archaeology:</p>
+<pre class="tree"><span class="gold">aloop events trace 3e555af</span>
+commit 3e555af   feat: csv export (built from the task's rationale)
+└─ task S1-01-T2  "wire the export"              worktree merged --no-ff
+   └─ attempt 2   green-worker · economical       gate-green-verify: PASS
+      ├─ attempt 1   gate-green-verify: BLOCK      scope: touched src/report.py outside targets
+      └─ targets C2  modify src/report.py:4 render  reason: render offers the export
+         └─ plan S1-01  approved                   human.approval · autonomy: reviewed
+            └─ intent int_01a14d9f…  "add CSV export to the report"   received 2026-10-18T06:07Z</pre>
+<p>Decisions carry a one-line reason, evidence refs and an authority ref. Usage is reported by class (fresh input, cache read, cache write, output, context) and marked <em>estimated</em> where a host does not report it.</p>
+
+<h2 id="evidence">Evidence, not claims</h2>
+<p>Every public number comes from the harness's own <code>stats.md</code> and is reproducible with <code>make e2e-live YES=1</code>: a one-line intent through intake, standards, planning, RED/SCAFFOLD/GREEN per task, structural review and the final gate, to merged and tested code in a real session. The semver intent ran end to end in 11m10s for $0.65 (run 6); a two-story word-frequency tool in 19m42s for $1.56 (run 9). Every requirement on the roadmap is tracked with the test that proves it in <a href="https://github.com/adeelahmad/agentic-agile/blob/master/docs/TRACKING.md">docs/TRACKING.md</a>.</p>
+
+<footer>MIT. <code>md-db</code> is vendored under AGPL-3.0. Formerly <em>agentic-agile</em>; the old names keep working. The lamp is an original drawing: a lantern whose flame is a red-to-green loop.</footer>
+</main>
+</body>
+</html>

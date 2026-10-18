@@ -25,7 +25,7 @@ spec; this table is the plan. Versions are targets, not promises.
 | **M5 — Narrow context** | v0.16 | Session 6: semantic execution map, shadow workspace, `target` / `context` CLI (§4.6) | done: targets, shadow workspace, `target`/`context`, LSP seam, GREEN scope from targets, and tasks.md/validate.md/plan.md rendered from the semantic plan (`targets render`; tests: `semantic-targets`, `lsp-adapter`, `targets-scope`, `plan-render`) |
 | **M6 — Audit** | v0.17 | Sessions 7–8: event stream, rationale, authority, lineage query (§4.7); provider seam (§4.8) | done: `aladdin.event/1` stream, decisions, authority, lineage, `events trace SHA`, commit messages and graph export (§4.7); impact provider seam (§4.8) |
 | **M7 — Any host** | v0.18 | Session 9: `HostAdapter`, capability matrix, `.aladdin/config.yaml`, host swap, metrics (§4.9–4.10) | done: `HostAdapter` + `host check` in CI, capability matrix, usage accuracy, `.aladdin/config.yaml` with migration, `host swap`, the full metrics table incl. context-window share (tests: `host-adapter`, `portable-config`, `host-swap`, `metrics`) |
-| **M8 — Aladdin 1.0** | v1.0 | Session 10: `/aladdin` + `aladdin` CLI with aliases, site, measured public runs (§4.11). The rename to aloop shipped early in v0.11.0 | in progress: `bin/aladdin` + `/aladdin` with `aloop`/`agentic` aliases (test: `aladdin-cli.test.py`); README reordered product-first; next: the site |
+| **M8 — Aladdin 1.0** | v1.0 | Session 10: `/aladdin` + `aladdin` CLI with aliases, site, measured public runs (§4.11). The rename to aloop shipped early in v0.11.0 | in progress: `bin/aladdin` + `/aladdin` with `aloop`/`agentic` aliases (test: `aladdin-cli.test.py`); README reordered product-first; site at `docs/index.html` (Pages switch is the owner's) |
 
 **Order rationale:** identity and conformance fixtures first, so every later change is
 measured against today's behaviour; budgets and handoff next, because they shape every run;
@@ -269,7 +269,7 @@ No extra model calls are made just for telemetry.
 
 ### 4.11 Rebrand and product surface (last)
 
-- 🟡 *Partly done (Unreleased): `bin/aladdin` (`"<intent>"`, `run`, `status`, `resume`, `report`, the semantic queries, every aloop tool) and the `/aladdin` skill, linked and copied by the installers beside `aloop` / `agentic`. Test: `scripts/test/aladdin-cli.test.py`. The README is reordered product-first with every number taken from §0's measured runs. Open: the site.*
+- ✅ *Done (Unreleased): `bin/aladdin` (`"<intent>"`, `run`, `status`, `resume`, `report`, the semantic queries, every aloop tool) and the `/aladdin` skill, linked and copied by the installers beside `aloop` / `agentic`. Test: `scripts/test/aladdin-cli.test.py`. The README is reordered product-first and the site is `docs/index.html` (one self-contained page: original lamp mark, the RED explainer, the audit tree; test: `scripts/test/site.test.py` checks every time/cost number against §0). Turning GitHub Pages on (Settings → Pages → deploy from branch, `/docs`) is the owner's switch.*
 - **New entry points:** `/aladdin` and an `aladdin` CLI (`"<intent>"`, `run`, `status`, `resume`, `report`, plus the semantic queries). Natural-language auto-trigger inside hosts.
 - **Compatibility aliases for one migration window:**
   - `/agentic-agile:init`

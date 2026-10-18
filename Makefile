@@ -105,6 +105,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/portable-config.test.py
 	python3 scripts/test/host-swap.test.py
 	python3 scripts/test/aladdin-cli.test.py
+	python3 scripts/test/site.test.py
 	plugin/bin/host check
 	python3 scripts/test/targets-scope.test.py
 	python3 scripts/test/plan-render.test.py
