@@ -39,6 +39,22 @@ file="$(field file_path)"
 [ -n "$file" ] || file="$(field filePath)"
 session="$(field session_id)"
 
+root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+[ -n "${AGENTIC_HOME:-}" ] || . "$HERE/_paths.sh"
+lock="$AGENTIC_HOME/state/sprint.lock"          # fixed path (bin/_paths.sh), git-ignored
+
+lock_recent() {
+  [ -f "$lock" ] || return 1
+  local now m
+  now="$(date +%s 2>/dev/null)" || return 1
+  # GNU first: on Linux `stat -f` means "filesystem status" and prints a report instead of
+  # failing, which used to crash this arm (and a crashed hook does not block).
+  m="$(stat -c %Y "$lock" 2>/dev/null)" || m="$(stat -f %m "$lock" 2>/dev/null)" || return 1
+  case "$m" in ''|*[!0-9]*) return 1 ;; esac
+  [ $(( now - m )) -lt "${AGENTIC_SPRINT_LOCK_TTL:-14400}" ]
+}
 # Codex edits files with apply_patch: tool_input is {"command": "<patch text>"}, the paths
 # live in the patch headers. Check each path exactly as if it were a Write.
 if [ "$tool" = "apply_patch" ] && command -v python3 >/dev/null 2>&1; then
@@ -58,7 +74,46 @@ fi
 # A dispatched agent's Bash may READ the task contract but not rewrite it (redirect, tee,
 # sed -i, cp/mv/rm/...). Heuristic: the command names the contract AND has a write verb.
 if [ "$tool" = "Bash" ]; then
-  [ -n "$(field agent_type)" ] || exit 0
+  if [ -z "$(field agent_type)" ]; then
+    # MAIN agent: it never commits on main. Every commit on main arrives through
+    # `task-worktree merge`, which is what makes it traceable to its task (events trace).
+    # Live e2e run 16: a supervisor's `Track Cargo.lock` commit was the one commit that
+    # traced to nothing. Judged only while a sprint is live here (lock), in the MAIN tree
+    # (a commit inside a task worktree is a worker's, even if the supervisor runs it), and
+    # never for an unborn repo (the initial commit is the worktree base SKILL.md asks for).
+    [ -n "$session" ] || exit 0
+    [ -f "$lock" ] || exit 0
+    [ "$(head -1 "$lock" 2>/dev/null)" = "$session" ] || lock_recent || exit 0
+    cmd="$(printf '%s' "$payload" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("tool_input") or {}).get("command") or "")' 2>/dev/null)"
+    # Per simple command: `git [-C <dir>] [opts] commit`. Prints the -C dir (or "") per hit.
+    hits="$(printf '%s' "$cmd" | python3 -c '
+import re, sys
+cmd = sys.stdin.read()
+for seg in re.split(r"[;&|\n]+", cmd):
+    m = re.search(r"(?:^|[\s(])git(?:\s+-C\s+([^\s;&|]+))?(?:\s+-[-\w=]+)*\s+commit(?=\s|$)", seg)
+    if m: print(m.group(1) or ".")' 2>/dev/null)"
+    [ -n "$hits" ] || exit 0
+    . "$HERE/_failclosed.sh"
+    cwd="$(field cwd)"; [ -n "$cwd" ] || cwd="$PWD"
+    while IFS= read -r d; do
+      [ -n "$d" ] || continue
+      case "$d" in /*) dir="$d" ;; *) dir="$cwd/$d" ;; esac
+      git -C "$dir" rev-parse -q --verify HEAD >/dev/null 2>&1 || continue      # unborn: initial commit
+      gd="$(cd "$dir" && cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd -P)"
+      cd_="$(cd "$dir" && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)"
+      [ -n "$gd" ] && [ "$gd" = "$cd_" ] || continue                               # linked worktree: a worker's
+      echo "BLOCK[$GATE_NAME]: the supervisor never commits on main during a sprint:" >&2
+      echo "    $cmd" >&2
+      echo "  Every commit on main arrives through \`aloop task-worktree merge\`, which is what makes it" >&2
+      echo "  traceable to its task and intent (events trace). An untracked file you notice (a lockfile," >&2
+      echo "  a generated file) is not yours to commit: leave it, or add it to the task whose worker" >&2
+      echo "  produces it. (Deliberate out-of-band commit outside the pipeline? Re-run with SKIP_HOOKS=1.)" >&2
+      exit 2
+    done <<EOF_HITS
+$hits
+EOF_HITS
+    exit 0
+  fi
   # Per simple command (split on ; | & newlines): a redirect INTO the contract, or a write
   # verb in the same segment as a contract path.
   if printf '%s' "$payload" | python3 -c '
@@ -98,12 +153,6 @@ if [ -n "$agent_type" ]; then
   esac
   exit 0
 fi
-
-root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=/dev/null
-[ -n "${AGENTIC_HOME:-}" ] || . "$HERE/_paths.sh"
-lock="$AGENTIC_HOME/state/sprint.lock"          # fixed path (bin/_paths.sh), git-ignored
 
 # Fallback (only if a payload ever lacks agent_type): a worktree task.env naming a
 # dispatched role still exempts that agent.
@@ -172,16 +221,6 @@ if [ -f "$lock" ]; then
   # shellcheck source=/dev/null
   . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"
 fi
-lock_recent() {
-  [ -f "$lock" ] || return 1
-  local now m
-  now="$(date +%s 2>/dev/null)" || return 1
-  # GNU first: on Linux `stat -f` means "filesystem status" and prints a report instead of
-  # failing, which used to crash this arm (and a crashed hook does not block).
-  m="$(stat -c %Y "$lock" 2>/dev/null)" || m="$(stat -f %m "$lock" 2>/dev/null)" || return 1
-  case "$m" in ''|*[!0-9]*) return 1 ;; esac
-  [ $(( now - m )) -lt "${AGENTIC_SPRINT_LOCK_TTL:-14400}" ]
-}
 if [ -f "$lock" ] && { [ "$(head -1 "$lock" 2>/dev/null)" = "$session" ] || lock_recent; }; then
   echo "BLOCK[$GATE_NAME]: the supervisor may not write production source during a sprint:" >&2
   echo "    $file" >&2

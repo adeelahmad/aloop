@@ -98,4 +98,54 @@ for cmd in ("cat .agentic/task.env", "grep SCOPE .aladdin/state/tasks/S1-01-T1.e
     assert r.returncode == 0, (cmd, r)
 ok("a sub-agent may still read the contract and redirect other output")
 
+
+# ── The supervisor never commits on main (live e2e run 16: a `Track Cargo.lock` commit on main
+# traced to nothing). A `git commit` from the MAIN agent in the main tree, while the sprint
+# lock is live, is blocked; a worker's commit in its worktree, the initial commit of an
+# unborn repo, `task-worktree merge` and a stale lock all pass.
+subprocess.run(["git", "config", "user.email", "t@t"], cwd=T, check=True)
+subprocess.run(["git", "config", "user.name", "t"], cwd=T, check=True)
+
+
+def sup(cmd, cwd=None, session="s-main"):
+    p = {"session_id": session, "cwd": cwd or T, "tool_name": "Bash", "tool_input": {"command": cmd}}
+    return subprocess.run([GATE], input=json.dumps(p), cwd=cwd or T, env=ENV, capture_output=True, text=True)
+
+
+open(LOCK, "w").write("s-main\n")
+r = sup("git add -A && git commit -m init")
+assert r.returncode == 0, r
+ok("unborn HEAD: the initial commit (the worktree base) is allowed even with a live lock")
+
+open(os.path.join(T, "README"), "w").write("x\n")
+subprocess.run(["git", "add", "-A"], cwd=T, check=True)
+subprocess.run(["git", "commit", "-qm", "init"], cwd=T, check=True)
+for cmd in ("git add Cargo.lock && git commit -m 'Track Cargo.lock'", "git commit -am wip",
+            "cargo build; git -C %s commit -m x" % T, "git commit --amend --no-edit"):
+    r = sup(cmd)
+    assert r.returncode == 2 and "never commits on main" in r.stderr, (cmd, r)
+ok("live sprint: the supervisor's git commit on main is blocked")
+
+for cmd in ("git status", "git log --oneline", "aloop task-worktree merge S1-01-T1", "git add -A", "git diff", "echo commit"):
+    r = sup(cmd)
+    assert r.returncode == 0, (cmd, r)
+ok("live sprint: reads, staging and task-worktree merge pass")
+
+WT = os.path.join(T, ".aladdin", "worktrees", "S1-01-T1")
+subprocess.run(["git", "worktree", "add", "-q", "-b", "t1", WT], cwd=T, check=True)
+r = sup("git add -A && git commit -m 'S1-01-T1 RED'", cwd=WT)
+assert r.returncode == 0, r
+r = sup("git -C %s commit -m 'S1-01-T1 GREEN'" % WT)
+assert r.returncode == 0, r
+ok("a commit inside a task worktree passes (that is where work is committed)")
+r = bash("git add -A && git commit -m 'S1-01-T1 RED'")
+assert r.returncode == 0, r
+ok("a dispatched worker's git commit is never judged here")
+
+os.utime(LOCK, (old, old))
+open(LOCK, "w").close(); open(LOCK, "w").write("s-other\n"); os.utime(LOCK, (old, old))
+r = sup("git commit -am wip")
+assert r.returncode == 0, r
+ok("stale lock: a commit on main outside any live sprint is allowed")
+
 print("\n%d checks passed" % n)
