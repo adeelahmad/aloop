@@ -24,7 +24,7 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 ## Gates (which hook fires each)
 | script | event · matcher | checks | exit 2 when |
 |--------|-----------------|--------|-------------|
-| gate-supervisor-scope     | PreToolUse · Write\|Edit\|MultiEdit\|Bash | MAIN agent (no `agent_type`) may not write production source mid-sprint, nor hand-author planning artifacts (stories/tasks/validate/plan/intake/standards.md — dispatch the activity); sub-agents (`agent_type` present) exempt | supervisor writes source / hand-writes a planner-owned artifact |
+| gate-supervisor-scope     | PreToolUse · Write\|Edit\|MultiEdit\|Bash | MAIN agent (no `agent_type`) may not write production source mid-sprint, nor hand-author planning artifacts (stories/tasks/validate/plan/intake/standards.md — dispatch the activity), nor `git commit` on main (commits on main arrive through `task-worktree merge`); sub-agents (`agent_type` present) exempt | supervisor writes source / hand-writes a planner-owned artifact / commits on main |
 | gate-dispatch             | PreToolUse · Agent\|Task | the MAIN agent's dispatch of an execution role opens with `TASK_ID: <id>` and that task's contract `<run-data>/state/tasks/<id>.env` exists (repos with a run-data dir only) | no TASK_ID line / contract not written yet |
 | gate-tooling              | SubagentStart · exec roles + supervisor self-check | md-db + ctx-symbols installed (execution may not run grep-degraded); runs `ensure-tools --sync` first | a backend is missing and can't be built |
 | gate-validate-artifact    | PostToolUse · Write         | md-db-validate the written artifact | artifact malformed |

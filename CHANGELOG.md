@@ -22,6 +22,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Added
+- `gate-supervisor-scope` now also enforces **the supervisor never commits on main**: a `git commit` from the main agent in the main tree while a sprint is live is blocked (a commit inside a task worktree, the initial commit of an unborn repo, `task-worktree merge` and a stale lock pass). Reason: live e2e run 16's `Track Cargo.lock` commit on main traced to nothing; the rule was prose in SKILL.md only. Test: `scripts/test/supervisor-scope.test.py`.
+
 ## [0.12.0] - 2026-10-18
 
 The first release of **aloop** (Aladdin's Loop), the plugin formerly published as agentic-agile.
