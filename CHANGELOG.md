@@ -110,6 +110,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - **Usage accuracy is explicit** (ROADMAP §4.9, conformance 12). Each attempt's usage
   carries `accuracy: exact` and names any class the host never reports (Codex has no cache
   write) instead of a silent zero; stats.md shows it in the Metrics table.
+- **Host swap** (ROADMAP §4.9). `aloop host swap --to codex|opencode|claude` hands a sprint to
+  another host from portable state only: the sprint dir (handoff.json / plan-ready.md),
+  `.aladdin/config.yaml` and `.agentic/logs`. A missing piece or a live worker worktree blocks;
+  the target's capability gaps are named; SessionStart on the new host resumes the sprint under
+  the same resume rule and records the rotation. Test: `scripts/test/host-swap.test.py`.
 - **The semantic plan as the execution source** (ROADMAP §4.6). With `tasks` in a story's
   `targets.json`, `targets render` writes tasks.md, validate.md and plan.md as deterministic
   views over it, and `targets check` (gate-stage2-complete) refuses a hand-edited view, so the

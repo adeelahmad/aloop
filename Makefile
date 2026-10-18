@@ -103,6 +103,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/model-routes.test.py
 	python3 scripts/test/host-adapter.test.py
 	python3 scripts/test/portable-config.test.py
+	python3 scripts/test/host-swap.test.py
 	plugin/bin/host check
 	python3 scripts/test/targets-scope.test.py
 	python3 scripts/test/plan-render.test.py

@@ -242,7 +242,7 @@ Results carry source refs and are attached to planning provenance. An unavailabl
 - **A host capability matrix** covering usage, compaction, live messaging (for the time soft-stop), lifecycle and gate blocking.
 - ✅ *Done (Unreleased): `enforce_gate` is `native` or `outer`; `host check` fails on anything else.* **Gate equivalence:** if a host cannot block natively, the outer controller enforces it. Never downgrade BLOCK to WARN.
 - ✅ *Done (Unreleased): `bin/config` migrate/sync/check/show; config.yaml is authoritative, defaults.md is rendered from it. Test: `scripts/test/portable-config.test.py`.* **A portable project config** in `.aladdin/config.yaml` (budgets, context, semantic, models, provenance, memory), replacing `docs/agents/defaults.md` with a migration path.
-- **Host swap:** a sprint started on one host resumes on another from portable state.
+- ✅ *Done (Unreleased): `host swap --to H` hands the sprint over from the sprint dir, `.aladdin/config.yaml` and `.agentic/logs` only; live worker worktrees or a missing piece block; SessionStart on the new host resumes with the resume rule and records the rotation. Test: `scripts/test/host-swap.test.py`.* **Host swap:** a sprint started on one host resumes on another from portable state.
 
 ### 4.10 Metrics
 

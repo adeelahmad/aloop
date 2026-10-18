@@ -25,12 +25,29 @@ case "$src" in
   compact) "$HERE/events" emit context.compacted --role supervisor --data "source=compact" >/dev/null 2>&1 || true ;;
 esac
 
-[ -f "$AGENTIC_NEXT" ] || exit 0
+# a host swap (ROADMAP §4.9): `host swap --to <this host>` left .agentic/state/host-swap.json;
+# this host consumes it — the sprint resumes from the same portable state, and the swap is
+# recorded as the rotation it is
+swapped=""
+swapf="$AGENTIC_STATE/host-swap.json"
+if [ -f "$swapf" ]; then
+  to="$(sed -nE 's/.*"to"[[:space:]]*:[[:space:]]*"([a-z]+)".*/\1/p' "$swapf" | head -1)"
+  from="$(sed -nE 's/.*"from"[[:space:]]*:[[:space:]]*"([a-z]+)".*/\1/p' "$swapf" | head -1)"
+  if [ "$to" = "${AGENTIC_HOST:-claude}" ]; then
+    swapped="Resumed on $to after a host swap from $from. The state is portable: the sprint dir (handoff.json / plan-ready.md), .aladdin/config.yaml and .agentic/logs — nothing from the $from session is needed. Capability differences, if any, are listed in .agentic/state/host-swap.json; the harness already takes the correctness path for them."
+    "$HERE/events" emit context.rotated --role supervisor --data "source=host-swap" --data "from=$from" --data "to=$to" >/dev/null 2>&1 || true
+    mv "$swapf" "$swapf.consumed" 2>/dev/null || true
+  fi
+fi
+
+[ -f "$AGENTIC_NEXT" ] || [ -n "$swapped" ] || exit 0
 # the resume rule: tasks shown done without gate evidence are named, so they get re-gated
 rerun="$("$HERE/stats" resume-check 2>/dev/null || true)"
-ctx="aloop handoff — docs/agents/NEXT.md, loaded automatically by the SessionStart hook:
+ctx="${swapped:+$swapped
 
-$(head -c 12000 "$AGENTIC_NEXT")${rerun:+
+}aloop handoff — docs/agents/NEXT.md, loaded automatically by the SessionStart hook:
+
+$([ -f "$AGENTIC_NEXT" ] && head -c 12000 "$AGENTIC_NEXT" || echo "(no NEXT.md yet: the sprint is mid-flight; resume from plan-ready.md and the gate evidence)")${rerun:+
 
 Resume check (from the gate log, now):
 $rerun}"
