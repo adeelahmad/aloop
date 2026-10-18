@@ -50,6 +50,7 @@ given up front — reproducible with `make e2e-live YES=1` (spends about a dolla
 | a semver parser ([run 6](docs/evidence/README.md)) | 11/11 checks, tests on main, worktree branches merged `--no-ff` | 11m10s | $0.65 |
 | a word-frequency tool, two dependent stories ([run 9](docs/evidence/README.md)) | 12/12 checks | 19m42s | $1.56 |
 | the same tool on v0.12.0 ([run 19](docs/evidence/README.md)) | 13/13 checks, 1 supervisor wake, every merged commit traces to its task | 15m24s | $1.01 |
+| the same tool with the dispatch model gate ([run 22](docs/evidence/README.md)) | 13/13 checks, 0 gate blocks, every dispatch on the project's model | 10m58s | $0.76 |
 
 Every public number is a row in [docs/evidence/README.md](docs/evidence/README.md), with the command
 that reproduces it; what each run found and fixed is logged in [ROADMAP §0](docs/ROADMAP.md#0-at-a-glance)
