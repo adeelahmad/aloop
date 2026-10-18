@@ -50,6 +50,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   overrides it (`breach:` line) and acts per class (SKILL.md "Breach classes").
 
 ### Added
+- **`log-execution --help`**, a default ledger (the latest `docs/agents/sprintN/execution.log`) and
+  exit 64 with the usage on a wrong call. Reason: it had no usage, so the supervisor read its
+  source twice per live run to learn that the last argument is the file. SKILL.md now gives the
+  exact call and says the init-block section list is the whole shape (the supervisor also read
+  `init.template.md` four times per run). `make e2e-live` counts plugin-source reads precisely
+  (tool calls naming a plugin path, `--schema …/schemas/…` excluded): runs 13–15 were 9, 8, 6.
 - **`task-worktree merge <TASK_ID> <BRANCH>`** records the §4.7 lineage on Claude Code, where the
   host makes the worktree and the supervisor merges it (so `task-worktree remove` never runs): a
   `--no-ff` merge, then `worktree.merged` + one `commit.created` per merged commit. SKILL.md tells the

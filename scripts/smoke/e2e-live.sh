@@ -88,7 +88,23 @@ for l in open(sys.argv[1]):
         cost, turns = e.get("total_cost_usd") or 0, e.get("num_turns") or 0
 print("cost: $%.2f · supervisor turns: %s · wall: %dm%02ds" % (cost, turns, int(sys.argv[2]) // 60, int(sys.argv[2]) % 60))
 PY
-echo "sub-agent reads of the plugin's own source: $(grep -o '"command": *"[^"]*'"$PLUGIN"'/[^"]*' "$T/out.jsonl" | wc -l)"
+# A sub-agent "read" of the plugin's source is any tool call that names a plugin path, except
+# passing `--schema $PLUGIN/schemas/…` to md-db, which is a legitimate use of the schema.
+echo "sub-agent reads of the plugin's own source: $(python3 - "$T/out.jsonl" "$PLUGIN" <<'PY'
+import json, re, sys
+n = 0
+plug, pat = sys.argv[2], re.compile(r"--schema[= ]+" + re.escape(sys.argv[2]) + r"/schemas/\S*")
+for l in open(sys.argv[1]):
+    try: e = json.loads(l)
+    except ValueError: continue
+    for c in (e.get("message") or {}).get("content") or []:
+        if not isinstance(c, dict) or c.get("type") != "tool_use": continue
+        i = c.get("input") or {}
+        text = i.get("command") or i.get("file_path") or i.get("path") or ""
+        if plug + "/" in pat.sub("", text): n += 1
+print(n)
+PY
+)"
 [ -f .agentic/logs/gates.jsonl ] && echo "gate verdicts: $(grep -c . .agentic/logs/gates.jsonl) ($(grep -c '"exit":2' .agentic/logs/gates.jsonl) blocks)"
 # Keep the transcript and the repo, drop the build artifacts (a cargo target dir per worktree
 # is hundreds of MB; a dozen kept runs filled the disk).
