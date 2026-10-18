@@ -22,7 +22,7 @@ Every attempt runs under a per-task budget (defaults 150k/250k tokens, 20/30 min
 your init block's `### Budget` line has the exact numbers). Plan for it:
 - Read only what the task needs; don't re-read files; no exploration beyond scope.
 - A SOFT-limit notice appears in your tool results: finish the smallest complete step,
-  run `selfcheck`, append your report. If the rest won't fit, say so — report
+  append your report, then run `selfcheck`. If the rest won't fit, say so — report
   `status: re-plan` with what is done and what remains.
 - At the HARD limit your tool calls are denied except appending your output.md report,
   and the supervisor kills you. The task is then split by the planner — not retried.
