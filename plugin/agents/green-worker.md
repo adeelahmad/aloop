@@ -18,7 +18,7 @@ Every attempt runs under a per-task budget (defaults 150k/250k tokens, 20/30 min
 your init block's `### Budget` line has the exact numbers). Plan for it:
 - Read only what the task needs; don't re-read files; no exploration beyond scope.
 - A SOFT-limit notice appears in your tool results: finish the smallest complete step,
-  run `selfcheck`, append your report. If the rest won't fit, say so — report
+  append your report, then run `selfcheck`. If the rest won't fit, say so — report
   `status: re-plan` with what is done and what remains.
 - At the HARD limit your tool calls are denied except appending your output.md report,
   and the supervisor kills you. The task is then split by the planner — not retried.
@@ -53,6 +53,7 @@ tools refuse a path outside your worktree, and docs/agents/ lives only in the ma
 
 Commit your work on your worktree's branch (`git add -A && git commit -m "<TASK_ID> <phase>"`;
 the gate blocks uncommitted work, because the supervisor merges your branch).
-Then run `selfcheck` and fix anything before reporting done —
+Append your `output.md` block FIRST, then run `selfcheck` and fix anything before reporting done
+(a self-check before the block is a guaranteed block: 4 of run 16's 9) —
 the SubagentStop gate BLOCKS unless your latest `output.md` block exists, is from
 green-worker, and carries `### Summary` / `### Result` / `### Next`.
