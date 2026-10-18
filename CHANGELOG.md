@@ -47,6 +47,7 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 - `run-summary` reports `selfcheck_blocks`, the blocks a worker's own `selfcheck` caught before stopping (they never reach the supervisor), beside `gate_blocks`. All 3 of live run 27's blocks were such catches. Test: `scripts/test/evidence.test.py`.
 
+- `gate-dispatch` copies the task contract into a manual task worktree (`aloop task-worktree add`) on every dispatch, refreshing the role per stage, so the worker's `aloop bind` finds it. Reason: in live run 28 the supervisor wrote only the main-tree contract, RED's bind failed, and its stop blocked twice in the shared tree. Test: `scripts/test/dispatch.test.py`.
 - `make conformance` now covers ROADMAP §6.1 and §6.10–6.20 (except 6.15) by running the focused test of the tool that holds each item. Before this, its report said those items "do not exist yet", though they shipped in v0.12.0. It now reports 74 checks across 19 of the 20 items. §6.15 (re-decomposition) stays explicit: it is measured by live runs. CI's rust job sets up Node 22 for the OpenCode test.
 
 ### Fixed

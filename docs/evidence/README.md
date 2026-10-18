@@ -34,6 +34,7 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 25 | wordfreq | v0.12.0 + #40 (9c6a16c) | 13/13 | 16m13s | $0.98 | 3 | 0 | 5 | `make e2e-live YES=1 INTENT=wordfreq` |
 | run 26 | wordfreq | v0.12.0 + #41 (685a48b), trimmed playbook | 13/13 | 16m01s | $0.95 | 2 | 1 | 7 | `make e2e-live YES=1 INTENT=wordfreq` |
 | run 27 | wordfreq | v0.12.0 + #43 (b983f92) | 13/13 | 9m54s | $0.70 | 1 | 1 | 3 | `make e2e-live YES=1 INTENT=wordfreq` |
+| run 28 | wordfreq | v0.12.0 + #47 (dd2e2b6) | 13/13 | 13m14s | $1.15 | 3 | 1 | 4 | `make e2e-live YES=1 INTENT=wordfreq` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
@@ -46,3 +47,7 @@ Run 24 is an experiment, not a public number: a haiku supervisor cost the same a
 the turns and planned the sprint in the run-data dir (now refused by the gates).
 Run 19's reads were first reported as 5: all five were the planner's `md-db describe --schema` on
 the plugin's schemas through a shell variable, which the counter now recognises as schema use.
+Run 28's supervisor made the task worktrees by hand (`aloop task-worktree add`) instead of with
+`isolation: "worktree"`, and wrote only the main-tree contract. RED's `aloop bind` therefore failed,
+and its stop blocked twice in the shared tree. Since then, `gate-dispatch` copies the contract into a
+task worktree on every dispatch. 2 of its 4 blocks were self-check catches.
