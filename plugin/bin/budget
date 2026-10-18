@@ -182,12 +182,15 @@ def contract(cwd, task_id):
     return read_kv(_paths.contract_path(cwd, task_id))
 
 
-def copy_contract(cwd, top, task_id):
+def copy_contract(cwd, top, task_id, main_tree=False):
     """Put a copy of the supervisor's contract in the worker's worktree (Claude Code makes the
     worktree at dispatch, so no one could write it before), so `selfcheck` there finds the
-    task. The gates compare the copy with the contract, so editing it gains nothing."""
+    task. The gates compare the copy with the contract, so editing it gains nothing.
+    main_tree=True allows the project root itself: an observed role (reviewer, final gate)
+    dispatched without a worktree runs there (live run 19), and its stop removes the copy."""
     src = _paths.contract_path(cwd, task_id)
-    if not os.path.isfile(os.path.join(top, ".git")) or not os.path.isfile(src):
+    git = os.path.join(top, ".git")
+    if not (os.path.isfile(git) or (main_tree and os.path.isdir(git))) or not os.path.isfile(src):
         return
     dst = _paths.marker(top, "task.env")
     if os.path.exists(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
@@ -524,9 +527,13 @@ def observe(mode, payload, agent_id, role):
     # A reviewer or final gate dispatched into a host worktree needs the contract copy as much
     # as a worker does: its own `selfcheck` finds the task only through it (live runs 15–17).
     wt, how = find_worktree(payload, cwd, agent_id, role)
+    project = _paths.project(cwd)
     host_tid = host_task_id(payload, agent_id) if mode != "stop" else ""
     if host_tid and wt:
         copy_contract(cwd, wt, host_tid)
+    elif host_tid:
+        copy_contract(cwd, project, host_tid, main_tree=True)   # no worktree: it runs in the main tree
+        how = how or "main tree"
     if host_tid and mode != "stop":
         seed_output(cwd, host_tid)
     if st is None:
@@ -541,6 +548,13 @@ def observe(mode, payload, agent_id, role):
     if mode == "stop":
         st["done"] = now
         save_state(spath, st)
+        if st.get("task") and not st.get("worktree"):
+            mc = _paths.marker(project, "task.env")      # the main-tree copy is this dispatch's only
+            if os.path.isfile(mc) and read_kv(mc).get("TASK_ID") == st["task"]:
+                try:
+                    os.remove(mc)
+                except OSError:
+                    pass
         return
     st["done"] = None
     b = st["budget"]

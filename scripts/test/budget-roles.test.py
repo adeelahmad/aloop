@@ -133,4 +133,24 @@ sh(os.path.join(BIN, "budget"), "hook", "pre", inp=json.dumps(payload))
 assert open(out6).read().endswith("red-worker · now\n"), "an existing output.md is never rewritten"
 ok("TASK_ID is read past a session-context line; the story's output.md is seeded with its frontmatter once")
 
+# 7) a structural reviewer or final gate dispatched WITHOUT a worktree runs in the main tree, where
+# nothing ever copied the contract (live run 19: its self-check blocked "STORY_DIR unset"). The
+# copy goes to the main tree's marker dir for the dispatch and is removed when the agent stops.
+sprint = os.path.join(T, "docs", "agents", "sprint1")
+os.remove(copy := os.path.join(T, ".claude", "worktrees", "agent-r2", ".aladdin", "task.env"))   # case 5's reviewer is gone
+open(os.path.join(T, ".agentic", "state", "tasks", "S1-SR-W3.env"), "w").write(
+    "TASK_ID=S1-SR-W3\nATTEMPT=1\nAGENT_ROLE=structural-reviewer\nSTORY_DIR=%s\n" % sprint)
+sub = os.path.join(T, "cc", "sess", "subagents", "agent-r7.jsonl")
+open(sub, "w").write(json.dumps({"type": "user", "message": {"role": "user", "content": "TASK_ID: S1-SR-W3\nReview wave 2."}}) + "\n")
+payload.update(cwd=T, agent_id="r7", agent_type="agentic-agile:structural-reviewer")
+assert sh(os.path.join(BIN, "budget"), "hook", "pre", inp=json.dumps(payload)) == ""
+cands = [os.path.join(T, h, "task.env") for h in (".aladdin", ".agentic")]   # this project keeps .agentic/
+main_copy = next((c for c in cands if os.path.isfile(c)), cands[0])
+assert os.path.isfile(main_copy) and "TASK_ID=S1-SR-W3" in open(main_copy).read(), main_copy
+assert state("r7")["task"] == "S1-SR-W3" and state("r7")["story_dir"] == sprint
+payload["hook_event_name"] = "SubagentStop"
+sh(os.path.join(BIN, "budget"), "hook", "stop", inp=json.dumps(payload))
+assert not os.path.exists(main_copy), "the main-tree copy is removed when the observed agent stops"
+ok("an observed role in the main tree gets the contract copy for its dispatch; stop removes it")
+
 print("\n%d checks passed" % PASS[0])

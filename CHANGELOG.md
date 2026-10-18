@@ -32,6 +32,15 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - `budget hook pre` seeds the story's `output.md` with its `type: output` frontmatter before the
   worker's first tool call, so a bare `cat >>` of the report block no longer fails the comms gate
   (live run 18: 4 blocks). An existing `output.md` is never touched.
+- `budget hook`: a structural reviewer or final gate dispatched without a worktree gets the contract
+  copy in the main tree for its dispatch (removed when it stops), so its own `selfcheck` finds the
+  task (live run 19: "STORY_DIR unset").
+- `gate-scaffold-verify` reads `.aladdin/scaffold-symbols` lines written in the `### Scaffold` report
+  shape (`+ create fn crate::Foo @ src/lib.rs`): markers, verbs and keywords are skipped and a crate
+  path is reduced to its name (live runs 18–19: `create` was "defined 0 times", 4 blocks in run 19);
+  a zero-count block now names the file's expected shape.
+- `symbol_count` grep fallback (no `ctx-symbols`): a no-match grep under `pipefail` printed a second
+  `0`, so the scaffold gate's block text broke mid-sentence on CI-like hosts; it prints one number.
 
 ### Changed
 - SKILL.md: a RED mandate names `tests/common/mod.rs` as the shims' home, never a `src/` path
