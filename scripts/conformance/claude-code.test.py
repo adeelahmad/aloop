@@ -154,6 +154,25 @@ case(3, "RED whose tests fail the matrix's format check is rejected", "gate-red-
 case(3, "a formatted RED passes the same format check", "gate-red-verify", red_ok_wt, 0,
      extra={"STANDARDS_FILE": FMT_STANDARDS})
 
+# A later task's RED report also lists the earlier tasks' tests, which already pass on the base
+# (live e2e run 7: "green (T1, unchanged)" rows blocked T2's RED 22 times). Only a NEW test may not PASS.
+report("red-worker", [("tests/add.rs::add_works", "PASS"), ("tests/sub.rs::sub_works", "FAIL")])
+case(3, "RED that reports a test already on the base as PASS is accepted", "gate-red-verify", red_ok_wt, 0)
+
+# SCAFFOLD: `.agentic/scaffold-symbols` lines may carry notes after the symbol (live e2e run 6:
+# "ParseError (enum) @ src/lib.rs" was split into `(enum)`, `@`, … and each "defined 0 times").
+wt = worktree("scaffolder")
+write(os.path.join(wt, "src", "lib.rs"), LIB + "\npub fn sub(_a: i32, _b: i32) -> i32 {\n    panic!(\"SUB-AGENT-TODO\")\n}\n")
+write(os.path.join(wt, "tests", "sub.rs"), GREEN_TEST)
+write(os.path.join(wt, ".agentic", "scaffold-symbols"), "# symbols\nsub (fn) @ src/lib.rs\n")
+commit(wt, "scaffold")
+report("scaffolder", [("src/lib.rs::sub", "STUB")])
+case(3, "SCAFFOLD with annotated scaffold-symbols lines is accepted", "gate-scaffold-verify", wt, 0)
+# ...or a tab-separated table with a header row and trait-impl lines (live e2e run 7: `symbol`
+# and `Display` were each "defined 0 times").
+write(os.path.join(wt, ".agentic", "scaffold-symbols"), "symbol\tpath\tkind\nsub\tsrc/lib.rs\tfn\nDisplay for Sub\tsrc/lib.rs\timpl\n")
+case(3, "SCAFFOLD with a header row and trait-impl lines in scaffold-symbols is accepted", "gate-scaffold-verify", wt, 0)
+
 # §6.4 RED cannot write production code
 wt = red_ok()
 write(os.path.join(wt, "src", "lib.rs"), GREEN_LIB)
@@ -194,6 +213,12 @@ wt = green(scope="src/lib.rs")
 write(os.path.join(wt, "build.rs"), "fn main() {}\n")
 commit(wt, "out of scope")
 case(6, "GREEN that touches a path outside its task scope is blocked", "gate-green-verify", wt, 2, "out-of-scope path: build.rs")
+# Scope globs are patterns, never expanded against the worktree: `tests/**` expanded to
+# `tests/common tests/sub.rs` and missed tests/common/mod.rs (live e2e run 8: 29 blocks).
+wt = green(scope="src/*.rs tests/**")
+write(os.path.join(wt, "tests", "common", "mod.rs"), "pub fn helper() -> i32 {\n    1\n}\n")
+commit(wt, "helper in scope")
+case(6, "GREEN inside a `dir/**` scope glob is accepted", "gate-green-verify", wt, 0)
 wt = green()
 os.remove(os.path.join(STORY, "output.md"))
 case(6, "a worker that leaves no output.md report is blocked", "gate-green-verify", wt, 2, "no output.md")
@@ -313,6 +338,17 @@ said = any("NOT verified" in l for l in lines) and any("do not merge" in l for l
 results.append((9, "a hard-breached worker is released as 'not a pass, do not merge'", rc == 0 and said,
                 "exit %d %s" % (rc, (lines[0] if lines else "")[:140])))
 
+# FINAL: every test the story's plan.md names must exist on main. A RED re-plan that drops a
+# planned test otherwise loses coverage silently (live e2e run 6), since plan-ready.md only
+# lists what RED actually wrote.
+PLAN = "---\ntype: plan\nstory: S1-01\n---\n# plan\n\n## T1 tests\n\n- `tests/add.rs::add_works`\n  — adds.\n"
+write(os.path.join(STORY, "plan.md"), PLAN)
+fenv = {"STORY_DIR": STORY, "AGENTIC_SELFCHECK": "1"}
+case(6, "FINAL passes when every planned test exists on main", "gate-final", MAIN, 0, extra=fenv)
+write(os.path.join(STORY, "plan.md"), PLAN + "- `tests/sub.rs::sub_handles_negatives`\n  — dropped by a re-plan.\n")
+case(6, "FINAL blocks when a planned test is missing from main", "gate-final", MAIN, 2, "sub_handles_negatives", extra=fenv)
+os.remove(os.path.join(STORY, "plan.md"))
+
 # §6.2 Planner artifacts are schema-valid (gate-validate-artifact runs md-db on every planner write)
 def md_db():
     """The real md-db binary, put where ensure-tools finds it; built from the bundled source if needed."""
@@ -352,6 +388,32 @@ if md_db():
         r = sh(os.path.join(BIN, "gate-validate-artifact"), f, check=False)
         results.append((2, title, r.returncode == 2 and "BLOCK[gate-validate-artifact]" in r.stderr,
                         "exit %d %s" % (r.returncode, r.stderr.strip()[-140:])))
+    # memory.md: `aloop init` seeds a schema-valid one, so no agent has to guess its frontmatter
+    # (live e2e run 7: the archivist wrote `type: agent-memory`, the supervisor's stop was blocked 15 times).
+    seed = os.path.join(T, "seed")
+    os.makedirs(seed)
+    sh("git", "init", "-q", cwd=seed)
+    sh(os.path.join(BIN, "aloop-init"), "--apply", cwd=seed)
+    mem = os.path.join(seed, "docs", "agents", "memory.md")
+    menv = dict(ENV, CLAUDE_PLUGIN_ROOT=ROOT)
+    r = subprocess.run([os.path.join(BIN, "gate-memory"), mem], cwd=seed, env=menv, capture_output=True, text=True) \
+        if os.path.isfile(mem) else None
+    results.append((2, "aloop init seeds a memory.md that passes gate-memory", bool(r) and r.returncode == 0,
+                    "no memory.md seeded" if r is None else "exit %d %s" % (r.returncode, r.stderr.strip()[-140:])))
+    write(mem, "---\ntype: agent-memory\n---\n# memory\n")
+    r = subprocess.run([os.path.join(BIN, "gate-memory"), mem], cwd=seed, env=menv, capture_output=True, text=True)
+    results.append((2, "a malformed memory.md is rejected with the valid skeleton", r.returncode == 2 and "type: memory" in r.stderr,
+                    "exit %d %s" % (r.returncode, r.stderr.strip()[-140:])))
+    # A story dir named `S1-01/` (live e2e run 9): the block names the expected `s1-01-<slug>/`
+    # (the planner retried 56 times on a bare "no story dir for S1-01").
+    st2 = os.path.join(T, "st2", "docs", "agents", "sprint1")
+    write(os.path.join(st2, "stories.md"), STORIES)
+    for f in ("tasks.md", "validate.md", "plan.md"):
+        write(os.path.join(st2, "S1-01", f), "x\n")
+    r = sh(os.path.join(BIN, "gate-stage2-complete"), st2, check=False)
+    results.append((2, "a misnamed story dir is blocked with the expected name", r.returncode == 2
+                    and "s1-01-<slug>" in r.stderr and "S1-01" in r.stderr.split("found")[-1],
+                    "exit %d %s" % (r.returncode, r.stderr.strip()[-160:])))
 else:
     results.append((2, "md-db available for the schema gate (needs cargo)", False, "no md-db and no cargo"))
 

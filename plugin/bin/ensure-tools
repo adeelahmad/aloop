@@ -32,6 +32,11 @@ LOG="$DATA/install.log"
 LOCK="$DATA/install.lock"
 STAMP="$DATA/bin/.version"
 VERSION="$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" 2>/dev/null | head -1)"
+# The build stamp is the version PLUS a fingerprint of the tools' sources: a fix to a bundled
+# tool reaches every session without a version bump (live e2e run 9 ran a stale ctx-symbols).
+SRC_SUM="$(cd "$ROOT/tools" 2>/dev/null && find ctx-symbols md-db -name target -prune -o -type f \
+  \( -name '*.rs' -o -name Cargo.toml -o -name Cargo.lock \) -print 2>/dev/null | LC_ALL=C sort | xargs cat 2>/dev/null | cksum | cut -d' ' -f1)"
+STAMP_VALUE="$VERSION+${SRC_SUM:-0}"
 
 mkdir -p "$TOOLS_BIN" 2>/dev/null || true
 
@@ -50,11 +55,11 @@ find_tool() {
 
 have_all() { find_tool md-db >/dev/null && find_tool ctx-symbols >/dev/null; }
 
-# Our own build is stale when the plugin version moved (a user-installed copy elsewhere
+# Our own build is stale when the plugin version or the tools' sources moved (a user-installed copy elsewhere
 # on PATH is theirs to manage — we never rebuild over it).
 own_stale() {
   [ -x "$TOOLS_BIN/md-db" ] || [ -x "$TOOLS_BIN/ctx-symbols" ] || return 1
-  [ "$(cat "$STAMP" 2>/dev/null)" != "$VERSION" ]
+  [ "$(cat "$STAMP" 2>/dev/null)" != "$STAMP_VALUE" ]
 }
 
 build_running() {
@@ -75,7 +80,7 @@ do_build() {
     && cp "$tgt/ctx-symbols/release/ctx-symbols" "$TOOLS_BIN/ctx-symbols" || rc=1
   ( cd "$ROOT/tools/md-db" && CARGO_TARGET_DIR="$tgt/md-db" cargo build --release --locked ) \
     && cp "$tgt/md-db/release/md-db" "$TOOLS_BIN/md-db" || rc=1
-  [ "$rc" = 0 ] && printf '%s\n' "$VERSION" > "$STAMP"
+  [ "$rc" = 0 ] && printf '%s\n' "$STAMP_VALUE" > "$STAMP"
   echo "==> done rc=$rc"
   return "$rc"
 }

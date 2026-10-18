@@ -23,7 +23,11 @@ fi
 
 if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1 && [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "${CLAUDE_PLUGIN_ROOT}/schemas/memory.kdl" ]; then
   md-db validate "$f" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/memory.kdl" \
-    || { echo "BLOCK[$GATE_NAME]: $f failed memory.kdl" >&2; exit 2; }
+    || { echo "BLOCK[$GATE_NAME]: $f failed memory.kdl. A valid memory.md is:" >&2
+         printf '%s\n' "  ---" "  type: memory" "  updated_at: 2026-01-01T00:00:00Z" "  ---" "  # agent memory" "" \
+           "  ## Entries" "" "  | id | applies_to | text | origin | recurrence | added |" \
+           "  | --- | --- | --- | --- | --- | --- |" "  | M-001 | green-worker | one-line lesson | S1-01 | 2 | 2026-01-01 |" >&2
+         exit 2; }
 fi
 
 relax='skip[[:space:]]+(the[[:space:]]+)?test|suppress|#\[ignore\]|\.skip\(|ignore[[:space:]]+(the[[:space:]]+)?test|disable[[:space:]]+(the[[:space:]]+)?(test|gate)|bypass[[:space:]]+(the[[:space:]]+)?gate|relax[[:space:]]+(the[[:space:]]+)?(gate|invariant)'

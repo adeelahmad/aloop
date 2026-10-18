@@ -215,7 +215,7 @@ yourself): read the GLOBAL transcript stream + the failure/feedback trail since 
 draft terse, role-scoped lessons from RECURRING patterns (>= 2) — failures AND
 reliably-good moves. The human curates and adds their own continuous-failure
 insights. Kept entries (1-2 lines each) go into `docs/agents/memory.md` (schema:
-`schemas/memory.kdl`). On every later dispatch you inject the matching entries into
+`schemas/memory.kdl`; `aloop init` seeds it, so only add rows to its `## Entries` table). On every later dispatch you inject the matching entries into
 the worker's `init.md` `# Memory` section. Memories are advisory and NEVER relax an
 invariant (no-suppression, human-only-planning, scaffolder-leaves-panic, the gates);
 patterns not one-offs; keep `memory.md` bounded.
@@ -819,7 +819,7 @@ Before each dispatch, write the contract in the MAIN tree at
 `SCOPE_GLOBS` (GREEN diff-scope), `SCAFFOLD_SYMBOLS` (or write
 `.agentic/scaffold-symbols`), `BASE_REF` (diff base), and the four `BUDGET_*` lines printed by
 `budget resolve --tasks <STORY_DIR>/tasks.md --task Tn`. Then make the dispatch prompt's
-FIRST line `TASK_ID: <TASK_ID>`. Write plain `KEY=value` lines (quotes allowed, lists space- or comma-separated, no `$VAR`
+FIRST line `TASK_ID: <TASK_ID>`. (`gate-dispatch` refuses an execution dispatch without that line or before the contract exists.) Write plain `KEY=value` lines (quotes allowed, lists space- or comma-separated, no `$VAR`
 expansion, no commands): the gate library PARSES the contract keys and ignores everything else.
 
 Why the main tree: on Claude Code `isolation: "worktree"` creates the worktree

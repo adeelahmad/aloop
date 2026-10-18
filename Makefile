@@ -64,12 +64,11 @@ clippy: ## Clippy with warnings-as-errors
 
 .PHONY: shellcheck
 shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent)
-	@command -v shellcheck >/dev/null \
-	  && shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh plugin/bin/_failclosed.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
+	@if ! command -v shellcheck >/dev/null; then echo "WARN: shellcheck not installed; skipping (CI enforces it)"; else \
+	  shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh plugin/bin/_failclosed.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
 	       plugin/bin/selfcheck plugin/bin/transcripts plugin/bin/worktree-create plugin/bin/worktree-remove \
 	       plugin/bin/worktree-hygiene plugin/bin/ensure-tools plugin/bin/md-db plugin/bin/ctx-symbols \
-	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/aloop plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree \
-	  || echo "WARN: shellcheck not installed; skipping (CI enforces it)"
+	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/aloop plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree; fi
 
 .PHONY: pycheck
 pycheck: ## Byte-compile the Python hook scripts
@@ -107,6 +106,8 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/rename-compat.test.py
 	python3 scripts/test/supervisor-scope.test.py
 	python3 scripts/test/hook-matchers.test.py
+	python3 scripts/test/dispatch.test.py
+	python3 scripts/test/ensure-tools.test.py
 	python3 scripts/test/fail-closed.test.py
 	@command -v node >/dev/null && node scripts/test/opencode-plugin.test.mjs || { echo "node not found — skipped OpenCode test (CI runs it)"; }
 
@@ -117,7 +118,7 @@ conformance: ## ROADMAP §6 conformance fixtures on today's gates (needs cargo; 
 .PHONY: e2e-live
 e2e-live: ## Live end-to-end run: one-line intent -> planned, tested, merged code (YES=1; spends dollars)
 	@test -n "$(YES)" || { echo "spends tokens: make e2e-live YES=1"; exit 2; }
-	scripts/smoke/e2e-live.sh --yes
+	scripts/smoke/e2e-live.sh --yes $(if $(INTENT),--intent $(INTENT))
 
 .PHONY: smoke-live
 smoke-live: ## Live Claude Code session: hooks fire, supervisor write blocked, transcripts + ledger (YES=1; spends ~$0.005)

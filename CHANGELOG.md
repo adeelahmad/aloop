@@ -150,6 +150,19 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   accepted task, first-pass rate by gate, re-plan rate, cache-hit and churn ratios,
   context peak, and admission closures. All of it is derived from harness files, with no
   model calls.
+- **Second live e2e intent**: `make e2e-live YES=1 INTENT=wordfreq` runs two dependent stories
+  (word counting, then top-N ranking).
+- **`gate-final` checks every planned test is on main**: each `path::fn` bullet in a story's
+  `plan.md` must exist at its path. `plan-ready.md` lists only what RED wrote, so a test a
+  re-plan dropped used to vanish unnoticed (e2e run 6).
+- **`aloop init` seeds `docs/agents/memory.md`** as a schema-valid empty table, and
+  `gate-memory` prints a valid skeleton when it blocks. e2e run 7's archivist guessed
+  `type: agent-memory` and the supervisor's stop was blocked 15 times.
+- **`gate-dispatch`** (PreToolUse on Agent/Task): the supervisor's dispatch of an execution
+  worker is refused until its prompt opens with `TASK_ID: <id>` and the contract exists.
+  e2e run 6 dispatched the structural reviewer before writing its contract, and its gate
+  blocked 25 times on a `STORY_DIR` the worker could not supply. `scripts/test/dispatch.test.py`.
+
 - **End-to-end live run (north star).** `make e2e-live YES=1` turns a one-line intent
   (a semver parser) into planned, tested, merged code in a real Claude Code session with
   the plugin, then checks the artifacts, gate verdicts, merge, tests and cost. First run:
@@ -205,6 +218,27 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- `ensure-tools` rebuilds the bundled md-db / ctx-symbols when their sources change, not
+  only on a version bump; e2e run 9 ran a stale ctx-symbols that still had the duplicate bug.
+- `gate-stage2-complete` names the expected `sN-NN-<slug>/` story dir (and a misnamed one it
+  found); the planner prompt states the naming. e2e run 9: 56 planner retries on `S1-01/`.
+- Scope globs are no longer expanded against the worktree: `tests/**` became the files that
+  happened to exist, so GREEN was blocked for an in-scope `tests/common/mod.rs` (e2e run 8: 29 blocks).
+- `ctx-symbols conflicts` no longer reports the same name in two integration-test files
+  (`mod common;`, a local helper) as a HIGH duplicate; each `tests/*.rs` is its own crate.
+  e2e run 8's structural review halted 57 times on it. The grep fallback skips `tests/` too.
+- `gate-scaffold-verify`'s grep fallback (no ctx-symbols) located a test fn instead of the stub,
+  depending on directory order; it now uses the same name-anchored match as `symbol_count`.
+- `gate-red-verify` no longer blocks a RED report that lists a test already on the base as
+  PASS (an earlier task's test, for context); only a NEW test may not pass. e2e run 7: 22 blocks.
+- `make shellcheck` no longer reports a lint error as "shellcheck not installed" and passes.
+- `gate-scaffold-verify` skips a `symbol path kind` header row and `Trait for Type` impl
+  lines in `.agentic/scaffold-symbols`.
+- **Annotated `scaffold-symbols` lines were split into fake symbols** (`(enum)`, `@`, …), each
+  "defined 0 times". The first token of a line is the symbol; non-identifiers are dropped.
+- **Sub-agents read the plugin's own source** (19–30 commands per e2e run) to work out
+  formats `selfcheck` already reports. The agent prompts now say not to; run 6 had 2, and
+  cost its lowest yet: $0.65 in 11 min.
 - **A Claude Code worker could get another task's budget.** With no `task.env` in its own
   worktree, the time box guessed "the only green-worker worktree" and applied that task's
   limits. It now takes the worker's own worktree from its cwd first.
