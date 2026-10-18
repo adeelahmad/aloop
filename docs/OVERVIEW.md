@@ -111,7 +111,7 @@ The model can ignore a skill; it cannot ignore an exit code.
   --strict`, eval-suite and version-lockstep checks,
   the tracking check and `host check`, plus the newer suites (targets render, host swap,
   metrics, config, the aladdin CLI, the site).
-- The north-star run, `make e2e-live YES=1 [INTENT=wordfreq]`: a one-line intent becomes
+- The north-star run, `make e2e-live YES=1 [INTENT=wordfreq] [HOST=codex|opencode]`: a one-line intent becomes
   planned, test-first, gate-verified, merged code in a real Claude Code session with the
   approval given up front. Two intents pass every check (semver parser: 11/11, ~$0.65–1.15,
   11–19 min; word frequencies with two dependent stories: 13/13, $0.79–1.56, 13–45 min; the last three runs $0.95–1.03, 1–6 supervisor wakes, 0–5 plugin-source reads,

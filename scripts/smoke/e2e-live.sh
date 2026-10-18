@@ -1,12 +1,22 @@
 #!/usr/bin/env bash
 # End-to-end live run (the north star): a one-line intent becomes merged, tested code in a
-# REAL Claude Code session with the plugin, the human's only input being approval (given up
-# front here). Spends real tokens (dollars, not cents), so it needs --yes; CI does not run it.
+# REAL host session with the plugin, the human's only input being approval (given up front
+# here). Spends real tokens (dollars, not cents), so it needs --yes; CI does not run it.
 #
-#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq] [--model sonnet] [--worker-model haiku]
-#   (or: make e2e-live YES=1 [INTENT=wordfreq])
+#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq] [--host claude|codex|opencode]
+#                                   [--model M] [--worker-model M] [--dry-run]
+#   (or: make e2e-live YES=1 [INTENT=wordfreq] [HOST=opencode])
 #
 # Intents: semver (one story) · wordfreq (two dependent stories: counting, then top-N ranking).
+# Hosts (ROADMAP §4.11, M8: measured runs on every host):
+#   claude    `claude -p --plugin-dir` (the reference; the plugin needs no install)
+#   opencode  `aloop install opencode` into the run repo, then `opencode run --format json`
+#   codex     `aloop install codex` into the run repo, then `codex exec --json --full-auto`.
+#             Codex loads the skills/hooks through its own plugin manager, so the owner adds the
+#             plugin once first (`codex plugin add aloop@aloop-marketplace`, /hooks → trust).
+# Models default to the host's routes (plugin/hosts/routes.json: strong supervisor, economical
+# workers); Codex's routes are empty, so it runs the session's own model unless --model is given.
+# --dry-run seeds the repo and prints the host command without spending anything.
 #
 # Measures, in a throw-away repo: did planning produce schema-valid artifacts, did RED come
 # before GREEN, did gates run and pass, is the work merged into main, do main's tests pass,
@@ -14,18 +24,26 @@
 set -uo pipefail
 [ "${1:-}" = "--yes" ] || { echo "spends tokens: re-run with --yes"; exit 2; }
 shift
-FIXTURE=semver SUP_MODEL=sonnet WORKER_MODEL=haiku TIMEOUT="${E2E_TIMEOUT:-3600}"
+FIXTURE=semver HOST="${E2E_HOST:-claude}" SUP_MODEL='' WORKER_MODEL='' DRY='' TIMEOUT="${E2E_TIMEOUT:-3600}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --intent) FIXTURE="$2"; shift 2 ;;
+    --host) HOST="$2"; shift 2 ;;
     --model) SUP_MODEL="$2"; shift 2 ;;
     --worker-model) WORKER_MODEL="$2"; shift 2 ;;
+    --dry-run) DRY=1; shift ;;
     *) echo "unknown arg: $1"; exit 2 ;;
   esac
 done
-command -v claude >/dev/null || { echo "claude CLI not found"; exit 2; }
+case "$HOST" in claude|codex|opencode) ;; *) echo "unknown host: $HOST (claude|codex|opencode)"; exit 2 ;; esac
+command -v "$HOST" >/dev/null || { echo "$HOST CLI not found"; exit 2; }
 command -v cargo >/dev/null || { echo "cargo not found"; exit 2; }
 PLUGIN="$(cd "$(dirname "$0")/../../plugin" && pwd)"
+# The host's own ids for the routes; empty (Codex) means the session's model: pass no --model.
+[ -n "$SUP_MODEL" ] || SUP_MODEL="$("$PLUGIN/bin/models" routes --host "$HOST" | sed -n 's/.*strong=\([^ ]*\).*/\1/p')"
+[ -n "$WORKER_MODEL" ] || WORKER_MODEL="$("$PLUGIN/bin/models" routes --host "$HOST" | sed -n 's/.*economical=\([^ ]*\).*/\1/p')"
+case "$SUP_MODEL" in "<session"*) SUP_MODEL= ;; esac
+case "$WORKER_MODEL" in "<session"*) WORKER_MODEL= ;; esac
 T="${E2E_DIR:-$(mktemp -d)}"; mkdir -p "$T/repo"; cd "$T/repo" || exit 1
 
 git init -q -b main && git config user.email ada@x.io && git config user.name Ada
@@ -44,17 +62,25 @@ printf '//! %s\n' "$CRATE" > src/lib.rs          # no template test: the run mus
 # (run 16: "Track Cargo.lock"), a commit no task owns and `events trace` cannot explain.
 cargo generate-lockfile -q 2>/dev/null || true
 git add -A && git commit -qm init
-"$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="$WORKER_MODEL" MODEL_WORKER="$WORKER_MODEL" GITIGNORE=yes >/dev/null
+"$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="${WORKER_MODEL:-economical}" MODEL_WORKER="${WORKER_MODEL:-economical}" GITIGNORE=yes >/dev/null
+# Codex and OpenCode load the agents, skills and hooks from the project: render them in.
+[ "$HOST" = claude ] || "$PLUGIN/bin/install" "$HOST" --project . >/dev/null
 git add -A && git commit -qm "aloop init" >/dev/null 2>&1 || true
 
 PROMPT="Use the aloop skill. Intent: $INTENT
 I am the human. I approve in advance: accept your recommended answer to every question, approve the plan as you propose it, and do not wait for me. Run the whole loop without stopping: retrospective (none yet), intake, standards, planner, then execution (RED, SCAFFOLD, GREEN per task, structural review, final gate), merging each passed task into main. Finish with the final gate green. Then print one line: E2E-DONE."
 
+case "$HOST" in
+  claude)   CMD=(claude -p --plugin-dir "$PLUGIN" --model "$SUP_MODEL" --output-format stream-json --verbose --max-turns 400
+                 --allowedTools "Agent Task Bash Read Write Edit MultiEdit Glob Grep Skill TaskStop TodoWrite" "$PROMPT") ;;
+  opencode) CMD=(opencode run --format json ${SUP_MODEL:+--model "$SUP_MODEL"} "$PROMPT") ;;
+  codex)    CMD=(codex exec --json --full-auto ${SUP_MODEL:+--model "$SUP_MODEL"} "$PROMPT") ;;
+esac
+echo "host: $HOST · supervisor model: ${SUP_MODEL:-<session model>} · worker model: ${WORKER_MODEL:-<session model>}"
+if [ -n "$DRY" ]; then echo "cmd: ${CMD[*]}"; echo "run dir: $T"; exit 0; fi
+
 start=$(date +%s)
-timeout "$TIMEOUT" claude -p --plugin-dir "$PLUGIN" --model "$SUP_MODEL" \
-  --output-format stream-json --verbose --max-turns 400 \
-  --allowedTools "Agent Task Bash Read Write Edit MultiEdit Glob Grep Skill TaskStop TodoWrite" \
-  <<<"$PROMPT" > "$T/out.jsonl" 2> "$T/err.log"
+timeout "$TIMEOUT" "${CMD[@]}" > "$T/out.jsonl" 2> "$T/err.log"
 rc=$?
 secs=$(( $(date +%s) - start ))
 
@@ -83,7 +109,7 @@ check "every merged commit traces to its task (events trace)" '[ "$untraced" -eq
 
 # The measured record (ROADMAP §4.11): summary.json, summary.md and a docs/evidence/README.md row
 # in the run dir; the numbers come from the session's `result` lines and the gate log.
-"$PLUGIN/bin/run-summary" "$T" --intent "$FIXTURE" --checks "$((checks - fails))/$checks" --secs "$secs" --plugin "$PLUGIN"
+"$PLUGIN/bin/run-summary" "$T" --intent "$FIXTURE" --host "$HOST" --checks "$((checks - fails))/$checks" --secs "$secs" --plugin "$PLUGIN"
 # Keep the transcript and the repo, drop the build artifacts (a cargo target dir per worktree
 # is hundreds of MB; a dozen kept runs filled the disk).
 rm -rf "$T"/repo/target "$T"/repo/.claude/worktrees/*/target 2>/dev/null
