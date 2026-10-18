@@ -80,7 +80,7 @@ def pre_tool(payload, cwd, agent_id, role, host):
         if m:
             target = m.group(1).strip("'\"")
             if os.path.isabs(target) and os.path.isfile(os.path.join(target, ".git")) \
-                    and os.path.isfile(os.path.join(target, ".agentic", "task.env")):
+                    and any(os.path.isfile(os.path.join(target, h, "task.env")) for h in (".aladdin", ".agentic")):
                 reg["worktree"] = target
                 reg["bound_at"] = time.time()
                 save(p, reg)

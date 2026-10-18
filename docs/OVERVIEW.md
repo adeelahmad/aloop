@@ -129,8 +129,9 @@ The model can ignore a skill; it cannot ignore an exit code.
 - `refs` / `callers` / `callees` need a configured LSP server; without one they say so (exit 4).
 - Hosts do not report the model's context window; `AGENTIC_CONTEXT_WINDOW` is the human's number.
 - `AGENTIC_*` settings keys stay canonical; `ALADDIN_*` is an alias (`AGENTIC_` wins when both
-  are set). Worktree-local markers (`.agentic/task.env`, `budget-exceeded`, `scaffold-symbols`)
-  keep their name for now (ROADMAP M1).
+  are set). Worktree-local markers (`task.env`, `budget-exceeded`, `scaffold-symbols`) live in
+  the worker worktree's `.aladdin/` too, and are read from `.agentic/` where a host or an
+  older sprint still writes them there.
 - Measured runs: TheNoteBook plus the `make e2e-live` runs in ROADMAP §0; no live-session test in CI.
 
 ## The docs, and which ones are current

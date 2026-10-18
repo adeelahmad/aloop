@@ -56,6 +56,23 @@ agentic_home_guard() {          # .aladdin/.gitignore: run data never leaves the
 AGENTIC_HOME_NAME="$(agentic_home_name "$AGENTIC_PROJECT")"
 AGENTIC_HOME="$AGENTIC_PROJECT/$AGENTIC_HOME_NAME"
 agentic_home_guard
+# Worktree-local markers (task.env copy, budget-exceeded, scaffold-symbols) live in the
+# worker's worktree: written to .aladdin/ (guarded) or .agentic/ in a legacy project, read
+# from either. agentic_marker prints the existing one, else the write path (returns 1).
+agentic_marker_dir() {
+  local top="$1" d
+  if [ "$AGENTIC_HOME_NAME" = ".agentic" ]; then d="$top/.agentic"; else d="$top/.aladdin"; fi
+  mkdir -p "$d" 2>/dev/null || true
+  # the marker dir ignores itself too: nothing there may reach the task's diff
+  case "$d" in */.aladdin) [ -f "$d/.gitignore" ] || printf '%s\n' '# aloop worktree markers — never committed' '*' > "$d/.gitignore" 2>/dev/null || true ;; esac
+  echo "$d"
+}
+agentic_marker() {
+  local top="$1" name="$2" h
+  for h in .aladdin .agentic; do [ -f "$top/$h/$name" ] && { echo "$top/$h/$name"; return 0; }; done
+  if [ "$AGENTIC_HOME_NAME" = ".agentic" ]; then echo "$top/.agentic/$name"; else echo "$top/.aladdin/$name"; fi
+  return 1
+}
 AGENTIC_TRANSCRIPTS="$AGENTIC_HOME/transcripts"
 AGENTIC_BUDGET="$AGENTIC_HOME/budget"
 AGENTIC_LEDGER="$AGENTIC_HOME/ledger"

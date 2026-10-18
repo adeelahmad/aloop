@@ -54,7 +54,7 @@ sh("git", "commit", "-q", "--allow-empty", "-m", "init")
 os.makedirs(os.path.join(T, "docs", "agents", "sprint1", "s1-01-x"))
 open(os.path.join(T, "docs", "STYLE.md"), "w").write("style\n")
 wt = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T1")
-open(os.path.join(wt, ".agentic", "task.env"), "w").write(
+open(os.path.join(wt, ".aladdin", "task.env"), "w").write(
     "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBUDGET_TOKENS_SOFT=300000\nBUDGET_TOKENS_HARD=400000\n"
     % os.path.join(T, "docs", "agents", "sprint1", "s1-01-x"))
 
@@ -85,7 +85,7 @@ assert s3["worktree"] == wt and s3["budget"]["TOKENS_HARD"] == 400000, s3; ok("f
 # 4) worktree ambiguous at first (two green worktrees), found on a later call: budget re-resolved, clock kept,
 #    and a hard verdict reached under the default budget is withdrawn
 wt2 = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T2")
-open(os.path.join(wt2, ".agentic", "task.env"), "w").write("TASK_ID=S1-01-T2\nATTEMPT=1\nAGENT_ROLE=green-worker\nBUDGET_TOKENS_HARD=500000\n")
+open(os.path.join(wt2, ".aladdin", "task.env"), "w").write("TASK_ID=S1-01-T2\nATTEMPT=1\nAGENT_ROLE=green-worker\nBUDGET_TOKENS_HARD=500000\n")
 for a in ("a1", "a2", "a3"):
     os.remove(os.path.join(T, ".aladdin", "budget", a + ".json"))
     os.remove(os.path.join(T, ".aladdin", "state", "agents", a + ".json"))
@@ -121,7 +121,8 @@ call("c7", "Bash", {"command": "cargo test"}, tokens=5000, cwd=cc)
 s7 = state("c7")
 assert s7["task"] == "S1-01-T7" and s7["budget"]["TOKENS_HARD"] == 410000 and "contract" in s7["budget_source"], s7
 ok("Claude Code worktree without task.env: budget from the supervisor's contract")
-copy = os.path.join(cc, ".agentic", "task.env")
+copy = os.path.join(cc, ".aladdin", "task.env")      # a fresh project: markers live in .aladdin/
+assert os.path.isfile(os.path.join(cc, ".aladdin", ".gitignore")), "the worktree copy must be guarded"
 assert os.path.isfile(copy) and open(copy).read() == open(os.path.join(tasks, "S1-01-T7.env")).read(), "no contract copy in the worktree"
 ok("the first tool call copies the contract into the worktree, so the worker's selfcheck finds it")
 

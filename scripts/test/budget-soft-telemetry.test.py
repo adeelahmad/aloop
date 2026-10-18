@@ -57,7 +57,7 @@ story = os.path.join(T, "docs", "agents", "sprint1", "s1-01-x")
 os.makedirs(story)
 open(os.path.join(story, "tasks.md"), "w").write("## T1 — x\n")
 wt = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T1")
-open(os.path.join(wt, ".agentic", "task.env"), "w").write(
+open(os.path.join(wt, ".aladdin", "task.env"), "w").write(
     "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\n"
     "BUDGET_TOKENS_SOFT=100000\nBUDGET_TOKENS_HARD=400000\n" % story)
 
@@ -85,10 +85,10 @@ assert "HARD BUDGET" in call("w1", wt, 400000)
 ok("hard-limit behaviour unchanged")
 
 # 5) the soft TIME limit still warns (graceful wrap-up stays for time)
-open(os.path.join(wt, ".agentic", "task.env"), "a").write("BUDGET_TIME_SOFT_MIN=0\n")
+open(os.path.join(wt, ".aladdin", "task.env"), "a").write("BUDGET_TIME_SOFT_MIN=0\n")
 call("w1", wt, 1, mode="stop")
 os.remove(os.path.join(T, ".aladdin", "budget", "w1.json"))
-os.remove(os.path.join(wt, ".agentic", "budget-exceeded"))
+os.remove(os.path.join(wt, ".aladdin", "budget-exceeded"))   # a fresh project: markers live in .aladdin/
 out = call("w2", wt, 1000)
 assert "SOFT TIME LIMIT" in out and state("w2")["soft_warned"], out
 ok("soft time limit still tells the worker to wrap up")

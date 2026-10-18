@@ -187,5 +187,5 @@ MIT — see `LICENSE`.
   (role-scoped) into each `init.md` `# Memory` section.
 - The gates read their per-task contract (`TASK_ID`, `SCOPE_GLOBS`, `SCAFFOLD_SYMBOLS`,
   `BASE_REF`, `BUDGET_*`) from `.agentic/state/tasks/<TASK_ID>.env` in the main tree,
-  written by the supervisor before dispatch (a worktree `.agentic/task.env` must match it). `.agentic/` and `.transcripts/` are git-ignored and never
+  written by the supervisor before dispatch (a worktree `.aladdin/task.env`, or `.agentic/` in a legacy project, must match it). `.agentic/` and `.transcripts/` are git-ignored and never
   merged.

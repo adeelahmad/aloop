@@ -125,4 +125,29 @@ r = subprocess.run([os.path.join(BIN, "gate-dispatch")], cwd=C, input=payload2, 
 assert r.returncode == 2 and ".aladdin/state/tasks/T9.env" in r.stderr, (r.returncode, r.stderr)
 ok("the task contract is found in .aladdin/ or .agentic/ (bash, python, gate-dispatch); a missing one is named at the live dir")
 
+# 7) worktree-local markers: written to the worktree's .aladdin/ (guarded) in a fresh project, to
+#    .agentic/ in a legacy one; a legacy .agentic/task.env in a worktree is still read (bind, selfcheck, gatelib)
+W = fresh()
+subprocess.run(["git", "-C", W, "commit", "-q", "--allow-empty", "-m", "init"], check=True, env=dict(os.environ, GIT_AUTHOR_NAME="A", GIT_AUTHOR_EMAIL="a@a", GIT_COMMITTER_NAME="A", GIT_COMMITTER_EMAIL="a@a"))
+assert run(W, os.path.join(BIN, "task-worktree"), "add", "T1").returncode == 0
+wt = os.path.join(W, ".aladdin", "worktrees", "T1")
+assert os.path.isdir(wt), "task worktree under .aladdin/worktrees"
+py = 'import sys; sys.path.insert(0, "%s"); import _paths; print(_paths.marker_dir("%s")); print(_paths.marker("%s", "task.env"))' % (BIN, wt, wt)
+out = run(W, "python3", "-c", py).stdout.split()
+assert out == [os.path.join(wt, ".aladdin"), os.path.join(wt, ".aladdin", "task.env")], out
+assert os.path.isfile(os.path.join(wt, ".aladdin", ".gitignore")), "marker dir guarded"
+open(os.path.join(wt, ".aladdin", "scaffold-symbols"), "w").write("Foo\n")
+assert ".aladdin" not in run(W, "git", "-C", wt, "status", "--porcelain", "--untracked-files=all").stdout, "markers never reach the task's diff"
+os.makedirs(os.path.join(wt, ".agentic"), exist_ok=True)
+open(os.path.join(wt, ".agentic", "task.env"), "w").write("TASK_ID=T1\nATTEMPT=1\nAGENT_ROLE=green-worker\n")
+assert run(W, "python3", "-c", py).stdout.split()[-1] == os.path.join(wt, ".agentic", "task.env"), "legacy marker read first"
+r = run(W, os.path.join(BIN, "bind"), wt)
+assert r.returncode == 0 and "AGENT_ROLE=green-worker" in r.stdout, r
+sh = run(W, "bash", "-c", 'cd "%s" && . "%s/_paths.sh" && agentic_marker "$PWD" task.env && agentic_marker "$PWD" budget-exceeded; echo "rc=$?"; agentic_marker_dir "$PWD"' % (wt, BIN)).stdout.split()
+assert sh == [os.path.join(wt, ".agentic", "task.env"), os.path.join(wt, ".aladdin", "budget-exceeded"), "rc=1", os.path.join(wt, ".aladdin")], sh
+L2 = fresh()
+os.makedirs(os.path.join(L2, ".agentic", "logs"))
+assert run(L2, "python3", "-c", 'import sys; sys.path.insert(0, "%s"); import _paths; print(_paths.marker_dir("%s"))' % (BIN, L2)).stdout.strip() == os.path.join(L2, ".agentic")
+ok("worktree markers go to .aladdin/ (guarded), .agentic/ in a legacy project; a legacy .agentic/task.env is still read")
+
 print("\n%d checks passed" % PASS[0])

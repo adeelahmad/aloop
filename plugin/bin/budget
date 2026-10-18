@@ -16,13 +16,13 @@ each with a SOFT and a HARD limit:
                    PreToolUse call is denied). It is NOT asked to narrate: the harness
                    appends the `status: re-plan` block to output.md itself from facts it
                    owns (limits, worktree diff, transcript path) — no model tokens are
-                   spent after the stop (ROADMAP §3.5). A `.agentic/budget-exceeded`
+                   spent after the stop (ROADMAP §3.5). A `<worktree>/.aladdin/budget-exceeded`
                    marker lets its SubagentStop gate release it, and `budget watch` tells
                    the supervisor to TaskStop it if the hook could not. The task is NOT retried — it goes back to the planner
                    to be split (SKILL.md "Budget overrun -> mid-sprint re-plan").
 
 Resolution order (first set wins):  per-task `budget:` line in tasks.md  >
-    BUDGET_* in the worktree's .agentic/task.env  >  docs/agents/defaults.md  >  built-ins.
+    BUDGET_* in the worktree's task.env copy  >  docs/agents/defaults.md  >  built-ins.
 
 Usage:
   budget resolve [--tasks FILE --task Tn] [--worktree WT]   the resolved BUDGET_* lines + their source
@@ -184,13 +184,13 @@ def copy_contract(cwd, top, task_id):
     worktree at dispatch, so no one could write it before), so `selfcheck` there finds the
     task. The gates compare the copy with the contract, so editing it gains nothing."""
     src = _paths.contract_path(cwd, task_id)
-    dst = os.path.join(top, ".agentic", "task.env")
     if not os.path.isfile(os.path.join(top, ".git")) or not os.path.isfile(src):
         return
+    dst = _paths.marker(top, "task.env")
     if os.path.exists(dst) and os.path.getmtime(dst) >= os.path.getmtime(src):
         return                                  # current (a re-dispatch rewrites the contract: refresh)
     try:
-        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        _paths.marker_dir(top)
         shutil.copyfile(src, dst)
     except OSError:
         pass
@@ -219,12 +219,12 @@ ABS_PATH = re.compile(r"(?:^|[\s'\"=:(])(/[^\s'\";&|)]+)")
 
 
 def _task_worktree_of(path, project):
-    """The linked worktree (of THIS repo) that contains `path` and carries .agentic/task.env."""
+    """The linked worktree (of THIS repo) that contains `path` and carries a task.env marker."""
     d = path if os.path.isdir(path) else os.path.dirname(path)
     for _ in range(40):
         if not d or d == os.path.dirname(d):
             return ""
-        if os.path.isfile(os.path.join(d, ".git")) and os.path.isfile(os.path.join(d, ".agentic", "task.env")):
+        if os.path.isfile(os.path.join(d, ".git")) and os.path.isfile(_paths.marker(d, "task.env")):
             return d if os.path.realpath(_paths.project(d)) == os.path.realpath(project) else ""
         if os.path.isdir(os.path.join(d, ".git")):
             return ""                                   # reached the main tree
@@ -283,8 +283,8 @@ def find_worktree(payload, cwd, agent_id, role):
         return top, "cwd (host worktree)"      # Claude Code's isolation worktree has no task.env
     claimed = claimed_worktrees(cwd, agent_id)
     mine = []
-    for te in glob.glob(os.path.join(_paths.home(project, "worktrees", make=False), "*", ".agentic", "task.env")) + \
-            [os.path.join(w, ".agentic", "task.env") for w in _worktree_list(project)]:
+    for te in [_paths.marker(w, "task.env") for w in glob.glob(os.path.join(_paths.home(project, "worktrees", make=False), "*"))] + \
+            [_paths.marker(w, "task.env") for w in _worktree_list(project)]:
         w = os.path.dirname(os.path.dirname(te))
         if w in claimed or w in [m for m in mine] or not os.path.isfile(te):
             continue
@@ -558,7 +558,7 @@ def hook(mode):
         return
 
     def resolve_for(top):
-        env = read_kv(os.path.join(top, ".agentic", "task.env"))
+        env = read_kv(_paths.marker(top, "task.env"))
         # the supervisor's contract wins over the worker-editable worktree copy (M0.7)
         sup = contract(cwd, host_tid or env.get("TASK_ID", ""))
         if sup:
@@ -586,7 +586,7 @@ def hook(mode):
         if st.get("hard") and not st.get("hook_killed"):
             st.update({"hard": False, "denials": 0})       # it was judged against the wrong budget
             try:
-                os.remove(os.path.join(old_top, ".agentic", "budget-exceeded"))
+                os.remove(_paths.marker(old_top, "budget-exceeded"))
             except OSError:
                 pass
     if wt:
@@ -618,8 +618,7 @@ def hook(mode):
     if over_hard and not st["hard"]:
         st["hard"] = now
         try:
-            os.makedirs(os.path.join(top, ".agentic"), exist_ok=True)
-            with open(os.path.join(top, ".agentic", "budget-exceeded"), "w") as f:
+            with open(os.path.join(_paths.marker_dir(top), "budget-exceeded"), "w") as f:
                 f.write("role=%s attempt=%s agent_id=%s at=%d %s\n" % (role, st["attempt"], agent_id, now, left))
         except OSError:
             pass
@@ -1006,7 +1005,7 @@ def main(argv):
         return 0
     if cmd == "resolve":
         wt = opts.get("worktree") or sh("git", "rev-parse", "--show-toplevel") or cwd
-        env = read_kv(os.path.join(wt, ".agentic", "task.env"))
+        env = read_kv(_paths.marker(wt, "task.env"))
         b, src = resolve(cwd, opts.get("tasks"), opts.get("task"), env, with_source=True)
         for k in ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN"):
             print("BUDGET_%s=%d" % (k, b[k]))

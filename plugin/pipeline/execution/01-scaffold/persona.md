@@ -47,6 +47,6 @@ GREEN. Scaffolding is safe to repeat.
 
 ## Scaffold-symbols + shim marker (v0.2)
 - Remove only items carrying `// agentic:shim` (not every `mod common`).
-- Write the production symbols you stubbed, one per line, to `.agentic/scaffold-symbols`
+- Write the production symbols you stubbed, one per line, to `.aladdin/scaffold-symbols` in your worktree (`.agentic/scaffold-symbols` in a project that still keeps its run data there; the gate reads either)
   in the worktree — that file (not the test paths in plan-ready.md) is what
   gate-scaffold-verify checks for `count==1` + the SUB-AGENT-TODO panic.

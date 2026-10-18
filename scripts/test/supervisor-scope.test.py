@@ -67,13 +67,14 @@ assert r.returncode == 0, r
 ok("a dispatched sub-agent may write source (its own gate constrains it)")
 
 # The task contract is the supervisor's (M0.7): a worker may not write it, in the main tree or its worktree.
-for path in (".aladdin/state/tasks/S1-01-T1.env", ".agentic/task.env", ".aladdin/state/agents/a1.json"):
+for path in (".aladdin/state/tasks/S1-01-T1.env", ".agentic/task.env", ".aladdin/task.env", ".aladdin/state/agents/a1.json"):
     r = run(path, agent_type="aloop:green-worker")
     assert r.returncode == 2 and "task contract" in r.stderr, (path, r)
 ok("a sub-agent may not write the task contract or the supervisor's state")
-r = run(".agentic/scaffold-symbols", agent_type="aloop:red-worker")
-assert r.returncode == 0, r
-ok("a sub-agent may still write its own .agentic/ files (scaffold-symbols)")
+for path in (".aladdin/scaffold-symbols", ".agentic/scaffold-symbols"):
+    r = run(path, agent_type="aloop:red-worker")
+    assert r.returncode == 0, (path, r)
+ok("a sub-agent may still write its own worktree markers (scaffold-symbols, in .aladdin/ or .agentic/)")
 
 
 
@@ -85,7 +86,7 @@ def bash(cmd, agent_type="aloop:green-worker"):
 for cmd in ("echo SCOPE_GLOBS=* >> .agentic/task.env",
             "sed -i 's/BUDGET_TOKENS_HARD=.*/BUDGET_TOKENS_HARD=9999999/' /repo/.aladdin/state/tasks/S1-01-T1.env",
             "cp /tmp/x .aladdin/state/tasks/S1-01-T1.env",
-            "printf 'x' | tee .agentic/task.env"):
+            "printf 'x' | tee .agentic/task.env", "echo ATTEMPT=9 > .aladdin/task.env"):
     r = bash(cmd)
     assert r.returncode == 2 and "task contract" in r.stderr, (cmd, r)
 ok("a sub-agent may not rewrite the task contract through Bash")

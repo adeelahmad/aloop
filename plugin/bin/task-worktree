@@ -12,7 +12,7 @@
 #                                            host's worktree-agent-<id>; a raw `git merge` there
 #                                            leaves the commits untraceable (live e2e run 14).
 #
-# Worktrees live at <project>/.agentic/worktrees/<TASK_ID> on branch agentic/<TASK_ID> —
+# Worktrees live at <run-data>/worktrees/<TASK_ID> on branch agentic/<TASK_ID> —
 # inside the git-ignored run-data dir, same fixed layout on every host (_paths.sh).
 # The worker binds to it with its first command:  aloop bind <path>
 set -uo pipefail
@@ -35,7 +35,7 @@ case "$cmd" in
     fi
     printf '{"cwd":"%s"}' "$wt" | "$HERE/worktree-hygiene" >/dev/null 2>&1 || true
     git -C "$wt" rev-parse HEAD > "$AGENTIC_HOME/worktrees/.$task.base" 2>/dev/null || true
-    mkdir -p "$wt/.agentic"
+    agentic_marker_dir "$wt" >/dev/null       # the worktree's marker dir (.aladdin/, guarded; .agentic/ in a legacy project)
     "$HERE/events" emit worktree.created --task "$task" --ref "worktree=$wt" --data "branch=agentic/$task" >/dev/null 2>&1 || true
     echo "$wt" ;;
   path) [ -e "$wt/.git" ] && echo "$wt" ;;

@@ -68,6 +68,8 @@ def env(key, default=None):
 NEW_HOME, OLD_HOME = ".aladdin", ".agentic"
 RUN_DIRS = ("transcripts", "budget", "ledger", "logs", "state", "host", "worktrees")
 GUARD = "# aloop run data (transcripts, budgets, ledger, logs, state) — never committed\n*\n!.gitignore\n!config.yaml\n"
+# a worker worktree's marker dir ignores itself too: nothing there may reach the task's diff
+WT_GUARD = "# aloop worktree markers — never committed\n*\n"
 
 
 def home_name(root):
@@ -122,6 +124,39 @@ def contract_path(cwd, task_id):
         if os.path.isfile(f):
             return f
     return first
+
+
+# Worktree-local markers (task.env copy, budget-exceeded, scaffold-symbols): written to
+# .aladdin/ in the worker's worktree (guarded like the main tree's), or .agentic/ in a
+# legacy project; read from either, so hosts and older sprints that still write
+# .agentic/<marker> are understood.
+MARKERS = ("task.env", "budget-exceeded", "scaffold-symbols")
+
+
+def marker_dir(top, make=True):
+    """Where a worktree's markers are written."""
+    if home_name(project(top)) == OLD_HOME:
+        d = os.path.join(top, OLD_HOME)
+    else:
+        d = os.path.join(top, NEW_HOME)
+    if make:
+        try:
+            os.makedirs(d, exist_ok=True)
+            if d.endswith(NEW_HOME) and not os.path.isfile(os.path.join(d, ".gitignore")):
+                with open(os.path.join(d, ".gitignore"), "w") as f:
+                    f.write(WT_GUARD)
+        except OSError:
+            pass
+    return d
+
+
+def marker(top, name):
+    """The marker's path: an existing .aladdin/<name> or .agentic/<name>, else where it would be written."""
+    for h in (NEW_HOME, OLD_HOME):
+        f = os.path.join(top, h, name)
+        if os.path.isfile(f):
+            return f
+    return os.path.join(marker_dir(top, make=False), name)
 
 
 def home_rel(cwd=None, *parts):
