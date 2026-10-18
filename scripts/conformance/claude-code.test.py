@@ -395,6 +395,35 @@ results.append((9, "budget watch reports the stuck release once as a STUCK line"
 r = subprocess.run([os.path.join(BIN, "budget"), "watch", "--interval", "1", "--grace", "1"], cwd=MAIN, env=ENV, capture_output=True, text=True)
 results.append((9, "a reported stuck release is not reported again", "STUCK" not in r.stdout, r.stdout.strip()[:140]))
 
+# §6.7 Structural review: a stale host worktree checkout inside the main tree (Claude Code keeps
+# them under .claude/worktrees/agent-<id>/) duplicates every symbol of main; it is a workspace
+# artifact, not a defect (live e2e run 12: 20 false HIGH halts). A real duplicate still halts.
+wt = worktree("structural-reviewer")
+report("structural-reviewer", [("structural review", "PASS")])
+stale = os.path.join(MAIN, ".claude", "worktrees", "agent-a1b2c3", "src", "lib.rs")
+write(stale, open(os.path.join(MAIN, "src", "lib.rs")).read())
+case(7, "a stale worktree checkout under .claude/worktrees is not a duplicate definition", "gate-structural-integrity", wt, 0)
+write(os.path.join(wt, "src", "dup.rs"), "pub fn sub(a: i32, b: i32) -> i32 {\n    a - b\n}\n")
+commit(wt, "dup")
+case(7, "a real duplicate definition in the reviewed tree halts the chain (HIGH)", "gate-structural-integrity", wt, 2, "HIGH")
+rc1 = gate("gate-structural-integrity", wt)[0]
+rc, lines = gate("gate-structural-integrity", wt)
+results.append((9, "a reviewer blocked 3x on the same HIGH finding is released unverified (it cannot fix code)",
+                rc1 == 2 and rc == 0 and any("STUCK" in l for l in lines), "exits %d then %d" % (rc1, rc)))
+shutil.rmtree(os.path.join(MAIN, ".claude"), ignore_errors=True)
+sh("git", "worktree", "remove", "--force", wt)
+# ...and a reviewer whose OWN worktree is a host checkout under .claude/worktrees/ is still scanned:
+# the exclusion applies below the walk root, never to the root itself.
+hostwt = os.path.join(MAIN, ".claude", "worktrees", "agent-f00dbabe")
+sh("git", "worktree", "add", "-q", "-b", "agentic/hostwt", hostwt)
+write(os.path.join(hostwt, ".agentic", "task.env"),
+      "TASK_ID=S1-SR-W9\nATTEMPT=1\nAGENT_ROLE=structural-reviewer\nSTORY_DIR=%s\nBASE_REF=main\n" % STORY)
+write(os.path.join(hostwt, "src", "dup.rs"), "pub fn sub(a: i32, b: i32) -> i32 {\n    a - b\n}\n")
+commit(hostwt, "dup in a host checkout")
+case(7, "a real duplicate inside a reviewer's own .claude/worktrees checkout still halts (HIGH)", "gate-structural-integrity", hostwt, 2, "HIGH")
+sh("git", "worktree", "remove", "--force", hostwt)
+shutil.rmtree(os.path.join(MAIN, ".claude"), ignore_errors=True)
+
 # FINAL: every test the story's plan.md names must exist on main. A RED re-plan that drops a
 # planned test otherwise loses coverage silently (live e2e run 6), since plan-ready.md only
 # lists what RED actually wrote.
