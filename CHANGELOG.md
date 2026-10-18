@@ -23,6 +23,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Changed
+- **The README is tested** (`scripts/test/readme.test.py`, in `make test-hosts`): the §4.11 section
+  order, every `aloop <tool>` / `aladdin <sub>` it names exists, the install lines name this
+  repo's plugin and marketplace, every relative link resolves, and every demo time/cost figure
+  is one ROADMAP §0 records. Reason: the README was the last §4.11 row without a test.
 - **Workers append their `output.md` block before `selfcheck`** (RED/SCAFFOLD/GREEN personas,
   agents and pipeline sources). Reason: the soft-limit line said "run selfcheck, append your
   report", so workers self-checked first and were blocked for a missing report block: 4 of
