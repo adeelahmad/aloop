@@ -8,9 +8,21 @@ GATE_NAME="gate-stage2-complete"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${CLAUDE_PLUGIN_ROOT:=$(cd "$HERE/.." && pwd)}"
 
+# The sprint being gated is the one the caller names: arg 1, else SPRINT_DIR, else the
+# sprint that owns STORY_DIR. Only the SubagentStop hook (no args, no env) falls back to
+# the sprint whose planning artifacts were written last — never `sort | tail -1`, which
+# picks a later sprint while an earlier one is being re-planned.
 sprint_dir="${1:-${SPRINT_DIR:-}}"
+[ -z "$sprint_dir" ] && [ -n "${STORY_DIR:-}" ] && sprint_dir="$(dirname "$STORY_DIR")"
+if [ -n "$sprint_dir" ] && [ ! -d "$sprint_dir" ]; then
+  echo "BLOCK[$GATE_NAME]: sprint dir '$sprint_dir' does not exist" >&2; exit 2
+fi
 if [ -z "$sprint_dir" ]; then
-  sprint_dir="$(find . -maxdepth 5 -type d -name 'sprint*' 2>/dev/null | sort | tail -1)"
+  newest="$(find . -maxdepth 7 -path '*/sprint[0-9]*/*' -type f \
+              \( -name stories.md -o -name plan.md -o -name tasks.md -o -name validate.md \) \
+              -print0 2>/dev/null | xargs -0 ls -1t 2>/dev/null | head -1)"
+  [ -n "$newest" ] && sprint_dir="$(printf '%s\n' "$newest" | sed -E 's#^(.*/sprint[0-9]+)/.*#\1#')"
+  [ -n "$sprint_dir" ] && echo "[$GATE_NAME] no sprint dir passed; gating the most recently planned: $sprint_dir" >&2
 fi
 if [ -z "$sprint_dir" ] || [ ! -d "$sprint_dir" ]; then
   echo "WARN[$GATE_NAME]: no sprint dir found; stage-2 check skipped (weaker)" >&2; exit 0
@@ -24,6 +36,7 @@ fi
 
 # 2) Every SN-NN story in stories.md has a dir with tasks.md + validate.md + plan.md.
 stories="$sprint_dir/stories.md"
+story_dirs=""
 if [ -f "$stories" ]; then
   ids="$(grep -oE 'S[0-9]+-[0-9]+' "$stories" | sort -u)"
   for id in $ids; do
@@ -31,6 +44,7 @@ if [ -f "$stories" ]; then
     lc="$(echo "$id" | tr 'A-Z' 'a-z')"          # s1-01
     dir="$(find "$sprint_dir" -maxdepth 1 -type d -name "${lc}-*" | head -1)"
     [ -n "$dir" ] || { echo "BLOCK[$GATE_NAME]: no story dir for $id" >&2; exit 2; }
+    story_dirs="$story_dirs$dir"$'\n'
     for f in tasks.md validate.md plan.md; do
       [ -f "$dir/$f" ] || { echo "BLOCK[$GATE_NAME]: $id missing $f" >&2; exit 2; }
     done
@@ -64,9 +78,32 @@ if [ -n "$this_n" ]; then
   fi
 fi
 
-# 4) Structural validation via md-db (fallback to frontmatter check).
+# 4) Structural validation via md-db (fallback to frontmatter check), scoped to the
+#    planning artifacts: the sprint root's docs plus every doc in the dirs of the stories
+#    in stories.md. Framework docs that also live in sprint dirs are not planning
+#    artifacts and are excluded BY TYPE, from this explicit list only — any other type
+#    (including a missing or unknown one) is still validated and rejected by the schema.
+FRAMEWORK_DOC_TYPES="init output intake standards retro"
+doc_type() {  # frontmatter `type:` value, or empty when there is no frontmatter / no type
+  awk 'NR==1 && $0!="---" {exit} NR>1 && $0=="---" {exit}
+       NR>1 && /^type:/ {sub(/^type:[ \t]*/, ""); gsub(/["\047 \t\r]/, ""); print; exit}' "$1"
+}
+planning_docs() {
+  local f t d
+  { find "$sprint_dir" -maxdepth 1 -type f -name '*.md'
+    while IFS= read -r d; do [ -n "$d" ] && find "$d" -type f -name '*.md'; done <<< "$story_dirs"
+  } | sort -u | while IFS= read -r f; do
+    t="$(doc_type "$f")"
+    if [ -n "$t" ]; then
+      case " $FRAMEWORK_DOC_TYPES " in *" $t "*) continue ;; esac
+    fi
+    printf '%s\n' "$f"
+  done
+}
 if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1; then
-  md-db validate "$sprint_dir" --schema "${CLAUDE_PLUGIN_ROOT}/schemas/planning-artifacts.kdl" \
+  docs="$(planning_docs)"
+  [ -n "$docs" ] || { echo "BLOCK[$GATE_NAME]: no planning artifacts found in $sprint_dir" >&2; exit 2; }
+  printf '%s\n' "$docs" | md-db validate --stdin-list --schema "${CLAUDE_PLUGIN_ROOT}/schemas/planning-artifacts.kdl" \
     || { echo "BLOCK[$GATE_NAME]: md-db rejected $sprint_dir" >&2; exit 2; }
 else
   echo "WARN[$GATE_NAME]: md-db absent; structural validation limited to dir/frontmatter checks" >&2

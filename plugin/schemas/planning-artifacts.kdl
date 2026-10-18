@@ -3,6 +3,9 @@
 // have none today). Adding frontmatter is a DECISION — see SCHEMA-NOTES.md.
 // md-db validates frontmatter + the FIXED sections below. The dynamic
 // `## Tn — Title` headings are validated by bin/gate-plan-shape (grep), NOT here.
+// Framework docs that share the sprint dirs (init, output, intake, standards, retro)
+// are not planning artifacts: bin/gate-stage2-complete excludes exactly those types
+// (FRAMEWORK_DOC_TYPES) before validating; every other type must match below.
 
 type "stories" {
     field "type"   type="string" required=#true                     // "stories"

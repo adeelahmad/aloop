@@ -2,7 +2,7 @@
 # selfcheck — run THIS activity's gate as a pre-flight check, BEFORE you report done.
 # It runs the exact script the SubagentStop hook will run, so a PASS here means the
 # hook will pass too. Run it, read the reason, fix, re-run until PASS.
-#   selfcheck [role]       role defaults to $AGENT_ROLE (from .agentic/task.env)
+#   selfcheck [role] [args]  role defaults to $AGENT_ROLE (from .agentic/task.env); args go to the gate
 #   selfcheck --help
 # EXIT: 0 = PASS (safe to report done) · 2 = FAIL (fix and re-run) · 64 = unknown role
 set -uo pipefail
@@ -16,6 +16,7 @@ case "${1:-}" in
 esac
 
 role="${1:-${AGENT_ROLE:-}}"
+[ $# -gt 0 ] && shift          # any further args go to the gate (e.g. the planner's sprint dir)
 case "$role" in
   red-worker)          gate=gate-red-verify ;;
   scaffolder)          gate=gate-scaffold-verify ;;
@@ -32,7 +33,7 @@ esac
 
 export AGENTIC_SELFCHECK=1     # gates log this run as a self-check, and never close a sprint
 echo "self-check: running $gate ..."
-if "$HERE/$gate"; then
+if "$HERE/$gate" "$@"; then
   echo "SELF-CHECK PASS — $gate is green; safe to report done."
   exit 0
 else

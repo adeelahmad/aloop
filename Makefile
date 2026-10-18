@@ -92,9 +92,11 @@ json: ## Validate plugin.json + marketplace.json
 lint: clippy shellcheck pycheck json ## Run all linters
 
 .PHONY: test
-test: ## Run ctx-symbols + md-db unit tests
+test: ## Run ctx-symbols + md-db unit tests, then the md-db-backed gate regression
 	cd $(CTX) && cargo test --all-targets
 	cd $(MDDB) && cargo test --release
+	cd $(MDDB) && cargo build --release
+	python3 scripts/test/gate-stage2.test.py
 
 .PHONY: validate
 validate: json ## claude plugin validate --strict
