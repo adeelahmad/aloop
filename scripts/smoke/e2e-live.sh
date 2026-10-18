@@ -73,6 +73,10 @@ check "SubagentStop gates ran on the host (not only workers' self-checks)" \
   'grep -q "\"selfcheck\":false" .agentic/logs/gates.jsonl 2>/dev/null'
 check "final gate passed" 'grep -q "\"gate\":\"gate-final\".*\"exit\":0" .agentic/logs/gates.jsonl 2>/dev/null'
 check "no hook crashed" '! grep -q "the gate itself failed" "$T/out.jsonl"'
+# Auditable: every commit the run merged traces back to its task from the event stream alone
+# (ROADMAP §4.7). `init` and `aloop init` are the two seed commits.
+untraced=0; for sha in $(git log --no-merges --format=%H HEAD | head -n -2); do "$PLUGIN/bin/events" trace "$sha" >/dev/null 2>&1 || untraced=$((untraced + 1)); done
+check "every merged commit traces to its task (events trace)" '[ "$untraced" -eq 0 ]'
 
 python3 - "$T/out.jsonl" "$secs" <<'PY'
 import json, sys
