@@ -96,7 +96,7 @@ These parts already exist but their semantics must change:
 
    Replacement tasks must fit the normal time and token budgets, and vertical slices are preferred.
 5. **No post-kill narration.** ✅ *Done (Unreleased): the hook stops the worker on the crossing call and the harness writes the `status: re-plan` block. Test: `scripts/test/budget-hard-stop.test.py`.* After the hard stop, no model tokens are spent asking the worker for a report.
-6. **Abstract model routes.** Roles map to `strongest | strong | economical`, and each host resolves those to concrete IDs.
+6. **Abstract model routes.** ✅ *Done (Unreleased): `bin/models` + `plugin/hosts/routes.json`; `AGENTIC_MODEL_*` default to routes; `aloop install` renders the host's id. Test: `scripts/test/model-routes.test.py`.* Roles map to `strongest | strong | economical`, and each host resolves those to concrete IDs.
 
 ## 4. New work
 
@@ -227,7 +227,7 @@ Results carry source refs and are attached to planning provenance. An unavailabl
 
 ### 4.9 Portable host core
 
-- **Extract a `HostAdapter` interface:**
+- ✅ *Done (Unreleased): `_host.py` + `bin/host` (Claude reference, Codex and OpenCode adapters; `host check` runs in CI). Test: `scripts/test/host-adapter.test.py`.* **Extract a `HostAdapter` interface:**
   - `Capabilities`
   - `Spawn` / `Wait` / `Send` / `Cancel`
   - `Subscribe`
@@ -240,8 +240,8 @@ Results carry source refs and are attached to planning provenance. An unavailabl
   Claude Code is the reference implementation, and Codex and OpenCode become adapters behind it.
 - ✅ *Usage reporting done (Unreleased): classes apart, `accuracy` + `unreported` per attempt. Test: `scripts/test/budget-meter.test.py`.* **Usage reporting** distinguishes fresh input, output, cache read, cache write and current context against the context window. Estimated counts are marked `estimated`.
 - **A host capability matrix** covering usage, compaction, live messaging (for the time soft-stop), lifecycle and gate blocking.
-- **Gate equivalence:** if a host cannot block natively, the outer controller enforces it. Never downgrade BLOCK to WARN.
-- **A portable project config** in `.aladdin/config.yaml` (budgets, context, semantic, models, provenance, memory), replacing `docs/agents/defaults.md` with a migration path.
+- ✅ *Done (Unreleased): `enforce_gate` is `native` or `outer`; `host check` fails on anything else.* **Gate equivalence:** if a host cannot block natively, the outer controller enforces it. Never downgrade BLOCK to WARN.
+- ✅ *Done (Unreleased): `bin/config` migrate/sync/check/show; config.yaml is authoritative, defaults.md is rendered from it. Test: `scripts/test/portable-config.test.py`.* **A portable project config** in `.aladdin/config.yaml` (budgets, context, semantic, models, provenance, memory), replacing `docs/agents/defaults.md` with a migration path.
 - **Host swap:** a sprint started on one host resumes on another from portable state.
 
 ### 4.10 Metrics

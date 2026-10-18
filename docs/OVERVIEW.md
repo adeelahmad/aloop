@@ -79,7 +79,8 @@ The model can ignore a skill; it cannot ignore an exit code.
 
 | Artifact | Scope | Purpose |
 |---|---|---|
-| `docs/agents/defaults.md` | project | Limits, models, author — set at init |
+| `.aladdin/config.yaml` | project | The portable config (budgets, context, semantic, models, provenance, git); authoritative when present (`aloop config migrate`) |
+| `docs/agents/defaults.md` | project | Limits, models, author — set at init, or rendered from `.aladdin/config.yaml` |
 | `docs/agents/memory.md` | project | Lessons promoted by the retrospective; injected into contracts |
 | `stories.md`, `sprintN/plan.md` | sprint | Stage-1 contract |
 | `sN-NN-<slug>/{tasks,validate,plan}.md` | story | Stage-2 plan |

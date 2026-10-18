@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""host — the HostAdapter behind every host (ROADMAP §4.9).
+
+Usage:
+  host describe [--host H] [--json]   the adapter's contract: capabilities, dispatch vocabulary
+                                      (spawn/wait/send/cancel/subscribe), context boundary,
+                                      worktree isolation, gate install/enforcement, tool policy,
+                                      resolved models
+  host check                          every adapter implements the whole interface and enforces
+                                      gates natively or from outside — never as a warning (exit 2
+                                      otherwise). Run by make test-hosts.
+  host worktree create|remove|diff TASK_ID   the worktree seam through the adapter
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _host  # noqa: E402
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    cwd = os.getcwd()
+    name = argv[argv.index("--host") + 1] if "--host" in argv[:-1] else None
+    try:
+        a = _host.adapter(name)
+    except ValueError as e:
+        print("host: %s" % e, file=sys.stderr)
+        return 64
+    if argv[0] == "describe":
+        d = a.describe(cwd)
+        if "--json" in argv:
+            print(json.dumps(d))
+            return 0
+        print("host: %s" % d["host"])
+        for k, v in d.items():
+            if k == "host":
+                continue
+            print("  %-16s %s" % (k, json.dumps(v) if isinstance(v, (dict, list)) else v))
+        return 0
+    if argv[0] == "check":
+        bad = 0
+        for n, cls in sorted(_host.ADAPTERS.items()):
+            missing = _host.conforms(cls)
+            mode = cls.ENFORCE_GATE
+            if missing or mode not in ("native", "outer"):
+                bad += 1
+                print("BLOCK[host]: %s: missing %s; enforce_gate=%r" % (n, ", ".join(missing) or "nothing", mode), file=sys.stderr)
+            else:
+                print("%-9s interface complete · gates enforced: %s" % (n, mode))
+        return 2 if bad else 0
+    if argv[0] == "worktree" and len(argv) >= 3:
+        op, task = argv[1], argv[2]
+        try:
+            if op == "create":
+                print(a.worktree_create(task, cwd))
+            elif op == "remove":
+                a.worktree_remove(task, cwd)
+            elif op == "diff":
+                print("\n".join(a.worktree_diff(task, cwd)))
+            else:
+                return 64
+        except RuntimeError as e:
+            print("host: %s" % e, file=sys.stderr)
+            return 1
+        return 0
+    print("host: unknown command (see host --help)", file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

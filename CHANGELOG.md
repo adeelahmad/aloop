@@ -50,6 +50,25 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   overrides it (`breach:` line) and acts per class (SKILL.md "Breach classes").
 
 ### Added
+- **Portable project config** (ROADMAP §4.9). `.aladdin/config.yaml` (budgets, context,
+  semantic, models, provenance, memory, git, plus per-role budget profiles) replaces
+  `docs/agents/defaults.md` as the human's file. `aloop config migrate` writes it from the
+  current settings; when it exists it is authoritative and defaults.md is rendered from it
+  (`config sync`, run by SessionStart and `aloop-init --apply`), so the bash gates read the
+  same values. `config check` refuses unknown sections, keys, bad numbers and schema.
+- **The `HostAdapter` interface** (ROADMAP §4.9). `_host.py` names, per host, the one place
+  the harness does each thing: capabilities, the dispatch vocabulary (spawn / wait / send /
+  cancel / subscribe), model and transcript resolution, usage and context pressure,
+  compact / rotate, the worktree seam, gate install and enforcement, tool policy. Claude
+  Code is the reference; Codex and OpenCode are adapters. `aloop host describe` prints the
+  contract, `host check` (in `make test-hosts`) fails if an adapter is incomplete or would
+  enforce a gate as a warning. What a host lacks raises `Unsupported`; nothing is faked.
+- **Abstract model routes** (ROADMAP §3.6). Roles map to `strongest | strong | economical`
+  and each host resolves the route to its own id (`plugin/hosts/routes.json`; Codex: the
+  session's model). `AGENTIC_MODEL_PLANNING` / `AGENTIC_MODEL_WORKER` default to
+  `strongest` / `strong`; a pinned id still passes through. `aloop models resolve` is what
+  the supervisor passes on dispatch and what `aloop install` renders; `--json` makes the
+  route observable (conformance 18).
 - **Sprint token envelope and admission control** (ROADMAP §4.2). `budget admit <task>`
   runs before each dispatch. At `SPRINT_TOKENS_SOFT` it prints one rollover warning, and
   at `SPRINT_TOKENS_HARD` admission closes (exit 3). Refused tasks are carried over in

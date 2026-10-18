@@ -27,8 +27,9 @@ DEFAULTS = {
     "CONTEXT_BOUNDARY": "rotate",
     # optional cross-project impact provider (ROADMAP §4.8): a command, empty = none
     "IMPACT_PROVIDER": "",
-    "MODEL_PLANNING": "claude-opus-5-5",
-    "MODEL_WORKER": "sonnet",
+    # a ROUTE (strongest | strong | economical, resolved per host by bin/models) or a pinned id
+    "MODEL_PLANNING": "strongest",
+    "MODEL_WORKER": "strong",
     "GITIGNORE": "yes",
     "TRACK_DOCS": "no",
     "COMMIT_AUTHOR_NAME": "",
@@ -101,4 +102,12 @@ def settings(cwd=None):
                         vals[k] = v
         except OSError:
             pass
+    import _config  # the portable config (.aladdin/config.yaml) wins when it exists
+    for k, v in (_config.load(cwd) or {}).items():
+        if k in DEFAULTS:
+            if k in NUMERIC:
+                if str(v).isdigit():
+                    vals[k] = int(v)
+            else:
+                vals[k] = v
     return vals

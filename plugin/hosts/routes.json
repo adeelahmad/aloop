@@ -1,0 +1,22 @@
+{
+  "schema": "aladdin.routes/1",
+  "note": "Abstract model routes (ROADMAP §3.6). Roles map to a route; each host resolves a route to its own concrete model id. An empty id means 'the host session's own model' (Codex has no Claude ids). A setting that is not a route name is a pinned concrete id and passes through unchanged.",
+  "routes": ["strongest", "strong", "economical"],
+  "hosts": {
+    "claude": {
+      "strongest": "claude-opus-5-5",
+      "strong": "sonnet",
+      "economical": "haiku"
+    },
+    "opencode": {
+      "strongest": "anthropic/claude-opus-5-5",
+      "strong": "anthropic/claude-sonnet-5",
+      "economical": "anthropic/claude-haiku-4-5"
+    },
+    "codex": {
+      "strongest": "",
+      "strong": "",
+      "economical": ""
+    }
+  }
+}

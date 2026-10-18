@@ -11,7 +11,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 3.3 | Every model role metered against a role profile (non-workers observe-only) | IMPLEMENTED_TESTED | `scripts/test/budget-roles.test.py` |
 | 3.4 | Hard breaches classified with evidence before acting | IMPLEMENTED_TESTED | `scripts/test/budget-classify.test.py` |
 | 3.5 | No post-kill narration; harness writes the re-plan block | IMPLEMENTED_TESTED | `scripts/test/budget-hard-stop.test.py` |
-| 3.6 | Abstract model routes | NOT_IMPLEMENTED | waits for PR #7 (install, init and host adapter) |
+| 3.6 | Abstract model routes | IMPLEMENTED_TESTED | `scripts/test/model-routes.test.py` |
 | 4.1 | Intent Contract with harness-issued ids | IMPLEMENTED_TESTED | `scripts/test/intent-contract.test.py` |
 | 4.1 | Clarification policy (assume / default / ask / spike) | IMPLEMENTED_TESTED | `scripts/test/intent-contract.test.py` |
 | 4.1 | Explicit autonomous mode | IMPLEMENTED_TESTED | `scripts/test/intent-contract.test.py` |
@@ -34,8 +34,9 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.8 | Cross-project impact provider seam | IMPLEMENTED_TESTED | `scripts/test/impact-provider.test.py` |
 | 4.9 | Usage reporting: classes apart, exact or marked, unreported classes named | IMPLEMENTED_TESTED | `scripts/test/budget-meter.test.py` |
 | 4.9 | Host capability matrix | IMPLEMENTED_TESTED | `scripts/test/context-boundary.test.py` |
-| 4.9 | HostAdapter interface extraction, gate equivalence (outer enforcement) | NOT_IMPLEMENTED | overlaps PR #7 |
-| 4.9 | Portable `.aladdin/config.yaml`, host swap | NOT_IMPLEMENTED | overlaps PR #7 |
+| 4.9 | HostAdapter interface extraction, gate equivalence (outer enforcement) | IMPLEMENTED_TESTED | `scripts/test/host-adapter.test.py` |
+| 4.9 | Portable `.aladdin/config.yaml` with migration | IMPLEMENTED_TESTED | `scripts/test/portable-config.test.py` |
+| 4.9 | Host swap: resume a sprint on another host from portable state | NOT_IMPLEMENTED | needs a two-host run |
 | 4.10 | Metrics table (percentiles, breaches, waste, rates, cache, context peak) | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Commits, tests added, time soft limits, semantic context served | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Rotations / compactions | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
