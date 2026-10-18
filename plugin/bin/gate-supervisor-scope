@@ -85,6 +85,26 @@ if [ "$tool" = "Bash" ]; then
     [ -f "$lock" ] || exit 0
     [ "$(head -1 "$lock" 2>/dev/null)" = "$session" ] || lock_recent || exit 0
     cmd="$(printf '%s' "$payload" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("tool_input") or {}).get("command") or "")' 2>/dev/null)"
+    # Nor does it write an agent's output.md block (live e2e run 29: the final gate's report was
+    # lost and the supervisor appended a final-gate block itself). A redirect or tee into a
+    # docs/agents/**/output.md; reading it passes. Hosts with no agent_type (Codex, OpenCode) run
+    # a worker's shell in its linked task worktree: that is the worker reporting, not judged.
+    cwd0="$(field cwd)"; [ -n "$cwd0" ] || cwd0="$PWD"
+    wgd="$(cd "$cwd0" 2>/dev/null && cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd -P)"
+    wcd="$(cd "$cwd0" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)"
+    if [ -n "$wgd" ] && [ "$wgd" = "$wcd" ] && printf '%s' "$cmd" | python3 -c '
+import re, sys
+P = r"docs/agents/[^\s;&|]*output\.md(?=[\s\x27\x22;&|]|$)"
+for seg in re.split(r"[;&|\n]+", sys.stdin.read()):
+    if re.search(r">>?\s*[\x27\x22]?[^\s;&|]*" + P, seg) or re.search(r"(?:^|\s)tee(?:\s+-\w+)*\s+[\x27\x22]?[^\s;&|]*" + P, seg):
+        sys.exit(0)
+sys.exit(1)' 2>/dev/null; then
+      echo "BLOCK[$GATE_NAME]: output.md is the dispatched agent's report; the supervisor never writes a block in it:" >&2
+      echo "    $cmd" >&2
+      echo "  If an agent's block is missing or wrong, re-dispatch that agent (a new attempt with a" >&2
+      echo "  ### Feedback block in init.md); its gate tells it how to append." >&2
+      exit 2
+    fi
     # Per simple command: `git [-C <dir>] [opts] commit`. Prints the -C dir (or "") per hit.
     hits="$(printf '%s' "$cmd" | python3 -c '
 import re, sys
@@ -178,6 +198,12 @@ case "$file" in docs/agents/*|*/docs/agents/*)
     echo "  Dispatch it (it writes the artifact); you review and approve the output. You own" >&2
     echo "  only plan-ready.md / init.md / execution.log / memory.md." >&2
     echo "  (Deliberate out-of-band edit outside the pipeline? Re-run with SKIP_HOOKS=1.)" >&2
+    exit 2 ;;
+  output.md)
+    echo "BLOCK[$GATE_NAME]: output.md is the dispatched agent's report; the supervisor never writes a block in it:" >&2
+    echo "    $file" >&2
+    echo "  If an agent's block is missing or wrong, re-dispatch that agent (a new attempt with a" >&2
+    echo "  ### Feedback block in init.md); its gate tells it how to append (live e2e run 29)." >&2
     exit 2 ;;
   defaults.md|NEXT.md|stats.md)
     echo "BLOCK[$GATE_NAME]: $base is written by the harness, never by hand:" >&2

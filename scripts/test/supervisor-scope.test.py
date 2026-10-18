@@ -142,6 +142,33 @@ r = bash("git add -A && git commit -m 'S1-01-T1 RED'")
 assert r.returncode == 0, r
 ok("a dispatched worker's git commit is never judged here")
 
+# ── The supervisor never writes an agent's output.md block (live e2e run 29: the final gate's
+# report was lost and the supervisor appended a final-gate block to output.md itself). The
+# report is the agent's word; the supervisor re-dispatches instead.
+open(LOCK, "w").write("s-main\n")
+r = run("docs/agents/sprint1/output.md")
+assert r.returncode == 2 and "re-dispatch" in r.stderr, r
+r = run("docs/agents/sprint1/s1-01-x/output.md", agent_type="aloop:final-gate")
+assert r.returncode == 0, r
+ok("Write to a story's output.md: blocked for the supervisor, allowed for a dispatched agent")
+for cmd in ("cat >> docs/agents/sprint1/output.md <<EOF\n## S1-FINAL\nEOF",
+            "printf x >> '%s/docs/agents/sprint1/s1-01-x/output.md'" % T,
+            "echo x | tee -a docs/agents/sprint1/output.md"):
+    r = sup(cmd)
+    assert r.returncode == 2 and "re-dispatch" in r.stderr, (cmd, r)
+ok("live sprint: the supervisor's shell append to an output.md is blocked")
+for cmd in ("tail -5 docs/agents/sprint1/output.md", "cat docs/agents/sprint1/output.md | head",
+            "cat >> docs/agents/sprint1/init.md <<EOF\nx\nEOF", "grep -c '^## ' docs/agents/sprint1/output.md > /tmp/n"):
+    r = sup(cmd)
+    assert r.returncode == 0, (cmd, r)
+ok("live sprint: reading output.md and appending init.md pass")
+r = bash("cat >> docs/agents/sprint1/output.md <<EOF\nx\nEOF")
+assert r.returncode == 0, r
+ok("a dispatched agent's shell append to output.md passes (that is how it reports)")
+r = sup("cat >> %s/docs/agents/sprint1/output.md <<EOF\nx\nEOF" % T, cwd=os.path.join(T, ".aladdin", "worktrees", "S1-01-T1"))
+assert r.returncode == 0, r
+ok("a shell append from inside a linked task worktree passes (Codex/OpenCode workers carry no agent_type)")
+
 os.utime(LOCK, (old, old))
 open(LOCK, "w").close(); open(LOCK, "w").write("s-other\n"); os.utime(LOCK, (old, old))
 r = sup("git commit -am wip")
