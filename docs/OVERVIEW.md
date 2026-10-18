@@ -73,7 +73,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 | Supervisor playbook | [`plugin/skills/aloop/SKILL.md`](../plugin/skills/aloop/SKILL.md) | The skill the main agent runs; `aladdin` and `init` are its entry points |
 | 9 roles | [`plugin/agents/`](../plugin/agents/) | `archivist`, `intake`, `standards`, `planner` (Opus) · `red-worker`, `scaffolder`, `green-worker`, `structural-reviewer`, `final-gate` (Sonnet) |
 | Pipeline source | [`plugin/pipeline/`](../plugin/pipeline/) | Per activity: `persona.md`, `init.template.md`, `artifacts.md`, `gate.md` |
-| Hook wiring | [`plugin/hooks/hooks.json`](../plugin/hooks/hooks.json) | SessionStart, PreToolUse, PostToolUse, SubagentStart/Stop, Stop, UserPromptSubmit |
+| Hook wiring | [`plugin/hooks/hooks.json`](../plugin/hooks/hooks.json) | SessionStart, PreToolUse, PostToolUse, SubagentStart/Stop, Stop, UserPromptSubmit (transcript capture and the natural-language auto-trigger, `intent-trigger`) |
 | Gates | [`plugin/bin/gate-*`](../plugin/bin/README.md) | 15 bash gates; exit `0` pass, `2` block with reason |
 | Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `aladdin` / `aloop` (entry points), `intent`, `budget` (time box, envelope, breach classes), `sweep` (the orchestrator loop), `targets` (semantic plan, shadow workspace, render), `ids`, `events` (audit stream, lineage, trace), `stats` (ledger, metrics, handoff), `models` / `host` / `config` (routes, HostAdapter, portable config), `transcripts`, `install`, `aloop-init`, worktree helpers |
 | Schemas | [`plugin/schemas/*.kdl`](../plugin/schemas/) | What `md-db validate` enforces on every planning and comms artifact |

@@ -27,6 +27,7 @@ MAP = {
                "effort_planning_codex": "EFFORT_PLANNING_CODEX", "effort_worker_codex": "EFFORT_WORKER_CODEX",
                "planning_opencode": "MODEL_PLANNING_OPENCODE", "worker_opencode": "MODEL_WORKER_OPENCODE"},
     "provenance": {"impact_provider": "IMPACT_PROVIDER"},
+    "intent": {"auto_trigger": "AUTO_TRIGGER"},
     "memory": {},
     "git": {"gitignore": "GITIGNORE", "track_docs": "TRACK_DOCS", "commit_author_name": "COMMIT_AUTHOR_NAME",
             "commit_author_email": "COMMIT_AUTHOR_EMAIL", "claude_coauthor": "CLAUDE_COAUTHOR"},

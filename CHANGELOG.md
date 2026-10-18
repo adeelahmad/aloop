@@ -24,6 +24,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ### Added
 - `gate-dispatch` now refuses a dispatch of any aloop role whose `model` is not the project's confirmed one (`aloop models resolve <role>`, matched by model family so `haiku` and `claude-haiku-5-5` agree), or that passes no model (which would fall back to the agent file's default, opus for the planning roles). Reason: live e2e run 20 dispatched planners on opus and workers on sonnet against a project whose defaults.md said haiku for both, and cost $2.79 instead of $0.99 for the same 12/12 result. Test: `scripts/test/dispatch.test.py`.
+- Natural-language auto-trigger (ROADMAP §4.11): `bin/intent-trigger` on UserPromptSubmit adds context
+  to run a plain build/fix request as `/aladdin "<intent>"` when it lands in an aloop project with no
+  sprint running. Quiet for questions, slash commands, short replies, a live sprint lock and non-aloop
+  repos; switch off with `ALADDIN_AUTO_TRIGGER=off` or `intent: {auto_trigger: false}` in
+  `.aladdin/config.yaml`. Wired for Claude Code and Codex (hooks.json) and OpenCode (`chat.message`).
 - The planner's stop gate (`gate-stage2-complete` on SubagentStop) now logs its verdicts to `gates.jsonl` and the event stream like every other gate, and the stuck release covers the planner: the same block three times in a row releases its stop unverified with a `state/stuck/plan-sprintN.<agent>` marker the supervisor acts on (a re-dispatch is a new agent id and starts over). A direct call (the supervisor's own check, `selfcheck`) is logged as a self-check and never releases. Reason: live e2e run 19's re-planning planner was blocked 9 times on one unchanged reason, none counted. Test: `scripts/test/planner-stuck.test.py`.
 
 ### Fixed

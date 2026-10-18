@@ -7,7 +7,8 @@
 //   Claude Code hook   OpenCode equivalent used here
 //   SessionStart       event session.created (root session) → ensure-tools, session-start;
 //                      the context is added to that session's system prompt
-//   UserPromptSubmit   chat.message on a root session → transcripts prompt
+//   UserPromptSubmit   chat.message on a root session → transcripts prompt, intent-trigger
+//                      (its context goes into the next turn's system prompt)
 //   PreToolUse         tool.execute.before → host-adapter, gate-supervisor-scope,
 //                      gate-commit-author, budget pre; a deny THROWS (the tool call fails
 //                      with the reason). Bound workers' commands/edits are REWRITTEN into
@@ -46,6 +47,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
   const env = { ...process.env, AGENTIC_HOST: "opencode", PATH: `${BIN}:${process.env.PATH || ""}` }
   const sessions = new Map()       // id -> { parentID, root, agent }
   const startCtx = new Map()       // root id -> SessionStart additionalContext
+  const promptCtx = new Map()      // root id -> intent-trigger context for the next turn
   // the run-data dir (bin/_paths.sh): .aladdin/, or the legacy .agentic/ until `aloop layout migrate`
   const homeDir = (() => {
     const nu = join(project, ".aladdin")
@@ -147,7 +149,10 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       if (!active() || s.parentID) return
       const text = (output.parts || []).filter((x) => x.type === "text").map((x) => x.text).join("\n")
       if (text.startsWith("[aloop")) return                     // our own injections
-      run("transcripts", ["prompt"], await payload("UserPromptSubmit", input.sessionID, { prompt: text }))
+      const pl = await payload("UserPromptSubmit", input.sessionID, { prompt: text })
+      run("transcripts", ["prompt"], pl)
+      const trig = run("intent-trigger", ["hook"], pl).json?.hookSpecificOutput?.additionalContext
+      if (trig) promptCtx.set(s.root, trig)                      // natural-language auto-trigger (§4.11)
     },
 
     "experimental.chat.system.transform": async (input, output) => {
@@ -156,6 +161,8 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       const s = await info(input.sessionID)
       const ctx = startCtx.get(s.root)
       if (ctx && !s.parentID) output.system.push(ctx)
+      const trig = promptCtx.get(s.root)
+      if (trig && !s.parentID) { output.system.push(trig); promptCtx.delete(s.root) }
     },
 
     "tool.execute.before": async (input, output) => {
