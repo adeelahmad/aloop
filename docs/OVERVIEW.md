@@ -1,6 +1,6 @@
 # What aloop is
 
-*Product definition as of v0.11.0 (2026-10-17), written from the code, not the design docs.
+*Product definition as of v0.12.0 (2026-10-18), written from the code, not the design docs.
 **aloop** is "Aladdin's Loop", renamed from agentic-agile in v0.11.0; the old command names
 still work as aliases. The 1.0 target is **Aladdin**; see [ROADMAP.md](ROADMAP.md).*
 
