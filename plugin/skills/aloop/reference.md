@@ -90,7 +90,7 @@ All of these are on PATH — call them by bare name.
 - `gate-tooling` — execution preflight; BLOCKS the first dispatch unless md-db +
   ctx-symbols are installed (auto-installs first; SubagentStart hook + manual check).
 - `ensure-tools` — SessionStart installer (`--sync` build now, `--wait`, `--resolve T`).
-- `budget` — the time box: `resolve` (BUDGET_* for task.env), `watch` (your sleep),
+- `budget` — the time box: `contract` (writes the task contract), `resolve` (BUDGET_* alone), `watch` (your sleep),
   `status`, `mark-killed`, `replans` (split-cap check); `hook` is the hook entrypoint.
 - `stats show` — token totals (this session, per sprint, whole project); `stats
   sprint-close` is run by gate-final, not by you.

@@ -18,6 +18,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.1 | Explicit autonomous mode | IMPLEMENTED_TESTED | `scripts/test/intent-contract.test.py` |
 | 4.2 | Sprint token envelope, admission control, rollover | IMPLEMENTED_TESTED | `scripts/test/sprint-admission.test.py` |
 | 4.2 | Time budget `auto` mode | IMPLEMENTED_TESTED | `scripts/test/timebox-auto.test.py` |
+| 4.2 | Task contract written by the harness (`budget contract`: keys, BASE_REF, resolved budget) | IMPLEMENTED_TESTED | `scripts/test/budget-contract.test.py` |
 | 4.2 | Interruptible orchestrator loop (inspect step, token-free wait) | IMPLEMENTED_TESTED | `scripts/test/orchestrator-sweep.test.py` |
 | 4.3 | Failure envelope, grace rule, calibration verdict | IMPLEMENTED_TESTED | `scripts/test/planner-feedback.test.py` |
 | 4.3 | Lesson candidates promoted only by the recurrence rule | IMPLEMENTED_TESTED | `scripts/test/lesson-candidates.test.py` |

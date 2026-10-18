@@ -401,8 +401,7 @@ main tree: .aladdin/state/stuck/<task>.<attempt>  a gate released a worker (or, 
   spec. NEVER rewrite an earlier block. The file opens once with `--- type: init ---`.
   That list IS the block's whole shape: do not read `pipeline/execution/*/init.template.md`
   or `bin/log-execution` to learn it (live runs 13–15 spent 4–6 reads per run on them).
-  At dispatch you also write the task contract `<run-data>/state/tasks/<TASK_ID>.env` (with
-  `STORY_DIR` = absolute path to this story dir) and `bin/transcripts stage-in` stages `.transcripts/`.
+  At dispatch you also write the task contract (`aloop budget contract`, below) and `bin/transcripts stage-in` stages `.transcripts/`.
 - `output.md` (story-bound, **append-only**) — the **agent** APPENDS one block per
   attempt: `## <task> · attempt N · <role> · <ts>`, `status:`, then `### Summary`, a
   `### Result` table (Check/Status/Detail), optional `### Findings`/`### Scaffold`, and
@@ -488,8 +487,8 @@ Your job during execution is small, and that is on purpose (it keeps your contex
 
 1. **Dispatch** every task that can run now (the wave's RED, or GREEN, …) as
    background agents — `run_in_background: true`, `isolation: "worktree"`, `model` from
-   defaults.md — after writing each `init.md` block + task contract (with
-   `BUDGET_*`). Log `start` lines. **A wave with ONE dispatchable task runs it in the
+   defaults.md — after writing each `init.md` block + task contract
+   (`aloop budget contract`). Log `start` lines. **A wave with ONE dispatchable task runs it in the
    foreground** (`run_in_background: false`, no `budget watch`): every wake re-reads your
    whole context (live run 15: 16 wakes, 5.5M cached tokens, $1.26 of a $1.42 run; run 14
    with foreground dispatch: 2, $0.75), so background dispatch pays only when tasks run in
@@ -735,15 +734,15 @@ Transcripts are captured by the hooks with no action from you; `reference.md` §
 Stale worktrees: `worktree-hygiene` (see `reference.md` § "Worktree hygiene").
 
 ## The task contract (<run-data>/state/tasks/<TASK_ID>.env)
-Before each dispatch, write the contract in the MAIN tree's run-data dir, i.e.
-`.aladdin/state/tasks/<TASK_ID>.env` (`.agentic/state/tasks/...` in a legacy project; `aloop
-layout show` prints the dir, and the gates search both), with `TASK_ID`, `ATTEMPT`, `AGENT_ROLE`, `STORY_DIR`
-(absolute path to the story dir — where `validate_comms` reads init.md/output.md),
-`SCOPE_GLOBS` (GREEN diff-scope), `SCAFFOLD_SYMBOLS` (or the scaffolder writes
-`.aladdin/scaffold-symbols` in its worktree), `BASE_REF` (diff base), and the four `BUDGET_*` lines printed by
-`budget resolve --tasks <STORY_DIR>/tasks.md --task Tn`. Then make the dispatch prompt's
-FIRST line `TASK_ID: <TASK_ID>`. (`gate-dispatch` refuses an execution dispatch without that line or before the contract exists.) Write plain `KEY=value` lines (quotes allowed, lists space- or comma-separated, no `$VAR`
-expansion, no commands): the gate library PARSES the contract keys and ignores everything else.
+Before each dispatch, write the contract with ONE command (never a heredoc):
+`aloop budget contract <TASK_ID> --role <role> --story <STORY_DIR> [--scope "<GREEN globs>"]
+[--attempt N] [--symbols "<scaffold symbols>"]`. It writes the MAIN tree's
+`<run-data>/state/tasks/<TASK_ID>.env` with `TASK_ID`, `ATTEMPT`, `AGENT_ROLE`, the absolute
+`STORY_DIR` (the story dir, or the sprint dir for a whole-sprint role), `SCOPE_GLOBS`,
+`SCAFFOLD_SYMBOLS`, `BASE_REF=HEAD` and the resolved `BUDGET_*` (the story's tasks.md
+`budget:` line for the id's Tn wins), and prints one line with the budget for your init.md
+block. Then make the dispatch prompt's FIRST line `TASK_ID: <TASK_ID>` (`gate-dispatch`
+refuses an execution dispatch without that line or before the contract exists).
 
 Why the main tree: on Claude Code `isolation: "worktree"` creates the worktree
 (`.claude/worktrees/agent-<id>`) at dispatch, so there is no worktree to write into

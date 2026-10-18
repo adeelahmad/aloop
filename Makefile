@@ -84,6 +84,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/budget-hard-stop.test.py
 	python3 scripts/test/budget-meter.test.py
 	python3 scripts/test/budget-roles.test.py
+	python3 scripts/test/budget-contract.test.py
 	python3 scripts/test/budget-classify.test.py
 	python3 scripts/test/sprint-admission.test.py
 	python3 scripts/test/planner-feedback.test.py
