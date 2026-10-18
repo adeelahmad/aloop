@@ -45,6 +45,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - The planner's stop gate (`gate-stage2-complete` on SubagentStop) now logs its verdicts to `gates.jsonl` and the event stream like every other gate, and the stuck release covers the planner: the same block three times in a row releases its stop unverified with a `state/stuck/plan-sprintN.<agent>` marker the supervisor acts on (a re-dispatch is a new agent id and starts over). A direct call (the supervisor's own check, `selfcheck`) is logged as a self-check and never releases. Reason: live e2e run 19's re-planning planner was blocked 9 times on one unchanged reason, none counted. Test: `scripts/test/planner-stuck.test.py`.
 
 ### Fixed
+- The comms gate's "latest output.md block is not from '<role>'" block now says how to append the
+  report from a worktree (`cat >> … <<'EOF'`), like the missing-block one (live run 23: a GREEN worker
+  refused by the Write tool stopped three times on it and hit the stuck release). Conformance case.
 - Final-gate persona: the suppression check is the gate's (`#[ignore]`, `.skip(`, `xit(`,
   `#[cfg(not(test))]`, run by `selfcheck final-gate`), not an open-ended list; an `#[allow(dead_code)]`
   in `tests/common/` is not a suppression (live run 22: the persona failed the sprint on it and cost a

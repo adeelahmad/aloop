@@ -205,6 +205,15 @@ wt = green(test="#[test]\n#[ignore]\nfn sub_works() {\n    assert_eq!(calc::sub(
 case(5, "GREEN that adds #[ignore] is rejected", "gate-green-verify", wt, 2, "suppression")
 wt = green(lib=GREEN_LIB + "\n#[cfg(not(test))]\npub fn hidden() {}\n")
 case(5, "GREEN that adds #[cfg(not(test))] is rejected", "gate-green-verify", wt, 2, "suppression")
+# A GREEN worker whose report is not the latest block (RED's is) is told HOW to append it: live
+# e2e run 23's haiku GREEN tried the Write tool on the main tree's output.md, was refused by
+# worktree isolation, and stopped 3 times on a block that named no way out (stuck release).
+wt = green()
+report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
+case(5, "GREEN whose report block is missing is told to append it with a shell heredoc", "gate-green-verify", wt, 2,
+     "not from 'green-worker'")
+case(5, "...and the block names the heredoc way out", "gate-green-verify", wt, 2, "cat >>")
+report("green-worker", [("tests/sub.rs::sub_works", "PASS")])
 
 # A worker's `selfcheck <role>` with no AGENT_ROLE in its env must run the gate, not crash it
 # (live e2e run: `AGENT_ROLE: unbound variable` made the self-check fail closed on good work).
