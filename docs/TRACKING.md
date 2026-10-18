@@ -49,3 +49,5 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M1 | Run data in `.aladdin/` (guarded by its `.gitignore`), `.agentic/` read as legacy, `aloop layout show\|check\|migrate`, `ALADDIN_*` aliases, contract and worktree markers found in either dir | IMPLEMENTED_TESTED | `scripts/test/layout.test.py` |
 | 4.11 | README reordered product-first (intent → demo → TDD agents → loop → gates → install → hosts → evidence → audit → architecture → limitations) | IMPLEMENTED_TESTED | `scripts/test/readme.test.py` (section order, named tools exist, install names, links, demo figures sourced from §0) |
 | 4.11 | Site (`docs/index.html`, GitHub Pages from `/docs`) with the lamp motif, RED explainer and audit tree; numbers sourced from §0 | IMPLEMENTED_TESTED | `scripts/test/site.test.py` |
+| 4.11 | Natural-language auto-trigger inside hosts (`intent-trigger` on UserPromptSubmit; Claude Code, Codex, OpenCode) | IMPLEMENTED_TESTED | `scripts/test/intent-trigger.test.py` |
+| 4.11 | Evidence: every public claim links to a reproducible measured run (`docs/evidence/README.md`, `run-summary`) | IMPLEMENTED_TESTED | `scripts/test/evidence.test.py` |

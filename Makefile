@@ -123,6 +123,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/ensure-tools.test.py
 	python3 scripts/test/fail-closed.test.py
 	python3 scripts/test/intent-trigger.test.py
+	python3 scripts/test/evidence.test.py
 	@if command -v node >/dev/null; then node scripts/test/opencode-plugin.test.mjs; else echo "node not found — skipped OpenCode test (CI runs it)"; fi
 
 .PHONY: conformance
