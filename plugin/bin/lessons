@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""lessons — planner lesson candidates (ROADMAP §4.3). There is no second memory system:
+candidates live in docs/agents/lessons.jsonl and reach docs/agents/memory.md only through
+the archivist's recurrence rule (>= 2 distinct tasks, or an explicit human keep).
+
+Usage:
+  lessons add --symptom S --cause C --change X --applies-to ROLE --evidence REF[,REF...] [--task S1-01-T1]
+        record one candidate (prints its id L-NNN); emits memory.candidate.
+        Exit 2 if a field is empty, evidence is missing, or the change would weaken a gate.
+  lessons list
+        every candidate, one line each
+  lessons recurring [--min 2]
+        candidate groups (same applies_to + change) seen in >= min distinct tasks and not yet
+        in memory.md, as memory.md table rows for the archivist's output.md
+  lessons check-memory FILE
+        every memory.md row whose origin cites L-NNN must be backed by a recurring group
+        (>= 2 distinct tasks) or carry `keep` in its recurrence column. Exit 2 otherwise.
+"""
+import json
+import os
+import re
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _events  # noqa: E402
+import _paths  # noqa: E402
+
+FIELDS = ("symptom", "cause", "change", "applies_to")
+LID = re.compile(r"\bL-\d{3,}\b")
+# same guard as gate-memory: a lesson never licenses weakening a gate or a test
+RELAX = re.compile(r"skip\s+(the\s+)?test|suppress|#\[ignore\]|\.skip\(|ignore\s+(the\s+)?test|"
+                   r"disable\s+(the\s+)?(test|gate)|bypass\s+(the\s+)?gate|relax\s+(the\s+)?(gate|invariant)", re.I)
+
+
+def store(cwd):
+    return os.path.join(_paths.docs(cwd), "lessons.jsonl")
+
+
+def read(cwd):
+    out = []
+    try:
+        with open(store(cwd)) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        out.append(json.loads(line))
+                    except ValueError:
+                        pass
+    except OSError:
+        pass
+    return out
+
+
+def key(c):
+    norm = lambda s: re.sub(r"[^a-z0-9 ]+", "", re.sub(r"\s+", " ", str(s).lower())).strip()  # noqa: E731
+    return (norm(c.get("applies_to")), norm(c.get("change")))
+
+
+def groups(cands):
+    g = {}
+    for c in cands:
+        g.setdefault(key(c), []).append(c)
+    return g
+
+
+def tasks_of(group):
+    # a candidate with no task counts once on its own: recurrence means distinct occurrences
+    return {c.get("task") or c["id"] for c in group}
+
+
+def cmd_add(cwd, o):
+    c = {k: str(o.get(k, "")).strip() for k in FIELDS}
+    refs = [r.strip() for r in str(o.get("evidence", "")).split(",") if r.strip()]
+    bad = ["%s is empty" % k for k in FIELDS if not c[k]]
+    if not refs:
+        bad.append("evidence_refs needs at least one ref (event id, file, commit)")
+    if RELAX.search(" ".join(c.values())):
+        bad.append("the change would weaken a gate or a test; rephrase it as a fix")
+    for b in bad:
+        print("BLOCK[lessons]: %s" % b, file=sys.stderr)
+    if bad:
+        return 2
+    have = read(cwd)
+    c.update(id="L-%03d" % (len(have) + 1), evidence_refs=refs, task=o.get("task", ""),
+             added=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+    os.makedirs(os.path.dirname(store(cwd)), exist_ok=True)
+    with open(store(cwd), "a") as f:
+        f.write(json.dumps(c) + "\n")
+    _events.emit(cwd, "memory.candidate", task=c["task"], role="planner", refs={"lessons": store(cwd)},
+                 lesson_id=c["id"], applies_to=c["applies_to"])
+    print(c["id"])
+    return 0
+
+
+def cmd_list(cwd):
+    for c in read(cwd):
+        print("%s [%s] %s | cause: %s | change: %s | evidence: %s%s" % (
+            c["id"], c["applies_to"], c["symptom"], c["cause"], c["change"], ", ".join(c["evidence_refs"]),
+            " | task %s" % c["task"] if c.get("task") else ""))
+    return 0
+
+
+def memory_rows(path):
+    rows = []
+    try:
+        lines = open(path).read().splitlines()
+    except OSError:
+        return rows
+    for ln in lines:
+        cells = [x.strip() for x in ln.strip().strip("|").split("|")]
+        if not ln.strip().startswith("|") or len(cells) < 5 or cells[0] in ("id", "") or set(cells[0]) <= set("-: "):
+            continue
+        rows.append({"id": cells[0], "applies_to": cells[1], "text": cells[2], "origin": cells[3],
+                     "recurrence": cells[4]})
+    return rows
+
+
+def cmd_recurring(cwd, n):
+    cited = set()
+    for r in memory_rows(os.path.join(_paths.docs(cwd), "memory.md")):
+        cited |= set(LID.findall(r["origin"]))
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    out = []
+    for grp in groups(read(cwd)).values():
+        ids = [c["id"] for c in grp]
+        if len(tasks_of(grp)) < n or cited & set(ids):
+            continue
+        last = grp[-1]
+        out.append("| M-? | %s | %s (cause: %s) | %s | %d | %s |" % (
+            last["applies_to"], last["change"], last["cause"], " ".join(ids), len(tasks_of(grp)), today))
+    print("\n".join(out) if out else "- no recurring lesson candidates")
+    return 0
+
+
+def cmd_check_memory(cwd, path):
+    by_id = {c["id"]: grp for grp in groups(read(cwd)).values() for c in grp}
+    bad = []
+    for r in memory_rows(path):
+        ids = LID.findall(r["origin"])
+        if not ids or "keep" in r["recurrence"].lower():
+            continue
+        unknown = [i for i in ids if i not in by_id]
+        if unknown:
+            bad.append("%s cites unknown lesson(s) %s" % (r["id"], ", ".join(unknown)))
+            continue
+        seen = set()
+        for i in ids:
+            seen |= tasks_of(by_id[i])
+        if len(seen) < 2:
+            bad.append("%s promotes %s seen in %d task(s); the recurrence rule needs >= 2 or a human `keep`"
+                       % (r["id"], ", ".join(ids), len(seen)))
+    for b in bad:
+        print("BLOCK[lessons]: %s" % b, file=sys.stderr)
+    return 2 if bad else 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    opts, pos, k = {}, [], None
+    for a in argv[1:]:
+        if k:
+            opts[k], k = a, None
+        elif a.startswith("--"):
+            k = a[2:].replace("-", "_")
+        else:
+            pos.append(a)
+    cwd = os.getcwd()
+    if argv[0] == "add":
+        return cmd_add(cwd, opts)
+    if argv[0] == "list":
+        return cmd_list(cwd)
+    if argv[0] == "recurring":
+        return cmd_recurring(cwd, int(opts.get("min", 2)))
+    if argv[0] == "check-memory" and pos:
+        return cmd_check_memory(cwd, pos[0])
+    print("lessons: unknown or incomplete command (see lessons --help)", file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

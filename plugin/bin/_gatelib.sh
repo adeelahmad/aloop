@@ -42,6 +42,12 @@ _gate_log_verdict() {
   printf '{"ts":"%s","gate":"%s","role":"%s","task":"%s","attempt":"%s","story_dir":"%s","exit":%d,"selfcheck":%s}\n' \
     "$(date -u +%FT%TZ)" "${GATE_NAME:-?}" "${AGENT_ROLE:-}" "${TASK_ID:-}" "${ATTEMPT:-}" "${STORY_DIR:-}" \
     "$rc" "$([ "${AGENTIC_SELFCHECK:-}" = 1 ] && echo true || echo false)" >> "$AGENTIC_LOGS/gates.jsonl" 2>/dev/null
+  # the aladdin.event/1 stream: real verdicts only (a self-check is not a gate run)
+  if [ "${AGENTIC_SELFCHECK:-}" != 1 ] && [ "$rc" -le 2 ]; then
+    "$GATELIB_DIR/events" emit "$([ "$rc" = 0 ] && echo gate.passed || echo gate.failed)" \
+      --task "${TASK_ID:-}" --attempt "${ATTEMPT:-}" --role "${AGENT_ROLE:-}" \
+      --ref "story_dir=${STORY_DIR:-}" --data "gate=${GATE_NAME:-?}" --data "exit=$rc" >/dev/null 2>&1 || true
+  fi
   return "$rc"
 }
 trap '_gate_log_verdict; exit $?' EXIT
@@ -276,7 +282,14 @@ changed_paths() {
   if [ -n "${BASE_REF:-}" ]; then
     git -C "$root" diff --name-only "$BASE_REF" 2>/dev/null | changed_paths_filter
   else
-    { git -C "$root" diff --name-only 2>/dev/null
+    # Workers commit their work, so the uncommitted diff alone would miss it: also take
+    # what this branch committed since it left the main tree's HEAD.
+    local common main_head base=""
+    common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+    main_head="$(git -C "${common%/.git}" rev-parse HEAD 2>/dev/null)"
+    [ -n "$main_head" ] && base="$(git -C "$root" merge-base HEAD "$main_head" 2>/dev/null)"
+    { [ -n "$base" ] && git -C "$root" diff --name-only "$base" HEAD 2>/dev/null
+      git -C "$root" diff --name-only 2>/dev/null
       git -C "$root" diff --name-only --cached 2>/dev/null
       git -C "$root" ls-files --others --exclude-standard 2>/dev/null; } | sort -u | changed_paths_filter
   fi

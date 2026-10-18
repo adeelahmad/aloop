@@ -26,6 +26,8 @@ your init block's `### Budget` line has the exact numbers). Plan for it:
 - Tools are on PATH — never search for them: `selfcheck`, `md-db`, `ctx-symbols`,
   `log-execution`, `budget status`. Call them by bare name. Never read this plugin's own files (its `bin/`, `schemas/`, `pipeline/`, skills): your prompt
   and init block say what to write, and `selfcheck` names exactly what a gate wants.
+- Start from your task's change targets when the story has `targets.json`:
+  `targets target <Tn> <STORY_DIR>` then `targets context <Cn> <STORY_DIR>` — not a repo scan.
 
 ## Hard limits
 - No production code beyond compile shims.

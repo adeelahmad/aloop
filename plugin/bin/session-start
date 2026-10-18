@@ -16,10 +16,23 @@ if [ -n "$cwd" ] && [ -d "$cwd" ]; then cd "$cwd" || exit 0; fi
 
 "$HERE/aloop-init" --ensure-gitignore >/dev/null 2>&1 || true
 
+# the context boundary, observed (ROADMAP §4.4): a cleared session is a rotation, a host
+# compaction is recorded as one — never inferred
+src="$(printf '%s' "$payload" | sed -nE 's/.*"source"[[:space:]]*:[[:space:]]*"([a-z]+)".*/\1/p' | head -1)"
+case "$src" in
+  clear)   "$HERE/events" emit context.rotated --role supervisor --data "source=clear" >/dev/null 2>&1 || true ;;
+  compact) "$HERE/events" emit context.compacted --role supervisor --data "source=compact" >/dev/null 2>&1 || true ;;
+esac
+
 [ -f "$AGENTIC_NEXT" ] || exit 0
+# the resume rule: tasks shown done without gate evidence are named, so they get re-gated
+rerun="$("$HERE/stats" resume-check 2>/dev/null || true)"
 ctx="aloop handoff — docs/agents/NEXT.md, loaded automatically by the SessionStart hook:
 
-$(head -c 12000 "$AGENTIC_NEXT")"
+$(head -c 12000 "$AGENTIC_NEXT")${rerun:+
+
+Resume check (from the gate log, now):
+$rerun}"
 if command -v python3 >/dev/null 2>&1; then
   CTX="$ctx" python3 -c 'import json,os;print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":os.environ["CTX"]}}))'
 else

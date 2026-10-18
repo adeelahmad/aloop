@@ -21,7 +21,8 @@ HOOKS = json.load(open(os.path.join(ROOT, "hooks", "hooks.json")))["hooks"]
 ALIASES = {"apply_patch": ["Write", "Edit"], "spawn_agent": ["Agent"]}
 T = tempfile.mkdtemp(prefix="agentic-codex-")
 ENV = dict(os.environ, HOME=os.path.join(T, "home"), CLAUDE_PLUGIN_ROOT=ROOT, PLUGIN_ROOT=ROOT,
-           CLAUDE_PLUGIN_DATA=os.path.join(T, "pdata"), CODEX_HOME=os.path.join(T, "codex"))
+           CLAUDE_PLUGIN_DATA=os.path.join(T, "pdata"), CODEX_HOME=os.path.join(T, "codex"),
+           AGENTIC_NO_AUTOINSTALL="1")  # no background cargo build into the temp dir (it filled the disk)
 ENV.pop("AGENTIC_HOST", None)
 PASS = [0]
 
@@ -134,10 +135,13 @@ assert not denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={
 assert denied(fire("PreToolUse", dict(worker, tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n*** Add File: tests/a.rs\n+x\n*** End Patch"})))
 ok("patch outside the worktree refused")
 
-# time box from the worker's own rollout: soft warning, then hard stop via continue:false
+# time box from the worker's own rollout: soft token telemetry, then hard stop (no report call) via continue:false
 rollout("th-red", [(120, 10)])
 r = fire("PostToolUse", dict(worker, tool_name="Bash", tool_input={"command": "cd %s && ls" % wt}, tool_response="ok"))
-assert "SOFT BUDGET" in context(r); ok("soft limit warns inside the tool result (rollout tokens)")
+assert "BUDGET" not in context(r)
+ev = [e for e in map(json.loads, open(os.path.join(T, ".agentic/logs/events.jsonl"))) if e["event"].startswith("task.")]
+assert [e["event"] for e in ev] == ["task.token_soft_limit"] and ev[0]["agent_id"] == "th-red", ev
+ok("soft token limit is telemetry only: worker not told, task.token_soft_limit recorded (rollout tokens)")
 rollout("th-red", [(120, 10), (300, 10)])
 fire("PostToolUse", dict(worker, tool_name="Bash", tool_input={"command": "cd %s && ls" % wt}, tool_response="ok"))
 for _ in range(3):

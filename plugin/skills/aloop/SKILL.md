@@ -61,7 +61,9 @@ The layout is FIXED by `bin/_paths.sh` — never invent another directory name:
 | `docs/agents/sprintN/` | sprint artifacts + `stats.md` | ignored unless tracked |
 
 Commits are authored by the configured human author only; `gate-commit-author` blocks a
-commit with another author or (unless allowed) a Claude co-author / attribution trailer. This
+commit with another author or (unless allowed) a Claude co-author / attribution trailer.
+Build each task's commit message with `events commit-msg <task>` (task title, recorded
+decisions, task and intent ids), not free prose. This
 skill's `model: sonnet` covers the turn it loads in; for a long autonomous run the human
 starts the session on Sonnet (`/model sonnet` or `claude --model sonnet`).
 
@@ -273,6 +275,21 @@ sprint at a time: dispatch the planner, review its output, present it for the hu
 approval, then — only on "go" — start that sprint's execution. Do NOT batch-write every
 future sprint's Stage-2 and chain straight into execution.
 
+**Autonomous mode** is explicit, never inferred: the human chooses it at run start
+(`events authority --mode autonomous`, and `AGENTIC_AUTONOMY_MODE=autonomous` for the
+gates). Then the generated plan goes through the deterministic planning checks
+(gate-intake incl. `intent check`, gate-stage2-complete) and straight into execution,
+with no approval step, unless an escalation class is hit: an unanswered `ask` question
+(`intent check` exit 3), a scope change, or the re-plan cap. Reviewed mode stays the default.
+
+**Provenance (on "go", and at every durable boundary).** Record who approved what, once
+per sprint, before the first dispatch:
+`events authority --initiated-by <human> --mode reviewed|autonomous --scope "sprint N as approved"`
+(plus `--override KEY=VALUE` for any limit the human changed). At each split, re-plan,
+target or acceptance decision, record ONE line of rationale with its evidence:
+`events decide split|replan|acceptance|… --task SN-NN-Tk --reason "<one line>" --evidence <ref>`.
+No chain-of-thought — a reason, refs and the authority (`events lineage <task>` shows it).
+
 1. **stories.md** — the contract. Every story carries the five-part Intent
    (What's wanted · Constraints · Failure scenarios · Success scenarios ·
    Connections). A story missing failure-scenarios or connections is rejected.
@@ -315,7 +332,10 @@ Also make sure `docs/agents/defaults.md` exists — if not, run the init flow fi
 `gate-stage2-complete` blocks unless **every** story in `stories.md` has a
 `sN-NN-<slug>/` dir with `tasks.md` + `validate.md` + `plan.md`, no `TBW` remains, the
 sprint is **self-contained** (no reference to a later sprint's stories, no work deferred
-into one), and md-db validates the tree. Partial Stage-2 is forbidden — all-or-nothing per sprint.
+into one), the structured references hold (`ids freeze`: each dir's `story:` frontmatter
+matches it, every dir is listed in stories.md, validate.md `## Tn` exist in tasks.md,
+`split_from` names a retired task, a retired number is never reused), and md-db validates
+the tree. On pass every story and task alias gets a frozen canonical id in `sprintN/ids.json`. Partial Stage-2 is forbidden — all-or-nothing per sprint.
 Do not dispatch until both exit 0. (The PostToolUse `gate-validate-artifact`
 hook validates each artifact as you write it, regardless.)
 
@@ -415,20 +435,34 @@ with a soft and a hard limit. Defaults — **150k / 250k tokens,
 20 / 30 min** (a real RED/GREEN attempt that reads the style guide and runs the
 fmt/vet/lint/build/test matrix uses 60–190k) — and the project's confirmed values live in `docs/agents/defaults.md`; a single task
 may carry a planner-authored `budget:` override line in tasks.md (or `BUDGET_*` lines in
-its task contract). Tokens = the worker's current context + all its output
-tokens; time = wall clock since its first tool call. The hook finds the worker's
+its task contract). Tokens = the charge under `TOKEN_METER`: by default every
+fresh (uncached) input token + every output token; `context` (the pre-0.11 meter, on which
+the 60–190k figure above was measured) charges the context in use + all output instead.
+Cache read / cache write are recorded as separate classes for cost and churn; time = wall clock since its first tool call. The hook finds the worker's
 worktree from the paths its tool calls name (`git -C <wt>`, `cd <wt>`, absolute paths),
 not only from the call's cwd; `aloop budget status` shows, per attempt, where its
 budget came from and how its worktree was found.
 
 The hooks enforce it — you don't: `budget hook` (PreToolUse/PostToolUse on every tool
 call, SubagentStop) measures the worker from its own transcript and
-- at the **soft** limit tells the worker, inside its tool result, what is left and to
-  finish or end gracefully (and once more at 90% of hard);
-- at the **hard** limit gives the worker one chance to append its output.md report
-  (`status: re-plan`), denies every other tool call (3 refusals), then **stops the worker
-  itself** — PostToolUse `continue: false`. No model decides the kill. It also writes
+- at the **soft time** limit tells the worker, inside its tool result, what is left and to
+  finish or end gracefully (and once more at 90% of hard, tokens or time);
+- at the **soft token** limit tells the worker nothing: it is telemetry only. The hook
+  records `task.token_soft_limit` (`.agentic/logs/events.jsonl`) and the next sprint's
+  `stats.md` / `NEXT.md` list those tasks so the planner sizes similar work smaller;
+- at the **hard** limit **stops the worker itself** on that call — PostToolUse
+  `continue: false` — and refuses every later call. The worker is not asked to narrate:
+  the harness appends the attempt's output.md block (`status: re-plan`, limits, worktree
+  diff, transcript path) and records `task.token_hard_limit` / `task.time_hard_timeout`.
+  No model decides the kill, and no model tokens are spent after it. It also writes
   `.agentic/budget-exceeded`, so the worker's SubagentStop gate releases it *unverified*.
+
+Every **other** model role (intake, standards, planner, archivist, structural-reviewer,
+final-gate) is metered too, against its own profile (planning roles 300k/600k tokens,
+30/60 min; reviewers and final-gate 150k/250k, 20/30 min; override with
+`AGENTIC_BUDGET_<ROLE>="tokens_hard=… time_hard=…"` in defaults.md). These are
+**observe-only**: crossings are recorded as events for the next planning cycle, and the
+agent is never told, stopped or killed by `budget watch`.
 
 ## The feedback loop (exactly)
 
@@ -459,7 +493,9 @@ Your job during execution is small, and that is on purpose (it keeps your contex
 2. **Sleep.** Start `budget watch --interval 20 --grace 60` with `run_in_background:
    true` and end your turn. Do nothing else: no polling, no reading worker output early.
    You wake when a worker finishes (task notification) or when `budget watch` exits.
-3. **Sweep** on each wake:
+3. **Sweep** on each wake. Start with `sweep`: it prints one action per task (DONE, ACCEPT,
+   RETRY, ESCALATE, REPLAN, WAIT, SPAWN, ROLLOVER) decided from the event stream and
+   attempt states, not from worker prose. Act on those lines:
    - finished workers → read the gate verdict + latest `output.md` block, and proceed as
      in the feedback loop (tick/merge on pass, retry within the gate-retry budget);
    - `budget watch` printed `STOPPED …` lines (the hook already ended those workers) or
@@ -469,6 +505,9 @@ Your job during execution is small, and that is on purpose (it keeps your contex
      Then take the **Budget overrun** route below — do not re-dispatch the task;
    - still-running workers and no kill → start `budget watch` again and sleep.
 4. When nothing is running and nothing can be dispatched, the wave is done.
+
+On a host without background task notifications, `sweep wait --timeout 1800` is the
+sleep: it blocks without a model call until an event or attempt state changes, then sweeps.
 
 `budget status` prints every tracked attempt's tokens/minutes vs its limits.
 
@@ -493,9 +532,43 @@ again. Instead:
    `replan SN-NN complete Tn`.
 5. **Resume** the sprint: dispatch the new tasks (from RED) and continue the loop.
 
+### Breach classes (classify before you split)
+
+A hard stop is not always "too big". The hook writes a first, deterministic breach class
+with its evidence into the attempt's output.md block (`| breach class | … |`), the
+`task.*_hard_limit` event and `budget watch`'s line (`budget classify <task>` re-prints
+it). Pass it to the planner, which confirms or overrides it and then acts on it:
+
+| Class | Action |
+|---|---|
+| `TASK_TOO_LARGE` | Split into smaller, independently testable tasks (vertical slices) |
+| `AGENT_LOOPING` | Reframe the task and put the failed strategy in its `### Feedback` |
+| `PLAN_AMBIGUOUS` | Repair the contract (plan.md tests / validate.md rubric) |
+| `BLOCKED_DEPENDENCY` | Schedule the dependency first |
+| `ENVIRONMENT_SLOW` / `TEST_SUITE_SLOW` | Adjust the commands or the task's `budget:` time line; splitting may not help |
+| `EXTERNAL_SERVICE` | Isolate or mock the service in the task's contract |
+| `HOST_FAILURE` | Retry the infrastructure: re-dispatch the task unchanged (does not count as a split) |
+| `CONTEXT_PATHOLOGY` | Narrow the task's inputs (fewer files to read), or split |
+| `UNKNOWN` | Conservative split, or escalate |
+
+`PLAN_AMBIGUOUS` and `BLOCKED_DEPENDENCY` are never guessed by the hook: they need the
+planner's judgment. Every replacement task must still fit the normal budgets.
+
 ## Wave loop — step by step (the run trace)
 
 For wave K, for each task `T<k>`:
+
+**Admission** — before a task's FIRST dispatch, run `budget admit SN-NN-Tk`. The sprint
+has an aggregate token envelope (`SPRINT_TOKENS_SOFT` / `SPRINT_TOKENS_HARD` in
+defaults.md; default 4M / 6M, summed over every worker attempt's charge):
+- exit 0 → dispatch. A `ROLLOVER WARNING` line (soft, printed once) means: prefer
+  critical-path tasks from here on.
+- exit 3 → **admission closed**: do not dispatch it. The task is listed as carried over
+  in `sprintN/rollover.md` with the reason. Let in-flight tasks finish under their own
+  limits, run `budget admit` for every remaining not-started task (each is recorded), then
+  close the sprint through FINAL-GATE as usual: it accepts unticked boxes only for the
+  carried tasks, and NEXT.md hands them to the next planning cycle. A rollover is **not**
+  a failure and needs no human.
 
 **RED** — dispatch `red-worker`.
 - The worker writes every test bullet in the task's `plan.md` section at the exact

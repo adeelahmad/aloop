@@ -37,5 +37,11 @@ if grep -niE "$relax" "$f" >/dev/null 2>&1; then
   echo "  rephrase as a fix (e.g. 'fix the flakiness'), never an evasion." >&2
   exit 2
 fi
+# a row that promotes planner lesson candidates (origin cites L-NNN) must meet the
+# archivist recurrence rule: >= 2 distinct tasks, or an explicit human `keep` (ROADMAP §4.3)
+if ! "$BIN_DIR/lessons" check-memory "$f"; then
+  echo "BLOCK[$GATE_NAME]: a memory entry promotes a one-off lesson candidate (see above)" >&2
+  exit 2
+fi
 echo "[$GATE_NAME] memory.md valid and contains no invariant-relaxing entry" >&2
 exit 0

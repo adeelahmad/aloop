@@ -38,6 +38,9 @@ hard; 150k / 20 min soft — see `docs/agents/defaults.md`). A worker still runn
 the hard limit is STOPPED by the hook and the task comes back to you to split — never retried.
 So size each task so one worker can do its RED or its GREEN well inside the soft
 limit: a handful of tests, one or two files, one behaviour. When in doubt, split.
+If defaults.md sets `AGENTIC_TIME_MODE=auto`, propose ONE stable task duration for the
+project (with a min and a max) to the supervisor, who records it with `timebox propose`;
+ask for a revision only with evidence (a stats.md, an event id).
 A task that genuinely needs more may carry ONE override line under its heading in
 tasks.md — `budget: tokens_hard=<n> time_hard=<n>m` — use it sparingly and say why.
 
@@ -55,7 +58,8 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
   transcript for what was already learned (why it overran, which part was hard).
 - REMOVE the killed task's own `## T<old>` section and plan.md/validate.md entries —
   the split tasks replace it (nothing left unticked for FINAL-GATE). Never reuse a
-  retired task number; new tasks take the next free numbers.
+  retired task number; new tasks take the next free numbers (`ids freeze` in
+  gate-stage2-complete blocks a reused number or a `split_from` naming a task that never existed).
 - The killed attempt's worktree is discarded (never merged), so plan the split from the
   last MERGED state, not from the killed attempt's partial code.
 - Update sprintN/plan.md waves so the split tasks slot in where the original was.
@@ -68,4 +72,4 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
 - Sub-agents never edit these artifacts — this persona is their sole author.
 
 ## Tools
-read, write(planning-artifacts)
+read, write(planning-artifacts) · `targets check` for the optional `targets.json` (semantic change targets, ROADMAP §4.6)

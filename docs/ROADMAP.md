@@ -72,15 +72,15 @@ Evolve **agentic-agile** into **Aladdin**. Aladdin is an intent-driven, test-dri
 
 These parts already exist but their semantics must change:
 
-1. **The soft token limit becomes telemetry only.** Today the worker is told to wrap up. Instead:
+1. **The soft token limit becomes telemetry only.** ✅ *Done (Unreleased): `budget` records the event silently; stats.md and NEXT.md surface it. Test: `scripts/test/budget-soft-telemetry.test.py`.* Previously the worker was told to wrap up. Now:
    - emit `task.token_soft_limit` and record it;
    - let the worker continue;
    - feed the event to the *next* planning cycle.
 
    Graceful wrap-up stays for the *time* soft limit only.
-2. **The token meter counts classes separately.** Today it measures context in use plus output. Change the default task-length charge to *fresh input + output*, and keep cache read and cache write visible for cost and churn. Never confuse cumulative cache traffic with context size.
-3. **Budgets cover every model role.** Today only `red-worker`, `scaffolder` and `green-worker` are metered. Extend the meter to planners, reviewers and `final-gate`, with a limit profile per role.
-4. **Hard breaches are classified, not always split.** The planner must first classify the breach, then act:
+2. **The token meter counts classes separately.** ✅ *Done (Unreleased): `TOKEN_METER=fresh` default, classes in attempt state. Test: `scripts/test/budget-meter.test.py`.* Previously it measured context in use plus output. Change the default task-length charge to *fresh input + output*, and keep cache read and cache write visible for cost and churn. Never confuse cumulative cache traffic with context size.
+3. **Budgets cover every model role.** ✅ *Done (Unreleased), observe-only for non-workers: they are metered and their crossings recorded, but not stopped, since a planner runs with the human present. Enforcing on them is a follow-up once the telemetry shows real profiles. Test: `scripts/test/budget-roles.test.py`.* Previously only `red-worker`, `scaffolder` and `green-worker` are metered. Extend the meter to planners, reviewers and `final-gate`, with a limit profile per role.
+4. **Hard breaches are classified, not always split.** ✅ *Done (Unreleased): the hook pre-classifies from facts it owns, and the planner confirms the class and acts on it. Test: `scripts/test/budget-classify.test.py`.* The planner first classifies the breach, then acts:
 
    | Class | Action |
    |---|---|
@@ -95,13 +95,14 @@ These parts already exist but their semantics must change:
    | `UNKNOWN` | Conservative re-plan, or escalate |
 
    Replacement tasks must fit the normal time and token budgets, and vertical slices are preferred.
-5. **No post-kill narration.** After the hard stop, do not spend model tokens asking the worker for a report. Today the worker is allowed a final `output.md` append, and that allowance should go.
+5. **No post-kill narration.** ✅ *Done (Unreleased): the hook stops the worker on the crossing call and the harness writes the `status: re-plan` block. Test: `scripts/test/budget-hard-stop.test.py`.* After the hard stop, no model tokens are spent asking the worker for a report.
 6. **Abstract model routes.** Roles map to `strongest | strong | economical`, and each host resolves those to concrete IDs.
 
 ## 4. New work
 
 ### 4.1 Intent normalization
 
+- ✅ *Done (Unreleased): `bin/intent` (new/check/summary), gate-intake wiring, the clarification policy and explicit autonomous mode. Test: `scripts/test/intent-contract.test.py`.*
 - **An internal Intent Contract** produced by `intake`. The user never fills it in. Fields:
   - `intent_id`
   - `source` (prompt | file | issue | image | mixed)
@@ -125,7 +126,7 @@ These parts already exist but their semantics must change:
 
 ### 4.2 Sprint budget and admission control
 
-- A sprint aggregate token envelope (soft/hard).
+- A sprint aggregate token envelope (soft/hard). ✅ *Done (Unreleased): `budget admit`, `rollover.md`, gate-final `rollover-check`. Test: `scripts/test/sprint-admission.test.py`.*
   - **Soft:** a rollover warning. Optionally, stop starting non-critical work.
   - **Hard:**
     - close admission;
@@ -134,11 +135,12 @@ These parts already exist but their semantics must change:
     - record the reason.
 
     A rollover is **not** a failure.
-- Time budget `auto` mode: the planner proposes one stable task duration per project (with a min/max), recorded by the supervisor. It is revised only when there is evidence.
-- An interruptible orchestrator loop: *sleep → wake on event → inspect → accept / retry / preempt / replan / rollover / spawn → sleep*. The orchestrator spends no tokens watching workers.
+- ✅ *Done (Unreleased): `bin/timebox` + `AGENTIC_TIME_MODE=auto`. Test: `scripts/test/timebox-auto.test.py`.* Time budget `auto` mode: the planner proposes one stable task duration per project (with a min/max), recorded by the supervisor. It is revised only when there is evidence.
+- ✅ *Done (Unreleased): `bin/sweep` (inspect → one action per task) and `sweep wait` (token-free sleep, wake on event). Test: `scripts/test/orchestrator-sweep.test.py`.* An interruptible orchestrator loop: *sleep → wake on event → inspect → accept / retry / preempt / replan / rollover / spawn → sleep*. The orchestrator spends no tokens watching workers.
 
 ### 4.3 Planning feedback lifecycle
 
+- ✅ *Done (Unreleased): failure envelope (`budget envelope`), grace rule and calibration verdict in NEXT.md. Test: `scripts/test/planner-feedback.test.py`. Lesson candidates: `bin/lessons` + gate-memory recurrence check. Test: `scripts/test/lesson-candidates.test.py`.*
 - **A minimal failure envelope for the planner.** It carries:
   - the task, attempt, role and limit type;
   - the observed value;
@@ -161,12 +163,14 @@ These parts already exist but their semantics must change:
 
 ### 4.4 Context boundary: completing the model
 
+- ✅ *Done (Unreleased): `handoff.json` + resume rule (`stats resume-check`, SessionStart). Test: `scripts/test/handoff-resume.test.py`. Compaction detection and the rotation rule are done too (`bin/capabilities`, SessionStart events; test: `scripts/test/context-boundary.test.py`).*
 - A **canonical sprint handoff** built from accepted state. It records completed refs, accepted commits, open and carried work, invariants, the semantic targets needed next, decision and evidence refs, and the transient nudge. It references evidence and never inlines transcripts. `NEXT.md` becomes a rendered view of it.
 - **Compaction detection:** use explicit host compaction only when the adapter advertises it. Otherwise rotate to a fresh session, which is the correctness path. Keeping a session open across a boundary needs a recorded reason.
 - **Resume rule:** resume from git, artifacts, lineage, gate evidence and the handoff, never from "the agent said done". If evidence is missing, re-run the gate.
 
 ### 4.5 Identity and referential integrity
 
+- ✅ *Done (Unreleased): `bin/ids` (freeze/check/resolve) run by gate-stage2-complete; events carry `story_uid`/`task_uid`. Test: `scripts/test/ids-integrity.test.py`. Aliases stay in the markdown; the frozen map is the rewrite layer.*
 - Models keep emitting short aliases (`S1-03`, `T2`, `C7`). On ingest the orchestrator:
   1. issues canonical IDs (ULID / UUIDv7);
   2. rewrites **structured** references (never regex over prose);
@@ -176,6 +180,7 @@ These parts already exist but their semantics must change:
 
 ### 4.6 Semantic execution map
 
+- 🟡 *Partly done (Unreleased): structured targets, shadow workspace and `targets target|context|shadow` (`bin/targets`, checked by gate-stage2-complete). Test: `scripts/test/semantic-targets.test.py`. The LSP adapter seam is done too (`AGENTIC_LSP_COMMAND`, `_lsp.py`; test: `scripts/test/lsp-adapter.test.py`). GREEN's diff scope is derived from the targets when no SCOPE_GLOBS is given (test: `scripts/test/targets-scope.test.py`). Open: making the rest of the semantic plan the execution source (tasks.md/plan.md as rendered views).*
 - **Structured change targets:**
   - `change_ref`
   - `operation` (create | modify | extend | refactor | replace | delete)
@@ -188,6 +193,7 @@ These parts already exist but their semantics must change:
 
 ### 4.7 Provenance and lineage
 
+- ✅ *Done (Unreleased): envelope + `bin/events` (emit/query/lineage); emitted by budget, gates, worktrees. Test: `scripts/test/events.test.py`. Decision rationale (`events decide`) and the authority record (`events authority`) are done too. Intent, plan (`ids freeze` → plan.created/revised; `events authority` → plan.approved) and commit (`task-worktree remove` → commit.created) emitters are done, and `events trace SHA` walks commit → intent → approver (test: `scripts/test/commit-trace.test.py`). `events commit-msg` and `events graph` close the last two items.*
 - **A normalized event stream** (`aladdin.event/1`) for the events listed in the table below. Its envelope carries IDs, `parent_event_id` / `caused_by`, role, host, model, authority, decision, and artifact and evidence refs. It references transcripts and never copies them.
 - **Structured decision rationale** at durable boundaries (plan, split, target, implementation, replan, acceptance). Each record gives a one-line reason, evidence refs and an authority ref. There is no chain-of-thought capture.
 - **An authority record per run:** `initiated_by`, policy profile, `autonomy_mode`, approved scope, overrides.
@@ -208,6 +214,8 @@ Event types:
 | Human and run | `human.approval`, `human.override`, `run.completed`, `run.aborted` |
 
 ### 4.8 Cross-project impact provider seam
+
+✅ *Done (Unreleased): `bin/impact` + the `aladdin.impact/1` provider contract. Test: `scripts/test/impact-provider.test.py`. An MCP-backed provider plugs in as the command.*
 
 An optional MCP/provider contract that planners may query for:
 - downstream consumers;
@@ -230,13 +238,15 @@ Results carry source refs and are attached to planning provenance. An unavailabl
   - `ToolPolicy`
 
   Claude Code is the reference implementation, and Codex and OpenCode become adapters behind it.
-- **Usage reporting** distinguishes fresh input, output, cache read, cache write and current context against the context window. Estimated counts are marked `estimated`.
+- ✅ *Usage reporting done (Unreleased): classes apart, `accuracy` + `unreported` per attempt. Test: `scripts/test/budget-meter.test.py`.* **Usage reporting** distinguishes fresh input, output, cache read, cache write and current context against the context window. Estimated counts are marked `estimated`.
 - **A host capability matrix** covering usage, compaction, live messaging (for the time soft-stop), lifecycle and gate blocking.
 - **Gate equivalence:** if a host cannot block natively, the outer controller enforces it. Never downgrade BLOCK to WARN.
 - **A portable project config** in `.aladdin/config.yaml` (budgets, context, semantic, models, provenance, memory), replacing `docs/agents/defaults.md` with a migration path.
 - **Host swap:** a sprint started on one host resumes on another from portable state.
 
 ### 4.10 Metrics
+
+✅ *Mostly done (Unreleased): the stats.md Metrics table. Test: `scripts/test/metrics.test.py`. Commits, test files added, time soft limits and semantic context served now come from the event stream. Rotations/compactions are counted from SessionStart events. Still open: context-window share (needs each model's window size).*
 
 The run report should add:
 - time soft preemptions;
@@ -351,4 +361,4 @@ New with this roadmap:
 
 ## 8. Tracking
 
-When the work completes, report each requirement as `IMPLEMENTED_TESTED` (with evidence), `IMPLEMENTED_UNTESTED`, `BLOCKED_HOST` or `NOT_IMPLEMENTED`.
+Live status: [TRACKING.md](TRACKING.md), checked by `scripts/check-tracking.py` in `make test-hosts`. When the work completes, report each requirement as `IMPLEMENTED_TESTED` (with evidence), `IMPLEMENTED_UNTESTED`, `BLOCKED_HOST` or `NOT_IMPLEMENTED`.

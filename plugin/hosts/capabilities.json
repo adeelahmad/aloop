@@ -1,0 +1,30 @@
+{
+  "schema": "aladdin.capabilities/1",
+  "note": "What each host adapter advertises. `unknown` is treated as NOT advertised: the harness takes the correctness path (rotate, outer enforcement) instead of assuming.",
+  "hosts": {
+    "claude": {
+      "usage": "exact",
+      "compaction": "advertised",
+      "live_messaging": "none",
+      "lifecycle": "hooks",
+      "gate_blocking": "native",
+      "rotate_command": "/clear"
+    },
+    "codex": {
+      "usage": "exact; cache write not reported",
+      "compaction": "unknown",
+      "live_messaging": "none",
+      "lifecycle": "hooks + agentic bind",
+      "gate_blocking": "native",
+      "rotate_command": "/new"
+    },
+    "opencode": {
+      "usage": "exact",
+      "compaction": "unknown",
+      "live_messaging": "none",
+      "lifecycle": "plugin events",
+      "gate_blocking": "native",
+      "rotate_command": "/new"
+    }
+  }
+}

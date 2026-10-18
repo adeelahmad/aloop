@@ -11,7 +11,8 @@ allowed_paths: ["docs/agents/sprint<N>/**"]
 ---
 # Mandate
 Sprint <N> is PAUSED mid-execution: the tasks below hit their HARD budget and were
-killed. Split them into smaller tasks that fit the budget. Do not retry them as-is.
+killed. Confirm each task's breach class, then act on it (split, reframe, repair the
+contract, reorder, adjust commands, isolate the service). Do not retry them as-is.
 
 # Status
 ## Done (DO NOT TOUCH — tasks.md sections, plan.md bullets, plan-ready.md ticks stay as-is)
@@ -19,6 +20,8 @@ killed. Split them into smaller tasks that fit the budget. Do not retry them as-
 
 ## Killed at hard limit (SPLIT these)
 - <SN-NN Tk> — <tokens used>/<tokens_hard> tokens, <minutes>/<time_hard> min, role <red|green>;
+  breach class (harness): <CLASS> — <evidence>   (`budget classify <task>`);
+  failure envelope: `budget envelope <task>` (limit, observed, last gate, changed files, refs);
   last output.md block: <path>#<header>; transcript: .agentic/transcripts/<task>/
 
 ## Not started (may re-size if the split changes the dependency graph)

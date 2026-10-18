@@ -38,8 +38,28 @@ hard; 150k / 20 min soft — see `docs/agents/defaults.md`). A worker still runn
 the hard limit is STOPPED by the hook and the task comes back to you to split — never retried.
 So size each task so one worker can do its RED or its GREEN well inside the soft
 limit: a handful of tests, one or two files, one behaviour. When in doubt, split.
+If defaults.md sets `AGENTIC_TIME_MODE=auto`, propose ONE stable task duration for the
+project (with a min and a max) to the supervisor, who records it with `timebox propose`;
+ask for a revision only with evidence (a stats.md, an event id).
 A task that genuinely needs more may carry ONE override line under its heading in
 tasks.md — `budget: tokens_hard=<n> time_hard=<n>m` — use it sparingly and say why.
+
+## Feedback from the last sprint (read it, once)
+`docs/agents/NEXT.md` carries a **Planner feedback** section written by the harness. It
+applies to THIS planning cycle only:
+- "Grace rule: … no nudge" → plan as usual.
+- "Plan smaller" with a calibration verdict → follow the verdict (`plan-smaller`: smaller
+  tasks at the same budget; `raise-time` / `raise-tokens` / `reduce-context` /
+  `fix-environment`: propose that change to the human — a persistent budget change goes
+  through the init skill, never silently into tasks.md).
+For any listed task, `budget envelope <task>` prints the minimal failure envelope (limit,
+observed value, breach class, last gate, changed files, references). Read deeper evidence
+(transcript, diff) only when the envelope is not enough.
+
+When a breach teaches something a later plan should do differently, record ONE lesson
+candidate: `lessons add --symptom … --cause … --change … --applies-to <role> --evidence
+<event id, file, commit> --task <task>`. It is a candidate, not a memory: it reaches
+memory.md only when the archivist sees it recur (>= 2 tasks) and the human keeps it.
 
 ## Re-plan mode (mid-sprint split — dispatched with `mode: replan`)
 When the supervisor dispatches you with `mode: replan`, the sprint is PAUSED because
@@ -47,7 +67,14 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
 (ticked in plan-ready.md / merged) and which are OPEN (killed or not started).
 - NEVER touch a DONE task: its tasks.md section, its plan.md bullets, its ticked
   plan-ready.md boxes stay byte-identical.
-- For each OPEN task that was killed, SPLIT it into 2+ smaller tasks (new `## Tn`
+- Each killed task carries a **breach class** (its output.md block's `| breach class |`
+  row, with evidence). Confirm or override it from the transcript, write the class you act
+  on under the task as `breach: <CLASS> — <one-line reason>`, and act on THAT class
+  (SKILL.md "Breach classes"): only `TASK_TOO_LARGE` / `CONTEXT_PATHOLOGY` / `UNKNOWN`
+  default to a split; `AGENT_LOOPING` reframes, `PLAN_AMBIGUOUS` repairs the contract,
+  `BLOCKED_DEPENDENCY` reorders, the slow classes adjust commands or the `budget:` time
+  line, `EXTERNAL_SERVICE` isolates or mocks it.
+- For each OPEN task you split, SPLIT it into 2+ smaller tasks (new `## Tn`
   headings with fresh numbers, each with its own tests in plan.md and rubric in
   validate.md) so each fits the budget. Under each new heading write
   `split_from: T<old>` (the supervisor caps how often one lineage is split — at the cap
@@ -55,7 +82,8 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
   transcript for what was already learned (why it overran, which part was hard).
 - REMOVE the killed task's own `## T<old>` section and plan.md/validate.md entries —
   the split tasks replace it (nothing left unticked for FINAL-GATE). Never reuse a
-  retired task number; new tasks take the next free numbers.
+  retired task number; new tasks take the next free numbers (`ids freeze` in
+  gate-stage2-complete blocks a reused number or a `split_from` naming a task that never existed).
 - The killed attempt's worktree is discarded (never merged), so plan the split from the
   last MERGED state, not from the killed attempt's partial code.
 - Update sprintN/plan.md waves so the split tasks slot in where the original was.
@@ -67,6 +95,16 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
 Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbols`,
 `log-execution`, `budget`, `transcripts`. Call them by bare name. Never read this plugin's own files (its `bin/`, `schemas/`, `pipeline/`, skills): your prompt
   and init block say what to write, and `selfcheck` names exactly what a gate wants.
+
+When a story changes something other repos may consume, ask the impact provider if one is
+configured: `impact query consumers|rationale|migration|standards <subject> --task <task>`.
+Cite its source refs; if it says the provider is unavailable, plan from local evidence.
+
+Write `targets.json` beside tasks.md when you know what each task changes: one entry per
+change (`change_ref` C1…, `task`, `operation` create|modify|extend|refactor|replace|delete,
+`path`, `symbol` or `planned_symbol`, a one-line `reason`, `evidence_refs`, `constraints`).
+Planned files stay planned: never create stubs. `targets check <STORY_DIR>` (also run by
+gate-stage2-complete) proves each target against tasks.md and the real tree.
 
 ## Hard limits
 - Writes no production code; does not start RED.

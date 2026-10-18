@@ -4,15 +4,21 @@
 Every worker attempt (red-worker / scaffolder / green-worker) runs under two budgets,
 each with a SOFT and a HARD limit:
 
-    tokens   soft 150k  hard 250k    (context in use + all output tokens, see below)
+    tokens   soft 150k  hard 250k    (fresh input + output tokens, see below)
     time     soft 20m   hard 30m     (wall clock since the attempt's first tool call)
 
-  SOFT crossed  -> the worker is told, inside its own tool results (PostToolUse
+  SOFT time     -> the worker is told, inside its own tool results (PostToolUse
                    additionalContext): how much is left, finish or wrap up gracefully.
-  HARD crossed  -> the worker's tool calls are denied (PreToolUse) except appending its
-                   report to output.md, a `.agentic/budget-exceeded` marker lets its
-                   SubagentStop gate release it, and `budget watch` tells the supervisor
-                   to TaskStop it. The task is NOT retried — it goes back to the planner
+  SOFT tokens   -> telemetry only: the worker is NOT told and keeps going. The crossing is
+                   recorded (state `token_soft_limit`, event `task.token_soft_limit` in
+                   .agentic/logs/events.jsonl) and fed to the next planning cycle (stats).
+  HARD crossed  -> the worker is stopped at once (PostToolUse `continue: false`; every
+                   PreToolUse call is denied). It is NOT asked to narrate: the harness
+                   appends the `status: re-plan` block to output.md itself from facts it
+                   owns (limits, worktree diff, transcript path) — no model tokens are
+                   spent after the stop (ROADMAP §3.5). A `.agentic/budget-exceeded`
+                   marker lets its SubagentStop gate release it, and `budget watch` tells
+                   the supervisor to TaskStop it if the hook could not. The task is NOT retried — it goes back to the planner
                    to be split (SKILL.md "Budget overrun -> mid-sprint re-plan").
 
 Resolution order (first set wins):  per-task `budget:` line in tasks.md  >
@@ -26,9 +32,17 @@ Usage:
   budget mark-killed AGENT_ID...            after TaskStop: stop tracking those attempts
   budget status                             table of tracked attempts
   budget replans TASK_ID                    how many times TASK_ID was split (cap check)
+  budget classify AGENT_ID|TASK_ID...       the breach class of a stopped attempt + its evidence
+  budget admit TASK_ID                      before dispatch: 0 admit, 3 admission closed (sprint
+                                            token envelope hard limit; task carried over)
+  budget rollover-check SPRINT_DIR          gate-final: unticked boxes only for carried tasks
+  budget envelope TASK_ID                   the minimal failure envelope for the planner
 
-Tokens = the latest assistant turn's context (input + cache read + cache creation)
-plus every output token so far, read from the sub-agent's own transcript.
+Tokens = the charge under TOKEN_METER (defaults.md, or BUDGET_TOKEN_METER in task.env):
+  fresh   (default) every uncached input token + every output token so far
+  context the latest call's context in use + every output token (the pre-0.11 meter)
+read from the sub-agent's own transcript. Cache read / cache write are kept as their own
+classes in the attempt state (cost and churn), never folded into context size.
 
 Hook mode NEVER fails the tool call on an internal error (exit 0, no output).
 """
@@ -44,10 +58,21 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import _paths  # noqa: E402  (the one file-layout definition)
 import _usage  # noqa: E402  (token usage from any host's session log)
+import _events  # noqa: E402  (the aladdin.event/1 stream)
+import _timebox  # noqa: E402  (AGENTIC_TIME_MODE=auto)
 
 BUDGET_KEYS = ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS")
 WORKERS = ("red-worker", "scaffolder", "green-worker")
-GRACE_DENIALS = 3          # at the hard limit: denied non-report calls before the forced stop
+# Every other model role is METERED too (ROADMAP §3.3), against its own limit profile.
+# Observe-only: crossings are recorded as events, the agent is never told or stopped
+# (a planner runs with the human present; its overruns feed the next planning cycle).
+# Override per project in defaults.md:  AGENTIC_BUDGET_PLANNER="tokens_hard=800000 time_hard=90"
+ROLE_PROFILES = {
+    "intake": (300000, 600000, 30, 60), "standards": (300000, 600000, 30, 60),
+    "planner": (300000, 600000, 30, 60), "archivist": (300000, 600000, 30, 60),
+    "structural-reviewer": (150000, 250000, 20, 30), "final-gate": (150000, 250000, 20, 30),
+}
+GRACE_DENIALS = 3          # at the hard limit: denied calls before one is let through to be stopped
 TASK_BUDGET = re.compile(r"^\s*budget:\s*(.+)$", re.I)
 
 
@@ -107,7 +132,13 @@ def task_override(tasks_file, task):
 
 def resolve(cwd, tasks_file=None, task=None, task_env=None, with_source=False):
     b = conf_values(cwd)
+    meter = (task_env or {}).get("BUDGET_TOKEN_METER") or _paths.settings(cwd).get("TOKEN_METER") or "fresh"
+    b["TOKEN_METER"] = meter if meter in ("fresh", "context") else "fresh"
     src = "docs/agents/defaults.md" if os.path.isfile(_paths.defaults_file(cwd)) else "built-in defaults"
+    tb = _timebox.current(cwd)
+    if tb:  # one stable project task duration, recorded by the supervisor (ROADMAP §4.2)
+        b.update(_timebox.limits(tb))
+        src = "timebox (AGENTIC_TIME_MODE=auto, %d min)" % tb["minutes"]
     for k in BUDGET_KEYS:
         v = (task_env or {}).get("BUDGET_" + k)
         if v and v.isdigit():
@@ -169,9 +200,10 @@ def transcript_for(payload, agent_id):
     return _usage.agent_transcript(payload, agent_id)
 
 
-def tokens_used(path):
-    """latest context size + cumulative output tokens (any host; see _usage)."""
-    return _usage.context_plus_output(path)
+def tokens_used(path, meter="fresh"):
+    """(charge, classes) for one agent log, any host (see _usage.classes / charge)."""
+    c = _usage.classes(path)
+    return _usage.charge(c, meter), c
 
 
 def bound_worktree(cwd, agent_id):
@@ -290,6 +322,20 @@ def load_state(path):
         return None
 
 
+def log_event(cwd, name, st, **extra):
+    """One aladdin.event/1 record (see _events) for this attempt; never fails."""
+    try:
+        sd = st.get("story_dir") or ""
+        _events.emit(cwd, name, task=st.get("task") or "", attempt=st.get("attempt") or "",
+                     agent_id=st.get("agent_id") or "", role=st.get("role") or "",
+                     model=((st.get("usage") or {}).get("model") or ""),
+                     refs={"transcript": st.get("transcript"), "story_dir": sd,
+                           "output": os.path.join(sd, "output.md") if sd and os.path.isfile(os.path.join(sd, "output.md")) else ""},
+                     **extra)
+    except Exception:
+        pass
+
+
 def save_state(path, st):
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
@@ -311,30 +357,176 @@ def emit(event, context=None, deny=None, stop=None):
     print(json.dumps(out))
 
 
-def is_report_write(payload, st):
-    """At the hard limit the ONLY allowed tool call is appending the report to output.md."""
-    ti = payload.get("tool_input") or {}
-    fp = ti.get("file_path") or ""
-    if payload.get("tool_name") in ("Write", "Edit", "MultiEdit") and fp.endswith("output.md"):
-        return True
-    fp = fp or ti.get("filePath") or ""
-    if payload.get("tool_name") in ("write", "edit") and fp.endswith("output.md"):
-        return True                                            # OpenCode
-    cmd = ti.get("command") if isinstance(ti.get("command"), str) else ""
-    if payload.get("tool_name") == "apply_patch":              # Codex: the patch may touch ONLY output.md
-        files = re.findall(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$", cmd, re.M)
-        return bool(files) and all(f.strip().endswith("output.md") for f in files)
-    return payload.get("tool_name") in ("Bash", "bash") and "output.md" in cmd and re.search(r">>|tee -a", cmd) is not None
+BREACH_CLASSES = ("TASK_TOO_LARGE", "AGENT_LOOPING", "PLAN_AMBIGUOUS", "BLOCKED_DEPENDENCY",
+                  "ENVIRONMENT_SLOW", "TEST_SUITE_SLOW", "EXTERNAL_SERVICE", "HOST_FAILURE",
+                  "CONTEXT_PATHOLOGY", "UNKNOWN")
+TEST_CMD = re.compile(r"\b(cargo (?:test|nextest)|go test|pytest|py\.test|npm (?:run )?test|yarn test|pnpm test|"
+                      r"jest|vitest|mvn test|gradle test|make test|ctest|rspec|phpunit|dotnet test)\b")
+NET_ERR = re.compile(r"ECONNREFUSED|ETIMEDOUT|ENOTFOUND|Connection refused|Could not resolve host|"
+                     r"Temporary failure in name resolution|\b(?:502|503|504) (?:Bad Gateway|Service Unavailable|Gateway Timeout)|"
+                     r"rate limit", re.I)
+
+
+def tool_calls(path):
+    """[(name, input-json, result-text)] from a Claude-shaped transcript (best effort)."""
+    calls, results = [], {}
+    if not path or not os.path.isfile(path) or path.endswith(".zst"):
+        return calls
+    try:
+        with open(path, errors="replace") as f:
+            for line in f:
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                content = (rec.get("message") or {}).get("content") if isinstance(rec.get("message"), dict) else None
+                for c in content if isinstance(content, list) else []:
+                    if not isinstance(c, dict):
+                        continue
+                    if c.get("type") == "tool_use":
+                        calls.append([c.get("id"), c.get("name") or "", json.dumps(c.get("input") or {}, sort_keys=True), ""])
+                    elif c.get("type") == "tool_result":
+                        body = c.get("content")
+                        results[c.get("tool_use_id")] = body if isinstance(body, str) else json.dumps(body)
+    except OSError:
+        return []
+    return [(n, i, results.get(cid, "")) for cid, n, i, _ in calls]
+
+
+def classify(st):
+    """Deterministic FIRST classification of a hard breach (ROADMAP §3.4), from facts the
+    harness owns. The planner confirms or overrides it; PLAN_AMBIGUOUS and
+    BLOCKED_DEPENDENCY need its judgment and are never guessed here."""
+    b, u = st.get("budget") or {}, st.get("usage") or {}
+    toks, mins = st.get("tokens"), st.get("elapsed_min") or 0
+    hard_t = b.get("TOKENS_HARD") or 1
+    token_breach = toks is not None and toks >= hard_t
+    calls = tool_calls(st.get("transcript"))
+    if not u and not calls:
+        return "HOST_FAILURE", "no model usage or tool calls recorded for this attempt (%.1f min)" % mins
+    if calls:
+        counts = {}
+        for n, i, _ in calls:
+            counts[(n, i)] = counts.get((n, i), 0) + 1
+        (name, inp), top = max(counts.items(), key=lambda kv: kv[1])
+        if top >= 4 and top * 3 >= len(calls):
+            return "AGENT_LOOPING", "the same %s call repeated %d of %d times: %s" % (name, top, len(calls), inp[:120])
+        net = sum(1 for _, _, r in calls if NET_ERR.search(r or ""))
+        if net >= 2:
+            return "EXTERNAL_SERVICE", "%d tool results show network/service errors" % net
+    if (u.get("context") or 0) >= 0.8 * max(hard_t, 200000):
+        return "CONTEXT_PATHOLOGY", "context in use reached %s (cache read %s)" % (fmt_k(u.get("context")), fmt_k(u.get("cache_read")))
+    if not token_breach and (toks or 0) < 0.4 * hard_t:
+        tests = sum(1 for n, i, _ in calls if n.lower() == "bash" and TEST_CMD.search(i))
+        if calls and tests * 2 >= sum(1 for n, _, _ in calls if n.lower() == "bash") and tests:
+            return "TEST_SUITE_SLOW", "time limit hit at %s tokens; %d of the shell calls were test runs" % (fmt_k(toks), tests)
+        return "ENVIRONMENT_SLOW", "time limit hit at only %s of %s tokens: wall clock went to tools, not the model" % (fmt_k(toks), fmt_k(hard_t))
+    if token_breach or calls:
+        return "TASK_TOO_LARGE", "%s tokens, %.1f min, %d tool calls, no loop or slow-tool signal" % (fmt_k(toks), mins, len(calls))
+    return "UNKNOWN", "no signal matched"
+
+
+def harness_report(st, left, cls):
+    """At the hard limit the HARNESS writes the attempt's output.md block (never the model):
+    the gate-valid `## <task> · attempt N · <role> · <ts>` shape with status: re-plan."""
+    if st.get("harness_report") or not st.get("story_dir") or not os.path.isdir(st["story_dir"]):
+        return
+    st["harness_report"] = time.time()
+    wt = st.get("worktree") or ""
+    diff = sh("git", "-C", wt, "diff", "--stat", "HEAD") if wt and os.path.isdir(wt) else ""
+    diff = diff.splitlines()[-1].strip() if diff else "no changes"
+    breach, why = st.get("breach_class") or classify(st)
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    block = ("\n## %s · attempt %s · %s · %s\nstatus: re-plan\n\n### Summary\n"
+             "Stopped by the time-box hook at the hard %s limit (%s). Written by the harness; "
+             "the worker was not asked to report.\n\n### Result\n| Check | Status | Detail |\n|---|---|---|\n"
+             "| budget | HARD (%s) | %s |\n| worktree diff | discarded | %s |\n"
+             "| breach class | %s | %s |\n\n### Next\n"
+             "re-plan: confirm or override the breach class, then act on it (SKILL.md \"Breach classes\"). "
+             "Transcript: %s\n") % (
+        st.get("task") or "?", st.get("attempt") or "?", st["role"], ts, cls, left, cls, left, diff,
+        breach, why.replace("|", "/"), st.get("transcript") or "?")
+    out = os.path.join(st["story_dir"], "output.md")
+    try:
+        new = not os.path.isfile(out)
+        with open(out, "a") as f:
+            if new:
+                f.write("---\ntype: output\n---\n")
+            f.write(block)
+    except OSError:
+        pass
+
+
+def role_profile(cwd, role):
+    b = dict(zip(("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN"), ROLE_PROFILES[role]))
+    src = "built-in %s profile" % role
+    key = "AGENTIC_BUDGET_" + role.upper().replace("-", "_")
+    try:
+        for line in open(_paths.defaults_file(cwd)):
+            m = re.match(r"^\s*(?:export\s+)?%s\s*=\s*['\"]?([^'\"#\n]*)" % key, line)
+            if m:
+                for k, v in re.findall(r"(tokens_soft|tokens_hard|time_soft|time_hard)\s*=\s*(\d+)", m.group(1)):
+                    b[k.upper() + ("_MIN" if k.startswith("time") else "")] = int(v)
+                src = "defaults.md %s" % key
+    except OSError:
+        pass
+    b["TOKENS_SOFT"] = min(b["TOKENS_SOFT"], b["TOKENS_HARD"])
+    b["TIME_SOFT_MIN"] = min(b["TIME_SOFT_MIN"], b["TIME_HARD_MIN"])
+    b["TOKEN_METER"] = _paths.settings(cwd).get("TOKEN_METER") or "fresh"
+    return b, src
+
+
+def observe(mode, payload, agent_id, role):
+    """Meter a non-worker role: record soft/hard crossings, never emit anything."""
+    cwd = payload.get("cwd") or os.getcwd()
+    spath = os.path.join(state_dir(cwd), "%s.json" % safe(agent_id))
+    st = load_state(spath)
+    now = time.time()
+    if st is None:
+        b, src = role_profile(cwd, role)
+        st = {"agent_id": agent_id, "role": role, "task": "", "attempt": "", "story_dir": "", "start": now,
+              "budget": b, "budget_source": src, "observe": True, "found_by": "role profile",
+              "soft_warned": False, "final_warned": False, "hard": False, "done": None}
+    if mode == "stop":
+        st["done"] = now
+        save_state(spath, st)
+        return
+    st["done"] = None
+    b = st["budget"]
+    tp = transcript_for(payload, agent_id)
+    if tp:
+        st["transcript"] = tp
+    toks, cls = tokens_used(st.get("transcript"), b.get("TOKEN_METER", "fresh"))
+    if toks is not None:
+        st["tokens"], st["usage"] = toks, cls
+    toks = st.get("tokens")
+    mins = (now - st["start"]) / 60.0
+    st["elapsed_min"] = round(mins, 2)
+    extra = {"tokens": toks, "elapsed_min": round(mins, 2), "observe": True}
+    if toks is not None and toks >= b["TOKENS_SOFT"] and not st.get("token_soft_limit"):
+        st["token_soft_limit"] = now
+        log_event(cwd, "task.token_soft_limit", st, tokens_soft=b["TOKENS_SOFT"], **extra)
+    if mins >= b["TIME_SOFT_MIN"] and not st.get("time_soft_limit"):
+        st["time_soft_limit"] = now
+        log_event(cwd, "task.time_soft_limit", st, time_soft_min=b["TIME_SOFT_MIN"], **extra)
+    over_tok = toks is not None and toks >= b["TOKENS_HARD"]
+    if (over_tok or mins >= b["TIME_HARD_MIN"]) and not st["hard"]:
+        st["hard"] = now
+        log_event(cwd, "task.token_hard_limit" if over_tok else "task.time_hard_timeout", st, **extra)
+    save_state(spath, st)
 
 
 def hook(mode):
     if os.environ.get("SKIP_HOOKS") == "1" or os.environ.get("AGENTIC_NO_BUDGET") == "1":
         return
     raw = sys.stdin.read()
-    if not any(w in raw for w in WORKERS):          # cheap exit for every non-worker call
+    if not any(w in raw for w in WORKERS + tuple(ROLE_PROFILES)):   # cheap exit: no model role
         return
     payload = json.loads(raw)
     agent_id, agent_type = payload.get("agent_id") or "", payload.get("agent_type") or ""
+    other = next((r for r in ROLE_PROFILES if agent_type == r or agent_type.endswith(":" + r)), None)
+    if agent_id and other:
+        return observe(mode, payload, agent_id, other)
     role = next((w for w in WORKERS if agent_type == w or agent_type.endswith(":" + w)), None)
     if not agent_id or not role:
         return
@@ -394,9 +586,9 @@ def hook(mode):
     tp = transcript_for(payload, agent_id)
     if tp:
         st["transcript"] = tp
-    toks = tokens_used(st.get("transcript") or tp)
+    toks, cls = tokens_used(st.get("transcript") or tp, b.get("TOKEN_METER", "fresh"))
     if toks is not None:
-        st["tokens"] = toks
+        st["tokens"], st["usage"] = toks, cls
     toks = st.get("tokens")
     mins = (now - st["start"]) / 60.0
     st["elapsed_min"] = round(mins, 2)
@@ -404,7 +596,8 @@ def hook(mode):
     t_hard = b["TOKENS_HARD"]
     m_hard = b["TIME_HARD_MIN"]
     over_hard = (toks is not None and toks >= t_hard) or mins >= m_hard
-    over_soft = (toks is not None and toks >= b["TOKENS_SOFT"]) or mins >= b["TIME_SOFT_MIN"]
+    over_soft_time = mins >= b["TIME_SOFT_MIN"]
+    over_soft_tokens = toks is not None and toks >= b["TOKENS_SOFT"]
     near_hard = (toks is not None and toks >= 0.9 * t_hard) or mins >= 0.9 * m_hard
     left = "%s of %s tokens used (%s left), %.1f of %d min used (%.1f min left); budget from %s" % (
         fmt_k(toks), fmt_k(t_hard), fmt_k(max(t_hard - toks, 0)) if toks is not None else "?",
@@ -419,19 +612,34 @@ def hook(mode):
                 f.write("role=%s attempt=%s agent_id=%s at=%d %s\n" % (role, st["attempt"], agent_id, now, left))
         except OSError:
             pass
+    if over_soft_tokens and not st.get("token_soft_limit"):
+        # telemetry only (ROADMAP §3.1): record it for the planner, never tell the worker
+        st["token_soft_limit"] = now
+        log_event(cwd, "task.token_soft_limit", st, tokens=toks, tokens_soft=b["TOKENS_SOFT"],
+                  elapsed_min=round(mins, 2))
+
+    def record_hard():
+        if st.get("hard_logged"):
+            return
+        st["hard_logged"] = now
+        cls = "token" if toks is not None and toks >= t_hard else "time"
+        st["breach_class"] = list(classify(st))
+        log_event(cwd, "task.token_hard_limit" if cls == "token" else "task.time_hard_timeout", st,
+                  tokens=toks, elapsed_min=round(mins, 2), breach_class=st["breach_class"][0],
+                  breach_evidence=st["breach_class"][1])
+        harness_report(st, left, cls)
+
+    if st["hard"] and st.get("task_env_found"):
+        record_hard()
     save_state(spath, st)
 
     if st["hard"]:
-        msg = ("HARD BUDGET EXCEEDED (%s). You are being stopped. Do ONE thing: append your "
-               "`## <task> · attempt N · %s · <ts>` block to %s with `status: re-plan` (budget exceeded), a "
-               "### Summary of what is done and what is left, ### Result, ### Next — that tool call is "
-               "your last. Do not run tests or edit code. The task goes back to the planner to be split." % (left, role, report))
+        msg = ("HARD BUDGET EXCEEDED (%s). You are stopped now. Do nothing else: no report, no "
+               "tests, no edits. The harness has recorded this attempt in %s (status: re-plan) and "
+               "the task goes back to the planner." % (left, report))
         stop = ("aloop: HARD BUDGET — %s %s stopped by the time-box hook (%s). "
                 "Not a pass; the supervisor re-plans this task." % (role, st.get("task") or "", left))
-        just_crossed = st["hard"] == now
         if mode == "pre":
-            if is_report_write(payload, st):
-                return                                   # the one call we still allow
             st["denials"] = st.get("denials", 0) + 1
             save_state(spath, st)
             if st["denials"] <= GRACE_DENIALS:
@@ -439,9 +647,12 @@ def hook(mode):
             # past the grace: let this call through — its PostToolUse ends the agent
             return
         if mode == "post":
-            if just_crossed:                             # first sight: one chance to report
+            if not st.get("task_env_found") and st["hard"] == now:
+                # judged before this worker's worktree (and its budget) is known: one more
+                # call may find it and withdraw the verdict (see the re-resolve above)
                 emit("PostToolUse", context=msg)
                 return
+            record_hard()                                # no grace call, no narration
             st["hook_killed"] = now
             st["done"] = now
             save_state(spath, st)
@@ -458,11 +669,11 @@ def hook(mode):
             "discarded. Wrap up NOW: finish the smallest complete step, run selfcheck once, "
             "append your output.md report. If the task cannot fit, say so in ### Next "
             "(status: re-plan) so the planner can split it." % left))
-    elif over_soft and not st["soft_warned"]:
+    elif over_soft_time and not st["soft_warned"]:
         st["soft_warned"] = True
         save_state(spath, st)
         emit("PostToolUse", context=(
-            "SOFT BUDGET LIMIT reached: %s. Complete this task within what is left or end it "
+            "SOFT TIME LIMIT reached: %s. Complete this task within what is left or end it "
             "gracefully — no exploration, no refactors, no re-reading files you already read. "
             "If it will not fit, append your output.md report now with status: re-plan "
             "and what remains, rather than being killed at the hard limit." % left))
@@ -484,9 +695,9 @@ def refresh(st):
     True when the attempt is at/over a HARD limit."""
     now = time.time()
     st["elapsed_min"] = round((now - st["start"]) / 60.0, 2)
-    t = tokens_used(st.get("transcript"))
+    t, cls = tokens_used(st.get("transcript"), st["budget"].get("TOKEN_METER", "fresh"))
     if t is not None:
-        st["tokens"] = t
+        st["tokens"], st["usage"] = t, cls
     b = st["budget"]
     return bool(st.get("hard")) or st["elapsed_min"] >= b["TIME_HARD_MIN"] or (st.get("tokens") or 0) >= b["TOKENS_HARD"]
 
@@ -499,7 +710,7 @@ def watch(cwd, interval, grace):
         now = time.time()
         stopped, kill = [], []
         states = all_states(cwd)
-        running = [(p, s) for p, s in states if not s.get("done")]
+        running = [(p, s) for p, s in states if not s.get("done") and not s.get("observe")]
         for p, s in states:
             if s.get("hook_killed") and not s.get("reported"):
                 s["reported"] = now
@@ -512,12 +723,12 @@ def watch(cwd, interval, grace):
                 save_state(p, s)
                 if now - s["hard"] >= grace:
                     kill.append(s)
-        line = "%s agent_id=%s task=%s role=%s attempt=%s tokens=%s/%s elapsed=%.1f/%dmin"
+        line = "%s agent_id=%s task=%s role=%s attempt=%s tokens=%s/%s elapsed=%.1f/%dmin class=%s"
         for tag, group in (("STOPPED", stopped), ("KILL", kill)):
             for s in group:
                 print(line % (tag, s["agent_id"], s.get("task") or "?", s["role"], s.get("attempt") or "?",
                               fmt_k(s.get("tokens")), fmt_k(s["budget"]["TOKENS_HARD"]), s.get("elapsed_min") or 0,
-                              s["budget"]["TIME_HARD_MIN"]))
+                              s["budget"]["TIME_HARD_MIN"], (s.get("breach_class") or classify(s))[0]))
         if stopped or kill:
             if kill:
                 print("-> KILL lines: the hook could not stop these — TaskStop each, then `budget mark-killed <agent_id>`.")
@@ -551,13 +762,149 @@ def status(cwd):
     for _, s in rows:
         refresh(s)
         b = s["budget"]
-        state = "killed" if s.get("killed") else "done" if s.get("done") else ("HARD" if s.get("hard") else ("soft" if s.get("soft_warned") else "ok"))
+        state = "observe" if s.get("observe") and not s.get("hard") else "obs-HARD" if s.get("observe") else "killed" if s.get("killed") else "done" if s.get("done") else ("HARD" if s.get("hard") else ("soft" if s.get("soft_warned") else ("soft-tok" if s.get("token_soft_limit") else "ok")))
         print("%-22s %-13s %-14s %-4s %-16s %-14s %-7s %s" % (
             s["agent_id"][:22], s["role"], (s.get("task") or "?")[:14], s.get("attempt") or "?",
-            "%s/%s" % (fmt_k(s.get("tokens")), fmt_k(b["TOKENS_HARD"])),
+            "%s/%s %s" % (fmt_k(s.get("tokens")), fmt_k(b["TOKENS_HARD"]), b.get("TOKEN_METER", "context")[0]),
             "%.1f/%d" % (s["elapsed_min"], b["TIME_HARD_MIN"]), state,
             "%s (%s)" % (s.get("budget_source") or "?", s.get("found_by") or "not found")))
     return 0
+
+
+# ── sprint envelope + admission control (ROADMAP §4.2) ────────────────
+def sprint_dir_of(cwd, task):
+    m = re.match(r"^S(\d+)-\d+", task or "")
+    return os.path.join(_paths.docs(cwd), "sprint%s" % m.group(1)) if m else ""
+
+
+def sprint_charge(cwd, sdir):
+    """Sum of every metered attempt's charge in this sprint (workers by story dir)."""
+    total = 0
+    for _, s in all_states(cwd):
+        if (s.get("story_dir") or "").startswith(sdir.rstrip("/") + "/"):
+            total += s.get("tokens") or 0
+    return total
+
+
+def rollover_tasks(sdir):
+    try:
+        return re.findall(r"(?m)^- (S\d+-\d+-T\d+)\b", open(os.path.join(sdir, "rollover.md")).read())
+    except OSError:
+        return []
+
+
+def admit(cwd, task):
+    """Supervisor, before dispatching TASK_ID: 0 admit · 3 admission closed (carried over).
+    Soft envelope → a one-time rollover warning; hard → admission closes for the rest of
+    the sprint, the reason is recorded, and every refused task is listed as carried over.
+    In-flight attempts finish under their own limits. A rollover is not a failure."""
+    sdir = sprint_dir_of(cwd, task)
+    if not sdir:
+        print("budget admit: TASK_ID must look like S1-02-T3", file=sys.stderr)
+        return 64
+    os.makedirs(sdir, exist_ok=True)
+    st = _paths.settings(cwd)
+    soft, hard = st["SPRINT_TOKENS_SOFT"], st["SPRINT_TOKENS_HARD"]
+    used = sprint_charge(cwd, sdir)
+    spath = os.path.join(state_dir(cwd), "%s.sprint.json" % os.path.basename(sdir))
+    sp = load_state(spath) or {"sprint": os.path.basename(sdir)}
+    ev = {"agent_id": "", "task": task, "role": "supervisor", "attempt": "", "story_dir": sdir}
+    rf = os.path.join(sdir, "rollover.md")
+    if used >= hard and not sp.get("admission_closed"):
+        sp["admission_closed"] = time.time()
+        log_event(cwd, "sprint.admission_closed", ev, tokens=used, sprint_tokens_hard=hard)
+        with open(rf, "w") as f:
+            f.write("---\ntype: rollover\nsprint: %s\nclosed_at: %s\n---\n# Rollover — admission closed\n\n"
+                    "Reason: sprint token envelope reached (%s of %s, TOKEN_METER charge). In-flight tasks "
+                    "finished under their own limits; the tasks below were not started and carry over "
+                    "to the next planning cycle. This is not a failure.\n\n## Carried over\n"
+                    % (os.path.basename(sdir)[6:], time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                       fmt_k(used), fmt_k(hard)))
+    if sp.get("admission_closed"):
+        if task not in rollover_tasks(sdir):
+            with open(rf, "a") as f:
+                f.write("- %s\n" % task)
+            log_event(cwd, "sprint.rolled_over", ev, tokens=used)
+        save_state(spath, sp)
+        print("ADMISSION CLOSED %s: sprint envelope %s/%s — do not dispatch; carried over in %s"
+              % (task, fmt_k(used), fmt_k(hard), os.path.relpath(rf, _paths.project(cwd))))
+        return 3
+    if used >= soft and not sp.get("soft_warned"):
+        sp["soft_warned"] = time.time()
+        log_event(cwd, "sprint.token_soft_limit", ev, tokens=used, sprint_tokens_soft=soft)
+        print("ROLLOVER WARNING: sprint envelope %s/%s (soft %s). Prefer critical-path tasks; "
+              "admission closes at the hard limit." % (fmt_k(used), fmt_k(hard), fmt_k(soft)))
+    save_state(spath, sp)
+    print("ADMIT %s: sprint envelope %s/%s" % (task, fmt_k(used), fmt_k(hard)))
+    return 0
+
+
+def rollover_check(sdir):
+    """gate-final on a rolled-over sprint: an unticked plan-ready.md box is allowed only
+    when it belongs to a carried-over task (its own line or its `## Tn` section names it)."""
+    carried = rollover_tasks(sdir)
+    bad = []
+    for pr in glob.glob(os.path.join(sdir, "s[0-9]*-[0-9]*-*", "plan-ready.md")):
+        story = re.match(r"^(s\d+-\d+)", os.path.basename(os.path.dirname(pr))).group(1).upper()
+        sec = ""
+        for line in open(pr):
+            h = re.match(r"^#+\s+(T\d+)\b", line)
+            if h:
+                sec = h.group(1)
+            if re.match(r"^\s*- \[ \]", line):
+                names = set(re.findall(r"\b(?:S\d+-\d+-)?(T\d+)\b", line)) | ({sec} if sec else set())
+                if not any("%s-%s" % (story, t) in carried for t in names):
+                    bad.append("%s: %s" % (os.path.relpath(pr, sdir), line.strip()))
+    for b in bad:
+        print("unticked and not carried over: " + b, file=sys.stderr)
+    return 2 if bad else 0
+
+
+def envelope(cwd, task):
+    """ROADMAP §4.3: the MINIMAL failure envelope the planner gets for a task — facts and
+    references only. Deeper evidence (transcript, diff) is read on demand, never inlined."""
+    atts = [s for _, s in all_states(cwd) if s.get("task") == task and not s.get("observe")]
+    if not atts:
+        print("budget envelope: no tracked attempt for %s" % task, file=sys.stderr)
+        return 1
+    s = max(atts, key=lambda a: a.get("start") or 0)
+    b = s.get("budget") or {}
+    tok_hit = s.get("tokens") is not None and s["tokens"] >= (b.get("TOKENS_HARD") or 1)
+    limit = ("token_hard" if tok_hit else "time_hard") if s.get("hard") else ("token_soft" if s.get("token_soft_limit") else "none")
+    gate = "none"
+    for g in _usage_jsonl(os.path.join(_paths.home(cwd, "logs"), "gates.jsonl")):
+        if g.get("task") == task and not g.get("selfcheck"):
+            gate = "%s %s" % (g.get("gate"), "pass" if g.get("exit") == 0 else "block")
+    wt = s.get("worktree") or ""
+    changed = sh("git", "-C", wt, "diff", "--name-only", "HEAD").split() if wt and os.path.isdir(wt) else []
+    cls = s.get("breach_class") or (classify(s) if s.get("hard") else ["-", ""])
+    print("\n".join([
+        "task: %s" % task, "attempt: %s" % (s.get("attempt") or "?"), "role: %s" % s["role"],
+        "limit: %s" % limit,
+        "observed: %s tokens (%s meter) of %s, %.1f of %s min" % (fmt_k(s.get("tokens")), b.get("TOKEN_METER", "context"),
+                                                                fmt_k(b.get("TOKENS_HARD")), s.get("elapsed_min") or 0, b.get("TIME_HARD_MIN")),
+        "breach_class: %s%s" % (cls[0], " — " + cls[1] if cls[1] else ""),
+        "last_gate: %s" % gate,
+        "changed: %s" % (", ".join(changed[:12]) + (" …" if len(changed) > 12 else "") if changed else "none in worktree"),
+        "refs:",
+        "  transcript: %s" % (s.get("transcript") or "?"),
+        "  events: .agentic/logs/events.jsonl (task=%s)" % task,
+        "  output: %s" % (os.path.join(s["story_dir"], "output.md") if s.get("story_dir") else "?"),
+        "  diff: git -C %s diff HEAD" % (wt or "?"),
+    ]))
+    return 0
+
+
+def _usage_jsonl(path):
+    try:
+        with open(path) as f:
+            for line in f:
+                try:
+                    yield json.loads(line)
+                except ValueError:
+                    continue
+    except OSError:
+        return
 
 
 def split_parent(root, story, tn):
@@ -626,6 +973,7 @@ def main(argv):
         b, src = resolve(cwd, opts.get("tasks"), opts.get("task"), env, with_source=True)
         for k in ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN"):
             print("BUDGET_%s=%d" % (k, b[k]))
+        print("BUDGET_TOKEN_METER=%s" % b["TOKEN_METER"])
         print("# from: %s" % src)
         return 0
     if cmd == "watch":
@@ -636,6 +984,20 @@ def main(argv):
         return mark_killed(cwd, opts.get("_") or [])
     if cmd == "replans":
         return replans(cwd, (opts.get("_") or [""])[0])
+    if cmd == "envelope":
+        return envelope(cwd, (opts.get("_") or [""])[0])
+    if cmd == "admit":
+        return admit(cwd, (opts.get("_") or [""])[0])
+    if cmd == "rollover-check":
+        return rollover_check((opts.get("_") or [""])[0])
+    if cmd == "classify":
+        found = 0
+        for _, s in all_states(cwd):
+            if s["agent_id"] in (opts.get("_") or []) or s.get("task") in (opts.get("_") or []):
+                c, why = s.get("breach_class") or classify(s)
+                print("%s %s %s: %s — %s" % (s["agent_id"], s.get("task") or "?", s["role"], c, why))
+                found += 1
+        return 0 if found else 1
     print("budget: unknown command %r (see budget --help)" % cmd, file=sys.stderr)
     return 64
 

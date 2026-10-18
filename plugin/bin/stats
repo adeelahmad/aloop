@@ -15,6 +15,14 @@ Nothing here is computed or written by a model:
                               handoff the SessionStart hook loads after /clear), records the
                               close in .agentic/state/sprints.json.
   stats show                  totals: this session, every sprint, the whole project.
+  stats resume-check [DIR]    the resume rule (ROADMAP §4.4): every task the sprint's
+                              plan-ready.md shows as done must have gate evidence (a
+                              passing gate verdict for that task). Prints one RE-RUN line per
+                              task without it; exit 0 always (SessionStart reads it).
+
+sprint-close also writes sprintN/handoff.json: the CANONICAL handoff built from accepted
+state (done tasks with their gate evidence, merged worktrees, open and carried work, the
+nudge, evidence refs). NEXT.md is a rendered view of it; neither inlines transcripts.
 
 Token figures are summed from the API usage Claude Code records in its transcripts:
 input (uncached) + cache read + cache write + output. `/usage` resets on /clear; this
@@ -25,6 +33,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -174,7 +183,8 @@ def resolve_sprint_dir(cwd, arg=None):
 
 def sprint_facts(cwd, sdir, since, until):
     """Everything countable about one sprint, from files the harness owns."""
-    f = {"stories": 0, "tasks_planned": 0, "boxes": 0, "ticked": 0, "attempts": {}, "killed": [],
+    f = {"stories": 0, "tasks_planned": 0, "boxes": 0, "ticked": 0, "attempts": {}, "killed": [], "token_soft": [], "breaches": [], "near_hard_ok": 0, "ok_attempts": 0,
+         "blocked_tasks": set(), "rows": [], "gate_seq": {},
          "attempt_tokens": 0, "gate_pass": {}, "gate_block": {}, "replans": 0, "kills_logged": 0,
          "first": None, "last": None}
     for story in sorted(glob.glob(os.path.join(sdir, "s[0-9]*-[0-9]*-*"))):
@@ -198,8 +208,18 @@ def sprint_facts(cwd, sdir, since, until):
             continue
         if not (s.get("story_dir") or "").startswith(sdir):
             continue
+        f["rows"].append(s)
         f["attempts"][s["role"]] = f["attempts"].get(s["role"], 0) + 1
         f["attempt_tokens"] += s.get("tokens") or 0
+        if s.get("token_soft_limit"):
+            f["token_soft"].append("%s %s (%s, %s tokens, soft %s)" % (s.get("task") or "?", s["role"], s.get("attempt") or "?",
+                                                                     fmt(s.get("tokens")), fmt(s["budget"].get("TOKENS_SOFT"))))
+        if s.get("hook_killed") or s.get("killed"):
+            f["breaches"].append((s.get("task") or "?", (s.get("breach_class") or ["UNKNOWN"])[0]))
+        elif s.get("done") and s.get("tokens") is not None:
+            f["ok_attempts"] += 1
+            if s["tokens"] >= 0.8 * (s["budget"].get("TOKENS_HARD") or 1):
+                f["near_hard_ok"] += 1
         if s.get("hook_killed") or s.get("killed"):
             f["killed"].append("%s %s (%s, %s tokens, %.1f min)" % (s.get("task") or "?", s["role"], s.get("attempt") or "?",
                                                                     fmt(s.get("tokens")), s.get("elapsed_min") or 0))
@@ -210,6 +230,10 @@ def sprint_facts(cwd, sdir, since, until):
         if not mine:
             continue
         bucket = "gate_pass" if g.get("exit") == 0 else "gate_block"
+        if g.get("task"):
+            f["gate_seq"].setdefault((g["gate"], g["task"]), []).append(g.get("exit") == 0)
+        if bucket == "gate_block" and g.get("task"):
+            f["blocked_tasks"].add(g["task"])
         f[bucket][g["gate"]] = f[bucket].get(g["gate"], 0) + 1
     try:
         for line in open(os.path.join(sdir, "execution.log")):
@@ -224,7 +248,150 @@ def sprint_facts(cwd, sdir, since, until):
                 f["kills_logged"] += 1
     except OSError:
         pass
+    events_facts(cwd, sdir, f, since, until)
+    try:
+        f["rolled_over"] = re.findall(r"(?m)^- (S\d+-\d+-T\d+)\b", open(os.path.join(sdir, "rollover.md")).read())
+        f["rollover"] = True
+    except OSError:
+        f["rolled_over"], f["rollover"] = [], False
     return f
+
+
+TEST_FILE = re.compile(r"(^|/)(tests?|spec|__tests__)/|(^|/)test_[^/]*$|_test\.[a-z]+$|\.(test|spec)\.[a-z]+$")
+
+
+def events_facts(cwd, sdir, f, since="", until=""):
+    """From the event stream: commits produced, tests added, time soft limits, semantic context served."""
+    m = re.search(r"sprint(\d+)$", os.path.basename(os.path.abspath(sdir)))
+    sp = "S%s" % m.group(1) if m else None
+    f.update(commits=[], tests_added=0, time_soft=0, semantic_served=0, rotated=0, compacted=0)
+    try:
+        import _events
+        evs = list(_events.read(cwd))
+    except Exception:  # noqa: BLE001 — telemetry never fails the report
+        evs = []
+    for e in evs:
+        if e.get("event") in ("context.rotated", "context.compacted") and since < (e.get("ts") or "") <= (until or "~"):
+            f["rotated" if e["event"] == "context.rotated" else "compacted"] += 1
+            continue
+        if sp is None or (e.get("ids") or {}).get("sprint") != sp:
+            continue
+        ev = e.get("event")
+        if ev == "commit.created" and (e.get("data") or {}).get("sha"):
+            f["commits"].append(e["data"]["sha"])
+        elif ev in ("task.time_soft_limit", "task.time_soft_preempt"):
+            f["time_soft"] += 1
+        elif ev == "semantic_target.resolved":
+            f["semantic_served"] += 1
+    for sha in f["commits"]:
+        try:
+            out = subprocess.run(["git", "-C", _paths.project(cwd), "show", "--name-status", "--format=", sha],
+                                 capture_output=True, text=True).stdout
+        except OSError:
+            continue
+        f["tests_added"] += sum(1 for ln in out.splitlines() if ln.startswith("A\t") and TEST_FILE.search(ln[2:]))
+
+
+def pct(vals, p):
+    """Nearest-rank percentile; None for no data."""
+    v = sorted(x for x in vals if x is not None)
+    if not v:
+        return None
+    k = max(0, min(len(v) - 1, int(-(-p * len(v) // 100)) - 1))
+    return v[k]
+
+
+def metrics(f):
+    """ROADMAP §4.10: run-report metrics, all derived from harness files (no model calls)."""
+    rows = f["rows"]
+    workers = [s for s in rows if s["role"] in WORKERS]
+    killed = [s for s in workers if s.get("hook_killed") or s.get("killed")]
+    by_rc = {}
+    for s in killed:
+        key = "%s/%s" % (s["role"], (s.get("breach_class") or ["UNKNOWN"])[0])
+        by_rc[key] = by_rc.get(key, 0) + 1
+    u = {"in": 0, "cache_read": 0, "cache_write": 0, "out": 0}
+    peak = 0
+    for s in rows:
+        for k in u:
+            u[k] += (s.get("usage") or {}).get(k) or 0
+        peak = max(peak, (s.get("usage") or {}).get("context") or 0)
+    prompt = u["in"] + u["cache_read"] + u["cache_write"]
+    first = {}
+    for (gate, _), seq in f["gate_seq"].items():
+        a, b = first.get(gate, (0, 0))
+        first[gate] = (a + (1 if seq[0] else 0), b + 1)
+    accepted = len(set(s.get("task") for s in workers if s.get("done") and not s.get("hook_killed") and not s.get("killed")))
+    waste = sum(s.get("tokens") or 0 for s in killed)
+    total = sum(s.get("tokens") or 0 for s in workers)
+    durs, toks = [s.get("elapsed_min") for s in workers], [s.get("tokens") for s in workers]
+    p = lambda vals, fmt_: " / ".join("-" if pct(vals, q) is None else fmt_(pct(vals, q)) for q in (50, 90, 95))  # noqa: E731
+    return [
+        ("Task attempt duration p50 / p90 / p95 (min)", p(durs, lambda x: "%.1f" % x)),
+        ("Task attempt tokens p50 / p90 / p95", p(toks, fmt)),
+        ("Hard breaches by role / class", ", ".join("%s %d" % kv for kv in sorted(by_rc.items())) or "0"),
+        ("Hard-breach waste (tokens in discarded attempts)", "%s (%s of worker tokens)" % (
+            fmt(waste), "%.0f%%" % (100.0 * waste / total) if total else "-")),
+        ("Tokens per accepted task", fmt(total // accepted) if accepted else "-"),
+        ("First-pass rate by gate", ", ".join("%s %d/%d" % (g, a, b) for g, (a, b) in sorted(first.items())) or "-"),
+        ("Re-plan rate (re-plans per planned task)", "%.2f" % (float(f["replans"]) / f["tasks_planned"]) if f["tasks_planned"] else "-"),
+        ("Cache-hit ratio (cache read / prompt tokens)", "%.0f%%" % (100.0 * u["cache_read"] / prompt) if prompt else "-"),
+        ("Cache churn (cache write / cache read)", "%.2f" % (float(u["cache_write"]) / u["cache_read"]) if u["cache_read"] else "-"),
+        ("Context peak (largest context in use)", fmt(peak) if peak else "-"),
+        ("Commits produced / test files added", "%d / %d" % (len(f["commits"]), f["tests_added"])),
+        ("Time soft limits reached", "%d" % f["time_soft"]),
+        ("Usage accuracy", usage_accuracy(rows)),
+        ("Context rotations / compactions (this sprint)", "%d / %d" % (f["rotated"], f["compacted"])),
+        ("Semantic context served (targets resolved instead of repo scans)", "%d" % f["semantic_served"]),
+        ("Admission closures / tasks rolled over", "%d / %d" % (1 if f["rollover"] else 0, len(f["rolled_over"]))),
+    ]
+
+
+def usage_accuracy(rows):
+    """exact unless a row says otherwise; classes a host never reports are named."""
+    est = [s for s in rows if (s.get("usage") or {}).get("accuracy") not in (None, "exact")]
+    gaps = sorted({k for s in rows for k in (s.get("usage") or {}).get("unreported") or []})
+    if not rows:
+        return "-"
+    return "%s%s" % ("%d attempt(s) estimated" % len(est) if est else "exact (read from host logs)",
+                     "; not reported by the host: %s" % ", ".join(gaps) if gaps else "")
+
+
+CALIBRATION = {
+    "plan-smaller": "keep the budget and plan smaller",
+    "raise-time": "raise the time budget",
+    "raise-tokens": "raise the token budget",
+    "reduce-context": "reduce context",
+    "fix-environment": "fix the environment",
+}
+
+
+def calibration(f):
+    """ROADMAP §4.3 grace rule + calibration verdict, from harness facts only.
+    0–1 failed or hard-breached tasks → no nudge; 2+ → one verdict for the NEXT planning
+    cycle only (it is not carried further)."""
+    trouble = sorted(set(t for t, _ in f["breaches"]) | f["blocked_tasks"])
+    if len(trouble) < 2:
+        return trouble, None, ""
+    counts = {}
+    for _, c in f["breaches"]:
+        counts[c] = counts.get(c, 0) + 1
+    top = max(counts, key=counts.get) if counts else "UNKNOWN"
+    if top in ("TEST_SUITE_SLOW",):
+        v = "raise-time"
+    elif top in ("ENVIRONMENT_SLOW", "EXTERNAL_SERVICE", "HOST_FAILURE"):
+        v = "fix-environment"
+    elif top == "CONTEXT_PATHOLOGY":
+        v = "reduce-context"
+    elif top == "TASK_TOO_LARGE" and f["ok_attempts"] and f["near_hard_ok"] * 2 >= f["ok_attempts"]:
+        v = "raise-tokens"
+    else:
+        v = "plan-smaller"
+    why = "%d of %d tasks failed a gate or hit a hard limit; breach classes: %s; %d/%d passing attempts used >= 80%% of their token limit" % (
+        len(trouble), max(f["tasks_planned"], len(trouble)),
+        ", ".join("%s %d" % kv for kv in sorted(counts.items())) or "none (gate failures only)",
+        f["near_hard_ok"], f["ok_attempts"])
+    return trouble, v, why
 
 
 def section(text, title):
@@ -243,6 +410,8 @@ def render_stats(n, sdir, facts, sprint_t, session_t, project_t, prompts, closed
              "| Worker attempts | %s |" % (", ".join("%s %d" % (r, a[r]) for r in sorted(a)) or "0"),
              "| Gate passes | %s |" % (", ".join("%s %d" % kv for kv in sorted(facts["gate_pass"].items())) or "0"),
              "| Gate blocks (retries triggered) | %s |" % (", ".join("%s %d" % kv for kv in sorted(facts["gate_block"].items())) or "0"),
+             "| Attempts past the soft token limit (telemetry) | %d |" % len(facts["token_soft"]),
+             "| Admission closed (sprint envelope) | %s |" % ("yes, %d tasks carried over" % len(facts["rolled_over"]) if facts["rollover"] else "no"),
              "| Attempts stopped at hard budget | %d |" % len(facts["killed"]),
              "| Mid-sprint re-plans | %d |" % facts["replans"],
              "| Human messages | %d |" % prompts,
@@ -254,12 +423,16 @@ def render_stats(n, sdir, facts, sprint_t, session_t, project_t, prompts, closed
              "- Sprint by role: %s" % (", ".join("%s %s" % (k, fmt(v)) for k, v in sorted(sprint_t["by_role"].items(), key=lambda kv: -kv[1])) or "-"),
              "- Sprint by model: %s" % (", ".join("%s %s" % (k, fmt(v)) for k, v in sorted(sprint_t["by_model"].items(), key=lambda kv: -kv[1])) or "-"),
              ""]
+    lines += ["## Metrics", "", "| Metric | Value |", "|---|---|"]
+    lines += ["| %s | %s |" % kv for kv in metrics(facts)] + [""]
+    if facts["token_soft"]:
+        lines += ["## Past the soft token limit (not told; kept working)", ""] + ["- " + k for k in facts["token_soft"]] + [""]
     if facts["killed"]:
         lines += ["## Stopped at the hard budget", ""] + ["- " + k for k in facts["killed"]] + [""]
     return "\n".join(lines)
 
 
-def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at):
+def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at, ho=None):
     try:
         stories = open(os.path.join(sdir, "stories.md")).read()
     except OSError:
@@ -290,8 +463,33 @@ def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at)
         "- Sprint %d goal: %s" % (n, " ".join(l.strip() for l in goal) or "(see %s/stories.md)" % rel),
         "- Sprint %d: %d stories, %d tasks planned, %d/%d plan boxes ticked, %d re-plans, %d attempts stopped at hard budget."
         % (n, facts["stories"], facts["tasks_planned"], facts["ticked"], facts["boxes"], facts["replans"], len(facts["killed"])),
-        "- Full stats: `%s/stats.md` · execution log: `%s/execution.log`" % (rel, rel),
+        "- Full stats: `%s/stats.md` · execution log: `%s/execution.log` · canonical handoff: `%s/handoff.json`"
+        % (rel, rel, rel),
         "",
+    ]
+    if ho and ho["unverified"]:
+        lines += ["## Resume rule: re-run these gates first",
+                  "_plan-ready.md shows them done, but no passing gate verdict exists. Resume from evidence,"
+                  " never from \"the agent said done\"._", ""] + ["- " + t for t in ho["unverified"]] + [""]
+    trouble, verdict, why = calibration(facts)
+    lines += ["## Planner feedback (for sprint %d's planning only)" % (n + 1)]
+    if verdict:
+        lines += ["**Plan smaller.** Calibration verdict: **%s** (`%s`)." % (CALIBRATION[verdict], verdict),
+                  "_Evidence: %s. Failure envelopes: `budget envelope <task>` for %s. A persistent budget"
+                  " change goes through the human (re-run the init skill) and is recorded in defaults.md._"
+                  % (why, ", ".join(trouble)), ""]
+    else:
+        lines += ["Grace rule: %d failed or hard-breached task(s) — no nudge." % len(trouble), ""]
+    if facts["rollover"]:
+        lines += ["## Rolled over: admission closed at the sprint token envelope",
+                  "_Not a failure. These tasks were never started; plan them first next sprint "
+                  "(see `%s/rollover.md`)._" % rel, ""]
+        lines += ["- " + t for t in facts["rolled_over"]] + [""]
+    if facts["token_soft"]:
+        lines += ["## Planner input: tasks that ran past the soft token limit",
+                  "_Size similar tasks smaller next sprint (the worker was not stopped; this is telemetry)._", ""]
+        lines += ["- " + k for k in facts["token_soft"]] + [""]
+    lines += [
         "## Carried over from sprint %d (its \"Out of scope\")" % n,
         carry,
         "",
@@ -302,6 +500,72 @@ def render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, closed_at)
         "",
     ]
     return "\n".join(lines)
+
+
+GREEN_GATES = ("gate-green-verify", "gate-final")
+
+
+def plan_ready_tasks(sdir):
+    """{task_id: done?} from every story's plan-ready.md (`## Tn` sections; a task is done
+    when all its boxes are ticked)."""
+    out = {}
+    for pr in sorted(glob.glob(os.path.join(sdir, "s[0-9]*-[0-9]*-*", "plan-ready.md"))):
+        m = re.match(r"^(s\d+-\d+)", os.path.basename(os.path.dirname(pr)))
+        story, sec = m.group(1).upper(), None
+        for line in open(pr):
+            h = re.match(r"^#+\s+(T\d+)\b", line)
+            if h:
+                sec = "%s-%s" % (story, h.group(1))
+                out.setdefault(sec, True)
+            elif sec and re.match(r"^\s*- \[ \]", line):
+                out[sec] = False
+    return out
+
+
+def gate_evidence(cwd):
+    """{task_id: latest passing worker-gate verdict} from the gate log (never from a model)."""
+    ev = {}
+    for g in read_jsonl(os.path.join(_paths.home(cwd, "logs"), "gates.jsonl")):
+        if g.get("exit") == 0 and not g.get("selfcheck") and g.get("task") and g.get("gate") in GREEN_GATES:
+            ev[g["task"]] = "%s pass @ %s" % (g["gate"], g.get("ts", "?"))
+    return ev
+
+
+def merged_worktrees(cwd):
+    out = {}
+    for e in read_jsonl(os.path.join(_paths.home(cwd, "logs"), "events.jsonl")):
+        if e.get("event") == "worktree.merged":
+            out[(e.get("ids") or {}).get("task") or e.get("task")] = e.get("event_id")
+    return out
+
+
+def resume_check(cwd, arg=None):
+    sdir = resolve_sprint_dir(cwd, arg)
+    if not sdir:
+        return 0
+    ev = gate_evidence(cwd)
+    missing = [t for t, done in sorted(plan_ready_tasks(sdir).items()) if done and t not in ev]
+    for t in missing:
+        print("RE-RUN %s: plan-ready.md shows it done but there is no passing gate verdict for it — "
+              "re-run its gate before building on it (resume from evidence, never from \"the agent said done\")." % t)
+    return 0
+
+
+def handoff(cwd, n, sdir, facts, closed_at):
+    tasks, ev, merged = plan_ready_tasks(sdir), gate_evidence(cwd), merged_worktrees(cwd)
+    trouble, verdict, why = calibration(facts)
+    rel = lambda p: os.path.relpath(p, _paths.project(cwd))  # noqa: E731
+    return {
+        "schema": "aladdin.handoff/1", "sprint": n, "closed_at": closed_at,
+        "completed": [{"task": t, "gate": ev.get(t), "merged_event": merged.get(t)} for t, d in sorted(tasks.items()) if d],
+        "unverified": [t for t, d in sorted(tasks.items()) if d and t not in ev],
+        "open": [t for t, d in sorted(tasks.items()) if not d and t not in facts["rolled_over"]],
+        "carried": facts["rolled_over"],
+        "nudge": {"verdict": verdict, "evidence": why, "tasks": trouble} if verdict else None,
+        "refs": {"stats": rel(os.path.join(sdir, "stats.md")), "events": ".agentic/logs/events.jsonl",
+                 "gates": ".agentic/logs/gates.jsonl", "execution_log": rel(os.path.join(sdir, "execution.log")),
+                 "rollover": rel(os.path.join(sdir, "rollover.md")) if facts["rollover"] else None},
+    }
 
 
 def sprint_close(cwd, arg=None):
@@ -325,8 +589,11 @@ def sprint_close(cwd, arg=None):
     closed.sort(key=lambda c: c["sprint"])
     with open(os.path.join(sdir, "stats.md"), "w") as f:
         f.write(render_stats(n, sdir, facts, sprint_t, session_t, project_t, prompts, at))
+    ho = handoff(cwd, n, sdir, facts, at)
+    with open(os.path.join(sdir, "handoff.json"), "w") as f:
+        json.dump(ho, f, indent=1)
     with open(_paths.next_file(cwd), "w") as f:
-        f.write(render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, at))
+        f.write(render_next(n, sdir, facts, sprint_t, project_t, prompts, closed, at, ho))
     with open(sprints_file(cwd), "w") as f:
         json.dump({"closed": closed}, f, indent=1)
     summary = ("Sprint %d closed. Tokens — sprint: %s · this session: %s · project: %s. Tasks planned %d, "
@@ -362,12 +629,20 @@ def hook():
         return 0
     summary = open(marker).read().strip()
     os.remove(marker)                               # announce exactly once
+    host = _usage.host_of(payload)
+    try:  # the boundary rule (ROADMAP §4.4): rotate unless the host advertises compaction
+        how = subprocess.run([os.path.join(os.path.dirname(os.path.realpath(__file__)), "capabilities"), "boundary", host],
+                             cwd=cwd, capture_output=True, text=True, timeout=20).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        how = ""
+    how = how or "rotate: start a fresh session with /clear"
     print(json.dumps({
         "systemMessage": "aloop: " + summary,
         "decision": "block",
         "reason": ("[aloop harness] " + summary + " The sprint is finished. Report these totals to the "
-                   "human, then tell them: run /clear — docs/agents/NEXT.md (the handoff) is loaded "
-                   "automatically into the fresh context. Do not start the next sprint in this context."),
+                   "human, then tell them the sprint boundary (%s) — docs/agents/NEXT.md (the handoff) "
+                   "is loaded automatically into the fresh context. Do not start the next sprint in this "
+                   "context." % how),
     }))
     return 0
 
@@ -399,6 +674,8 @@ def main(argv):
             return 0
     if cmd == "sprint-close":
         return sprint_close(os.getcwd(), argv[1] if len(argv) > 1 else None)
+    if cmd == "resume-check":
+        return resume_check(os.getcwd(), argv[1] if len(argv) > 1 else None)
     if cmd == "show":
         return show(os.getcwd())
     print("stats: unknown command %r" % cmd, file=sys.stderr)
