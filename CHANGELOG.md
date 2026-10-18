@@ -23,6 +23,17 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Changed
+- **Run data moves to `.aladdin/`** (ROADMAP M1). Fresh projects keep transcripts, budgets,
+  the ledger, logs, state, host records and task worktrees under `.aladdin/`, next to
+  `config.yaml`; `.aladdin/.gitignore` (written by the plugin) keeps everything but
+  `config.yaml` out of git. A project that already has `.agentic/` keeps using it until
+  `aloop layout migrate` moves it (refused while worker worktrees are live); `aloop layout
+  show` says which dir is live and `aloop layout check` fails unless the run data is
+  git-ignored. Every `AGENTIC_<KEY>` env var and settings key accepts `ALADDIN_<KEY>`
+  (`AGENTIC_` wins when both are set). The gates and `budget` find the task contract in
+  either dir, so a supervisor that writes the old literal path is still understood. The
+  worktree-local markers (`.agentic/task.env`, `budget-exceeded`, `scaffold-symbols`) keep
+  their name for now. Test: `scripts/test/layout.test.py`; every suite runs on the new layout.
 - **The soft token limit is telemetry only** (ROADMAP §3.1). Crossing it no longer tells
   the worker to wrap up; `budget` records `task.token_soft_limit` once per attempt in
   `.agentic/logs/events.jsonl`, `stats.md` counts it, and `NEXT.md` lists those tasks as

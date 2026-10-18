@@ -53,6 +53,16 @@ fi
 # .gitignore bootstrap on the MAIN tree (first entry of `git worktree list` is always
 # the main tree, regardless of which worktree $WT points at). Full rest-of-line, not
 # awk field-splitting — a $2-only split truncates at the first space in the path.
+# the run-data dir (mirrors bin/_paths.sh agentic_home_name; this script has its own $main):
+# .aladdin/ (ROADMAP M1), or the legacy .agentic/ until `aloop layout migrate`
+aloop_home() {
+  local p="$1" d
+  for d in transcripts budget ledger logs state host worktrees; do [ -d "$p/.aladdin/$d" ] && { printf '%s\n' "$p/.aladdin"; return 0; }; done
+  if [ -d "$p/.agentic" ]; then printf '%s\n' "$p/.agentic"; else printf '%s\n' "$p/.aladdin"; fi
+}
+aloop_home_guard() {   # .aladdin/.gitignore: config.yaml is committed, run data never is
+  case "$1" in */.aladdin) [ -f "$1/.gitignore" ] || printf '%s\n' '# aloop run data (transcripts, budgets, ledger, logs, state) — never committed' '*' '!.gitignore' '!config.yaml' > "$1/.gitignore" 2>/dev/null || true ;; esac
+}
 main="$(git -C "$WT" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p' | head -1)"
 [ -n "$main" ] || main="$(git -C "$WT" rev-parse --show-toplevel 2>/dev/null)"
 # A project that ran init has its .gitignore choice in docs/agents/defaults.md —
@@ -71,7 +81,7 @@ elif [ -n "$main" ]; then
     # Bounded mkdir-lock: multiple workers can hit this on the SAME first dispatch
     # (mkdir is atomic; a plain grep-then-append check-then-act is not). Only taken
     # when something's actually missing, so steady-state dispatches never pay for it.
-    lockdir="$main/.agentic/state/gitignore.lock"
+    lockdir="$(aloop_home "$main")/state/gitignore.lock"
     mkdir -p "$(dirname "$lockdir")" 2>/dev/null || true
     tries=0
     while ! mkdir "$lockdir" 2>/dev/null; do

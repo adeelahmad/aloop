@@ -40,13 +40,26 @@ git -C "$main" rev-parse HEAD >/dev/null 2>&1 || {
   exit 2
 }
 
-base="$main/.agentic/worktrees"   # always under the MAIN tree (git-ignored, flat)
+# the run-data dir (mirrors bin/_paths.sh agentic_home_name; this script has its own $main):
+# .aladdin/ (ROADMAP M1), or the legacy .agentic/ until `aloop layout migrate`
+aloop_home() {
+  local p="$1" d
+  for d in transcripts budget ledger logs state host worktrees; do [ -d "$p/.aladdin/$d" ] && { printf '%s\n' "$p/.aladdin"; return 0; }; done
+  if [ -d "$p/.agentic" ]; then printf '%s\n' "$p/.agentic"; else printf '%s\n' "$p/.aladdin"; fi
+}
+aloop_home_guard() {   # .aladdin/.gitignore: config.yaml is committed, run data never is
+  case "$1" in */.aladdin) [ -f "$1/.gitignore" ] || printf '%s\n' '# aloop run data (transcripts, budgets, ledger, logs, state) — never committed' '*' '!.gitignore' '!config.yaml' > "$1/.gitignore" 2>/dev/null || true ;; esac
+}
+home="$(aloop_home "$main")"
+base="$home/worktrees"   # always under the MAIN tree (git-ignored, flat)
 safe="$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//;s/-*$//')"
 [ -n "$safe" ] || safe="iso"
 path="$base/$safe"
 branch="agentic/$safe"
 
 mkdir -p "$base" 2>/dev/null || true
+
+aloop_home_guard "$home"
 
 # Idempotent reuse: a worktree already at this path is returned as-is. (The
 # sparse-checkout / .gitignore hygiene below runs only on FRESH creation here — a
@@ -93,7 +106,7 @@ if [ -e "$path/.git" ]; then
     grep -qxF "$pattern" "$gi" 2>/dev/null || need=1
   done
   if [ "$need" = 1 ]; then
-    lockdir="$main/.agentic/.gitignore.lock"
+    lockdir="$home/.gitignore.lock"
     mkdir -p "$(dirname "$lockdir")" 2>/dev/null || true
     tries=0
     while ! mkdir "$lockdir" 2>/dev/null; do

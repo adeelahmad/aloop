@@ -144,7 +144,7 @@ def host_of(payload):
     if h:
         return h
     tp = (payload or {}).get("transcript_path") or ""
-    if "/.agentic/host/opencode/" in tp:
+    if "/.agentic/host/opencode/" in tp or "/.aladdin/host/opencode/" in tp:
         return "opencode"
     if os.path.basename(tp).startswith("rollout-"):
         return "codex"                     # Codex session logs are rollout-*.jsonl[.zst]

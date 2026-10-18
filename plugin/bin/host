@@ -12,10 +12,10 @@ Usage:
   host worktree create|remove|diff TASK_ID   the worktree seam through the adapter
   host swap --to H [SPRINT_DIR]       hand the sprint to another host from portable state only:
                                       .aladdin/config.yaml, the sprint dir (handoff.json /
-                                      plan-ready.md), .agentic/logs (events + gate verdicts). Live
+                                      plan-ready.md), the run data logs (events + gate verdicts). Live
                                       worker worktrees or a missing piece block (exit 2); the
                                       target's capability gaps are named. Writes
-                                      .agentic/state/host-swap.json, which SessionStart on the new
+                                      <run data>/state/host-swap.json, which SessionStart on the new
                                       host consumes, and emits sprint.context_handoff.
 """
 import datetime
@@ -51,7 +51,7 @@ def live_worktrees(cwd):
     """Worker worktrees still attached: a swap mid-dispatch would orphan them."""
     r = subprocess.run(["git", "worktree", "list", "--porcelain"], cwd=cwd, capture_output=True, text=True)
     paths = [ln[len("worktree "):] for ln in r.stdout.splitlines() if ln.startswith("worktree ")]
-    return [p for p in paths[1:] if "/.claude/worktrees/" in p or "/.agentic/worktrees/" in p or "/worktrees/" in p]
+    return [p for p in paths[1:] if "/.claude/worktrees/" in p or "/worktrees/" in p]
 
 
 def swap(cwd, to, sdir_arg=None):
@@ -77,9 +77,9 @@ def swap(cwd, to, sdir_arg=None):
     if sdir and not (os.path.isfile(handoff) or glob.glob(os.path.join(sdir, "s*-*-*", "plan-ready.md"))
                      or os.path.isfile(os.path.join(sdir, "stories.md"))):
         bad.append("%s has neither handoff.json, plan-ready.md nor stories.md: nothing to resume from" % rel(sdir))
-    events = os.path.join(root, ".agentic", "logs", "events.jsonl")
-    if not os.path.isfile(events):
-        bad.append("no .agentic/logs/events.jsonl: the run has no provenance to resume from")
+    events_rel = _paths.home_rel(cwd, "logs", "events.jsonl")
+    if not os.path.isfile(os.path.join(root, events_rel)):
+        bad.append("no %s: the run has no provenance to resume from" % events_rel)
     live = live_worktrees(root)
     if live:
         bad.append("%d worker worktree(s) still live (%s): finish or `task-worktree remove` them first — a swap would orphan them"
@@ -98,12 +98,12 @@ def swap(cwd, to, sdir_arg=None):
            "at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
            "sprint": rel(sdir), "handoff": rel(handoff) if os.path.isfile(handoff) else None,
            "next": "docs/agents/NEXT.md" if os.path.isfile(_paths.next_file(cwd)) else None,
-           "config": _config.FILE, "events": ".agentic/logs/events.jsonl",
+           "config": _config.FILE, "events": events_rel,
            "capability_gaps": gaps, "rerun": [ln for ln in resume.splitlines() if ln.startswith("RE-RUN")]}
     with open(swap_file(cwd), "w") as f:
         json.dump(rec, f, indent=1)
     _events.emit(root, "sprint.context_handoff", role="supervisor", host=src,
-                 refs={"swap": ".agentic/state/" + SWAP, "sprint": rec["sprint"], "handoff": rec["handoff"]},
+                 refs={"swap": _paths.home_rel(cwd, "state", SWAP), "sprint": rec["sprint"], "handoff": rec["handoff"]},
                  **{"from": src, "to": dst.name, "capability_gaps": gaps})
     print("host swap: %s → %s from portable state (%s%s, %s, %s)" % (
         src, dst.name, rec["sprint"], " + handoff.json" if rec["handoff"] else "", _config.FILE, rec["events"]))

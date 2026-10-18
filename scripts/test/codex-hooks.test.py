@@ -126,7 +126,7 @@ assert why and "co-author" in why.lower(); ok("commit-author blocks a Claude tra
 # worker: SubagentStart registers; unbound writes refused; bind; confinement
 worker = dict(base, agent_id="th-red", agent_type="red-worker")
 fire("SubagentStart", worker)
-assert os.path.isfile(os.path.join(T, ".agentic/state/agents/th-red.json")); ok("SubagentStart registers the worker")
+assert os.path.isfile(os.path.join(T, ".aladdin/state/agents/th-red.json")); ok("SubagentStart registers the worker")
 assert denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "ls"})))
 ok("unbound worker's shell command is refused")
 wt = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T1")
@@ -142,7 +142,7 @@ ok("patch outside the worktree refused")
 rollout("th-red", [(120, 10)])
 r = fire("PostToolUse", dict(worker, tool_name="Bash", tool_input={"command": "cd %s && ls" % wt}, tool_response="ok"))
 assert "BUDGET" not in context(r)
-ev = [e for e in map(json.loads, open(os.path.join(T, ".agentic/logs/events.jsonl"))) if e["event"].startswith("task.")]
+ev = [e for e in map(json.loads, open(os.path.join(T, ".aladdin/logs/events.jsonl"))) if e["event"].startswith("task.")]
 assert [e["event"] for e in ev] == ["task.token_soft_limit"] and ev[0]["agent_id"] == "th-red", ev
 ok("soft token limit is telemetry only: worker not told, task.token_soft_limit recorded (rollout tokens)")
 rollout("th-red", [(120, 10), (300, 10)])
@@ -163,7 +163,7 @@ assert blocks and "init.md" in blocks[0] and "s1-01-x" in blocks[0]; ok("Subagen
 
 # token ledger covers the main rollout + the registered worker rollout
 fire("Stop", dict(base, stop_hook_active=False, last_assistant_message="x"))
-rows = [json.loads(l) for l in open(os.path.join(T, ".agentic/ledger/main0.jsonl"))]
+rows = [json.loads(l) for l in open(os.path.join(T, ".aladdin/ledger/main0.jsonl"))]
 assert {r["agent"] for r in rows} == {"main", "th-red"} and sum(r["out"] for r in rows) == 25; ok("ledger = main rollout + worker rollout")
 
 # Claude Code regression: the same hooks must NOT confine a Claude worker (native isolation)

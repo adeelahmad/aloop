@@ -563,8 +563,8 @@ def handoff(cwd, n, sdir, facts, closed_at):
         "open": [t for t, d in sorted(tasks.items()) if not d and t not in facts["rolled_over"]],
         "carried": facts["rolled_over"],
         "nudge": {"verdict": verdict, "evidence": why, "tasks": trouble} if verdict else None,
-        "refs": {"stats": rel(os.path.join(sdir, "stats.md")), "events": ".agentic/logs/events.jsonl",
-                 "gates": ".agentic/logs/gates.jsonl", "execution_log": rel(os.path.join(sdir, "execution.log")),
+        "refs": {"stats": rel(os.path.join(sdir, "stats.md")), "events": _paths.home_rel(cwd, "logs", "events.jsonl"),
+                 "gates": _paths.home_rel(cwd, "logs", "gates.jsonl"), "execution_log": rel(os.path.join(sdir, "execution.log")),
                  "rollover": rel(os.path.join(sdir, "rollover.md")) if facts["rollover"] else None},
     }
 

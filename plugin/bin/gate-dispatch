@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # gate-dispatch — PreToolUse(Agent|Task) on the SUPERVISOR's dispatch of an execution worker.
 #
-# A worker's gates read its task contract (.agentic/state/tasks/<TASK_ID>.env), found through the
+# A worker's gates read its task contract (<run-data>/state/tasks/<TASK_ID>.env), found through the
 # `TASK_ID: <id>` line the dispatch prompt opens with. Dispatched before that contract exists, the
 # worker's SubagentStop gate cannot find STORY_DIR and blocks on every stop — a block the worker
 # cannot fix (live e2e run 6: 25 blocks). So the dispatch itself is refused until it is right.
@@ -34,8 +34,8 @@ if [ "$tid" = "-" ]; then
   echo "BLOCK[$GATE_NAME]: start the $role dispatch prompt with the line \`TASK_ID: <id>\` — its gates find the task contract through it." >&2
   exit 2
 fi
-if [ ! -f "$AGENTIC_STATE/tasks/$tid.env" ]; then
-  echo "BLOCK[$GATE_NAME]: write the task contract before dispatching: $AGENTIC_STATE/tasks/$tid.env" >&2
+if ! contract="$(agentic_contract_path "$tid")"; then
+  echo "BLOCK[$GATE_NAME]: write the task contract before dispatching: $contract" >&2
   echo "  (TASK_ID, ATTEMPT, AGENT_ROLE=$role, STORY_DIR, SCOPE_GLOBS, BASE_REF, BUDGET_* — see the skill's \"The task contract\")" >&2
   exit 2
 fi
@@ -43,9 +43,9 @@ fi
 # naming a dir that does not exist, blocks on every stop (live e2e run 11: the structural
 # reviewer's contract had none, since a per-wave review has no single story). A whole-wave review
 # uses the sprint dir, whose init.md/output.md carry its dispatch and report blocks.
-sd="$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?STORY_DIR=["'"'"']?([^"'"'"'#]*[^"'"'"'#[:space:]])["'"'"']?[[:space:]]*(#.*)?$/\2/p' "$AGENTIC_STATE/tasks/$tid.env" | tail -1)"
+sd="$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?STORY_DIR=["'"'"']?([^"'"'"'#]*[^"'"'"'#[:space:]])["'"'"']?[[:space:]]*(#.*)?$/\2/p' "$contract" | tail -1)"
 if [ -z "$sd" ] || [ ! -d "$sd" ]; then
-  echo "BLOCK[$GATE_NAME]: the task contract $AGENTIC_STATE/tasks/$tid.env must set STORY_DIR to an existing dir${sd:+ (STORY_DIR=$sd does not exist)}:" >&2
+  echo "BLOCK[$GATE_NAME]: the task contract $contract must set STORY_DIR to an existing dir${sd:+ (STORY_DIR=$sd does not exist)}:" >&2
   echo "  the ABSOLUTE path of the story's comms dir, docs/agents/sprintN/sN-NN-<slug>/ (holds init.md + output.md)." >&2
   [ "$role" = structural-reviewer ] && echo "  A structural review of a whole wave has no single story: use the sprint dir, docs/agents/sprintN/, and append its dispatch block to that dir's init.md." >&2
   exit 2

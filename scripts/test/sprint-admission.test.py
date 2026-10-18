@@ -34,13 +34,13 @@ def sh(*args):
 
 
 def events():
-    p = os.path.join(T, ".agentic", "logs", "events.jsonl")
+    p = os.path.join(T, ".aladdin", "logs", "events.jsonl")
     return [json.loads(l)["event"] for l in open(p)] if os.path.exists(p) else []
 
 
 def attempt(agent, story, tokens):
     """A finished worker attempt in the sprint, as the hook leaves it."""
-    d = os.path.join(T, ".agentic", "budget")
+    d = os.path.join(T, ".aladdin", "budget")
     os.makedirs(d, exist_ok=True)
     json.dump({"agent_id": agent, "role": "green-worker", "task": "S1-01-T1", "attempt": "1", "story_dir": story,
                "start": 0, "budget": {"TOKENS_HARD": 250000, "TIME_HARD_MIN": 30}, "tokens": tokens, "done": 1,

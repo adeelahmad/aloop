@@ -36,7 +36,7 @@ story = os.path.join(sprint, "s1-01-x")
 os.makedirs(story)
 open(os.path.join(story, "plan-ready.md"), "w").write(
     "## T1\n- [x] tests/a.rs::one\n## T2\n- [x] tests/a.rs::two\n## T3\n- [ ] tests/a.rs::three\n")
-logs = os.path.join(T, ".agentic", "logs")
+logs = os.path.join(T, ".aladdin", "logs")
 os.makedirs(logs)
 gate = lambda task, rc, self=False: json.dumps({"ts": "2026-10-17T01:00:00Z", "gate": "gate-green-verify",  # noqa: E731
                                                 "role": "green-worker", "task": task, "attempt": "1",
@@ -61,7 +61,7 @@ done = {c["task"]: c for c in ho["completed"]}
 assert set(done) == {"S1-01-T1", "S1-01-T2"} and done["S1-01-T1"]["gate"].startswith("gate-green-verify pass")
 assert done["S1-01-T1"]["merged_event"] and done["S1-01-T2"]["gate"] is None
 assert ho["unverified"] == ["S1-01-T2"] and ho["open"] == ["S1-01-T3"] and ho["carried"] == []
-assert ho["refs"]["events"] == ".agentic/logs/events.jsonl" and "transcript" not in json.dumps(ho)
+assert ho["refs"]["events"] == ".aladdin/logs/events.jsonl" and "transcript" not in json.dumps(ho)
 ok("handoff.json: completed (with gate + merge evidence), unverified, open, carried, refs — no transcripts")
 
 # 3) NEXT.md renders it, and SessionStart re-checks against the gate log NOW

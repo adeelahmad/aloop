@@ -31,7 +31,7 @@ def sh(*args, cwd=T, inp=None):
 
 
 def state(agent):
-    return json.load(open(os.path.join(T, ".agentic", "budget", agent + ".json")))
+    return json.load(open(os.path.join(T, ".aladdin", "budget", agent + ".json")))
 
 
 # A cached session, the common shape: 10 calls, each re-reading a ~190k cached prefix.

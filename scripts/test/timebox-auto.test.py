@@ -64,9 +64,9 @@ assert run(TB, "revise", "--minutes", "60", "--reason", "x", "--evidence", "docs
 r = run(TB, "revise", "--minutes", "30", "--reason", "p90 attempt 28 min", "--evidence", "docs/agents/sprint1/stats.md")
 assert r.returncode == 0, r.stderr
 assert resolved()["BUDGET_TIME_HARD_MIN"] == "30"
-rec = json.load(open(os.path.join(T, ".agentic", "state", "timebox.json")))
+rec = json.load(open(os.path.join(T, ".aladdin", "state", "timebox.json")))
 assert [h["minutes"] for h in rec["history"]] == [24, 30] and rec["history"][1]["evidence"] == ["docs/agents/sprint1/stats.md"]
-dec = [json.loads(x) for x in open(os.path.join(T, ".agentic", "logs", "events.jsonl")) if '"decision.recorded"' in x]
+dec = [json.loads(x) for x in open(os.path.join(T, ".aladdin", "logs", "events.jsonl")) if '"decision.recorded"' in x]
 assert len(dec) == 2 and "timebox revised 30m" in dec[1]["decision"]["reason"], dec
 ok("revise: needs existing evidence and stays in range; history + decision.recorded kept")
 

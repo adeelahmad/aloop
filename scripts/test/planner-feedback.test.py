@@ -36,7 +36,7 @@ sprint = os.path.join(T, "docs", "agents", "sprint1")
 story = os.path.join(sprint, "s1-01-x")
 os.makedirs(story)
 open(os.path.join(story, "tasks.md"), "w").write("## T1\n## T2\n## T3\n## T4\n")
-BD = os.path.join(T, ".agentic", "budget")
+BD = os.path.join(T, ".aladdin", "budget")
 os.makedirs(BD)
 
 
@@ -84,7 +84,7 @@ ok("verdict: slow tests → raise time, slow env → fix env, context → reduce
 # 4) a gate-blocked task counts toward the grace rule
 shutil.rmtree(BD); os.makedirs(BD)
 attempt("a1", "S1-01-T1", 260000, killed="AGENT_LOOPING")
-logs = os.path.join(T, ".agentic", "logs")
+logs = os.path.join(T, ".aladdin", "logs")
 os.makedirs(logs, exist_ok=True)
 open(os.path.join(logs, "gates.jsonl"), "w").write(json.dumps(
     {"ts": "2026-10-17T00:00:00Z", "gate": "gate-green-verify", "role": "green-worker", "task": "S1-01-T4",

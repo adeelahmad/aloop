@@ -64,7 +64,7 @@ if [ "$tool" = "Bash" ]; then
   if printf '%s' "$payload" | python3 -c '
 import json, re, sys
 cmd = (json.load(sys.stdin).get("tool_input") or {}).get("command") or ""
-P = r"\.agentic/(?:state/|task\.env)"
+P = r"\.(?:agentic|aladdin)/(?:state/|task\.env)"
 VERB = re.compile(r"(?:^|[\s(])(?:tee|sed\s+-i\S*|perl\s+-\w*i|cp|mv|rm|ln|install|truncate|dd|touch|chmod)(?=\s|$)")
 for seg in re.split(r"[;&|\n]+", cmd):
     if re.search(r">>?\s*[\x27\x22]?[^\s;&|]*" + P, seg) or (re.search(P, seg) and VERB.search(seg)):
@@ -89,9 +89,9 @@ case "$tool" in Write|Edit|MultiEdit|NotebookEdit) ;; *) exit 0 ;; esac
 # constrains it. Never block a sub-agent here.
 agent_type="$(field agent_type)"
 # ...except the task contract and the supervisor's state: a worker that rewrites its contract
-# (.agentic/state/tasks/<TASK_ID>.env, or the worktree copy) widens its own scope or budget.
+# (<run-data>/state/tasks/<TASK_ID>.env, or the worktree copy) widens its own scope or budget.
 if [ -n "$agent_type" ]; then
-  case "$file" in .agentic/state/*|*/.agentic/state/*|.agentic/task.env|*/.agentic/task.env)
+  case "$file" in .agentic/state/*|*/.agentic/state/*|.aladdin/state/*|*/.aladdin/state/*|.agentic/task.env|*/.agentic/task.env)
     echo "BLOCK[$GATE_NAME]: $file is the supervisor's task contract/state; a dispatched agent may not write it." >&2
     echo "  Your task contract is fixed at dispatch. If it is wrong, say so in your output.md report." >&2
     exit 2 ;;
@@ -100,7 +100,10 @@ if [ -n "$agent_type" ]; then
 fi
 
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-lock="$root/.agentic/state/sprint.lock"          # fixed path (bin/_paths.sh), git-ignored
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=/dev/null
+[ -n "${AGENTIC_HOME:-}" ] || . "$HERE/_paths.sh"
+lock="$AGENTIC_HOME/state/sprint.lock"          # fixed path (bin/_paths.sh), git-ignored
 
 # Fallback (only if a payload ever lacks agent_type): a worktree task.env naming a
 # dispatched role still exempts that agent.
@@ -139,7 +142,7 @@ esac
 # symlinks and would not match the payload's /var path, silently disarming the guard.
 case "$file" in
   docs/agents/*|*/docs/agents/*)                 is_docs=1; is_ctl=0 ;;
-  .agentic/*|*/.agentic/*|.transcripts/*|*/.transcripts/*) is_docs=0; is_ctl=1 ;;
+  .agentic/*|*/.agentic/*|.aladdin/*|*/.aladdin/*|.transcripts/*|*/.transcripts/*) is_docs=0; is_ctl=1 ;;
   # VCS hygiene the supervisor legitimately writes for the initial commit — never
   # application source, so allow without the SKIP_HOOKS dance.
   .gitignore|*/.gitignore|.gitattributes|*/.gitattributes) is_docs=0; is_ctl=1 ;;

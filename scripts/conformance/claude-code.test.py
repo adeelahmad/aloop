@@ -278,7 +278,7 @@ case(7, "with no task.env role, the host's role still enforces isolation", "gate
 # TASK_ID the host's dispatch prompt names. On Claude Code `isolation: "worktree"` creates
 # the worktree (.claude/worktrees/agent-<id>) at dispatch, so nobody can pre-write its task.env;
 # a worktree copy is only a hint, and one that disagrees with the contract is tampering.
-CONTRACT = os.path.join(MAIN, ".agentic", "state", "tasks", "S1-01-T1.env")
+CONTRACT = os.path.join(MAIN, ".aladdin", "state", "tasks", "S1-01-T1.env")
 TRANSCRIPT = os.path.join(T, "agent-a1.jsonl")
 write(TRANSCRIPT, json.dumps({"type": "user", "message": {"role": "user", "content": "TASK_ID: S1-01-T1\nMake the RED test pass."}}) + "\n")
 write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS='src/*.rs'\n" % STORY)
@@ -368,7 +368,7 @@ wt = stuck_wt(7)
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])          # block A: the test passes with no production code
 rcs = [gate("gate-red-verify", wt)[0] for _ in range(2)]
 rc, lines = gate("gate-red-verify", wt)
-marker = os.path.join(MAIN, ".agentic", "state", "stuck", "S1-01-T1.7")
+marker = os.path.join(MAIN, ".aladdin", "state", "stuck", "S1-01-T1.7")
 said = any("STUCK" in l for l in lines) and any("NOT verified" in l for l in lines) and any("do not merge" in l for l in lines)
 results.append((9, "the third identical block releases the worker unverified, with a stuck marker", rcs == [2, 2] and rc == 0 and said
                 and os.path.isfile(marker) and "attempt=7" in open(marker).read(), "exits %s then %d %s" % (rcs, rc, (lines[0] if lines else "")[:120])))

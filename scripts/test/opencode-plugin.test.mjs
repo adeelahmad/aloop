@@ -65,7 +65,7 @@ assert.ok(envOut.env.PATH.startsWith(BIN)); ok("shell.env prepends plugin bin/")
 
 // UserPromptSubmit capture
 await hooks["chat.message"]({ sessionID: "root" }, { message: {}, parts: [{ type: "text", text: "build X" }] })
-assert.ok(readFileSync(join(T, ".agentic/transcripts/global.jsonl"), "utf8").includes('"prompt"')); ok("human prompt captured")
+assert.ok(readFileSync(join(T, ".aladdin/transcripts/global.jsonl"), "utf8").includes('"prompt"')); ok("human prompt captured")
 
 // supervisor may not write source once a sprint is live (arm the lock via a docs write)
 await hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "1" }, { args: { filePath: join(T, "docs/agents/sprint1/s1-01-x/init.md"), content: "x" } })
@@ -99,12 +99,12 @@ const usage = (id, input, output) => ({ type: "message.updated", properties: { i
   id, sessionID: "child", role: "assistant", mode: "red-worker", providerID: "anthropic", modelID: "claude-sonnet-5",
   time: { created: Date.now(), completed: Date.now() }, tokens: { input, output, reasoning: 0, cache: { read: 0, write: 0 } } } } })
 await hooks.event({ event: usage("m1", 120, 10) })
-const sub = join(T, ".agentic/host/opencode/root/subagents/agent-child.jsonl")
+const sub = join(T, ".aladdin/host/opencode/root/subagents/agent-child.jsonl")
 assert.ok(existsSync(sub)); ok("sub-agent usage written Claude-shaped")
 const out1 = { title: "", output: "done", metadata: {} }
 await hooks["tool.execute.after"]({ tool: "bash", sessionID: "child", callID: "9", args: { command: `cd ${wt} && ls` } }, out1)
 assert.ok(!/BUDGET/.test(out1.output)); ok("soft token limit: nothing appended to the tool output (telemetry only)")
-assert.ok(/"event": "task.token_soft_limit"/.test(readFileSync(join(T, ".agentic/logs/events.jsonl"), "utf8"))); ok("task.token_soft_limit recorded")
+assert.ok(/"event": "task.token_soft_limit"/.test(readFileSync(join(T, ".aladdin/logs/events.jsonl"), "utf8"))); ok("task.token_soft_limit recorded")
 await hooks.event({ event: usage("m2", 400, 10) })
 const out2 = { title: "", output: "", metadata: {} }
 await hooks["tool.execute.after"]({ tool: "bash", sessionID: "child", callID: "10", args: {} }, out2)
@@ -141,10 +141,10 @@ assert.ok(/STUCK — released UNVERIFIED/.test(taskOut3.output) && /Do not merge
 ok("a worker stuck on one block is released unverified and reported as such, not re-prompted")
 
 // Stop: a closed sprint is announced once (toast + prompt back into the session)
-mkdirSync(join(T, ".agentic/state"), { recursive: true })
-writeFileSync(join(T, ".agentic/state/pending-close"), "Sprint 1 closed. Tokens — sprint: 1k\n")
+mkdirSync(join(T, ".aladdin/state"), { recursive: true })
+writeFileSync(join(T, ".aladdin/state/pending-close"), "Sprint 1 closed. Tokens — sprint: 1k\n")
 await hooks.event({ event: { type: "session.idle", properties: { sessionID: "root" } } })
 assert.ok(calls.toast.length === 1 && /Sprint 1 closed/.test(calls.prompt.at(-1).body.parts[0].text)); ok("sprint close announced on idle")
-assert.ok(existsSync(join(T, ".agentic/ledger/root.jsonl"))); ok("token ledger written for the session")
+assert.ok(existsSync(join(T, ".aladdin/ledger/root.jsonl"))); ok("token ledger written for the session")
 
 console.log(`\n${pass} checks passed`)

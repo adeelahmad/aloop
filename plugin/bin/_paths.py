@@ -48,7 +48,43 @@ DEFAULTS = {
 }
 NUMERIC = {"TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS",
            "SPRINT_TOKENS_SOFT", "SPRINT_TOKENS_HARD", "CONTEXT_WINDOW"}
-SETTING = re.compile(r"^\s*(?:export\s+)?AGENTIC_([A-Z_]+)\s*=\s*['\"]?([^'\"#\n]*?)['\"]?\s*(?:#.*)?$")
+SETTING = re.compile(r"^\s*(?:export\s+)?(?:AGENTIC|ALADDIN)_([A-Z_]+)\s*=\s*['\"]?([^'\"#\n]*?)['\"]?\s*(?:#.*)?$")
+# ALADDIN_<KEY> is the new spelling of every AGENTIC_<KEY> environment override (ROADMAP M1):
+# both are read, the old one wins when both are set; scripts keep using the AGENTIC_ name.
+ENV_KEYS = ("HOST", "CWD", "NO_AUTOINSTALL", "NO_BUDGET", "LSP_COMMAND", "IMPACT_PROVIDER", "SELFCHECK", "WORKTREE",
+            "AUTONOMY_MODE", "STUCK_BLOCKS", "SPRINT_LOCK_TTL", "TRANSCRIPTS_KEEP")
+for _k in ENV_KEYS:
+    if not os.environ.get("AGENTIC_" + _k) and os.environ.get("ALADDIN_" + _k):
+        os.environ["AGENTIC_" + _k] = os.environ["ALADDIN_" + _k]
+
+
+def env(key, default=None):
+    """An environment override, AGENTIC_<key> or ALADDIN_<key>."""
+    return os.environ.get("AGENTIC_" + key) or os.environ.get("ALADDIN_" + key) or default
+
+
+# the run-data dir (ROADMAP M1): .aladdin/, or .agentic/ where a project still has one
+# (read-old fallback; `aloop layout migrate` moves it)
+NEW_HOME, OLD_HOME = ".aladdin", ".agentic"
+RUN_DIRS = ("transcripts", "budget", "ledger", "logs", "state", "host", "worktrees")
+GUARD = "# aloop run data (transcripts, budgets, ledger, logs, state) — never committed\n*\n!.gitignore\n!config.yaml\n"
+
+
+def home_name(root):
+    if any(os.path.isdir(os.path.join(root, NEW_HOME, d)) for d in RUN_DIRS):
+        return NEW_HOME
+    return OLD_HOME if os.path.isdir(os.path.join(root, OLD_HOME)) else NEW_HOME
+
+
+def home_guard(root):
+    """.aladdin/.gitignore — config.yaml is committed, everything else there never is."""
+    d = os.path.join(root, NEW_HOME)
+    if os.path.isdir(d) and not os.path.isfile(os.path.join(d, ".gitignore")):
+        try:
+            with open(os.path.join(d, ".gitignore"), "w") as f:
+                f.write(GUARD)
+        except OSError:
+            pass
 
 
 def _git(cwd, *args):
@@ -67,10 +103,30 @@ def project(cwd=None):
 
 
 def home(cwd=None, sub=None, make=True):
-    d = os.path.join(project(cwd), ".agentic", sub) if sub else os.path.join(project(cwd), ".agentic")
+    root = project(cwd)
+    base = os.path.join(root, home_name(root))
+    d = os.path.join(base, sub) if sub else base
     if make:
         os.makedirs(d, exist_ok=True)
+        home_guard(root)
     return d
+
+
+def contract_path(cwd, task_id):
+    """The task contract <run-data>/state/tasks/<TASK_ID>.env: the resolved home first, then the
+    other one (a supervisor that wrote the literal legacy path is still found). The resolved
+    path is returned even when no file exists, so callers can name it."""
+    root = project(cwd)
+    first = os.path.join(root, home_name(root), "state", "tasks", task_id + ".env")
+    for f in (first,) + tuple(os.path.join(root, h, "state", "tasks", task_id + ".env") for h in (NEW_HOME, OLD_HOME)):
+        if os.path.isfile(f):
+            return f
+    return first
+
+
+def home_rel(cwd=None, *parts):
+    """A run-data path relative to the project (for refs and messages), e.g. .aladdin/logs/events.jsonl."""
+    return "/".join((home_name(project(cwd)),) + parts)
 
 
 def docs(cwd=None):

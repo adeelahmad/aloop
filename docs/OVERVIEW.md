@@ -97,7 +97,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 | `execution.log` | sprint | One-line state ledger |
 | `sprintN/stats.md`, `sprintN/handoff.json`, `docs/agents/NEXT.md` | sprint | Harness-written stats (incl. the §4.10 metrics), the canonical handoff and its view |
 | `docs/agents/intents/<id>.json` | project | Intent Contracts, with the raw words beside them |
-| `.agentic/` | local | Transcripts, budgets, token ledger, worktree state, the `aladdin.event/1` stream (`logs/events.jsonl`), gate verdicts, host-swap record (git-ignored) |
+| `.aladdin/` | local | Transcripts, budgets, token ledger, worktree state, the `aladdin.event/1` stream (`logs/events.jsonl`), gate verdicts, host-swap record; its own `.gitignore` keeps everything but `config.yaml` out of git. A project that still has `.agentic/` keeps using it until `aloop layout migrate` (`aloop layout show\|check`) |
 
 ## Where it stands
 
@@ -128,8 +128,9 @@ The model can ignore a skill; it cannot ignore an exit code.
 - The default standards matrix targets Rust; other stacks need `standards.md` and gate edits.
 - `refs` / `callers` / `callees` need a configured LSP server; without one they say so (exit 4).
 - Hosts do not report the model's context window; `AGENTIC_CONTEXT_WINDOW` is the human's number.
-- The on-disk layout keeps the pre-rename names (`.agentic/`, `AGENTIC_*`) for the migration
-  window; the move to `.aladdin/` is an open decision in ROADMAP M1.
+- `AGENTIC_*` settings keys stay canonical; `ALADDIN_*` is an alias (`AGENTIC_` wins when both
+  are set). Worktree-local markers (`.agentic/task.env`, `budget-exceeded`, `scaffold-symbols`)
+  keep their name for now (ROADMAP M1).
 - Measured runs: TheNoteBook plus the `make e2e-live` runs in ROADMAP §0; no live-session test in CI.
 
 ## The docs, and which ones are current

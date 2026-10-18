@@ -34,7 +34,7 @@ def run(subagent_type, prompt, agent_type=None):
 
 
 subprocess.run(["git", "init", "-q"], cwd=T, check=True)
-os.makedirs(os.path.join(T, ".agentic", "state", "tasks"))
+os.makedirs(os.path.join(T, ".aladdin", "state", "tasks"))
 
 r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.")
 assert r.returncode == 2 and "S1-01-T1.env" in r.stderr, r
@@ -44,7 +44,7 @@ r = run("aloop:structural-reviewer", "Review the story.")
 assert r.returncode == 2 and "TASK_ID:" in r.stderr, r
 ok("a worker dispatch whose prompt names no TASK_ID is denied")
 
-contract = os.path.join(T, ".agentic", "state", "tasks", "S1-01-T1.env")
+contract = os.path.join(T, ".aladdin", "state", "tasks", "S1-01-T1.env")
 open(contract, "w").write("TASK_ID=S1-01-T1\n")
 r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.")
 assert r.returncode == 2 and "STORY_DIR" in r.stderr and "sN-NN-<slug>" in r.stderr, r
@@ -62,12 +62,12 @@ r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.")
 assert r.returncode == 0, r
 ok("a worker dispatched after its contract is written is allowed")
 
-open(os.path.join(T, ".agentic", "state", "tasks", "S1-SR-W1.env"), "w").write("TASK_ID=S1-SR-W1\nAGENT_ROLE=structural-reviewer\n")
+open(os.path.join(T, ".aladdin", "state", "tasks", "S1-SR-W1.env"), "w").write("TASK_ID=S1-SR-W1\nAGENT_ROLE=structural-reviewer\n")
 r = run("aloop:structural-reviewer", "TASK_ID: S1-SR-W1\nReview wave 1.")
 assert r.returncode == 2 and "sprint dir" in r.stderr, r
 ok("a whole-wave structural review without STORY_DIR is told to use the sprint dir")
 
-open(os.path.join(T, ".agentic", "state", "tasks", "S1-SR-W1.env"), "w").write("TASK_ID=S1-SR-W1\nSTORY_DIR='%s'\n" % os.path.join(T, "docs/agents/sprint1"))
+open(os.path.join(T, ".aladdin", "state", "tasks", "S1-SR-W1.env"), "w").write("TASK_ID=S1-SR-W1\nSTORY_DIR='%s'\n" % os.path.join(T, "docs/agents/sprint1"))
 r = run("aloop:structural-reviewer", "TASK_ID: S1-SR-W1\nReview wave 1.")
 assert r.returncode == 0, r
 ok("a structural review contracted on the sprint dir is allowed")
