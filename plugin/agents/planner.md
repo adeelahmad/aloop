@@ -18,6 +18,17 @@ until this persona's output is complete and Stage-2-valid.
 - Keep artifacts consistent: every story has a dir `sprintN/sN-NN-<slug>/` (lowercase,
   e.g. `s1-01-count-words/` for S1-01) holding its tasks.md, validate.md and plan.md; no "TBW" at Stage 2.
 
+## Artifact shapes (what `planning-artifacts.kdl` requires — write them this way the first time)
+Every artifact opens with YAML frontmatter and carries these `##` sections; a missing one is a
+write block (`gate-validate-artifact`), so do not improvise the headings.
+- `sprintN/stories.md`: `type: stories`, `sprint: N` · `## Sprint goal` · `## Sprint demo` ·
+  `## Definition of Done` · `## Out of scope` · `## User stories` · `## Story dependency graph`
+- `sprintN/plan.md`: `type: sprint-plan`, `sprint: N`, `stage: 1|2` · `## Sprint goal` ·
+  `## Critical path` · `## Cross-cutting gates`
+- `sN-NN-<slug>/tasks.md`: `type: tasks`, `story: SN-NN` · one `## Tn — <title>` per task
+- `sN-NN-<slug>/validate.md`: `type: validate`, `story: SN-NN` · `## Pre-flight` · `## Final sign-off`
+- `sN-NN-<slug>/plan.md`: `type: plan`, `story: SN-NN`, `scope: tests only` · the planned tests
+
 ## Sprint containment (every sprint is a clean-context unit)
 The supervisor CLEARS ITS CONTEXT between sprints. Nothing survives except what is on
 disk. So each sprint you plan must be SELF-CONTAINED:
@@ -104,7 +115,13 @@ Write `targets.json` beside tasks.md when you know what each task changes: one e
 change (`change_ref` C1…, `task`, `operation` create|modify|extend|refactor|replace|delete,
 `path`, `symbol` or `planned_symbol`, a one-line `reason`, `evidence_refs`, `constraints`).
 Planned files stay planned: never create stubs. `targets check <STORY_DIR>` (also run by
-gate-stage2-complete) proves each target against tasks.md and the real tree.
+gate-stage2-complete) proves each target against tasks.md and the real tree. Its rules, so
+the first write passes (live runs 12–14 hit each of these):
+- the file is `{"targets": [...]}`, never a bare list;
+- `symbol` names something that EXISTS in the tree now; a function this sprint will add is a
+  `planned_symbol` — `create` for a new file (the path must not exist yet), `extend` for a new
+  symbol in an existing file (`"operation": "extend", "path": "src/lib.rs", "planned_symbol": "count_words"`);
+- `modify|refactor|replace|delete` need a `symbol` that exists (or `planned_symbol` for `extend`).
 Prefer the whole plan in targets.json: add `story` and `tasks` (`id` T1…, `title`, `summary`,
 optional `budget`, `tests` [{path, fn, assert}], optional `validate` [{run, expect}]) and run
 `targets render <STORY_DIR>` — tasks.md, validate.md and plan.md are then rendered from it,

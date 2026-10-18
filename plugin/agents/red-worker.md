@@ -37,7 +37,8 @@ your init block's `### Budget` line has the exact numbers). Plan for it:
 Your brief is the LAST `## … · red-worker · …` block in `$STORY_DIR/init.md`; read the
 whole file for prior context (earlier feedback, the chain so far). When done you MUST
 **append** your report as a new block to `$STORY_DIR/output.md` — create it with a
-`type: output` frontmatter if absent, and NEVER rewrite an earlier block:
+`type: output` frontmatter if absent, and NEVER rewrite an earlier block (append with a shell heredoc, `cat >> "$STORY_DIR/output.md" <<'EOF'`: the Write/Edit
+tools refuse a path outside your worktree, and docs/agents/ lives only in the main tree):
 
     ## <task> · attempt <N> · red-worker · <ISO8601>
     status: ok            (or retry|escalate)

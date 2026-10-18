@@ -106,13 +106,16 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
     const gate = GATES[role]
     for (let round = 0; gate && round <= GATE_ROUNDS; round++) {
       const res = run(gate, [], p, bound(childID) || project)
+      // A stuck release (the same block N times) exits 0 but is NOT a pass: hand the supervisor
+      // the reason as a release, never as a silent success.
+      if (res.code === 0 && /\bSTUCK\b.*NOT verified/.test(res.stderr || "")) { verdict = { stuck: res.stderr }; break }
       if (res.code !== 2) { verdict = null; break }
-      verdict = res.stderr
+      verdict = { blocked: res.stderr }
       if (round === GATE_ROUNDS) break
       // Claude semantics: a blocked stop sends the reason back and the sub-agent keeps working.
       try {
         await client.session.prompt({ path: { id: childID }, body: { agent: role || undefined,
-          parts: [{ type: "text", text: `[aloop gate ${gate}] Your stop was blocked:\n${verdict}\nFix it, run \`aloop selfcheck\`, then finish.` }] } })
+          parts: [{ type: "text", text: `[aloop gate ${gate}] Your stop was blocked:\n${verdict.blocked}\nFix it, run \`aloop selfcheck\`, then finish.` }] } })
       } catch { break }
     }
     run("budget", ["hook", "stop"], p)
@@ -195,8 +198,9 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       if (input.tool === "task") {
         const child = output.metadata?.sessionId
         if (child) {
-          const blocked = await subagentStop(child, input.sessionID)
-          if (blocked) output.output = `${output.output || ""}\n\n[aloop gate] BLOCKED after ${GATE_ROUNDS} fix rounds — the sub-agent did not pass its gate:\n${blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`
+          const v = await subagentStop(child, input.sessionID)
+          if (v?.stuck) output.output = `${output.output || ""}\n\n[aloop gate] STUCK — released UNVERIFIED (not a pass): the sub-agent hit the same block repeatedly:\n${v.stuck}\nDo not merge. Discard its worktree and re-dispatch the task with a Feedback block that addresses the reason, or re-plan.`
+          else if (v?.blocked) output.output = `${output.output || ""}\n\n[aloop gate] BLOCKED after ${GATE_ROUNDS} fix rounds — the sub-agent did not pass its gate:\n${v.blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`
         }
       }
     },

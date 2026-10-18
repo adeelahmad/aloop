@@ -92,6 +92,27 @@ for want in ("commit   %s feat: csv writer" % sha[:12], "task     S1-01-T1", "ga
 assert sh(os.path.join(BIN, "events"), "trace", "deadbeef", check=False).returncode == 1
 ok("events trace walks commit → task → gates → plan → intent → approver with no transcript")
 
+# Claude Code: the host makes the worktree (branch worktree-agent-<id>) and the supervisor merges it,
+# so task-worktree remove never runs there — `task-worktree merge` records the same lineage.
+sh("git", "checkout", "-q", "-b", "worktree-agent-a1b2c3")
+write(os.path.join(T, "top.py"), "def top_n():\n    return []\n")
+sh("git", "add", "top.py"); sh("git", "commit", "-q", "-m", "S1-02-T2 scaffold: top_n stub")
+write(os.path.join(T, "top.py"), "def top_n():\n    return [1]\n")
+sh("git", "commit", "-q", "-am", "S1-02-T2 green: top_n")
+shas = sh("git", "log", "--format=%H", "-2").stdout.split()
+sh("git", "checkout", "-q", "-")
+r = sh(os.path.join(BIN, "task-worktree"), "merge", "S1-02-T2", "worktree-agent-a1b2c3")
+cc2 = [e for e in events() if e["event"] == "commit.created" and e["ids"].get("task") == "S1-02-T2"]
+merged2 = [e for e in events() if e["event"] == "worktree.merged" and e["ids"].get("task") == "S1-02-T2"]
+assert len(merged2) == 1 and merged2[0]["data"]["branch"] == "worktree-agent-a1b2c3", merged2
+assert sorted(e["data"]["sha"] for e in cc2) == sorted(shas) and all(e["parent_event_id"] == merged2[0]["event_id"] for e in cc2), cc2
+assert sh("git", "log", "-1", "--format=%P").stdout.split().__len__() == 2, "a --no-ff merge commit"
+assert r.stdout.strip() == sh("git", "rev-parse", "HEAD").stdout.strip()
+ok("task-worktree merge merges --no-ff and emits worktree.merged + commit.created per commit, for a host-made branch")
+assert "task     S1-02-T2" in sh(os.path.join(BIN, "events"), "trace", shas[1][:10]).stdout
+assert sh(os.path.join(BIN, "task-worktree"), "merge", "S1-02-T2", "no-such-branch", check=False).returncode == 64
+ok("a merged commit traces to its task; a missing branch is a usage error, nothing merged")
+
 # commit message from the task title + recorded decisions + the intent (no model prose)
 sh(os.path.join(BIN, "events"), "decide", "implementation", "--task", "S1-01-T1",
    "--reason", "stdlib csv keeps the no-new-deps constraint", "--evidence", "intake.md#constraints")

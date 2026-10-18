@@ -50,6 +50,25 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   overrides it (`breach:` line) and acts per class (SKILL.md "Breach classes").
 
 ### Added
+- **`log-execution --help`**, a default ledger (the latest `docs/agents/sprintN/execution.log`) and
+  exit 64 with the usage on a wrong call. Reason: it had no usage, so the supervisor read its
+  source twice per live run to learn that the last argument is the file. SKILL.md now gives the
+  exact call and says the init-block section list is the whole shape (the supervisor also read
+  `init.template.md` four times per run). `make e2e-live` counts plugin-source reads precisely
+  (tool calls naming a plugin path, `--schema …/schemas/…` excluded): runs 13–15 were 9, 8, 6.
+- **`task-worktree merge <TASK_ID> <BRANCH>`** records the §4.7 lineage on Claude Code, where the
+  host makes the worktree and the supervisor merges it (so `task-worktree remove` never runs): a
+  `--no-ff` merge, then `worktree.merged` + one `commit.created` per merged commit. SKILL.md tells the
+  supervisor to merge with it (a raw `git merge` left live runs 11–14 with no traceable commits), and
+  `make e2e-live` now checks every merged commit answers `events trace`.
+- Stuck release: a worker that hits the same gate block 3 times in a row (one gate, task,
+  attempt and worktree; `AGENTIC_STUCK_BLOCKS`) is released **unverified** instead of
+  looping until its time box (live run 10 lost 29 minutes to a RED worker that stopped 29
+  times on one unchanged reason). The release is not a pass: the gate leaves
+  `.agentic/state/stuck/<task>.<attempt>` with the reason, `budget watch` prints a `STUCK`
+  line once, and the supervisor re-dispatches with feedback or re-plans. A different reason
+  or a new attempt resets the count; a self-check never releases. Every gate verdict now
+  logs its worktree and a checksum of the block reason. 7 conformance checks (§6.9).
 - **Portable project config** (ROADMAP §4.9). `.aladdin/config.yaml` (budgets, context,
   semantic, models, provenance, memory, git, plus per-role budget profiles) replaces
   `docs/agents/defaults.md` as the human's file. `aloop config migrate` writes it from the
@@ -262,6 +281,42 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- The planner persona states `targets check`'s rules (`{"targets": [...]}`, `symbol` only for code
+  that exists, `planned_symbol` with `create`/`extend` for new code), so its first `targets.json`
+  passes (live runs 12–14: 2–3 blocks each).
+- The planner persona lists the exact frontmatter and `##` sections `planning-artifacts.kdl`
+  requires, so its first write passes (every live run so far wrote each artifact twice: 8–12
+  write blocks per run).
+- `ctx-symbols` (and the gate's grep fallback) no longer scan a host's worktree checkouts
+  inside the main tree (`.claude/worktrees/agent-<id>/`), nor `.agentic/` or `.transcripts/`:
+  a stale checkout duplicated every symbol of main and the structural review halted on a
+  false HIGH finding 20 times (live e2e run 12). The exclusion applies below the walk root, so a
+  reviewer whose own worktree is such a checkout is still scanned. 3 conformance checks (§6.7),
+  2 unit tests.
+- The stuck release also covers the structural reviewer and the final gate, whose blocks can name
+  a defect only the supervisor can act on (run 12: 10 identical blocks). 1 conformance check.
+- `gate-validate-artifact`'s block now carries md-db's diagnostics (the missing section or field
+  and its hint): a PostToolUse block hands the model only stderr, and the bare "failed the
+  schema" made the planner guess (live e2e run 11: every planning artifact was written twice,
+  12 of 25 gate verdicts).
+- `gate-dispatch` refuses a task contract with no `STORY_DIR`, or one naming a dir that does
+  not exist, and tells a whole-wave structural review to use the sprint dir
+  `docs/agents/sprintN/` (run 11: the reviewer's contract had none, 2 blocks the worker could
+  not fix). 5 new dispatch checks.
+- OpenCode: a stuck release (exit 0 with `STUCK … NOT verified`) is reported to the supervisor
+  as "released UNVERIFIED, do not merge", never as a silent pass; 2 new checks.
+- `make test-hosts` masked a failing OpenCode test as "node not found".
+- The host tests (Codex hooks, OpenCode plugin, rename-compat, budget, fail-closed, scope,
+  dispatch) each leaked a temp dir, and the Codex and OpenCode ones started a real background
+  cargo build over their fake tools (~500MB per run; 57 leaked dirs filled the disk and killed
+  e2e run 11 with ENOSPC). They now remove their temp dir on exit and set
+  `AGENTIC_NO_AUTOINSTALL=1`; `e2e-live` drops its cargo target dirs after the run.
+- The comms gate's "no output.md" block now says HOW to append the report: a shell heredoc
+  from the worktree, because Claude Code's Write/Edit refuse a path outside it and
+  `docs/agents/` lives only in the main tree (e2e run 10: a RED worker stopped 29 times on
+  it). The worker personas say the same.
+- A worktree `task.env` copy OLDER than the supervisor's contract (a re-dispatch bumped
+  `ATTEMPT`) is stale and is ignored, not reported as tampering (e2e run 10: 3 blocks).
 - `ensure-tools` rebuilds the bundled md-db / ctx-symbols when their sources change, not
   only on a version bump; e2e run 9 ran a stale ctx-symbols that still had the duplicate bug.
 - `gate-stage2-complete` names the expected `sN-NN-<slug>/` story dir (and a misnamed one it
