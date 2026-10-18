@@ -25,6 +25,7 @@ DEFAULTS = {
     "LSP_COMMAND": "",
     # sprint boundary: rotate (fresh session) | compact (only if the host advertises it)
     "CONTEXT_BOUNDARY": "rotate",
+    "CONTEXT_WINDOW": 200000,
     # optional cross-project impact provider (ROADMAP §4.8): a command, empty = none
     "IMPACT_PROVIDER": "",
     # a ROUTE (strongest | strong | economical, resolved per host by bin/models) or a pinned id
@@ -46,7 +47,7 @@ DEFAULTS = {
     "MODEL_WORKER_OPENCODE": "",
 }
 NUMERIC = {"TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS",
-           "SPRINT_TOKENS_SOFT", "SPRINT_TOKENS_HARD"}
+           "SPRINT_TOKENS_SOFT", "SPRINT_TOKENS_HARD", "CONTEXT_WINDOW"}
 SETTING = re.compile(r"^\s*(?:export\s+)?AGENTIC_([A-Z_]+)\s*=\s*['\"]?([^'\"#\n]*?)['\"]?\s*(?:#.*)?$")
 
 

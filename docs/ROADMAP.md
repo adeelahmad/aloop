@@ -246,7 +246,7 @@ Results carry source refs and are attached to planning provenance. An unavailabl
 
 ### 4.10 Metrics
 
-✅ *Mostly done (Unreleased): the stats.md Metrics table. Test: `scripts/test/metrics.test.py`. Commits, test files added, time soft limits and semantic context served now come from the event stream. Rotations/compactions are counted from SessionStart events. Still open: context-window share (needs each model's window size).*
+✅ *Done (Unreleased): the stats.md Metrics table. Test: `scripts/test/metrics.test.py`. Commits, test files added, time soft limits and semantic context served now come from the event stream. Rotations/compactions are counted from SessionStart events. Context-window share divides the context peak by `AGENTIC_CONTEXT_WINDOW` (`context.window` in config.yaml; hosts do not report the window, so the human sets it; default 200000).*
 
 The run report should add:
 - time soft preemptions;

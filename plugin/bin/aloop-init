@@ -34,7 +34,7 @@ ORDER = ["TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_RE
          "COMMIT_AUTHOR_NAME", "COMMIT_AUTHOR_EMAIL", "CLAUDE_COAUTHOR",
          "MODEL_PLANNING_CODEX", "MODEL_WORKER_CODEX", "EFFORT_PLANNING_CODEX", "EFFORT_WORKER_CODEX",
          "MODEL_PLANNING_OPENCODE", "MODEL_WORKER_OPENCODE",
-         "TIME_MODE", "CONTEXT_BOUNDARY", "LSP_COMMAND", "IMPACT_PROVIDER"]
+         "TIME_MODE", "CONTEXT_BOUNDARY", "CONTEXT_WINDOW", "LSP_COMMAND", "IMPACT_PROVIDER"]
 EXPLAIN = {
     "TOKENS_SOFT": "tokens — telemetry only: recorded for the next planning cycle, worker not told",
     "TOKENS_HARD": "tokens — worker is stopped by the hook; its task is split by the planner",
@@ -59,6 +59,7 @@ EXPLAIN = {
     "MODEL_WORKER_OPENCODE": "OpenCode workers' model (empty = anthropic/<MODEL_WORKER>)",
     "TIME_MODE": "fixed (TIME_*_MIN) or auto (one project timebox, `aloop timebox`)",
     "CONTEXT_BOUNDARY": "rotate (fresh session per sprint) or compact (only where the host advertises it)",
+    "CONTEXT_WINDOW": "the model's context window in tokens (the stats context-window share divides the context peak by it); hosts do not report it, so set it to your model's",
     "LSP_COMMAND": "language server for `targets refs|callers|callees` (empty = none, reported not guessed)",
     "IMPACT_PROVIDER": "cross-project impact provider command (empty = none)",
 }
