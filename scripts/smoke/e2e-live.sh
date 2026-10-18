@@ -72,15 +72,22 @@ I am the human. I approve in advance: accept your recommended answer to every qu
 
 case "$HOST" in
   claude)   CMD=(claude -p --plugin-dir "$PLUGIN" --model "$SUP_MODEL" --output-format stream-json --verbose --max-turns 400
-                 --allowedTools "Agent Task Bash Read Write Edit MultiEdit Glob Grep Skill TaskStop TodoWrite" "$PROMPT") ;;
+                 --allowedTools "Agent Task Bash Read Write Edit MultiEdit Glob Grep Skill TaskStop TodoWrite") ;;
   opencode) CMD=(opencode run --format json ${SUP_MODEL:+--model "$SUP_MODEL"} "$PROMPT") ;;
   codex)    CMD=(codex exec --json --full-auto ${SUP_MODEL:+--model "$SUP_MODEL"} "$PROMPT") ;;
 esac
 echo "host: $HOST · supervisor model: ${SUP_MODEL:-<session model>} · worker model: ${WORKER_MODEL:-<session model>}"
-if [ -n "$DRY" ]; then echo "cmd: ${CMD[*]}"; echo "run dir: $T"; exit 0; fi
+# Claude Code's `--allowedTools` takes every word after it, so its prompt goes on stdin (as an
+# argument it became a tool name and `claude -p` exited at once: "Input must be provided").
+STDIN_PROMPT=''; [ "$HOST" = claude ] && STDIN_PROMPT=1
+if [ -n "$DRY" ]; then echo "cmd: ${CMD[*]}"; [ -n "$STDIN_PROMPT" ] && echo "prompt: stdin"; echo "run dir: $T"; exit 0; fi
 
 start=$(date +%s)
-timeout "$TIMEOUT" "${CMD[@]}" > "$T/out.jsonl" 2> "$T/err.log"
+if [ -n "$STDIN_PROMPT" ]; then
+  timeout "$TIMEOUT" "${CMD[@]}" <<<"$PROMPT" > "$T/out.jsonl" 2> "$T/err.log"
+else
+  timeout "$TIMEOUT" "${CMD[@]}" > "$T/out.jsonl" 2> "$T/err.log" </dev/null
+fi
 rc=$?
 secs=$(( $(date +%s) - start ))
 

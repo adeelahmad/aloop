@@ -68,7 +68,10 @@ assert r.returncode == 0, (r.stdout, r.stderr)
 cmd = r.stdout[r.stdout.index("cmd: ") + 5:]
 assert cmd.startswith("claude -p --plugin-dir ") and "--model sonnet" in cmd and "--output-format stream-json" in cmd, cmd
 assert not os.path.exists(os.path.join(d, "repo", ".opencode")) and "host: claude" in r.stdout
-ok("default host is claude: claude -p --plugin-dir … (no host install)")
+# `--allowedTools` takes every following word, so a prompt after it becomes a tool name and
+# `claude -p` gets no prompt at all (run 23 died in 2s: "Input must be provided"). It goes on stdin.
+assert "E2E-DONE" not in cmd and "prompt: stdin" in r.stdout, cmd
+ok("default host is claude: claude -p --plugin-dir … with the prompt on stdin (no host install)")
 
 # 4) an unknown host or a missing CLI is a usage error before anything is seeded or spent
 r, _ = run("--host", "cursor")
