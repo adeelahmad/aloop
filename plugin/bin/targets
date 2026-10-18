@@ -245,7 +245,10 @@ def problems(sdir, targets, root, doc=None):
                 p.append("%s: create needs planned_symbol" % where)
             if t.get("symbol"):
                 p.append("%s: create names a planned_symbol, not an existing symbol" % where)
-            if exists:
+            # A create whose file now exists AND defines its planned_symbol is realized (its task
+            # merged; a mid-sprint re-plan re-checks the whole plan), not a defect.
+            if exists and (not t.get("planned_symbol")
+                           or locate(root, path, t["planned_symbol"])[0] is None):
                 p.append("%s: create targets %s, which already exists (use modify/extend)" % (where, path))
         elif not exists and path not in planned:
             p.append("%s: %s targets %s, which is neither in the tree nor planned" % (where, op, path))
@@ -259,6 +262,11 @@ def problems(sdir, targets, root, doc=None):
 
 
 def resolve(t, root):
+    if t.get("operation") == "create" and t.get("planned_symbol") and os.path.exists(os.path.join(root, t["path"])):
+        line, be = locate(root, t["path"], t["planned_symbol"])
+        if line is not None:                     # realized create: the planned file and symbol exist now
+            return "%s %s %s:%s %s [%s] — %s" % (t["change_ref"], t["operation"], t["path"], line,
+                                                 t["planned_symbol"], be, t.get("reason", ""))
     if t.get("operation") == "create" or not os.path.exists(os.path.join(root, t["path"])):
         return "%s %s %s %s (planned, shadow) — %s" % (t["change_ref"], t["operation"], t["path"],
                                                         t.get("planned_symbol", ""), t.get("reason", ""))

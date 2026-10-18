@@ -34,7 +34,7 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 | gate-structural-integrity | SubagentStop · structural-reviewer | appended output.md block; orphan/parallel/duplicate via ctx-symbols | no/stale output.md block / foundation-poisoning finding |
 | gate-final                | SubagentStop · final-gate   | full matrix; zero suppressions; all plan-ready ticked | matrix red / suppression / unticked |
 | gate-standards-cited      | SubagentStop · standards    | standards.md citations resolve | dangling citation |
-| gate-stage2-complete      | supervisor self-check + SubagentStop · planner | every story Stage-2 valid; no TBW; sprint self-contained (no later-sprint story IDs, no work deferred to a later sprint) | incomplete or spilling planning |
+| gate-stage2-complete      | supervisor self-check + SubagentStop · planner | every story Stage-2 valid; no TBW; sprint self-contained (no later-sprint story IDs, no work deferred to a later sprint); verdicts logged like every gate, and the stuck release covers the planner (3 identical blocks → stop released unverified, marker `state/stuck/plan-sprintN.<agent>`) | incomplete or spilling planning |
 | gate-plan-shape           | called by gates             | each plan checkbox carries `path::fn` | malformed plan |
 | gate-ledger-format        | called by gates             | execution.log line shape | malformed ledger |
 
