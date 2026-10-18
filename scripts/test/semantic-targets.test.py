@@ -108,7 +108,7 @@ r = run(os.path.join(BIN, "gate-stage2-complete"), SP)
 assert r.returncode == 0, r.stderr
 ok("unknown symbol/task, create-over-existing, ghost path, bad op, escaping path, duplicate ref → blocked; gate runs it")
 
-# 6) a mid-sprint re-plan re-checks changes that already shipped (live e2e run 18: T1's
+# 6) a mid-sprint re-plan re-checks changes that already shipped (live e2e run 19: T1's
 #    `create tests/parse.rs` merged, then the T2 re-plan's planner was blocked 9 times with
 #    "already exists" for a change it was told not to touch). A create whose file now exists
 #    AND defines its planned_symbol is realized, not wrong; one whose file exists without the

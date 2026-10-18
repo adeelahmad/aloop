@@ -164,9 +164,12 @@ def host_task_id(payload, agent_id):
     try:
         with open(tp) as f:
             for line in f:
+                # Claude Code may prepend a session-context attachment (renderedRole "user", no
+                # TASK_ID) before the dispatch prompt: keep reading to the first line naming one.
                 if '"user"' in line:
                     m = TASK_LINE.search(line)
-                    return m.group(1) if m else ""
+                    if m:
+                        return m.group(1)
     except (OSError, TypeError):
         pass
     return ""
@@ -192,6 +195,31 @@ def copy_contract(cwd, top, task_id):
     try:
         _paths.marker_dir(top)
         shutil.copyfile(src, dst)
+    except OSError:
+        pass
+
+
+def seed_output(cwd, task_id):
+    """Create the story's output.md with its frontmatter before the worker's first tool call, so a
+    bare `cat >>` of the report block never produces a file without `type: output` (live run 18:
+    four self-check blocks). An existing output.md is never touched (append-only comms)."""
+    env = contract(cwd, task_id)
+    sd = env.get("STORY_DIR") or ""
+    out = os.path.join(sd, "output.md")
+    if not sd or not os.path.isdir(sd) or os.path.exists(out):
+        return
+    story = ""
+    try:
+        with open(os.path.join(sd, "init.md")) as f:
+            for line in f.read().split("\n---", 2)[1].splitlines():
+                if line.startswith("story:"):
+                    story = line.split(":", 1)[1].strip()
+    except (OSError, IndexError):
+        pass
+    story = story or re.sub(r"-[A-Z]+\d*$", "", task_id)
+    try:
+        with open(out, "x") as f:
+            f.write("---\ntype: output\nstory: %s\n---\n" % story)
     except OSError:
         pass
 
@@ -499,6 +527,8 @@ def observe(mode, payload, agent_id, role):
     host_tid = host_task_id(payload, agent_id) if mode != "stop" else ""
     if host_tid and wt:
         copy_contract(cwd, wt, host_tid)
+    if host_tid and mode != "stop":
+        seed_output(cwd, host_tid)
     if st is None:
         b, src = role_profile(cwd, role)
         st = {"agent_id": agent_id, "role": role, "task": "", "attempt": "", "story_dir": "", "start": now,
@@ -557,6 +587,7 @@ def hook(mode):
     host_tid = host_task_id(payload, agent_id)
     if host_tid and mode != "stop":
         copy_contract(cwd, top, host_tid)
+        seed_output(cwd, host_tid)
     spath = os.path.join(state_dir(cwd), "%s.json" % safe(agent_id))
     st = load_state(spath)
     now = time.time()
