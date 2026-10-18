@@ -245,6 +245,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- The planner persona states `targets check`'s rules (`{"targets": [...]}`, `symbol` only for code
+  that exists, `planned_symbol` with `create`/`extend` for new code), so its first `targets.json`
+  passes (live runs 12–14: 2–3 blocks each).
 - The planner persona lists the exact frontmatter and `##` sections `planning-artifacts.kdl`
   requires, so its first write passes (every live run so far wrote each artifact twice: 8–12
   write blocks per run).

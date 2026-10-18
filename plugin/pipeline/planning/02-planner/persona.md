@@ -78,6 +78,18 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
 - Run `selfcheck planner` before reporting; the supervisor resumes execution only
   after gate-stage2-complete passes again.
 
+Write `targets.json` beside tasks.md when you know what each task changes: one entry per
+change (`change_ref` C1…, `task`, `operation` create|modify|extend|refactor|replace|delete,
+`path`, `symbol` or `planned_symbol`, a one-line `reason`, `evidence_refs`, `constraints`).
+Planned files stay planned: never create stubs. `targets check <STORY_DIR>` (also run by
+gate-stage2-complete) proves each target against tasks.md and the real tree. Its rules, so
+the first write passes (live runs 12–14 hit each of these):
+- the file is `{"targets": [...]}`, never a bare list;
+- `symbol` names something that EXISTS in the tree now; a function this sprint will add is a
+  `planned_symbol` — `create` for a new file (the path must not exist yet), `extend` for a new
+  symbol in an existing file (`"operation": "extend", "path": "src/lib.rs", "planned_symbol": "count_words"`);
+- `modify|refactor|replace|delete` need a `symbol` that exists (or `planned_symbol` for `extend`).
+
 ## Hard limits
 - Writes no production code; does not start RED.
 - Sub-agents never edit these artifacts — this persona is their sole author.
