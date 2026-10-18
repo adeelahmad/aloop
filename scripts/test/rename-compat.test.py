@@ -6,7 +6,9 @@
 import importlib.machinery
 import importlib.util
 import json
+import atexit
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -17,8 +19,9 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 PLUGIN = os.path.join(ROOT, "plugin")
 BIN = os.path.join(PLUGIN, "bin")
 T = tempfile.mkdtemp(prefix="aloop-rename-")
+atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = dict(os.environ, HOME=os.path.join(T, "home"), CLAUDE_PLUGIN_DATA=os.path.join(T, "pdata"),
-           PYTHONDONTWRITEBYTECODE="1")
+           PYTHONDONTWRITEBYTECODE="1", AGENTIC_NO_AUTOINSTALL="1")
 n = 0
 
 

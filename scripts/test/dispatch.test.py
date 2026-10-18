@@ -6,12 +6,15 @@ dispatched, its gate could not find STORY_DIR and blocked 25 times — a block t
     python3 scripts/test/dispatch.test.py
 """
 import json
+import atexit
 import os
+import shutil
 import subprocess
 import tempfile
 
 GATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin", "gate-dispatch")
 T = tempfile.mkdtemp(prefix="aloop-dispatch-")
+atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = {k: v for k, v in os.environ.items() if k != "SKIP_HOOKS"}
 n = 0
 
@@ -56,6 +59,7 @@ assert r.returncode == 0, r
 ok("a sub-agent's own Agent calls are not this gate's business")
 
 empty = tempfile.mkdtemp(prefix="aloop-dispatch-none-")
+atexit.register(shutil.rmtree, empty, ignore_errors=True)
 subprocess.run(["git", "init", "-q"], cwd=empty, check=True)
 p = {"session_id": "s", "cwd": empty, "tool_name": "Agent",
      "tool_input": {"subagent_type": "aloop:green-worker", "prompt": "TASK_ID: X\n"}}

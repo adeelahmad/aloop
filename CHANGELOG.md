@@ -91,6 +91,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- The host tests (Codex hooks, OpenCode plugin, rename-compat, budget, fail-closed, scope,
+  dispatch) each leaked a temp dir, and the Codex and OpenCode ones started a real background
+  cargo build over their fake tools (~500MB per run; 57 leaked dirs filled the disk and killed
+  e2e run 11 with ENOSPC). They now remove their temp dir on exit and set
+  `AGENTIC_NO_AUTOINSTALL=1`; `e2e-live` drops its cargo target dirs after the run.
 - The comms gate's "no output.md" block now says HOW to append the report: a shell heredoc
   from the worktree, because Claude Code's Write/Edit refuse a path outside it and
   `docs/agents/` lives only in the main tree (e2e run 10: a RED worker stopped 29 times on

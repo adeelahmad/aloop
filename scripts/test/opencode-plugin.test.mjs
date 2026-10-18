@@ -2,7 +2,7 @@
 // Runs the REAL generated plugin (aloop install opencode) and the REAL bin/ scripts in a
 // throw-away git repo. No OpenCode, no network, no tokens.   node scripts/test/opencode-plugin.test.mjs
 import { execFileSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -11,10 +11,13 @@ import assert from "node:assert/strict"
 const ROOT = join(fileURLToPath(import.meta.url), "..", "..", "..", "plugin")
 const BIN = join(ROOT, "bin")
 const T = mkdtempSync(join(tmpdir(), "agentic-oc-"))
+process.on("exit", () => rmSync(T, { recursive: true, force: true }))   // a leaked dir held ~500MB
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: T, encoding: "utf8", ...opts })
 
-// isolated HOME + fake backends so gate-tooling passes without a Rust build
+// isolated HOME + fake backends so gate-tooling passes without a Rust build; the SessionStart
+// hook would otherwise start a real background cargo build over the fakes (350MB per run)
 process.env.HOME = join(T, "home")
+process.env.AGENTIC_NO_AUTOINSTALL = "1"
 process.env.CLAUDE_PLUGIN_DATA = join(T, "pdata")
 mkdirSync(join(process.env.CLAUDE_PLUGIN_DATA, "bin"), { recursive: true })
 for (const t of ["md-db", "ctx-symbols"]) {

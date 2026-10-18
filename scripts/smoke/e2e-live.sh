@@ -86,5 +86,8 @@ print("cost: $%.2f · supervisor turns: %s · wall: %dm%02ds" % (cost, turns, in
 PY
 echo "sub-agent reads of the plugin's own source: $(grep -o '"command": *"[^"]*'"$PLUGIN"'/[^"]*' "$T/out.jsonl" | wc -l)"
 [ -f .agentic/logs/gates.jsonl ] && echo "gate verdicts: $(grep -c . .agentic/logs/gates.jsonl) ($(grep -c '"exit":2' .agentic/logs/gates.jsonl) blocks)"
+# Keep the transcript and the repo, drop the build artifacts (a cargo target dir per worktree
+# is hundreds of MB; a dozen kept runs filled the disk).
+rm -rf "$T"/repo/target "$T"/repo/.claude/worktrees/*/target 2>/dev/null
 echo "run dir: $T"
 exit $((fails > 0))

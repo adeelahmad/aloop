@@ -7,7 +7,9 @@ on an unbound variable lets the action through. Gates map any unexpected exit to
     python3 scripts/test/fail-closed.test.py
 """
 import json
+import atexit
 import os
+import shutil
 import re
 import stat
 import subprocess
@@ -17,6 +19,7 @@ import time
 BIN = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin"))
 HOOKS = os.path.join(BIN, "..", "hooks", "hooks.json")
 T = tempfile.mkdtemp(prefix="aloop-failclosed-")
+atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = {k: v for k, v in os.environ.items() if k not in ("SKIP_HOOKS", "AGENTIC_SPRINT_LOCK_TTL", "STORY_DIR", "AGENT_ROLE")}
 ENV["HOME"] = os.path.join(T, "home")
 n = 0
