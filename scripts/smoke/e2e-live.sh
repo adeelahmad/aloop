@@ -40,6 +40,9 @@ case "$FIXTURE" in
 esac
 cargo init -q --lib --name "$CRATE" . 2>/dev/null
 printf '//! %s\n' "$CRATE" > src/lib.rs          # no template test: the run must write its own
+# The lockfile is part of the seed: left untracked, the supervisor commits it on main itself
+# (run 16: "Track Cargo.lock"), a commit no task owns and `events trace` cannot explain.
+cargo generate-lockfile -q 2>/dev/null || true
 git add -A && git commit -qm init
 "$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="$WORKER_MODEL" MODEL_WORKER="$WORKER_MODEL" GITIGNORE=yes >/dev/null
 git add -A && git commit -qm "aloop init" >/dev/null 2>&1 || true
@@ -97,7 +100,9 @@ plug, pat = sys.argv[2], re.compile(r"--schema[= ]+" + re.escape(sys.argv[2]) + 
 for l in open(sys.argv[1]):
     try: e = json.loads(l)
     except ValueError: continue
-    for c in (e.get("message") or {}).get("content") or []:
+    m = e.get("message")
+    content = m.get("content") if isinstance(m, dict) else None
+    for c in content if isinstance(content, list) else []:
         if not isinstance(c, dict) or c.get("type") != "tool_use": continue
         i = c.get("input") or {}
         text = i.get("command") or i.get("file_path") or i.get("path") or ""
