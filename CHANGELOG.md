@@ -30,6 +30,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   every figure to the ledger; `scripts/test/evidence.test.py` fails on an unsourced figure.
 - `run-summary` counts a `<plugin>/schemas/…` reference as schema use, not a plugin-source read, also
   when the path is bound to a shell variable first (run 19: 5 → 0).
+- `e2e-live.sh --host codex|opencode` (`make e2e-live YES=1 HOST=…`): the north-star run on the other
+  hosts: `aloop install <host>` into the seeded repo, then `codex exec --json --full-auto` or
+  `opencode run --format json` with the host's model routes, the same intent, approval and checks;
+  `--dry-run` prints the command. `run-summary --host` records the host and names it in the reproduce
+  command; a transcript with no `result` line records the cost as unmeasured (—), never $0.00.
+  Test: `scripts/test/e2e-live-hosts.test.py`.
 - Natural-language auto-trigger (ROADMAP §4.11): `bin/intent-trigger` on UserPromptSubmit adds context
   to run a plain build/fix request as `/aladdin "<intent>"` when it lands in an aloop project with no
   sprint running. Quiet for questions, slash commands, short replies, a live sprint lock and non-aloop

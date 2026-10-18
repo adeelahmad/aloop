@@ -50,3 +50,4 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.11 | Site (`docs/index.html`, GitHub Pages from `/docs`) with the lamp motif, RED explainer and audit tree; numbers sourced from §0 | IMPLEMENTED_TESTED | `scripts/test/site.test.py` |
 | 4.11 | Natural-language auto-trigger inside hosts (`intent-trigger` on UserPromptSubmit; Claude Code, Codex, OpenCode) | IMPLEMENTED_TESTED | `scripts/test/intent-trigger.test.py` |
 | 4.11 | Evidence: every public claim links to a reproducible measured run (`docs/evidence/README.md`, `run-summary`) | IMPLEMENTED_TESTED | `scripts/test/evidence.test.py` |
+| 4.11 | The north-star run reproducible on every host (`e2e-live.sh --host codex|opencode`: host install + headless CLI, same checks) | IMPLEMENTED_TESTED | `scripts/test/e2e-live-hosts.test.py` (measured Codex/OpenCode rows still pending: no CLIs here) |

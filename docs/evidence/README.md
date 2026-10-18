@@ -4,7 +4,7 @@ Every time or cost figure in the [README](../../README.md), on the [site](../ind
 [ROADMAP §0](../ROADMAP.md#0-at-a-glance) is a row here. Each row is one live run of the whole
 loop (`scripts/smoke/e2e-live.sh`): a one-line intent through intake, standards, planning,
 RED/SCAFFOLD/GREEN per task, structural review and the final gate, to merged, tested code in a
-real Claude Code session with the approval given up front. The numbers come from the harness
+real host session (Claude Code, or Codex/OpenCode with `HOST=`) with the approval given up front. The numbers come from the harness
 (`run-summary` reads the session's `result` lines and the gate log), never from the model.
 `scripts/test/evidence.test.py` fails if a public figure has no row, or a row has no reproduce
 command.
@@ -12,7 +12,9 @@ command.
 **Reproduce:** install the plugin, then run the command in the last column (spends about a
 dollar, 11–22 minutes). The run leaves `summary.json`, `summary.md` and a ready-to-paste row in
 its run dir; add the row here. Intents: `semver` (one story) and `wordfreq` (two dependent
-stories). What each run found and fixed is in ROADMAP M0.8.
+stories). `HOST=codex` / `HOST=opencode` run the loop on those hosts (`aloop install <host>` into the
+run repo, then `codex exec --json` / `opencode run --format json`); their CLIs print no cost line, so
+the cost cell reads — and the intent cell names the host. What each run found and fixed is in ROADMAP M0.8.
 
 | run | intent | plugin | checks | wall | cost | wakes | plugin reads | gate blocks | reproduce |
 |---|---|---|---|---|---|---|---|---|---|

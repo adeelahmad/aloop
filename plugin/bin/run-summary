@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """run-summary — the measured record of one live run (ROADMAP §4.11: evidence, not claims).
 
-    run-summary <run-dir> [--intent NAME] [--checks N/M] [--secs WALL] [--plugin DIR]
+    run-summary <run-dir> [--intent NAME] [--host claude|codex|opencode] [--checks N/M] [--secs WALL] [--plugin DIR]
 
 Reads <run-dir>/out.jsonl (the supervisor's stream-json transcript) and the run repo's
 gate log (<run-dir>/repo/.aladdin/logs/gates.jsonl, or .agentic/), writes
 <run-dir>/summary.json and <run-dir>/summary.md, and prints the summary with a ready-to-paste
 row for docs/evidence/README.md. Numbers come from the harness, never from the model:
-  cost_usd / supervisor_turns  the LAST `result` line (a resumed session reports again)
+  cost_usd / supervisor_turns  the LAST `result` line (a resumed session reports again);
+                               Codex and OpenCode print none, so the cost is null and the row
+                               says — (unmeasured), never $0.00
   wakes                        how many `result` lines: one per supervisor wake
   plugin_reads                 sub-agent tool calls naming a plugin path, except a
                                `<plugin>/schemas/…` file (md-db's schema: a legitimate use,
@@ -40,7 +42,9 @@ def main():
         print("run-summary: no out.jsonl in %s" % run, file=sys.stderr); return 64
     plugin = os.path.abspath(arg("--plugin") or os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
     pat = re.compile(re.escape(plugin) + r"/schemas/\S*")
-    cost = turns = wakes = reads = 0
+    cost = None
+    turns = wakes = reads = 0
+    host = arg("--host") or "claude"
     secs = arg("--secs")
     for l in open(out):
         try:
@@ -82,13 +86,16 @@ def main():
     except (OSError, ValueError):
         version = ""
     intent = arg("--intent") or ""
-    s = {"run_dir": run, "intent": intent, "plugin_version": version, "checks": arg("--checks") or "",
-         "wall": wall(secs or 0), "cost_usd": round(float(cost), 2), "supervisor_turns": turns, "wakes": wakes,
+    s = {"run_dir": run, "intent": intent, "host": host, "plugin_version": version, "checks": arg("--checks") or "",
+         "wall": wall(secs or 0), "cost_usd": None if cost is None else round(float(cost), 2),
+         "supervisor_turns": turns, "wakes": wakes,
          "plugin_reads": reads, "gate_verdicts": verdicts, "gate_blocks": blocks, "run_repo_head": head,
-         "reproduce": "make e2e-live YES=1" + (" INTENT=%s" % intent if intent else ""),
+         "reproduce": "make e2e-live YES=1" + (" INTENT=%s" % intent if intent else "") + (" HOST=%s" % host if host != "claude" else ""),
          "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    row = "| %s | %s | v%s | %s | %s | $%.2f | %s | %s | %s | `%s` |" % (
-        os.path.basename(run), intent or "?", version, s["checks"] or "?", s["wall"], s["cost_usd"], wakes, reads, blocks, s["reproduce"])
+    cost_cell = "—" if s["cost_usd"] is None else "$%.2f" % s["cost_usd"]
+    label = (intent or "?") + ("" if host == "claude" else " (%s)" % host)
+    row = "| %s | %s | v%s | %s | %s | %s | %s | %s | %s | `%s` |" % (
+        os.path.basename(run), label, version, s["checks"] or "?", s["wall"], cost_cell, wakes, reads, blocks, s["reproduce"])
     md = ("# Live run %s\n\n| run | intent | plugin | checks | wall | cost | wakes | plugin reads | gate blocks | reproduce |\n"
           "|---|---|---|---|---|---|---|---|---|---|\n%s\n\nrun repo head: `%s` · gate verdicts: %d · supervisor turns: %d\n"
           % (os.path.basename(run), row, head, verdicts, turns))
@@ -96,7 +103,7 @@ def main():
         json.dump(s, f, indent=1)
     with open(os.path.join(run, "summary.md"), "w") as f:
         f.write(md)
-    print("cost: $%.2f · supervisor turns: %s · wall: %s" % (s["cost_usd"], turns, s["wall"]))
+    print("cost: %s · supervisor turns: %s · wall: %s" % (cost_cell, turns, s["wall"]))
     print("supervisor wakes: %d · sub-agent reads of the plugin's own source: %d" % (wakes, reads))
     if verdicts:
         print("gate verdicts: %d (%d blocks)" % (verdicts, blocks))

@@ -42,7 +42,8 @@ aladdin "add CSV export to the report"      # records the intent, tells you how 
 ## Demo
 
 A one-line intent, start to merged code, in a real Claude Code session with the approval
-given up front — reproducible with `make e2e-live YES=1` (spends about a dollar):
+given up front — reproducible with `make e2e-live YES=1` (spends about a dollar; `HOST=codex` or
+`HOST=opencode` runs the same loop on those hosts):
 
 | Intent | Result | Time | Cost |
 |---|---|---|---|
@@ -194,7 +195,7 @@ structural, not luck:
 These mechanisms are codebase-agnostic — greenfield is simply what's measured here.
 
 Live runs: `make smoke-live YES=1` (hook wiring, ~$0.004) and `make e2e-live YES=1` (the whole
-loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci` — Rust fmt/clippy/tests, shellcheck, 43 Python/Node suites,
+loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci` — Rust fmt/clippy/tests, shellcheck, 44 Python/Node suites,
 the gate conformance fixtures (`make conformance`), eval-suite validation. Every ROADMAP
 requirement is tracked with its test in [docs/TRACKING.md](docs/TRACKING.md).
 

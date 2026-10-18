@@ -124,6 +124,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/fail-closed.test.py
 	python3 scripts/test/intent-trigger.test.py
 	python3 scripts/test/evidence.test.py
+	python3 scripts/test/e2e-live-hosts.test.py
 	@if command -v node >/dev/null; then node scripts/test/opencode-plugin.test.mjs; else echo "node not found — skipped OpenCode test (CI runs it)"; fi
 
 .PHONY: conformance
@@ -133,7 +134,7 @@ conformance: ## ROADMAP §6 conformance fixtures on today's gates (needs cargo; 
 .PHONY: e2e-live
 e2e-live: ## Live end-to-end run: one-line intent -> planned, tested, merged code (YES=1; spends dollars)
 	@test -n "$(YES)" || { echo "spends tokens: make e2e-live YES=1"; exit 2; }
-	scripts/smoke/e2e-live.sh --yes $(if $(INTENT),--intent $(INTENT))
+	scripts/smoke/e2e-live.sh --yes $(if $(INTENT),--intent $(INTENT)) $(if $(HOST),--host $(HOST))
 
 .PHONY: smoke-live
 smoke-live: ## Live Claude Code session: hooks fire, supervisor write blocked, transcripts + ledger (YES=1; spends ~$0.005)
