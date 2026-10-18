@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""intent-trigger — natural-language auto-trigger (ROADMAP §4.11, M8).
+
+    intent-trigger hook        UserPromptSubmit: stdin = the host's hook payload
+
+A plain build/fix request typed into an aloop project, while no sprint is running, is the
+loop's own entry point: this hook adds context telling the host to treat the prompt as
+`/aladdin "<intent>"` (load the aladdin skill, which runs the aloop playbook). It decides
+nothing else: the human still approves the plan, every gate still runs.
+
+Quiet (no output) when: the prompt is a question, a slash command or a short reply; a sprint
+lock is live (the prompt is feedback to the running loop); the repo is not an aloop project
+(no docs/agents/ and no run-data dir); or it is switched off with AGENTIC_AUTO_TRIGGER=off
+(ALADDIN_AUTO_TRIGGER) or `intent: {auto_trigger: false}` in .aladdin/config.yaml.
+Always exit 0; never writes a file.
+"""
+import json
+import os
+import re
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _paths  # noqa: E402
+
+OFF = ("off", "0", "false", "no")
+# An imperative first clause, or a stated want. Kept narrow on purpose: a miss costs the user
+# one `/aladdin`, a false hit costs them one paragraph of context.
+VERBS = (r"add|build|implement|create|make|write|fix|repair|refactor|migrate|port|support|remove|replace|rename|"
+         r"extract|introduce|convert|upgrade|optimi[sz]e|speed up|improve|change|update|wire|expose|parse|handle|"
+         r"ship|deliver|develop|design|generate|automate|integrate|enable|allow|let|teach|get")
+INTENT = re.compile(r"^(?:please\s+|can you\s+|could you\s+|let'?s\s+)?(?:%s)\b" % VERBS, re.I)
+WANT = re.compile(r"\b(?:i|we)\s+(?:want|need|would like)\b|\bshould\s+(?:be able to|support|accept|handle)\b", re.I)
+MIN_WORDS = 4
+
+
+def switched_off(cwd):
+    v = _paths.env("AUTO_TRIGGER")
+    if v is None:
+        try:
+            import _config
+            v = (_config.load(cwd) or {}).get("AUTO_TRIGGER")
+        except Exception:                     # a broken config never blocks a prompt
+            v = None
+    return str(v).strip().lower() in OFF if v is not None else False
+
+
+def aloop_project(cwd):
+    root = _paths.project(cwd)
+    return os.path.isdir(_paths.docs(cwd)) or any(os.path.isdir(os.path.join(root, h)) for h in (_paths.NEW_HOME, _paths.OLD_HOME))
+
+
+def sprint_live(cwd):
+    root = _paths.project(cwd)
+    ttl = int(_paths.env("SPRINT_LOCK_TTL", "14400") or 14400)
+    for h in (_paths.NEW_HOME, _paths.OLD_HOME):
+        lock = os.path.join(root, h, "state", "sprint.lock")
+        try:
+            return time.time() - os.path.getmtime(lock) < ttl
+        except OSError:
+            continue
+    return False
+
+
+def is_intent(prompt):
+    p = " ".join(prompt.strip().split())
+    if not p or p.startswith("/") or p.endswith("?") or len(p.split()) < MIN_WORDS:
+        return False
+    return bool(INTENT.match(p) or WANT.search(p))
+
+
+def context(prompt, root):
+    skill = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "skills", "aladdin", "SKILL.md")
+    short = prompt.strip().replace("\n", " ")
+    if len(short) > 200:
+        short = short[:197] + "..."
+    return ("[aloop] This reads as a build intent and no sprint is running in %s. Treat it as "
+            "/aladdin \"%s\": load the aladdin skill (%s) and follow it from intake; the human still "
+            "approves the plan before any worker runs. If it is not an intent, answer normally. "
+            "Silence this with ALADDIN_AUTO_TRIGGER=off or `intent: {auto_trigger: false}` in .aladdin/config.yaml."
+            % (root, short.replace('"', "'"), skill))
+
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] != "hook":
+        print(__doc__.strip().splitlines()[0], file=sys.stderr)
+        return 0
+    try:
+        payload = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        return 0
+    prompt = payload.get("prompt") if isinstance(payload, dict) else None
+    cwd = (payload.get("cwd") if isinstance(payload, dict) else None) or os.getcwd()
+    if not isinstance(prompt, str) or not is_intent(prompt):
+        return 0
+    try:
+        if switched_off(cwd) or not aloop_project(cwd) or sprint_live(cwd):
+            return 0
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
+                                                 "additionalContext": context(prompt, _paths.project(cwd))}}))
+    except Exception:
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

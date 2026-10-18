@@ -18,7 +18,8 @@
     ],
     "UserPromptSubmit": [
       { "matcher": "*", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" prompt" } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" prompt" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/intent-trigger\" hook", "timeout": 10 } ] }
     ],
     "SubagentStart": [
       { "matcher": "red-worker|aloop:red-worker|scaffolder|aloop:scaffolder|green-worker|aloop:green-worker|structural-reviewer|aloop:structural-reviewer|final-gate|aloop:final-gate", "hooks": [
