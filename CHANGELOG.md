@@ -23,6 +23,14 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Changed
+- **The supervisor never commits on main** (SKILL.md): every commit on main arrives through
+  `task-worktree merge`. Reason: live run 16's one untraceable commit was the supervisor's own
+  `Track Cargo.lock`; the e2e fixture now commits the lockfile in its seed.
+- **A wave with one dispatchable task runs in the foreground** (SKILL.md orchestrator loop).
+  Reason: live run 15 dispatched every single-task wave in the background and woke 16 times,
+  each wake re-reading the supervisor's context (5.5M cached tokens, $1.26 of $1.42); run 14,
+  foreground, woke twice for $0.75. Background dispatch + `budget watch` stays the rule for
+  parallel waves. The host table's "merge a passed task" row names `task-worktree merge`.
 - **The soft token limit is telemetry only** (ROADMAP §3.1). Crossing it no longer tells
   the worker to wrap up; `budget` records `task.token_soft_limit` once per attempt in
   `.agentic/logs/events.jsonl`, `stats.md` counts it, and `NEXT.md` lists those tasks as

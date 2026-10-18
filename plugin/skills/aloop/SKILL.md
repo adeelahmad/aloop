@@ -83,7 +83,7 @@ runs this plugin's `hooks/hooks.json` natively; OpenCode runs them through the p
 | Worker isolation | `isolation: "worktree"` | `aloop task-worktree add <TASK_ID>` → path; the worker's FIRST command is `aloop bind <path>` (hooks then confine it) | same as Codex (the plugin then rewrites its commands/edits into the worktree) |
 | Parallel / wait | `run_in_background` + `budget watch` | several `spawn_agent`, then `wait_agent` | several `task` calls in one message |
 | Stop a worker (backstop) | `TaskStop` | `close_agent` | — (the plugin aborts it) |
-| Merge a passed task | merge the worktree branch | merge `agentic/<TASK_ID>`, then `aloop task-worktree remove <TASK_ID>` | same as Codex |
+| Merge a passed task | `aloop task-worktree merge <TASK_ID> <worktree-branch>` (records the lineage) | merge `agentic/<TASK_ID>`, then `aloop task-worktree remove <TASK_ID>` | same as Codex |
 | Fresh context per sprint | `/clear` | `/clear` or `/new` | `/new` |
 
 On Codex/OpenCode the dispatch message MUST contain the worktree line — e.g. "Your
@@ -498,7 +498,11 @@ Your job during execution is small, and that is on purpose (it keeps your contex
 1. **Dispatch** every task that can run now (the wave's RED, or GREEN, …) as
    background agents — `run_in_background: true`, `isolation: "worktree"`, `model` from
    defaults.md — after writing each `init.md` block + task contract (with
-   `BUDGET_*`). Log `start` lines.
+   `BUDGET_*`). Log `start` lines. **A wave with ONE dispatchable task runs it in the
+   foreground** (`run_in_background: false`, no `budget watch`): every wake re-reads your
+   whole context (live run 15: 16 wakes, 5.5M cached tokens, $1.26 of a $1.42 run; run 14
+   with foreground dispatch: 2, $0.75), so background dispatch pays only when tasks run in
+   parallel. The hooks and the hard budget apply the same either way.
 2. **Sleep.** Start `budget watch --interval 20 --grace 60` with `run_in_background:
    true` and end your turn. Do nothing else: no polling, no reading worker output early.
    You wake when a worker finishes (task notification) or when `budget watch` exits.
@@ -519,6 +523,12 @@ Your job during execution is small, and that is on purpose (it keeps your contex
      Then take the **Budget overrun** route below — do not re-dispatch the task;
    - still-running workers and no kill → start `budget watch` again and sleep.
 4. When nothing is running and nothing can be dispatched, the wave is done.
+
+**You never commit on main.** Every commit on main arrives through `aloop task-worktree merge`,
+which is what makes it traceable to its task and intent (`events trace`). An untracked file you
+notice (a lockfile, a generated file) is not yours to commit: leave it, or add it to the task
+whose worker produces it (live run 16: a supervisor's `Track Cargo.lock` commit was the one
+commit on main that traced to nothing).
 
 On a host without background task notifications, `sweep wait --timeout 1800` is the
 sleep: it blocks without a model call until an event or attempt state changes, then sweeps.
