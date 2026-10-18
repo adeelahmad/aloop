@@ -119,7 +119,7 @@ Models pick the route (`strongest | strong | economical`, resolved per host); th
 
 ### Upgrading from agentic-agile
 
-The plugin is now `aloop@aloop-marketplace` (v0.11.0). Swap the install once:
+The plugin is now `aloop@aloop-marketplace` (since v0.11.0; current v0.12.0). Swap the install once:
 
 ```bash
 /plugin uninstall agentic-agile@agentic-agile-marketplace
