@@ -9,7 +9,9 @@
 ## 0. At a glance
 
 What the project is today: [OVERVIEW.md](OVERVIEW.md). Sections 1–8 below are the full
-spec; this table is the plan. Versions are targets, not promises.
+spec; this table is the plan. Versions are targets, not promises. M1–M7 and the M8 items marked
+done shipped together as **v0.12.0** (2026-10-18); the per-milestone targets below are the
+original plan.
 
 | Milestone | Target | Contents | Status |
 |---|---|---|---|

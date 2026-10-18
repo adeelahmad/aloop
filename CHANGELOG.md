@@ -845,8 +845,6 @@ project data is read as before (see 0.11.0 → Compatibility, and README → *Up
 ### Changed
 - `agent-io.kdl` `agent_role` enum gains `archivist`.
 
-## [Unreleased]
-
 ## [0.1.0] - 2026-06-08
 
 Initial release.
@@ -878,5 +876,6 @@ Initial release.
   should be smoke-tested in a real Claude Code session.
 - Suppression detection is syntactic (see SKILL.md "Known gate limitations").
 
-[Unreleased]: https://github.com/adeelahmad/agentic-agile/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/adeelahmad/agentic-agile/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/adeelahmad/agentic-agile/compare/v0.11.0...v0.12.0
 [0.1.0]: https://github.com/adeelahmad/agentic-agile/releases/tag/v0.1.0
