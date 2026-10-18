@@ -22,6 +22,33 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Changed
+- **The soft token limit is telemetry only** (ROADMAP §3.1). Crossing it no longer tells
+  the worker to wrap up; `budget` records `task.token_soft_limit` once per attempt in
+  `.agentic/logs/events.jsonl`, `stats.md` counts it, and `NEXT.md` lists those tasks as
+  planner input. The soft *time* limit still warns.
+- **No post-kill narration** (ROADMAP §3.5). At the hard limit the worker is stopped on
+  the crossing call instead of being given a last call to write its report. The harness
+  appends the gate-valid `status: re-plan` block to output.md itself (limits, worktree
+  diff, transcript path) and records `task.token_hard_limit` / `task.time_hard_timeout`.
+  A verdict reached before the worker's worktree is known still gets one call to find it.
+- **The token meter counts classes separately** (ROADMAP §3.2). The budget charge is now
+  fresh (uncached) input + output by default. Cache read and cache write are kept as
+  their own classes in each attempt's state (`usage`), and context size is the latest
+  call's, never cumulative cache traffic. `TOKEN_METER=context` in defaults.md (or
+  `BUDGET_TOKEN_METER=context` in a task.env) keeps the previous context + output charge;
+  `budget resolve` / `status` show the meter in force.
+- **Budgets cover every model role** (ROADMAP §3.3). Intake, standards, planner,
+  archivist, structural-reviewer and final-gate are metered against per-role profiles
+  (overridable with `AGENTIC_BUDGET_<ROLE>` in defaults.md). They are observe-only:
+  crossings are recorded as events, and the agent is never told or stopped.
+- **Hard breaches are classified, not always split** (ROADMAP §3.4). The hook makes a
+  deterministic first call (`TASK_TOO_LARGE`, `AGENT_LOOPING`, `EXTERNAL_SERVICE`,
+  `TEST_SUITE_SLOW`, `ENVIRONMENT_SLOW`, `CONTEXT_PATHOLOGY`, `HOST_FAILURE`, `UNKNOWN`)
+  from usage classes, tool calls and results, with its evidence in the output.md block,
+  the event, `budget watch` and the new `budget classify`. The planner confirms or
+  overrides it (`breach:` line) and acts per class (SKILL.md "Breach classes").
+
 ### Added
 - Stuck release: a worker that hits the same gate block 3 times in a row (one gate, task,
   attempt and worktree; `AGENTIC_STUCK_BLOCKS`) is released **unverified** instead of
@@ -31,6 +58,106 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   line once, and the supervisor re-dispatches with feedback or re-plans. A different reason
   or a new attempt resets the count; a self-check never releases. Every gate verdict now
   logs its worktree and a checksum of the block reason. 7 conformance checks (§6.9).
+- **Sprint token envelope and admission control** (ROADMAP §4.2). `budget admit <task>`
+  runs before each dispatch. At `SPRINT_TOKENS_SOFT` it prints one rollover warning, and
+  at `SPRINT_TOKENS_HARD` admission closes (exit 3). Refused tasks are carried over in
+  `sprintN/rollover.md` with the reason, gate-final accepts unticked boxes only for those
+  tasks (`budget rollover-check`), and NEXT.md lists them for the next planning cycle.
+  Events: `sprint.token_soft_limit`, `sprint.admission_closed`, `sprint.rolled_over`.
+- **Planning feedback lifecycle** (ROADMAP §4.3). `budget envelope <task>` prints the
+  minimal failure envelope: limit, observed value, breach class, last gate, changed files
+  and references, with nothing inlined. NEXT.md gains a "Planner feedback" section that
+  applies the grace rule (0–1 failed or hard-breached tasks → no nudge; 2+ → one "plan
+  smaller" nudge for the next cycle only) with a calibration verdict derived from the
+  breach classes (`plan-smaller`, `raise-time`, `raise-tokens`, `reduce-context`,
+  `fix-environment`).
+- **The `aladdin.event/1` stream** (ROADMAP §4.7). `_events.py` and `bin/events` give
+  every harness event one envelope (ids, `parent_event_id` / `caused_by`, role, host,
+  model, authority, decision, refs, data) and refuse unknown event types. Budget events,
+  every real gate verdict (`gate.passed` / `gate.failed`) and the worktree lifecycle
+  (`worktree.created` / `merged` / `discarded`) are emitted into it. `events query` and
+  `events lineage <task>` answer from the stream, with references only and no transcripts.
+  `events authority` records the run's authority (who approved it, the mode, the scope and
+  any overrides). `events decide` records one-line decisions with evidence refs, linked to
+  that authority. A decision without an authority, with a multi-line reason or with an
+  unknown kind is refused.
+- **The Intent Contract and the clarification policy** (ROADMAP §4.1). `bin/intent new`
+  issues a canonical, time-ordered `intent_id`, which is never model text, and the
+  contract skeleton with provenance. `intent check` validates every field. It requires a
+  class for each open question (`assume` / `default` / `spike` must record their
+  resolution) and stops BOTH modes on an unanswered `ask` (exit 3). `intent summary`
+  surfaces defaults and assumptions for approval. gate-intake runs the check. Autonomous
+  mode is explicit (`events authority --mode autonomous`) and skips approval unless an
+  escalation class is hit.
+- **Host capability matrix and the context-boundary rule** (ROADMAP §4.4, §4.9).
+  `plugin/hosts/capabilities.json` + `bin/capabilities` state what each host advertises
+  (`unknown` counts as not advertised). At a sprint boundary the harness rotates (the host's
+  own `/clear` or `/new`, named in the sprint-close message) unless
+  `AGENTIC_CONTEXT_BOUNDARY=compact` and the host advertises compaction; keeping a session
+  needs a recorded reason. SessionStart records `context.rotated` / `context.compacted`,
+  and stats.md counts them.
+- **Usage accuracy is explicit** (ROADMAP §4.9, conformance 12). Each attempt's usage
+  carries `accuracy: exact` and names any class the host never reports (Codex has no cache
+  write) instead of a silent zero; stats.md shows it in the Metrics table.
+- **Diff scope derived from change targets** (ROADMAP §4.6). When the supervisor gives no
+  `SCOPE_GLOBS` and the story has `targets.json`, gate-green-verify enforces the task's
+  target paths (`targets scope`) instead of skipping the scope check.
+- **LSP adapter seam** (ROADMAP §4.6). `targets refs|callers|callees` ask the language
+  server named by `AGENTIC_LSP_COMMAND` (`_lsp.py`: references and the call hierarchy only).
+  No server, or a server without the capability, is reported with exit 4; planned targets
+  answer "none yet" without touching any server.
+- **The orchestrator's inspect step** (ROADMAP §4.2). `bin/sweep` prints one action per
+  planned task (DONE, ROLLOVER, WAIT, REPLAN, ACCEPT, RETRY, ESCALATE, SPAWN), decided from
+  the event stream, attempt states and rollover.md. `sweep wait` is a token-free sleep
+  that wakes on the next event or state change.
+- **Time budget `auto` mode** (ROADMAP §4.2). With `AGENTIC_TIME_MODE=auto`, `bin/timebox
+  propose` records one stable task duration per project (with min/max) and `budget` uses
+  it (soft = 2/3). `timebox revise` changes it only within range and only with evidence
+  that exists; each change is a `decision.recorded`. Task overrides still win.
+- **Cross-project impact provider seam** (ROADMAP §4.8). `bin/impact query` asks an optional
+  provider (`AGENTIC_IMPACT_PROVIDER`, any command speaking `aladdin.impact/1`) for downstream
+  consumers, rationale, migration order or standards. Results without a source ref are
+  dropped; answers are saved under `docs/agents/impact/` and recorded as planning
+  provenance. An unavailable provider is reported and planning continues.
+- **More run metrics** (ROADMAP §4.10). The Metrics table adds commits produced and test
+  files added (from `commit.created`), time soft limits reached, and semantic context
+  served (`targets target|context` emit `semantic_target.resolved`).
+- **Commit → intent trace** (ROADMAP §4.7, milestone 7). gate-stage2-complete emits
+  `plan.created` / `plan.revised`, caused by the intent; `events authority` emits
+  `plan.approved` for the latest plan; `task-worktree remove` emits `commit.created` per
+  merged commit. `events trace SHA` walks commit → task → gates → plan → intent → approver
+  from the event stream alone. `events commit-msg TASK` builds the commit message from the
+  task title, recorded decisions and ids; `events graph` exports the stream as a
+  rebuildable graph (JSON or DOT).
+- **Semantic change targets, first slice** (ROADMAP §4.6). The planner may write
+  `<story>/targets.json` (`change_ref / operation / path / symbol | planned_symbol / reason /
+  evidence_refs / constraints`). `bin/targets check` proves each target against tasks.md and
+  the real tree, and gate-stage2-complete runs it. Workers start from `targets target` and
+  `targets context --budget N`, including for files that do not exist yet; planned files
+  form a shadow workspace and no stub is created. `refs/callers/callees` report the missing
+  LSP backend (exit 4) instead of guessing.
+- **Canonical ids and referential integrity** (ROADMAP §4.5). `bin/ids freeze` checks the
+  structured references between planning artifacts, never prose, and issues each story and
+  task alias a frozen UUIDv7 in `sprintN/ids.json`. A split task's original is retired and
+  its number can never be reused. gate-stage2-complete runs it, and events for a frozen
+  task carry `story_uid` and `task_uid`.
+- **Planner lesson candidates** (ROADMAP §4.3). `bin/lessons add` records a candidate with
+  `symptom / cause / change / applies_to / evidence_refs` and emits `memory.candidate`.
+  It refuses empty fields, missing evidence and any change that would weaken a gate.
+  `lessons recurring` hands the archivist the groups seen in two or more tasks, as
+  memory.md rows. gate-memory blocks a row that promotes a one-off without a human `keep`.
+  There is no second memory system.
+- **Canonical sprint handoff and the resume rule** (ROADMAP §4.4). sprint-close writes
+  `sprintN/handoff.json` (`aladdin.handoff/1`) from accepted state: completed tasks with
+  their gate verdict and merge event, unverified, open and carried tasks, the nudge and
+  evidence refs. NEXT.md renders it. `stats resume-check` names every task that
+  plan-ready.md shows as done but that has no passing gate verdict, and SessionStart
+  appends that live check to the loaded handoff.
+- **Sprint metrics** (ROADMAP §4.10). stats.md gains a Metrics table: p50/p90/p95 attempt
+  duration and tokens, hard breaches by role and class, hard-breach waste, tokens per
+  accepted task, first-pass rate by gate, re-plan rate, cache-hit and churn ratios,
+  context peak, and admission closures. All of it is derived from harness files, with no
+  model calls.
 - **Second live e2e intent**: `make e2e-live YES=1 INTENT=wordfreq` runs two dependent stories
   (word counting, then top-N ranking).
 - **`gate-final` checks every planned test is on main**: each `path::fn` bullet in a story's

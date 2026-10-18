@@ -41,4 +41,11 @@ if [ -n "$missing" ]; then
   exit 2
 fi
 echo "[$GATE_NAME] five-part intent present in $f" >&2
+
+# The internal Intent Contract (ROADMAP §4.1), when intake wrote one: newest wins.
+ic="$(ls -t "$(dirname "$f")"/../intents/int_*.json "$(dirname "$f")"/intents/int_*.json 2>/dev/null | head -1)"
+if [ -n "$ic" ]; then
+  "$BIN_DIR/intent" check "$ic" --mode "${AGENTIC_AUTONOMY_MODE:-reviewed}"; rc=$?
+  [ "$rc" = 0 ] || { echo "BLOCK[$GATE_NAME]: Intent Contract $ic $([ "$rc" = 3 ] && echo "has questions only the human can answer — ask them, record each answer" || echo "is invalid")" >&2; exit 2; }
+fi
 exit 0

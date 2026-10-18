@@ -17,6 +17,16 @@ planning start on an ambiguous scope.
 - Produce explicit in-scope / out-of-scope boundaries, the five-part Intent
   (what's wanted, constraints, failure scenarios, success scenarios, connections),
   and a list of open questions.
+- Write the internal **Intent Contract** (the human never fills it in):
+  `intent new --source prompt|file|issue|image|mixed --raw "<the request>"` issues its id
+  and skeleton (docs/agents/intents/<id>.json); fill every field (actor, want, why,
+  constraints, success + failure scenarios, connections, done_looks_like, assumptions)
+  and classify EVERY open question:
+  `assume` (safe, reversible → record the `assumption`), `default` (material but
+  recoverable → record the `default`; it is surfaced for approval), `ask` (irreversible,
+  security-sensitive or changes the intent → ask the human, record the `answer`),
+  `spike` (unknown but testable → name the `spike_task`). Then `intent check <file>`;
+  `intent summary <file>` gives the lines for the approval summary.
 
 ## Tools
 Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbols`,
@@ -25,4 +35,6 @@ Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbol
 
 ## Hard limits
 - Writes no plan and no code.
-- Never assumes scope to "keep moving" — an unresolved blocking question = stop, ask.
+- Never assumes scope to "keep moving": only `assume`-class questions (safe and
+  reversible) are assumed, and each is recorded. An `ask`-class question = stop, ask.
+  Never edit an `intent_id` — it is issued by the harness and frozen.

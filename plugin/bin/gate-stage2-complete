@@ -71,7 +71,20 @@ if [ -n "$this_n" ]; then
   fi
 fi
 
-# 4) Structural validation via md-db (fallback to frontmatter check).
+# 4) Identity + referential integrity (ROADMAP §4.5): issue canonical ids for every story
+#    and task alias, check the structured references between artifacts, freeze the map.
+"$BIN_DIR/ids" freeze "$sprint_dir" \
+  || { echo "BLOCK[$GATE_NAME]: broken cross-artifact reference in $sprint_dir (see above)" >&2; exit 2; }
+
+# 5) Semantic change targets (ROADMAP §4.6), where the planner wrote them: each target's
+#    task, operation, path and symbol must hold against tasks.md and the real tree.
+for t in "$sprint_dir"/s*-*-*/targets.json; do
+  [ -f "$t" ] || continue
+  "$BIN_DIR/targets" check "$(dirname "$t")" \
+    || { echo "BLOCK[$GATE_NAME]: invalid change targets in $t (see above)" >&2; exit 2; }
+done
+
+# 6) Structural validation via md-db (fallback to frontmatter check).
 if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1; then
   # Only the planning artifacts: the tree also holds init.md/output.md comms and stats.md,
   # which this schema does not know (validating the whole dir blocked valid plans).

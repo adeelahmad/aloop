@@ -29,16 +29,20 @@ import _paths  # noqa: E402
 MANAGED_HEADER = "# aloop (managed by aloop-init)"
 YESNO = {"GITIGNORE", "TRACK_DOCS", "CLAUDE_COAUTHOR"}
 ORDER = ["TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS",
+         "TOKEN_METER", "SPRINT_TOKENS_SOFT", "SPRINT_TOKENS_HARD",
          "MODEL_PLANNING", "MODEL_WORKER", "GITIGNORE", "TRACK_DOCS",
          "COMMIT_AUTHOR_NAME", "COMMIT_AUTHOR_EMAIL", "CLAUDE_COAUTHOR",
          "MODEL_PLANNING_CODEX", "MODEL_WORKER_CODEX", "EFFORT_PLANNING_CODEX", "EFFORT_WORKER_CODEX",
          "MODEL_PLANNING_OPENCODE", "MODEL_WORKER_OPENCODE"]
 EXPLAIN = {
-    "TOKENS_SOFT": "tokens — worker is warned inside its tool results and told to wrap up",
+    "TOKENS_SOFT": "tokens — telemetry only: recorded for the next planning cycle, worker not told",
     "TOKENS_HARD": "tokens — worker is stopped by the hook; its task is split by the planner",
     "TIME_SOFT_MIN": "minutes — soft wall-clock limit per worker attempt",
     "TIME_HARD_MIN": "minutes — hard wall-clock limit per worker attempt",
     "MAX_REPLANS": "splits allowed per task lineage before the sprint hard-stops",
+    "TOKEN_METER": "token charge: fresh (uncached input + output) or context (context in use + output)",
+    "SPRINT_TOKENS_SOFT": "tokens — whole sprint: rollover warning (prefer critical-path tasks)",
+    "SPRINT_TOKENS_HARD": "tokens — whole sprint: admission closes, not-started tasks carry over",
     "MODEL_PLANNING": "intake · standards · planner · archivist",
     "MODEL_WORKER": "red · scaffolder · green · structural-reviewer · final-gate (orchestrator: sonnet)",
     "GITIGNORE": "add .agentic/ and .transcripts/ (and docs/agents/ unless tracked) to .gitignore",
@@ -183,11 +187,15 @@ def apply(cwd, pairs):
         if k in _paths.NUMERIC and not v.isdigit():
             print("aloop-init: %s must be a whole number" % k, file=sys.stderr)
             return 64
+        if k == "TOKEN_METER" and v not in ("fresh", "context"):
+            print("aloop-init: TOKEN_METER must be fresh or context", file=sys.stderr)
+            return 64
         if k in YESNO and v.lower() not in ("yes", "no"):
             print("aloop-init: %s must be yes or no" % k, file=sys.stderr)
             return 64
         vals[k] = int(v) if k in _paths.NUMERIC else (v.lower() if k in YESNO else v)
-    if vals["TOKENS_SOFT"] > vals["TOKENS_HARD"] or vals["TIME_SOFT_MIN"] > vals["TIME_HARD_MIN"]:
+    if vals["TOKENS_SOFT"] > vals["TOKENS_HARD"] or vals["TIME_SOFT_MIN"] > vals["TIME_HARD_MIN"] \
+            or vals["SPRINT_TOKENS_SOFT"] > vals["SPRINT_TOKENS_HARD"]:
         print("aloop-init: a soft limit may not exceed its hard limit", file=sys.stderr)
         return 64
     os.makedirs(_paths.docs(cwd), exist_ok=True)

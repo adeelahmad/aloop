@@ -17,6 +17,9 @@ it remembers.
   last retrospective.
 - Surface RECURRING patterns (>= 2 occurrences) — failures AND reliably-good moves.
 - Draft each as a one/two-line candidate memory, tagged with the role it applies to.
+- Include the planner's lesson candidates that recur: `lessons recurring` prints them as
+  memory.md rows citing their `L-NNN` ids. A one-off candidate stays a candidate;
+  gate-memory blocks a row that promotes one without a human `keep`.
 - Hand the candidates to the supervisor + human to curate into memory.md.
 
 ## Hard limits

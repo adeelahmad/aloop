@@ -18,6 +18,7 @@ atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = dict(os.environ, HOME=os.path.join(T, "home"))
 ENV.pop("AGENTIC_HOST", None)
 PASS = [0]
+SEEN = {}   # tokens = the fresh-input charge so far: each record adds the delta
 
 
 def ok(name):
@@ -40,7 +41,8 @@ def call(agent, tool, tool_input, mode="post", tokens=None, role="green-worker",
     if tokens is not None:
         with open(sub, "a") as f:
             f.write(json.dumps({"timestamp": "2026-09-23T10:00:00Z", "message": {"id": "m%d" % tokens, "model": "claude-sonnet-5",
-                                "usage": {"input_tokens": tokens, "output_tokens": 0}}}) + "\n")
+                                "usage": {"input_tokens": tokens - SEEN.get(agent, 0), "output_tokens": 0}}}) + "\n")
+        SEEN[agent] = tokens
     payload = {"hook_event_name": "PostToolUse" if mode == "post" else "PreToolUse", "session_id": "sess",
                "transcript_path": tp, "cwd": cwd, "agent_id": agent, "agent_type": "aloop:" + role,
                "tool_name": tool, "tool_input": tool_input, "tool_response": "ok"}

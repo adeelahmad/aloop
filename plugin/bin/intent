@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+"""intent — the internal Intent Contract (ROADMAP §4.1). The user never fills it in:
+`intake` writes it, the harness issues its identity and checks it.
+
+Usage:
+  intent new --source prompt|file|issue|image|mixed [--raw "the request"] [--raw-ref PATH]
+        issue a canonical intent_id (never model text) and write the contract skeleton to
+        docs/agents/intents/<intent_id>.json (prints the path); emits intent.received
+  intent check FILE [--mode reviewed|autonomous]
+        validate the contract: required fields, enums, ≥1 success and ≥1 failure scenario,
+        and the clarification policy. Exit 0 ok (emits intent.normalized) · 2 invalid ·
+        3 needs the human (an `ask` question is unanswered — in BOTH modes)
+  intent summary FILE
+        the approval summary lines: defaults picked, assumptions recorded, spikes created
+
+Clarification policy — every open question carries a class:
+  assume   safe and reversible        → the planner assumes; `assumption` recorded
+  default  material but recoverable   → a `default` is picked and surfaced for approval
+  ask      irreversible / security-sensitive / changes intent → the human answers (`answer`)
+  spike    unknown but testable       → a spike task is created (`spike_task`)
+"""
+import hashlib
+import json
+import os
+import re
+import secrets
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _events  # noqa: E402
+import _paths  # noqa: E402
+
+SOURCES = ("prompt", "file", "issue", "image", "mixed")
+CLASSES = {"assume": "assumption", "default": "default", "ask": "answer", "spike": "spike_task"}
+ID = re.compile(r"^int_[0-9a-f]{12}[0-9a-f]{8}$")
+TEXT = ("actor", "want", "why", "done_looks_like")
+LISTS = ("constraints", "success_scenarios", "failure_scenarios", "connections", "open_questions", "assumptions")
+
+
+def new_id():
+    """Time-ordered, collision-safe, issued here — never by a model (invariant §7)."""
+    return "int_%012x%s" % (int(time.time() * 1000), secrets.token_hex(4))
+
+
+def intents_dir(cwd):
+    return os.path.join(_paths.docs(cwd), "intents")
+
+
+def cmd_new(cwd, source, raw="", raw_ref=""):
+    if source not in SOURCES:
+        print("intent new: --source must be one of %s" % ", ".join(SOURCES), file=sys.stderr)
+        return 64
+    iid = new_id()
+    doc = {"intent_id": iid, "source": source, "actor": "", "want": "", "why": "", "constraints": [],
+           "success_scenarios": [], "failure_scenarios": [], "connections": [], "done_looks_like": "",
+           "open_questions": [], "assumptions": [],
+           "provenance": {"received_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "raw_ref": raw_ref,
+                          "raw_sha256": hashlib.sha256(raw.encode()).hexdigest() if raw else ""}}
+    os.makedirs(intents_dir(cwd), exist_ok=True)
+    path = os.path.join(intents_dir(cwd), iid + ".json")
+    with open(path, "w") as f:
+        json.dump(doc, f, indent=1)
+    _events.emit(cwd, "intent.received", role="intake", refs={"intent": path, "raw": raw_ref}, intent_id=iid, source=source)
+    print(path)
+    return 0
+
+
+def problems(doc, path):
+    p = []
+    iid = doc.get("intent_id", "")
+    if not ID.match(iid or ""):
+        p.append("intent_id %r was not issued by `intent new`" % iid)
+    elif os.path.basename(path) != iid + ".json":
+        p.append("intent_id %s does not match the file name (ids are frozen once issued)" % iid)
+    if doc.get("source") not in SOURCES:
+        p.append("source must be one of %s" % ", ".join(SOURCES))
+    for k in TEXT:
+        if not isinstance(doc.get(k), str) or not doc[k].strip():
+            p.append("%s is empty" % k)
+    for k in LISTS:
+        if not isinstance(doc.get(k), list):
+            p.append("%s must be a list" % k)
+    for k in ("success_scenarios", "failure_scenarios"):
+        if isinstance(doc.get(k), list) and not [s for s in doc[k] if str(s).strip()]:
+            p.append("%s needs at least one scenario" % k)
+    prov = doc.get("provenance") or {}
+    if not prov.get("received_at"):
+        p.append("provenance.received_at missing")
+    for i, q in enumerate(doc.get("open_questions") or []):
+        if not isinstance(q, dict) or not str(q.get("question", "")).strip():
+            p.append("open_questions[%d] needs a question" % i)
+            continue
+        c = q.get("class")
+        if c not in CLASSES:
+            p.append("open_questions[%d] class must be one of %s" % (i, ", ".join(CLASSES)))
+        elif c != "ask" and not str(q.get(CLASSES[c], "")).strip():
+            p.append("open_questions[%d] (%s) must record its %s" % (i, c, CLASSES[c]))
+    return p
+
+
+def unanswered(doc):
+    return [q["question"] for q in doc.get("open_questions") or []
+            if isinstance(q, dict) and q.get("class") == "ask" and not str(q.get("answer", "")).strip()]
+
+
+def load(path):
+    try:
+        with open(path) as f:
+            return json.load(f), None
+    except (OSError, ValueError) as e:
+        return None, str(e)
+
+
+def cmd_check(cwd, path, mode="reviewed"):
+    doc, err = load(path)
+    if doc is None:
+        print("BLOCK[intent]: cannot read %s: %s" % (path, err), file=sys.stderr)
+        return 2
+    bad = problems(doc, path)
+    for b in bad:
+        print("BLOCK[intent]: %s" % b, file=sys.stderr)
+    if bad:
+        return 2
+    asks = unanswered(doc)
+    if asks:
+        for q in asks:
+            print("ASK[intent]: %s" % q, file=sys.stderr)
+        print("intent: %d question(s) need the human (irreversible, security-sensitive or intent-changing) — "
+              "%s mode does not proceed past them." % (len(asks), mode), file=sys.stderr)
+        return 3
+    _events.emit(cwd, "intent.normalized", role="intake", refs={"intent": path}, intent_id=doc["intent_id"], mode=mode)
+    print("[intent] %s ok (%s mode)" % (doc["intent_id"], mode), file=sys.stderr)
+    return 0
+
+
+def cmd_summary(path):
+    doc, err = load(path)
+    if doc is None:
+        print("intent summary: %s" % err, file=sys.stderr)
+        return 2
+    out = []
+    for q in doc.get("open_questions") or []:
+        c = q.get("class")
+        if c == "default":
+            out.append("- DEFAULT picked: %s → %s" % (q["question"], q.get("default")))
+        elif c == "assume":
+            out.append("- ASSUMED: %s → %s" % (q["question"], q.get("assumption")))
+        elif c == "spike":
+            out.append("- SPIKE: %s → %s" % (q["question"], q.get("spike_task")))
+        elif c == "ask":
+            out.append("- ASKED: %s → %s" % (q["question"], q.get("answer") or "UNANSWERED"))
+    out += ["- assumption: %s" % a for a in doc.get("assumptions") or []]
+    print("\n".join(out) if out else "- no assumptions, defaults or spikes")
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    opts, pos, k = {}, [], None
+    for a in argv[1:]:
+        if k:
+            opts[k], k = a, None
+        elif a.startswith("--"):
+            k = a[2:].replace("-", "_")
+        else:
+            pos.append(a)
+    cwd = os.getcwd()
+    if argv[0] == "new":
+        return cmd_new(cwd, opts.get("source", ""), opts.get("raw", ""), opts.get("raw_ref", ""))
+    if argv[0] == "check" and pos:
+        return cmd_check(cwd, pos[0], opts.get("mode", "reviewed"))
+    if argv[0] == "summary" and pos:
+        return cmd_summary(pos[0])
+    print("intent: unknown or incomplete command (see intent --help)", file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

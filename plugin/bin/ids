@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""ids — canonical identity and referential integrity for planning artifacts (ROADMAP §4.5).
+
+Models keep writing short aliases (`S1-03`, `T2`). At the planning → execution boundary
+the harness issues each alias a canonical id (UUIDv7), checks the STRUCTURED references
+between artifacts (never regex over prose) and freezes the mapping in sprintN/ids.json.
+A frozen alias keeps its id forever; a retired alias (a split task) is never reused.
+
+Usage:
+  ids freeze SPRINT_DIR     check, then issue ids for new aliases and retire vanished ones
+                            (exit 2 on a broken reference or a reused retired alias; nothing written)
+  ids check SPRINT_DIR      the referential check alone (also: every live alias must be frozen)
+  ids resolve ALIAS [SPRINT_DIR]
+                            print the canonical id (exit 1 if unknown)
+
+Structured references checked:
+  - a story dir's artifacts carry `story:` frontmatter equal to the dir's alias
+  - every story dir is listed in stories.md
+  - validate.md `## Tn` headings exist in tasks.md (the rubric mirrors the tasks)
+  - `split_from: Tn` names a task that existed and is no longer live (retired)
+"""
+import glob
+import json
+import os
+import re
+import secrets
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _events  # noqa: E402
+
+SCHEMA = "aladdin.ids/1"
+DIR = re.compile(r"^s(\d+)-(\d+)-")
+HEAD = re.compile(r"^##\s+T(\d+)\b", re.M)
+SPLIT = re.compile(r"^\s*split_from:\s*T(\d+)\s*$", re.M)
+STORY_FM = re.compile(r"\A---\s*\n(.*?)\n---", re.S)
+
+
+def uuid7():
+    ms = int(time.time() * 1000)
+    r = int.from_bytes(secrets.token_bytes(10), "big")
+    v = (ms << 80) | (0x7 << 76) | ((r >> 68) & 0xFFF) << 64 | (0b10 << 62) | (r & ((1 << 62) - 1))
+    h = "%032x" % v
+    return "%s-%s-%s-%s-%s" % (h[:8], h[8:12], h[12:16], h[16:20], h[20:])
+
+
+def map_path(sdir):
+    return os.path.join(sdir, "ids.json")
+
+
+def load_map(sdir):
+    try:
+        with open(map_path(sdir)) as f:
+            return json.load(f).get("ids", {})
+    except (OSError, ValueError):
+        return {}
+
+
+def read(p):
+    try:
+        with open(p) as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def story_alias(d):
+    m = DIR.match(os.path.basename(d))
+    return "S%s-%s" % (m.group(1), m.group(2)) if m else None
+
+
+def scan(sdir):
+    """aliases live in the sprint now → {alias: (kind, path)}, plus the reference problems."""
+    live, bad, splits = {}, [], []
+    stories = read(os.path.join(sdir, "stories.md"))
+    for d in sorted(glob.glob(os.path.join(sdir, "s*-*-*"))):
+        alias = story_alias(d)
+        if not alias or not os.path.isdir(d):
+            continue
+        rel = os.path.relpath(d, sdir)
+        live[alias] = ("story", rel)
+        if stories and not re.search(r"\b%s\b" % re.escape(alias), stories):
+            bad.append("%s (%s) is not listed in stories.md" % (alias, rel))
+        for name in ("tasks.md", "validate.md", "plan.md", "plan-ready.md"):
+            fm = STORY_FM.match(read(os.path.join(d, name)))
+            if fm:
+                m = re.search(r"^story:\s*\"?([^\"\s]+)\"?\s*$", fm.group(1), re.M)
+                if m and m.group(1) != alias:
+                    bad.append("%s/%s says story: %s but the dir is %s" % (rel, name, m.group(1), alias))
+        tasks = read(os.path.join(d, "tasks.md"))
+        tnums = set(HEAD.findall(tasks))
+        for n in sorted(tnums, key=int):
+            live["%s-T%s" % (alias, n)] = ("task", rel + "/tasks.md")
+        for n in sorted(set(HEAD.findall(read(os.path.join(d, "validate.md")))) - tnums, key=int):
+            bad.append("%s/validate.md has ## T%s but tasks.md has no such task" % (rel, n))
+        for n in SPLIT.findall(tasks):
+            splits.append(("%s-T%s" % (alias, n), rel))
+    return live, bad, splits
+
+
+def problems(sdir, frozen, live, bad, splits, require_frozen=False):
+    p = list(bad)
+    for src, rel in splits:
+        if src in live:
+            p.append("%s/tasks.md: split_from %s, but %s is still live (remove the split task's original)"
+                     % (rel, src.rsplit("-", 1)[1], src))
+        elif src not in frozen:
+            p.append("%s/tasks.md: split_from %s names a task that never existed" % (rel, src.rsplit("-", 1)[1]))
+    for alias in live:
+        e = frozen.get(alias)
+        if e and e.get("retired"):
+            p.append("%s was retired (split or removed); never reuse a retired id — take the next free number" % alias)
+        elif require_frozen and not e:
+            p.append("%s has no canonical id yet — run `ids freeze %s`" % (alias, sdir))
+    return p
+
+
+def report(p):
+    for b in p:
+        print("BLOCK[ids]: %s" % b, file=sys.stderr)
+    return 2 if p else 0
+
+
+def cmd_check(sdir):
+    live, bad, splits = scan(sdir)
+    rc = report(problems(sdir, load_map(sdir), live, bad, splits, require_frozen=True))
+    if not rc:
+        print("[ids] %d aliases, references intact" % len(live), file=sys.stderr)
+    return rc
+
+
+def cmd_freeze(sdir):
+    frozen = load_map(sdir)
+    live, bad, splits = scan(sdir)
+    rc = report(problems(sdir, frozen, live, bad, splits))
+    if rc:
+        return rc
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    new, retired = [], []
+    for alias, (kind, rel) in live.items():
+        if alias not in frozen:
+            frozen[alias] = {"id": uuid7(), "kind": kind, "path": rel, "issued_at": now}
+            new.append(alias)
+    for alias, e in frozen.items():
+        if alias not in live and not e.get("retired"):
+            e.update(retired=True, retired_at=now)
+            retired.append(alias)
+    m = re.search(r"sprint(\d+)$", os.path.basename(os.path.abspath(sdir)))
+    sprint = "S%s" % m.group(1) if m else ""
+    if new or retired or not os.path.exists(map_path(sdir)):
+        with open(map_path(sdir), "w") as f:
+            json.dump({"schema": SCHEMA, "ids": dict(sorted(frozen.items()))}, f, indent=1)
+        cwd = os.getcwd()
+        first = not any(e.get("event") in ("plan.created", "plan.revised") and (e.get("data") or {}).get("sprint") == sprint
+                        for e in _events.read(cwd))
+        intent = _events.last(cwd, event="intent.normalized")
+        _events.emit(cwd, "plan.created" if first else "plan.revised", role="planner",
+                     caused_by=intent and intent.get("event_id"), refs={"ids": map_path(sdir)},
+                     sprint=sprint, issued=new, retired=retired,
+                     intent_id=intent and (intent.get("data") or {}).get("intent_id"))
+    print("[ids] frozen: %d issued, %d retired, %d live" % (len(new), len(retired), len(live)), file=sys.stderr)
+    return 0
+
+
+def cmd_resolve(alias, sdir):
+    dirs = [sdir] if sdir else sorted(glob.glob(os.path.join("docs", "agents", "sprint*")), reverse=True)
+    for d in dirs:
+        e = load_map(d).get(alias)
+        if e:
+            print(e["id"])
+            return 0
+    print("ids: %s is not frozen" % alias, file=sys.stderr)
+    return 1
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    if argv[0] in ("freeze", "check") and len(argv) > 1:
+        sdir = argv[1].rstrip("/")
+        if not os.path.isdir(sdir):
+            print("ids: no such sprint dir %s" % sdir, file=sys.stderr)
+            return 64
+        return cmd_freeze(sdir) if argv[0] == "freeze" else cmd_check(sdir)
+    if argv[0] == "resolve" and len(argv) > 1:
+        return cmd_resolve(argv[1], argv[2] if len(argv) > 2 else "")
+    print("ids: unknown or incomplete command (see ids --help)", file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

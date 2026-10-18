@@ -13,6 +13,20 @@ DEFAULTS = {
     "TIME_SOFT_MIN": 20,
     "TIME_HARD_MIN": 30,
     "MAX_REPLANS": 2,
+    # budget token charge: fresh (uncached input + output) | context (context in use + output)
+    "TOKEN_METER": "fresh",
+    # sprint aggregate envelope (every metered attempt in the sprint, TOKEN_METER charge):
+    # soft = rollover warning; hard = admission closes, not-started tasks carry over
+    "SPRINT_TOKENS_SOFT": 4000000,
+    "SPRINT_TOKENS_HARD": 6000000,
+    # time budget mode: fixed (TIME_*_MIN above) | auto (one project timebox, bin/timebox)
+    "TIME_MODE": "fixed",
+    # structural (LSP) backend for `targets refs|callers|callees` (ROADMAP §4.6): a command
+    "LSP_COMMAND": "",
+    # sprint boundary: rotate (fresh session) | compact (only if the host advertises it)
+    "CONTEXT_BOUNDARY": "rotate",
+    # optional cross-project impact provider (ROADMAP §4.8): a command, empty = none
+    "IMPACT_PROVIDER": "",
     "MODEL_PLANNING": "claude-opus-5-5",
     "MODEL_WORKER": "sonnet",
     "GITIGNORE": "yes",
@@ -30,7 +44,8 @@ DEFAULTS = {
     "MODEL_PLANNING_OPENCODE": "",
     "MODEL_WORKER_OPENCODE": "",
 }
-NUMERIC = {"TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS"}
+NUMERIC = {"TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS",
+           "SPRINT_TOKENS_SOFT", "SPRINT_TOKENS_HARD"}
 SETTING = re.compile(r"^\s*(?:export\s+)?AGENTIC_([A-Z_]+)\s*=\s*['\"]?([^'\"#\n]*?)['\"]?\s*(?:#.*)?$")
 
 

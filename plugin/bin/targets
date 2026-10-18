@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""targets — the semantic execution map, first slice (ROADMAP §4.6).
+
+The planner writes structured change targets in <story dir>/targets.json; workers start
+from the resolved target instead of scanning the repo. Planned files and symbols form a
+shadow workspace: queryable before the code exists, with no stub created in the tree.
+
+targets.json:
+  {"targets": [{"change_ref": "C1", "task": "T1", "operation": "create|modify|extend|refactor|replace|delete",
+                "path": "src/x.py", "symbol": "existing_fn" | "planned_symbol": "new_fn",
+                "reason": "one line", "evidence_refs": ["..."], "constraints": ["..."]}]}
+
+Usage:
+  targets check STORY_DIR             validate every target against tasks.md and the real tree
+                                      (exit 2 on a problem). Run by gate-stage2-complete.
+  targets target TASK STORY_DIR       the task's resolved targets: file:line for an existing
+                                      symbol, `planned` for a shadow one
+  targets shadow STORY_DIR            the shadow workspace: planned files and symbols
+  targets scope TASK STORY_DIR        the task's diff scope (its targets' paths), derived — the
+                                      SCOPE_GLOBS gate-green-verify uses when none was given
+  targets context REF STORY_DIR [--budget N]
+                                      the code a worker needs for change REF, capped at N tokens
+                                      (default 2000; ~4 chars per token)
+  targets refs|callers|callees REF STORY_DIR
+                                      references / incoming / outgoing calls of the target's
+                                      symbol, from the LSP server in AGENTIC_LSP_COMMAND. With no
+                                      server, or one lacking the capability, it says so and
+                                      exits 4 — it never guesses
+
+The symbol backend is ctx-symbols when installed; otherwise a definition regex, and every
+answer says it came from the weaker backend.
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _events  # noqa: E402
+import _lsp  # noqa: E402
+import _paths  # noqa: E402
+
+OPS = ("create", "modify", "extend", "refactor", "replace", "delete")
+NEEDS_REAL = ("modify", "extend", "refactor", "replace", "delete")
+REF = re.compile(r"^C\d+$")
+HEAD = re.compile(r"^##\s+(T\d+)\b", re.M)
+DEF = r"^\s*(?:export\s+)?(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:def|class|fn|func|function|const|let|var|type|struct|enum|interface|trait|mod)\s+%s\b"
+BIN = os.path.dirname(os.path.realpath(__file__))
+
+
+def tree(cwd=None):
+    """The tree the caller works in: a worker's own worktree, not the main checkout."""
+    try:
+        return subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd or os.getcwd(),
+                              capture_output=True, text=True, check=True).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return os.getcwd()
+
+
+def load(sdir):
+    p = os.path.join(sdir, "targets.json")
+    with open(p) as f:
+        doc = json.load(f)
+    t = doc.get("targets") if isinstance(doc, dict) else None
+    if not isinstance(t, list):
+        raise ValueError("%s needs a top-level \"targets\" list" % p)
+    return t
+
+
+def ctx_symbols():
+    try:
+        r = subprocess.run([os.path.join(BIN, "ensure-tools"), "--resolve", "ctx-symbols"],
+                           capture_output=True, text=True)
+        return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+    except OSError:
+        return None
+
+
+def locate(root, path, symbol):
+    """(line, backend) of symbol's definition in path, or (None, backend)."""
+    full = os.path.join(root, path)
+    real = ctx_symbols()
+    if real:
+        r = subprocess.run([real, "locate", symbol, "--tree", root], capture_output=True, text=True)
+        if r.returncode == 0:
+            for ln in r.stdout.splitlines():
+                parts = ln.rsplit(":", 2)
+                if len(parts) == 3 and parts[1].isdigit() and os.path.realpath(
+                        os.path.join(root, parts[0])) == os.path.realpath(full):
+                    return int(parts[1]), "ctx-symbols"
+            return None, "ctx-symbols"
+    pat = re.compile(DEF % re.escape(symbol))
+    try:
+        with open(full) as f:
+            for i, ln in enumerate(f, 1):
+                if pat.match(ln):
+                    return i, "regex (weaker: ctx-symbols not installed)"
+    except OSError:
+        pass
+    return None, "regex (weaker: ctx-symbols not installed)"
+
+
+def problems(sdir, targets, root):
+    p, seen = [], set()
+    tasks = set(HEAD.findall(open(os.path.join(sdir, "tasks.md")).read())) if os.path.exists(
+        os.path.join(sdir, "tasks.md")) else set()
+    planned = {t.get("path") for t in targets if t.get("operation") == "create"}
+    for i, t in enumerate(targets):
+        ref = t.get("change_ref", "")
+        where = "%s (#%d)" % (ref or "target", i)
+        if not REF.match(str(ref)):
+            p.append("%s: change_ref must look like C1" % where)
+        elif ref in seen:
+            p.append("%s: duplicate change_ref" % where)
+        seen.add(ref)
+        if t.get("task") not in tasks:
+            p.append("%s: task %r is not a ## heading in tasks.md" % (where, t.get("task")))
+        op, path = t.get("operation"), t.get("path", "")
+        if op not in OPS:
+            p.append("%s: operation must be one of %s" % (where, ", ".join(OPS)))
+            continue
+        if not path or os.path.isabs(path) or ".." in path.split("/"):
+            p.append("%s: path must be repo-relative" % where)
+            continue
+        if not str(t.get("reason", "")).strip() or "\n" in str(t.get("reason", "")):
+            p.append("%s: reason must be one line" % where)
+        for k in ("evidence_refs", "constraints"):
+            if not isinstance(t.get(k, []), list):
+                p.append("%s: %s must be a list" % (where, k))
+        exists = os.path.exists(os.path.join(root, path))
+        if op == "create":
+            if not t.get("planned_symbol"):
+                p.append("%s: create needs planned_symbol" % where)
+            if t.get("symbol"):
+                p.append("%s: create names a planned_symbol, not an existing symbol" % where)
+            if exists:
+                p.append("%s: create targets %s, which already exists (use modify/extend)" % (where, path))
+        elif not exists and path not in planned:
+            p.append("%s: %s targets %s, which is neither in the tree nor planned" % (where, op, path))
+        elif exists and t.get("symbol"):
+            line, _ = locate(root, path, t["symbol"])
+            if line is None:
+                p.append("%s: symbol %s is not defined in %s" % (where, t["symbol"], path))
+        elif op in NEEDS_REAL and not t.get("symbol") and not t.get("planned_symbol"):
+            p.append("%s: %s needs a symbol (or a planned_symbol for extend)" % (where, op))
+    return p
+
+
+def resolve(t, root):
+    if t.get("operation") == "create" or not os.path.exists(os.path.join(root, t["path"])):
+        return "%s %s %s %s (planned, shadow) — %s" % (t["change_ref"], t["operation"], t["path"],
+                                                        t.get("planned_symbol", ""), t.get("reason", ""))
+    if t.get("symbol"):
+        line, be = locate(root, t["path"], t["symbol"])
+        return "%s %s %s:%s %s [%s] — %s" % (t["change_ref"], t["operation"], t["path"], line, t["symbol"], be,
+                                             t.get("reason", ""))
+    return "%s %s %s %s (new symbol in an existing file) — %s" % (
+        t["change_ref"], t["operation"], t["path"], t.get("planned_symbol", ""), t.get("reason", ""))
+
+
+def context(t, root, budget):
+    out = [resolve(t, root)]
+    for c in t.get("constraints") or []:
+        out.append("constraint: %s" % c)
+    full = os.path.join(root, t["path"])
+    if os.path.exists(full) and t.get("symbol"):
+        line, _ = locate(root, t["path"], t["symbol"])
+        lines = open(full).read().splitlines()
+        if line:
+            ind = len(lines[line - 1]) - len(lines[line - 1].lstrip())
+            body = [lines[line - 1]]
+            for ln in lines[line:]:
+                if ln.strip() and len(ln) - len(ln.lstrip()) <= ind and not ln.lstrip().startswith(("}", ")", "]")):
+                    break
+                body.append(ln)
+            out.append("--- %s:%d" % (t["path"], line))
+            out += body
+    elif os.path.exists(full):
+        out.append("--- %s (outline)" % t["path"])
+        out += [ln for ln in open(full).read().splitlines() if re.match(DEF % r"\w+", ln)]
+    else:
+        d = os.path.dirname(full)
+        out.append("--- %s does not exist yet; siblings in %s/:" % (t["path"], os.path.dirname(t["path"]) or "."))
+        out += sorted(os.listdir(d)) if os.path.isdir(d) else ["(new directory)"]
+    text, cap = "\n".join(out), budget * 4
+    return text if len(text) <= cap else text[:cap] + "\n… (truncated at --budget %d tokens)" % budget
+
+
+def served(sdir, t, how):
+    """semantic_target.resolved: a worker started from a target instead of scanning (§4.10)."""
+    m = re.match(r"^s(\d+)-(\d+)-", os.path.basename(os.path.abspath(sdir)))
+    task = "S%s-%s-%s" % (m.group(1), m.group(2), t.get("task")) if m else ""
+    try:
+        _events.emit(os.getcwd(), "semantic_target.resolved", task=task, refs={"targets": os.path.join(sdir, "targets.json")},
+                     change_ref=t.get("change_ref"), via=how)
+    except Exception:  # noqa: BLE001 — telemetry never fails the caller
+        pass
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    opts, pos, k = {}, [], None
+    for a in argv[1:]:
+        if k:
+            opts[k], k = a, None
+        elif a.startswith("--"):
+            k = a[2:]
+        else:
+            pos.append(a)
+    cmd, root = argv[0], tree()
+    need = {"check": 1, "shadow": 1, "scope": 2, "target": 2, "context": 2, "refs": 2, "callers": 2, "callees": 2}
+    if cmd not in need or len(pos) < need[cmd]:
+        print("targets: unknown or incomplete command (see targets --help)", file=sys.stderr)
+        return 64
+    sdir = pos[-1]
+    try:
+        targets = load(sdir)
+    except (OSError, ValueError) as e:
+        print("BLOCK[targets]: %s" % e, file=sys.stderr)
+        return 2
+    if cmd == "check":
+        bad = problems(sdir, targets, root)
+        for b in bad:
+            print("BLOCK[targets]: %s" % b, file=sys.stderr)
+        if not bad:
+            print("[targets] %d change targets valid in %s" % (len(targets), sdir), file=sys.stderr)
+        return 2 if bad else 0
+    if cmd == "shadow":
+        for t in targets:
+            if t.get("operation") == "create" or t.get("planned_symbol"):
+                print("%s\t%s\t%s\t%s" % (t["path"], t.get("planned_symbol", ""),
+                                          "planned-file" if t.get("operation") == "create" else "planned-symbol",
+                                          t["change_ref"]))
+        return 0
+    if cmd == "scope":
+        paths = sorted({t["path"] for t in targets if t.get("task") == pos[0] and t.get("path")})
+        print(" ".join(paths))
+        return 0 if paths else 1
+    if cmd == "target":
+        mine = [t for t in targets if t.get("task") == pos[0]]
+        for t in mine:
+            print(resolve(t, root))
+            served(sdir, t, "target")
+        return 0 if mine else 1
+    match = [t for t in targets if t.get("change_ref") == pos[0]]
+    if not match:
+        print("targets: no change_ref %s in %s" % (pos[0], sdir), file=sys.stderr)
+        return 1
+    if cmd == "context":
+        print(context(match[0], root, int(opts.get("budget", 2000))))
+        served(sdir, match[0], "context")
+        return 0
+    return structural(cmd, match[0], root)
+
+
+def structural(cmd, t, root):
+    """refs / callers / callees through the LSP seam; any gap is reported (exit 4)."""
+    if t.get("operation") == "create" or not os.path.exists(os.path.join(root, t["path"])) or not t.get("symbol"):
+        print("# %s is planned (shadow): it has no %s yet" % (t.get("planned_symbol") or t["path"], cmd))
+        return 0
+    lsp = os.environ.get("AGENTIC_LSP_COMMAND") or _paths.settings(root).get("LSP_COMMAND") or ""
+    if not lsp:
+        print("targets %s: no structural (LSP) backend is configured (AGENTIC_LSP_COMMAND); %s needs references "
+              "and the call hierarchy, which the regex/ctx-symbols backends cannot answer. Not guessing." % (cmd, cmd),
+              file=sys.stderr)
+        return 4
+    line, _ = locate(root, t["path"], t["symbol"])
+    if not line:
+        print("targets %s: %s is not defined in %s" % (cmd, t["symbol"], t["path"]), file=sys.stderr)
+        return 2
+    text = open(os.path.join(root, t["path"])).read().splitlines()[line - 1]
+    col = text.find(t["symbol"])
+    client = None
+    try:
+        client = _lsp.Client(lsp, root)
+        if cmd == "refs":
+            rows = ["%s:%d:%d" % r for r in client.references(t["path"], line, col)]
+        else:
+            rows = ["%s:%d %s" % r for r in client.calls(t["path"], line, col, "incoming" if cmd == "callers" else "outgoing")]
+    except _lsp.Missing as e:
+        print("targets %s: %s. Not guessing." % (cmd, e), file=sys.stderr)
+        return 4
+    finally:
+        if client:
+            client.close()
+    print("\n".join(rows) if rows else "# no %s for %s" % (cmd, t["symbol"]))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
