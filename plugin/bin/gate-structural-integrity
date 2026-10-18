@@ -33,7 +33,7 @@ else
             | sed -E 's/.*fn[[:space:]]+//' | sort | uniq -d)"
   if [ -n "$dups" ]; then
     echo "HIGH (grep): duplicate fn name(s): $(echo "$dups" | tr '\n' ' ')" >&2
-    fail "duplicate fn name(s) under grep fallback — install ctx-symbols to confirm"
+    fail "HIGH (grep fallback): duplicate fn name(s) — install ctx-symbols to confirm"
   fi
 fi
 
