@@ -317,9 +317,11 @@ symbol_count() {
   if have_ctx_symbols; then
     ctx-symbols count "$sym" --tree "$root"
   else
-    # grep fallback (fragile: matches fn/struct/etc. definitions only, name-anchored)
+    # grep fallback (fragile: matches fn/struct/etc. definitions only, name-anchored). Under
+    # pipefail a no-match grep fails the pipeline, so `|| echo 0` printed a second line ("0\n0")
+    # and the block text broke mid-sentence; `|| true` keeps it one number.
     { grep -rohE "\\b(fn|struct|enum|trait|type|const|static|mod)\\s+$sym\\b" \
-        --include='*.rs' "$root" 2>/dev/null | wc -l | tr -d ' '; } || echo 0
+        --include='*.rs' "$root" 2>/dev/null || true; } | wc -l | tr -d ' '
   fi
 }
 
