@@ -25,9 +25,11 @@ def ok(msg):
     print("ok - " + msg)
 
 
-def run(subagent_type, prompt, agent_type=None):
+def run(subagent_type, prompt, agent_type=None, model="haiku"):
     p = {"session_id": "s", "cwd": T, "tool_name": "Agent",
          "tool_input": {"subagent_type": subagent_type, "prompt": prompt, "isolation": "worktree"}}
+    if model:
+        p["tool_input"]["model"] = model
     if agent_type:
         p["agent_type"] = agent_type
     return subprocess.run([GATE], input=json.dumps(p), cwd=T, env=ENV, capture_output=True, text=True)
@@ -35,6 +37,9 @@ def run(subagent_type, prompt, agent_type=None):
 
 subprocess.run(["git", "init", "-q"], cwd=T, check=True)
 os.makedirs(os.path.join(T, ".aladdin", "state", "tasks"))
+os.makedirs(os.path.join(T, "docs", "agents"))
+open(os.path.join(T, "docs", "agents", "defaults.md"), "w").write(
+    "---\ntype: agentic-defaults\n---\n```conf\nAGENTIC_MODEL_PLANNING=haiku\nAGENTIC_MODEL_WORKER=haiku\n```\n")
 
 r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.")
 assert r.returncode == 2 and "S1-01-T1.env" in r.stderr, r
@@ -75,7 +80,35 @@ ok("a structural review contracted on the sprint dir is allowed")
 for st in ("aloop:planner", "aloop:intake", "general-purpose", "Explore"):
     r = run(st, "Plan it.")
     assert r.returncode == 0, (st, r)
-ok("planning roles and non-aloop agents are not affected")
+for st in ("general-purpose", "Explore"):
+    r = run(st, "Look around.", model="opus")
+    assert r.returncode == 0, (st, r)
+ok("planning roles need no contract; non-aloop agents are not affected at all")
+
+# The dispatch model is the project's confirmed one (ROADMAP §3.6), not the supervisor's pick.
+# Live e2e run 20: defaults.md said haiku for every role and `aloop models resolve` printed it,
+# yet the supervisor dispatched planners on opus and workers on sonnet: $2.79 instead of $0.99.
+for st, m in (("aloop:green-worker", "sonnet"), ("aloop:green-worker", "claude-opus-5-5"), ("aloop:planner", "opus"),
+              ("aloop:intake", "claude-sonnet-5-5"), ("aloop:archivist", "sonnet")):
+    r = run(st, "TASK_ID: S1-01-T1\nDo it.", model=m)
+    assert r.returncode == 2 and "model" in r.stderr and "haiku" in r.stderr and "aloop models resolve" in r.stderr, (st, m, r)
+r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.", model=None)
+assert r.returncode == 2 and "model: haiku" in r.stderr, r
+r = run("aloop:planner", "Plan it.", model=None)
+assert r.returncode == 2 and "model: haiku" in r.stderr, r
+ok("a dispatch on a model other than the project's resolved one, or with no model, is denied for every aloop role")
+for st, m in (("aloop:green-worker", "haiku"), ("aloop:green-worker", "claude-haiku-5-5"), ("aloop:planner", "haiku")):
+    r = run(st, "TASK_ID: S1-01-T1\nDo it.", model=m)
+    assert r.returncode == 0, (st, m, r)
+open(os.path.join(T, "docs", "agents", "defaults.md"), "w").write(
+    "---\ntype: agentic-defaults\n---\n```conf\nAGENTIC_MODEL_PLANNING=strongest\nAGENTIC_MODEL_WORKER=strong\n```\n")
+r = run("aloop:planner", "Plan it.", model="claude-opus-5-5")
+assert r.returncode == 0, r
+r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.", model="sonnet")
+assert r.returncode == 0, r
+r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.", model="haiku")
+assert r.returncode == 2 and "sonnet" in r.stderr, r
+ok("the resolved model (pinned id or route, by family) is accepted; a cheaper-than-confirmed pick is denied too")
 
 r = run("aloop:green-worker", "TASK_ID: S1-09-T9\nDo GREEN.", agent_type="aloop:planner")
 assert r.returncode == 0, r

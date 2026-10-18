@@ -12,6 +12,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 3.4 | Hard breaches classified with evidence before acting | IMPLEMENTED_TESTED | `scripts/test/budget-classify.test.py` |
 | 3.5 | No post-kill narration; harness writes the re-plan block | IMPLEMENTED_TESTED | `scripts/test/budget-hard-stop.test.py` |
 | 3.6 | Abstract model routes | IMPLEMENTED_TESTED | `scripts/test/model-routes.test.py` |
+| 3.6 | The dispatch model is the project's resolved route, enforced by `gate-dispatch` | IMPLEMENTED_TESTED | `scripts/test/dispatch.test.py` |
 | 4.1 | Intent Contract with harness-issued ids | IMPLEMENTED_TESTED | `scripts/test/intent-contract.test.py` |
 | 4.1 | Clarification policy (assume / default / ask / spike) | IMPLEMENTED_TESTED | `scripts/test/intent-contract.test.py` |
 | 4.1 | Explicit autonomous mode | IMPLEMENTED_TESTED | `scripts/test/intent-contract.test.py` |

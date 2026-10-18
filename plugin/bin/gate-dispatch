@@ -15,20 +15,45 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 payload="$(cat 2>/dev/null || true)"
 
 command -v python3 >/dev/null 2>&1 || exit 0
-read -r role tid < <(printf '%s' "$payload" | python3 -c '
+read -r role tid model < <(printf '%s' "$payload" | python3 -c '
 import json, re, sys
 p = json.load(sys.stdin)
 if p.get("agent_type"):
-    print("- -"); sys.exit()
+    print("- - -"); sys.exit()
 ti = p.get("tool_input") or {}
 role = (ti.get("subagent_type") or "").split(":")[-1]
 m = re.match(r"\s*TASK_ID:\s*([A-Za-z0-9._-]+)", ti.get("prompt") or "")
-print(role or "-", m.group(1) if m else "-")' 2>/dev/null) || exit 0
+model = re.sub(r"\s+", "", str(ti.get("model") or "")) or "-"
+print(role or "-", m.group(1) if m else "-", model)' 2>/dev/null) || exit 0
 
-case "$role" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate) ;; *) exit 0 ;; esac
+case "$role" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate|planner|intake|standards|archivist) ;; *) exit 0 ;; esac
 # shellcheck source=/dev/null
 . "$HERE/_paths.sh"
 [ -d "$AGENTIC_HOME" ] || exit 0
+
+# The model is the project's confirmed one (docs/agents/defaults.md → `aloop models resolve <role>`,
+# ROADMAP §3.6), never the supervisor's pick: live e2e run 20 dispatched planners on opus and
+# workers on sonnet with defaults.md saying haiku for both, and cost $2.79 instead of $0.99. A
+# pinned id or a route is matched by model family (haiku / sonnet / opus), so `haiku` and
+# `claude-haiku-5-5` are the same answer; an absent model would fall back to the agent file's
+# default (opus for the planning roles), so it is refused too. An empty resolution (Codex: the
+# session's own model) checks nothing.
+want="$("$HERE/models" resolve "$role" 2>/dev/null)" || want=""
+if [ -n "$want" ]; then
+  fam() { case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in *haiku*) echo haiku ;; *sonnet*) echo sonnet ;; *opus*) echo opus ;; *) echo "" ;; esac; }
+  bad=0
+  if [ "$model" = "-" ]; then bad=1
+  elif [ "$model" != "$want" ]; then
+    wf="$(fam "$want")"; mf="$(fam "$model")"
+    { [ -z "$wf" ] || [ -z "$mf" ] || [ "$wf" != "$mf" ]; } && bad=1
+  fi
+  if [ "$bad" = 1 ]; then
+    echo "BLOCK[$GATE_NAME]: dispatch $role with model: $want (the project's confirmed model for this role: \`aloop models resolve $role\`, from docs/agents/defaults.md)${model:+; this call passes $( [ "$model" = "-" ] && echo "no model, which would fall back to the agent file's default" || echo "model: $model")}." >&2
+    echo "  The model per role is a project setting (confirmed at init), not a per-dispatch choice. To change it: re-run the init skill or edit .aladdin/config.yaml and \`aloop config sync\`." >&2
+    exit 2
+  fi
+fi
+case "$role" in planner|intake|standards|archivist) exit 0 ;; esac
 
 if [ "$tid" = "-" ]; then
   echo "BLOCK[$GATE_NAME]: start the $role dispatch prompt with the line \`TASK_ID: <id>\` — its gates find the task contract through it." >&2

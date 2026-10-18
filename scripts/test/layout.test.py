@@ -113,13 +113,13 @@ out = run(C, "bash", "-c", '. "%s/_paths.sh"; agentic_contract_path T1; agentic_
 assert out.splitlines()[0] == os.path.join(C, ".agentic", "state", "tasks", "T1.env") and out.splitlines()[-1] == "rc=1", out
 assert run(C, "python3", "-c", 'import sys; sys.path.insert(0, "%s"); import _paths; print(_paths.contract_path("%s", "T1"))' % (BIN, C)).stdout.strip() == os.path.join(C, ".agentic", "state", "tasks", "T1.env")
 payload = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Agent", "cwd": C,
-                      "tool_input": {"subagent_type": "aloop:green-worker", "prompt": "TASK_ID: T1\ndo it"}})
+                      "tool_input": {"subagent_type": "aloop:green-worker", "prompt": "TASK_ID: T1\ndo it", "model": "sonnet"}})
 r = run(C, os.path.join(BIN, "gate-dispatch"), input=payload) if False else subprocess.run(
     [os.path.join(BIN, "gate-dispatch")], cwd=C, input=payload, capture_output=True, text=True,
     env=dict(os.environ, HOME=os.path.join(C, "home"), AGENTIC_NO_AUTOINSTALL="1"))
 assert r.returncode == 0, (r.returncode, r.stderr)
 payload2 = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Agent", "cwd": C,
-                       "tool_input": {"subagent_type": "aloop:green-worker", "prompt": "TASK_ID: T9\ndo it"}})
+                       "tool_input": {"subagent_type": "aloop:green-worker", "prompt": "TASK_ID: T9\ndo it", "model": "sonnet"}})
 r = subprocess.run([os.path.join(BIN, "gate-dispatch")], cwd=C, input=payload2, capture_output=True, text=True,
                    env=dict(os.environ, HOME=os.path.join(C, "home"), AGENTIC_NO_AUTOINSTALL="1"))
 assert r.returncode == 2 and ".aladdin/state/tasks/T9.env" in r.stderr, (r.returncode, r.stderr)
