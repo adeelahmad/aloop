@@ -5,14 +5,24 @@ The planner writes structured change targets in <story dir>/targets.json; worker
 from the resolved target instead of scanning the repo. Planned files and symbols form a
 shadow workspace: queryable before the code exists, with no stub created in the tree.
 
-targets.json:
-  {"targets": [{"change_ref": "C1", "task": "T1", "operation": "create|modify|extend|refactor|replace|delete",
+targets.json (the semantic plan; with "tasks" it is the execution source and the three
+md files are rendered from it — derive anything that can be derived):
+  {"story": "S1-01",
+   "tasks": [{"id": "T1", "title": "csv writer", "summary": "…", "budget": "tokens_hard=800000",
+              "tests": [{"path": "tests/test_csv.py", "fn": "test_writes_rows", "assert": "two rows → two lines"}],
+              "validate": [{"run": "python3 -m pytest tests/test_csv.py -q", "expect": "1 passed"}]}],
+   "targets": [{"change_ref": "C1", "task": "T1", "operation": "create|modify|extend|refactor|replace|delete",
                 "path": "src/x.py", "symbol": "existing_fn" | "planned_symbol": "new_fn",
                 "reason": "one line", "evidence_refs": ["..."], "constraints": ["..."]}]}
 
 Usage:
   targets check STORY_DIR             validate every target against tasks.md and the real tree
-                                      (exit 2 on a problem). Run by gate-stage2-complete.
+                                      (exit 2 on a problem). Run by gate-stage2-complete. With
+                                      "tasks" in targets.json it also refuses rendered views
+                                      that no longer match (hand-edited tasks.md etc.)
+  targets render STORY_DIR [--check]  tasks.md, validate.md and plan.md as deterministic views
+                                      over the semantic plan ("tasks" + "targets"); --check only
+                                      reports views that differ (exit 2)
   targets target TASK STORY_DIR       the task's resolved targets: file:line for an existing
                                       symbol, `planned` for a shadow one
   targets shadow STORY_DIR            the shadow workspace: planned files and symbols
@@ -58,14 +68,112 @@ def tree(cwd=None):
         return os.getcwd()
 
 
-def load(sdir):
+def load_doc(sdir):
     p = os.path.join(sdir, "targets.json")
     with open(p) as f:
         doc = json.load(f)
     t = doc.get("targets") if isinstance(doc, dict) else None
     if not isinstance(t, list):
         raise ValueError("%s needs a top-level \"targets\" list" % p)
-    return t
+    if "tasks" in doc and not isinstance(doc["tasks"], list):
+        raise ValueError("%s: \"tasks\" must be a list" % p)
+    return doc
+
+
+def load(sdir):
+    return load_doc(sdir)["targets"]
+
+
+# ---- the semantic plan as the execution source: tasks.md / validate.md / plan.md are views ----
+TASK_ID = re.compile(r"^T\d+$")
+RENDERED = "<!-- rendered from targets.json by `targets render`: edit targets.json, never this file -->"
+
+
+def story_id(sdir, doc):
+    if doc.get("story"):
+        return str(doc["story"])
+    m = re.match(r"^s(\d+)-(\d+)-", os.path.basename(os.path.abspath(sdir)))
+    return "S%s-%s" % (m.group(1), m.group(2)) if m else "S0-00"
+
+
+def task_problems(doc):
+    """Problems in the semantic plan's tasks (empty = fine, or no tasks given)."""
+    p, seen = [], set()
+    for i, t in enumerate(doc.get("tasks") or []):
+        tid = str(t.get("id", ""))
+        where = "task %s (#%d)" % (tid or "?", i)
+        if not TASK_ID.match(tid):
+            p.append("%s: id must look like T1" % where)
+        elif tid in seen:
+            p.append("%s: duplicate id" % where)
+        seen.add(tid)
+        if not str(t.get("title", "")).strip() or "\n" in str(t.get("title", "")):
+            p.append("%s: title must be one line" % where)
+        tests = t.get("tests")
+        if not isinstance(tests, list) or not tests:
+            p.append("%s: needs at least one test (plan.md is tests-only; nothing to render)" % where)
+            continue
+        for j, x in enumerate(tests):
+            path, fn = str(x.get("path", "")), str(x.get("fn", ""))
+            if not path or os.path.isabs(path) or ".." in path.split("/") or not re.match(r"^[A-Za-z_]\w*$", fn):
+                p.append("%s: test #%d needs a repo-relative path and a function name" % (where, j))
+            if not str(x.get("assert", "")).strip():
+                p.append("%s: test #%d needs an assert (input, action, assertion in one line)" % (where, j))
+        for j, v in enumerate(t.get("validate") or []):
+            if not str(v.get("run", "")).strip() or not str(v.get("expect", "")).strip():
+                p.append("%s: validate #%d needs run and expect" % (where, j))
+    return p
+
+
+def render(sdir, doc):
+    """{filename: text} — deterministic views over the semantic plan. Derive what can be derived."""
+    sid, tasks, targets = story_id(sdir, doc), doc.get("tasks") or [], doc["targets"]
+    fm = lambda kind, extra="": "---\ntype: %s\nstory: %s\n%s---\n%s\n" % (kind, sid, extra, RENDERED)  # noqa: E731
+    tk, vd, pl = [fm("tasks")], [fm("validate"), "## Pre-flight\n",
+                                 "- `targets check <story dir>`: every change target holds against tasks.md and the tree",
+                                 "- `targets render <story dir> --check`: these views match targets.json\n"], \
+        [fm("plan", 'scope: "tests only"\n')]
+    for t in tasks:
+        tid, title = t["id"], str(t["title"]).strip()
+        tk.append("## %s — %s\n" % (tid, title))
+        if str(t.get("summary", "")).strip():
+            tk.append("%s\n" % str(t["summary"]).strip())
+        if str(t.get("budget", "")).strip():
+            tk.append("budget: %s\n" % str(t["budget"]).strip())
+        mine = [x for x in targets if x.get("task") == tid]
+        if mine:
+            tk.append("Changes:")
+            for x in mine:
+                sym = x.get("symbol") or x.get("planned_symbol") or ""
+                tk.append("- %s %s `%s`%s — %s" % (x["change_ref"], x.get("operation", ""), x.get("path", ""),
+                                                 " `%s`" % sym if sym else "", x.get("reason", "")))
+            tk.append("")
+        pl.append("## %s — %s\n" % (tid, title))
+        for x in t["tests"]:
+            pl.append("- [ ] `%s::%s` — %s" % (x["path"], x["fn"], str(x["assert"]).strip()))
+        pl.append("")
+        vd.append("## %s — %s\n" % (tid, title))
+        for x in t["tests"]:
+            vd.append("- PASS: `%s::%s` passes" % (x["path"], x["fn"]))
+        for v in t.get("validate") or []:
+            vd.append("- PASS: run `%s` → `%s`" % (str(v["run"]).strip(), str(v["expect"]).strip()))
+        vd.append("- FAIL: any file outside this task's Changes is touched (tasks.md scope rule)")
+        vd.append("")
+    vd += ["## Final sign-off\n", "- every `## T` above is PASS and `targets render <story dir> --check` is clean", ""]
+    return {"tasks.md": "\n".join(tk), "validate.md": "\n".join(vd), "plan.md": "\n".join(pl)}
+
+
+def stale(sdir, doc):
+    """Rendered files that differ from their render (hand-edited or missing)."""
+    out = []
+    for name, text in render(sdir, doc).items():
+        try:
+            cur = open(os.path.join(sdir, name)).read()
+        except OSError:
+            cur = None
+        if cur != text:
+            out.append(name)
+    return out
 
 
 def ctx_symbols():
@@ -101,10 +209,13 @@ def locate(root, path, symbol):
     return None, "regex (weaker: ctx-symbols not installed)"
 
 
-def problems(sdir, targets, root):
+def problems(sdir, targets, root, doc=None):
     p, seen = [], set()
-    tasks = set(HEAD.findall(open(os.path.join(sdir, "tasks.md")).read())) if os.path.exists(
-        os.path.join(sdir, "tasks.md")) else set()
+    if doc and doc.get("tasks") is not None:        # the semantic plan names the tasks; tasks.md is its view
+        tasks = {str(t.get("id")) for t in doc["tasks"]}
+    else:
+        tasks = set(HEAD.findall(open(os.path.join(sdir, "tasks.md")).read())) if os.path.exists(
+            os.path.join(sdir, "tasks.md")) else set()
     planned = {t.get("path") for t in targets if t.get("operation") == "create"}
     for i, t in enumerate(targets):
         ref = t.get("change_ref", "")
@@ -202,6 +313,8 @@ def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip())
         return 0
+    flags = {a for a in argv if a == "--check"}
+    argv = [a for a in argv if a not in flags]
     opts, pos, k = {}, [], None
     for a in argv[1:]:
         if k:
@@ -211,18 +324,48 @@ def main(argv):
         else:
             pos.append(a)
     cmd, root = argv[0], tree()
-    need = {"check": 1, "shadow": 1, "scope": 2, "target": 2, "context": 2, "refs": 2, "callers": 2, "callees": 2}
+    need = {"check": 1, "render": 1, "shadow": 1, "scope": 2, "target": 2, "context": 2, "refs": 2, "callers": 2, "callees": 2}
     if cmd not in need or len(pos) < need[cmd]:
         print("targets: unknown or incomplete command (see targets --help)", file=sys.stderr)
         return 64
     sdir = pos[-1]
     try:
-        targets = load(sdir)
+        doc = load_doc(sdir)
     except (OSError, ValueError) as e:
         print("BLOCK[targets]: %s" % e, file=sys.stderr)
         return 2
+    targets = doc["targets"]
+    if cmd == "render":
+        bad = task_problems(doc)
+        if doc.get("tasks") is None:
+            bad.append("targets.json has no \"tasks\": nothing to render (add tasks: [{id, title, tests: [...]}])")
+        for b in bad:
+            print("BLOCK[targets]: %s" % b, file=sys.stderr)
+        if bad:
+            return 2
+        old = stale(sdir, doc)
+        if "--check" in flags:
+            for n in old:
+                print("BLOCK[targets]: %s/%s differs from its render of targets.json — edit targets.json and run "
+                      "`targets render %s`" % (sdir, n, sdir), file=sys.stderr)
+            return 2 if old else 0
+        for name, text in render(sdir, doc).items():
+            if name in old:
+                with open(os.path.join(sdir, name), "w") as f:
+                    f.write(text)
+                print("rendered %s/%s from targets.json" % (sdir, name))
+        if old:
+            try:
+                _events.emit(os.getcwd(), "artifact.updated", refs={"targets": os.path.join(sdir, "targets.json")},
+                             rendered=old)
+            except Exception:  # noqa: BLE001
+                pass
+        return 0
     if cmd == "check":
-        bad = problems(sdir, targets, root)
+        bad = task_problems(doc) + problems(sdir, targets, root, doc)
+        if doc.get("tasks") is not None and not bad:
+            bad += ["%s/%s differs from its render of targets.json — edit targets.json and run `targets render %s`"
+                    % (sdir, n, sdir) for n in stale(sdir, doc)]
         for b in bad:
             print("BLOCK[targets]: %s" % b, file=sys.stderr)
         if not bad:

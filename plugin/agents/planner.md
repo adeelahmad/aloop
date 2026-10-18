@@ -105,6 +105,10 @@ change (`change_ref` C1…, `task`, `operation` create|modify|extend|refactor|re
 `path`, `symbol` or `planned_symbol`, a one-line `reason`, `evidence_refs`, `constraints`).
 Planned files stay planned: never create stubs. `targets check <STORY_DIR>` (also run by
 gate-stage2-complete) proves each target against tasks.md and the real tree.
+Prefer the whole plan in targets.json: add `story` and `tasks` (`id` T1…, `title`, `summary`,
+optional `budget`, `tests` [{path, fn, assert}], optional `validate` [{run, expect}]) and run
+`targets render <STORY_DIR>` — tasks.md, validate.md and plan.md are then rendered from it,
+and a hand edit to any of them is refused by the gate. Edit targets.json and re-render instead.
 
 ## Hard limits
 - Writes no production code; does not start RED.

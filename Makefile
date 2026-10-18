@@ -105,6 +105,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/portable-config.test.py
 	plugin/bin/host check
 	python3 scripts/test/targets-scope.test.py
+	python3 scripts/test/plan-render.test.py
 	python3 scripts/check-tracking.py
 	python3 scripts/test/codex-hooks.test.py
 	python3 scripts/test/rename-compat.test.py

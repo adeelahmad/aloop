@@ -180,7 +180,7 @@ These parts already exist but their semantics must change:
 
 ### 4.6 Semantic execution map
 
-- 🟡 *Partly done (Unreleased): structured targets, shadow workspace and `targets target|context|shadow` (`bin/targets`, checked by gate-stage2-complete). Test: `scripts/test/semantic-targets.test.py`. The LSP adapter seam is done too (`AGENTIC_LSP_COMMAND`, `_lsp.py`; test: `scripts/test/lsp-adapter.test.py`). GREEN's diff scope is derived from the targets when no SCOPE_GLOBS is given (test: `scripts/test/targets-scope.test.py`). Open: making the rest of the semantic plan the execution source (tasks.md/plan.md as rendered views).*
+- ✅ *Done (Unreleased): structured targets, shadow workspace and `targets target|context|shadow` (`bin/targets`, checked by gate-stage2-complete). Test: `scripts/test/semantic-targets.test.py`. The LSP adapter seam is done too (`AGENTIC_LSP_COMMAND`, `_lsp.py`; test: `scripts/test/lsp-adapter.test.py`). GREEN's diff scope is derived from the targets when no SCOPE_GLOBS is given (test: `scripts/test/targets-scope.test.py`). With `tasks` in targets.json the plan is the execution source: `targets render` writes tasks.md, validate.md and plan.md as deterministic views and `targets check` (gate-stage2-complete) refuses a hand-edited view (test: `scripts/test/plan-render.test.py`). Open: `refs`/`callers`/`callees` need a configured LSP server, so the narrow-context CLI is complete only where one exists.*
 - **Structured change targets:**
   - `change_ref`
   - `operation` (create | modify | extend | refactor | replace | delete)
