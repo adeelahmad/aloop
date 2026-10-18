@@ -38,6 +38,9 @@ jobs:
         run: make clippy
       - name: test (ctx-symbols + md-db)
         run: make test
+      - uses: actions/setup-node@v4   # §6.19 runs the OpenCode plugin test
+        with:
+          node-version: "22"
       - name: conformance fixtures (ROADMAP §6, real gates on a fixture crate)
         run: make conformance
 

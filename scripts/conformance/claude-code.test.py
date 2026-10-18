@@ -8,7 +8,8 @@ verdict (0 = accept, 2 = block) is the expected one. No network, no tokens; need
 
     python3 scripts/conformance/claude-code.test.py
 
-Items this suite does not cover yet are listed at the end with the reason, so the gap is
+Items held by a harness tool rather than a worker gate run that tool's focused test
+(HELD_BY). Items no fixture can cover are listed at the end with the reason, so the gap is
 explicit rather than silent.
 """
 import json
@@ -529,19 +530,35 @@ if md_db():
 else:
     results.append((2, "md-db available for the schema gate (needs cargo)", False, "no md-db and no cargo"))
 
+# Items whose behaviour lives in a harness tool rather than a worker gate: each is held by the
+# focused test that drives that tool, and the suite runs it here so "covered" is a verdict,
+# not a pointer. (Until v0.12.0 this list said "does not exist yet" for tools that had shipped.)
+HELD_BY = {
+    1: ("an intent is admitted and normalized (Intent Contract, clarification policy, gate-intake)", ["intent-contract.test.py"]),
+    10: ("transcript and event refs exist (aladdin.event/1 envelope, refs not copies)", ["events.test.py"]),
+    11: ("the lineage is complete (task lineage; `events trace SHA` back to the intent)", ["events.test.py", "commit-trace.test.py"]),
+    12: ("usage is exact or names what the host does not report", ["budget-meter.test.py"]),
+    13: ("hard time and token limits stop the worker", ["budget-hard-stop.test.py", "budget-worktree.test.py"]),
+    14: ("admission closes deterministically (sprint envelope, carried tasks)", ["sprint-admission.test.py"]),
+    16: ("the handoff is produced and context rotated", ["handoff-resume.test.py", "context-boundary.test.py"]),
+    17: ("compaction is used only when chosen and advertised", ["context-boundary.test.py"]),
+    18: ("the model route is observable", ["model-routes.test.py"]),
+    19: ("memory injection is equivalent across hosts (SessionStart on Codex and OpenCode)", ["codex-hooks.test.py", "opencode-plugin.test.mjs"]),
+    20: ("semantic capability gaps are explicit (Unsupported, LSP exit 4, capability matrix)", ["host-adapter.test.py", "lsp-adapter.test.py", "context-boundary.test.py"]),
+}
+TESTS = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "test")
+_env = {k: v for k, v in os.environ.items() if k not in ("AGENTIC_HOST", "SKIP_HOOKS", "STORY_DIR", "AGENT_ROLE", "REPO_DIR", "BASE_REF", "SCOPE_GLOBS")}
+for item, (title, files) in sorted(HELD_BY.items()):
+    bad = []
+    for f in files:
+        cmd = ["node", os.path.join(TESTS, f)] if f.endswith(".mjs") else [sys.executable, os.path.join(TESTS, f)]
+        r = subprocess.run(cmd, env=_env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        if r.returncode != 0:
+            bad.append("%s exit %d %s" % (f, r.returncode, (r.stderr or r.stdout).strip()[-160:]))
+    results.append((item, "%s [%s]" % (title, ", ".join(files)), not bad, "; ".join(bad)))
+
 NOT_COVERED = {
-    1: "Intent Contract does not exist yet (M4)",
-    10: "event stream does not exist yet (M6); transcripts are covered by scripts/test/*",
-    11: "lineage query does not exist yet (M6)",
-    12: "usage exactness is covered by scripts/test/codex-hooks + opencode-plugin; no 'estimated' marker yet (M2)",
-    13: "covered by scripts/test/budget-worktree.test.py and the host tests",
-    14: "sprint admission control does not exist yet (M2)",
-    15: "re-decomposition is planner behaviour; needs a model run (measured, M2)",
-    16: "handoff is covered by scripts/test/codex-hooks (SessionStart); rotation needs M3",
-    17: "compaction detection does not exist yet (M3)",
-    18: "model route is written into generated agents (host tests); abstract routes are M7",
-    19: "memory injection equivalence needs M7's capability matrix",
-    20: "semantic capability reporting does not exist yet (M5)",
+    15: "re-decomposition is planner behaviour: measured by live runs (the re-plans in docs/evidence/README.md), not by a fixture",
 }
 
 print("ROADMAP §6 conformance — Claude Code wiring, today's behaviour\n")
