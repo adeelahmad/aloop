@@ -72,4 +72,11 @@ for t, c in rows:
     assert t in roadmap and c in roadmap, "unsourced demo figure %r (not in ROADMAP §0)" % ((t, c),)
 ok("every demo time/cost figure is one ROADMAP §0 records")
 
+# 6) the offline suite count the README quotes is the Makefile's (docs match the code, CLAUDE.md "done means")
+make = open(os.path.join(ROOT, "Makefile")).read()
+n = len(set(re.findall(r"scripts/test/(\S+\.test\.(?:py|mjs))", make)))   # python3 … and the `@if … node …` OpenCode line
+m = re.search(r"(\d+) Python/Node suites", readme)
+assert m and int(m.group(1)) == n, "README says %s suites, the Makefile runs %d" % (m and m.group(1), n)
+ok("the README's offline suite count is the Makefile's (%d)" % n)
+
 print("\n%d checks passed" % PASS[0])
