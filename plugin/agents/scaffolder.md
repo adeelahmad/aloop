@@ -43,7 +43,8 @@ GREEN. Scaffolding is safe to repeat.
 Your brief is the LAST `## … · scaffolder · …` block in `$STORY_DIR/init.md`; read the
 red-worker block in `$STORY_DIR/output.md` for the symbols the tests reference. When done
 you MUST **append** your report as a new block to `$STORY_DIR/output.md` — never rewrite
-an earlier block:
+an earlier block (append with a shell heredoc, `cat >> "$STORY_DIR/output.md" <<'EOF'`: the Write/Edit
+tools refuse a path outside your worktree, and docs/agents/ lives only in the main tree):
 
     ## <task> · attempt <N> · scaffolder · <ISO8601>
     status: ok

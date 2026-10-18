@@ -143,15 +143,20 @@ load_task_env() {
   case "$tid" in ''|*[!A-Za-z0-9._-]*) ;; *)
     [ -f "$AGENTIC_STATE/tasks/$tid.env" ] && contract="$AGENTIC_STATE/tasks/$tid.env" ;;
   esac
-  if [ -n "$contract" ]; then
+  # A copy OLDER than the contract is stale (the supervisor re-dispatched and bumped the
+  # contract; bin/budget refreshes the copy on the worker's next tool call), not tampering:
+  # a worker's edit makes the copy newer. Only a copy at least as new is compared.
+  if [ -n "$contract" ] && [ -f "$te" ] && [ "$te" -ot "$contract" ]; then
+    note "the worktree's .agentic/task.env is older than the contract $contract; using the contract"
+  elif [ -n "$contract" ]; then
     while IFS=$'\t' read -r k v; do
       cv="$(_task_env_get "$contract" "$k")" || cv=""
       if [ "$cv" != "$v" ]; then
         fail "the worktree's .agentic/task.env disagrees with the supervisor's contract on $k ('$v' vs '$cv' in $contract). The contract is the supervisor's: do not edit it."
       fi
     done < <(_task_env_kv "$te")
-    te="$contract"
   fi
+  [ -n "$contract" ] && te="$contract"
   TASK_CONTRACT="$contract"
   while IFS=$'\t' read -r k v; do
     case "$k" in ''|BUDGET_*) continue ;; esac
@@ -219,12 +224,13 @@ validate_comms() {
   frontmatter_type "$ini" init || fail "init.md missing top frontmatter 'type: init'"
 
   # output.md: the agent must have appended its report block.
-  [ -f "$out" ] || fail "no output.md in $dir — APPEND your report block to the story's output.md. This is the comms channel between agents, not optional."
+  local how="append it from your worktree with a shell heredoc: cat >> \"$dir/output.md\" <<'EOF' … EOF (create the file with a 'type: output' frontmatter first if it is missing). The Write/Edit tools refuse a path outside your worktree, and docs/agents/ lives only in the main tree."
+  [ -f "$out" ] || fail "no output.md in $dir — APPEND your report block to the story's output.md. This is the comms channel between agents, not optional. How: $how"
   frontmatter_type "$out" output || fail "output.md missing top frontmatter 'type: output'"
 
   # The LAST appended block must be THIS dispatch's (role match) and well-formed.
   local last; last="$(awk '/^## /{n=NR} END{print n+0}' "$out")"
-  [ "${last:-0}" -gt 0 ] || fail "output.md has no '## <task> · attempt N · <role> · <ts>' block — append your report."
+  [ "${last:-0}" -gt 0 ] || fail "output.md has no '## <task> · attempt N · <role> · <ts>' block — append your report. How: $how"
   local block; block="$(awk -v s="$last" 'NR>=s' "$out")"
   if [ -n "${AGENT_ROLE:-}" ]; then
     printf '%s\n' "$block" | head -1 | grep -q "$AGENT_ROLE" \

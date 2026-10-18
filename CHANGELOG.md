@@ -91,6 +91,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- The comms gate's "no output.md" block now says HOW to append the report: a shell heredoc
+  from the worktree, because Claude Code's Write/Edit refuse a path outside it and
+  `docs/agents/` lives only in the main tree (e2e run 10: a RED worker stopped 29 times on
+  it). The worker personas say the same.
+- A worktree `task.env` copy OLDER than the supervisor's contract (a re-dispatch bumped
+  `ATTEMPT`) is stale and is ignored, not reported as tampering (e2e run 10: 3 blocks).
 - `ensure-tools` rebuilds the bundled md-db / ctx-symbols when their sources change, not
   only on a version bump; e2e run 9 ran a stale ctx-symbols that still had the duplicate bug.
 - `gate-stage2-complete` names the expected `sN-NN-<slug>/` story dir (and a misnamed one it

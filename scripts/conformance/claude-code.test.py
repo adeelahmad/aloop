@@ -222,6 +222,9 @@ case(6, "GREEN inside a `dir/**` scope glob is accepted", "gate-green-verify", w
 wt = green()
 os.remove(os.path.join(STORY, "output.md"))
 case(6, "a worker that leaves no output.md report is blocked", "gate-green-verify", wt, 2, "no output.md")
+# Claude Code's Write/Edit refuse a path outside the worker's worktree, and docs/agents/ lives only in
+# the main tree, so the block must say how to append (live e2e run 10: a RED worker stopped 29 times).
+case(6, "the missing-report block says how to append from an isolated worktree", "gate-green-verify", wt, 2, "cat >>")
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
 case(6, "a stale report from another role is blocked", "gate-green-verify", wt, 2, "not from 'green-worker'")
 
@@ -302,6 +305,16 @@ write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-wrker\nSTORY_DIR=
 wt = green()
 os.remove(os.path.join(wt, ".agentic", "task.env"))
 case(6, "a comma-separated SCOPE_GLOBS and a mistyped contract role don't block good work", "gate-green-verify", wt, 0,
+     agent_type="aloop:green-worker", transcript=TRANSCRIPT)
+# A re-dispatch bumps ATTEMPT in the contract while the worktree copy keeps the old value: the
+# copy is OLDER than the contract, so it is stale, not tampered (live e2e run 10: 3 blocks).
+# A copy edited by the worker is newer than the contract and still blocks (the widen case above).
+write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS='src/*.rs'\n" % STORY)
+wt = green()
+write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=2\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS='src/*.rs'\n" % STORY)
+later = os.stat(os.path.join(wt, ".agentic", "task.env")).st_mtime + 5
+os.utime(CONTRACT, (later, later))
+case(6, "a worktree copy older than a re-dispatched contract is stale, not tampering", "gate-green-verify", wt, 0,
      agent_type="aloop:green-worker", transcript=TRANSCRIPT)
 # Claude Code's worktree is .claude/worktrees/agent-<agent_id>. A worker that `cd`s back to
 # the main tree (to read its story) leaves the hook's cwd there; the gate must still check the
