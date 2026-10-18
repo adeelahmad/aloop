@@ -84,4 +84,14 @@ if [ -z "$sd" ] || [ ! -d "$sd" ]; then
   [ "$role" = structural-reviewer ] && echo "  A structural review of a whole wave has no single story: use the sprint dir, docs/agents/sprintN/, and append its dispatch block to that dir's init.md." >&2
   exit 2
 fi
+# A manual task worktree (`aloop task-worktree add`, the sanctioned equivalent of isolation:
+# "worktree" and the Codex/OpenCode route) carries a copy of the contract: `aloop bind` checks it
+# and the host binding needs it. Refreshed on every dispatch, since one task's contract changes role
+# per stage (live e2e run 28: only the main-tree contract was written, RED's bind failed and its
+# stop blocked twice in the shared tree).
+_wt="$AGENTIC_HOME/worktrees/$tid"
+if [ -f "$_wt/.git" ]; then
+  _md="$(agentic_marker_dir "$_wt")" && cp "$contract" "$_md/task.env" 2>/dev/null \
+    || echo "WARN[$GATE_NAME]: could not copy $contract into $_wt (aloop bind will fail)" >&2
+fi
 exit 0

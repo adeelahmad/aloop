@@ -67,6 +67,25 @@ r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.")
 assert r.returncode == 0, r
 ok("a worker dispatched after its contract is written is allowed")
 
+# A manual task worktree (`aloop task-worktree add`, the sanctioned equivalent of isolation:
+# "worktree") gets the contract copy `aloop bind` checks, refreshed on every dispatch since the role
+# changes per stage (live e2e run 28: the supervisor wrote only the main-tree contract, so RED's
+# bind failed and its stop blocked twice in the shared tree).
+subprocess.run(["git", "-c", "user.email=a@a", "-c", "user.name=A", "commit", "-q", "--allow-empty", "-m", "init"], cwd=T, check=True)
+wt = subprocess.run([os.path.join(os.path.dirname(GATE), "task-worktree"), "add", "S1-01-T1"], cwd=T, env=ENV,
+                    capture_output=True, text=True).stdout.strip()
+assert os.path.isfile(os.path.join(wt, ".git")), wt
+open(contract, "w").write("TASK_ID=S1-01-T1\nAGENT_ROLE=red-worker\nSTORY_DIR=%s\n" % story)
+r = run("aloop:red-worker", "TASK_ID: S1-01-T1\nYour worktree is %s; first command: aloop bind %s" % (wt, wt))
+assert r.returncode == 0, r
+assert open(os.path.join(wt, ".aladdin", "task.env")).read() == open(contract).read()
+b = subprocess.run([os.path.join(os.path.dirname(GATE), "bind"), wt], cwd=T, env=ENV, capture_output=True, text=True)
+assert b.returncode == 0 and "AGENT_ROLE=red-worker" in b.stdout, b
+open(contract, "w").write("TASK_ID=S1-01-T1\nAGENT_ROLE=scaffolder\nSTORY_DIR=%s\n" % story)
+assert run("aloop:scaffolder", "TASK_ID: S1-01-T1\nWorktree %s" % wt).returncode == 0
+assert "AGENT_ROLE=scaffolder" in open(os.path.join(wt, ".aladdin", "task.env")).read()
+ok("a dispatch into a task worktree copies (and refreshes) the contract there, so `aloop bind` succeeds")
+
 open(os.path.join(T, ".aladdin", "state", "tasks", "S1-SR-W1.env"), "w").write("TASK_ID=S1-SR-W1\nAGENT_ROLE=structural-reviewer\n")
 r = run("aloop:structural-reviewer", "TASK_ID: S1-SR-W1\nReview wave 1.")
 assert r.returncode == 2 and "sprint dir" in r.stderr, r
