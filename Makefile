@@ -106,6 +106,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/host-swap.test.py
 	python3 scripts/test/aladdin-cli.test.py
 	python3 scripts/test/site.test.py
+	python3 scripts/test/readme.test.py
 	python3 scripts/test/layout.test.py
 	plugin/bin/layout check
 	plugin/bin/host check

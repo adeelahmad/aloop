@@ -23,6 +23,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Changed
+- **The README is tested** (`scripts/test/readme.test.py`, in `make test-hosts`): the §4.11 section
+  order, every `aloop <tool>` / `aladdin <sub>` it names exists, the install lines name this
+  repo's plugin and marketplace, every relative link resolves, and every demo time/cost figure
+  is one ROADMAP §0 records. Reason: the README was the last §4.11 row without a test.
 - **Run data moves to `.aladdin/`** (ROADMAP M1). Fresh projects keep transcripts, budgets,
   the ledger, logs, state, host records and task worktrees under `.aladdin/`, next to
   `config.yaml`; `.aladdin/.gitignore` (written by the plugin) keeps everything but

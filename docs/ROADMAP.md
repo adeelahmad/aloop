@@ -269,7 +269,7 @@ No extra model calls are made just for telemetry.
 
 ### 4.11 Rebrand and product surface (last)
 
-- ✅ *Done (Unreleased): `bin/aladdin` (`"<intent>"`, `run`, `status`, `resume`, `report`, the semantic queries, every aloop tool) and the `/aladdin` skill, linked and copied by the installers beside `aloop` / `agentic`. Test: `scripts/test/aladdin-cli.test.py`. The README is reordered product-first and the site is `docs/index.html` (one self-contained page: original lamp mark, the RED explainer, the audit tree; test: `scripts/test/site.test.py` checks every time/cost number against §0). Turning GitHub Pages on (Settings → Pages → deploy from branch, `/docs`) is the owner's switch.*
+- ✅ *Done (Unreleased): `bin/aladdin` (`"<intent>"`, `run`, `status`, `resume`, `report`, the semantic queries, every aloop tool) and the `/aladdin` skill, linked and copied by the installers beside `aloop` / `agentic`. Test: `scripts/test/aladdin-cli.test.py`. The README is reordered product-first (test: `scripts/test/readme.test.py` checks the §4.11 order, that every tool it names exists, the install names, every link and that each demo figure is one §0 records) and the site is `docs/index.html` (one self-contained page: original lamp mark, the RED explainer, the audit tree; test: `scripts/test/site.test.py` checks every time/cost number against §0). Turning GitHub Pages on (Settings → Pages → deploy from branch, `/docs`) is the owner's switch.*
 - **New entry points:** `/aladdin` and an `aladdin` CLI (`"<intent>"`, `run`, `status`, `resume`, `report`, plus the semantic queries). Natural-language auto-trigger inside hosts.
 - **Compatibility aliases for one migration window:**
   - `/agentic-agile:init`
