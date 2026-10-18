@@ -100,7 +100,7 @@ payload = {"hook_event_name": "PreToolUse", "session_id": "sess", "transcript_pa
            "cwd": wt, "agent_id": "r2", "agent_type": "agentic-agile:structural-reviewer", "tool_name": "Bash",
            "tool_input": {"command": "selfcheck"}}
 assert sh(os.path.join(BIN, "budget"), "hook", "pre", inp=json.dumps(payload)) == ""
-copy = os.path.join(wt, ".agentic", "task.env")
+copy = os.path.join(wt, ".aladdin", "task.env")      # a fresh project: markers live in .aladdin/
 assert os.path.isfile(copy) and "TASK_ID=S1-SR-W1" in open(copy).read(), copy
 s = state("r2")
 assert s["observe"] and s["task"] == "S1-SR-W1" and s["story_dir"] == story and s["worktree"] == wt, s
