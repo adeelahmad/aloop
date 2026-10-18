@@ -22,6 +22,18 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Fixed
+- `budget hook`: the worker's `TASK_ID` is read from the first transcript line that names one, not
+  the first `user` line — Claude Code now prepends a session-context attachment, which left the
+  worker unbound and its first `selfcheck` blocked "STORY_DIR unset" (live run 18).
+- `budget hook pre` seeds the story's `output.md` with its `type: output` frontmatter before the
+  worker's first tool call, so a bare `cat >>` of the report block no longer fails the comms gate
+  (live run 18: 4 blocks). An existing `output.md` is never touched.
+
+### Changed
+- SKILL.md: a RED mandate names `tests/common/mod.rs` as the shims' home, never a `src/` path
+  (one `gate-red-verify` block per live run 14–18 came from a mandate saying "shim in `src/lib.rs`").
+
 ## [0.12.0] - 2026-10-18
 
 The first release of **aloop** (Aladdin's Loop), the plugin formerly published as agentic-agile.

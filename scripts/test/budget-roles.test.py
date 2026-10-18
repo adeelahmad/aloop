@@ -106,4 +106,31 @@ s = state("r2")
 assert s["observe"] and s["task"] == "S1-SR-W1" and s["story_dir"] == story and s["worktree"] == wt, s
 ok("an observed role in a host worktree gets the contract copy (selfcheck finds its task); state names the task")
 
+# 6) Claude Code prepends a session-context attachment line (renderedRole "user", no TASK_ID)
+# to a sub-agent transcript; the dispatch prompt is a later user line. The worker must still be
+# bound to its task (live run 18: the first RED self-check blocked "STORY_DIR unset"), and the
+# story's output.md must exist with its frontmatter before the worker appends its report (run 18:
+# 4 blocks "output.md missing top frontmatter" after a worker's `cat >>` created the file bare).
+wt = os.path.join(T, ".claude", "worktrees", "agent-w6")
+sh("git", "worktree", "add", "-q", "-b", "worktree-agent-w6", wt)
+story6 = os.path.join(T, "docs", "agents", "sprint1", "s1-02-top-n"); os.makedirs(story6, exist_ok=True)
+open(os.path.join(story6, "init.md"), "w").write("---\ntype: init\nstory: S1-02\n---\n## S1-02-T3 · attempt 1 · red-worker · now\n")
+open(os.path.join(T, ".agentic", "state", "tasks", "S1-02-T3.env"), "w").write(
+    "TASK_ID=S1-02-T3\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=%s\n" % story6)
+sub = os.path.join(T, "cc", "sess", "subagents", "agent-w6.jsonl")
+open(sub, "w").write(
+    json.dumps({"type": "attachment", "attachment": {"type": "session_context", "context": {"userEmail": "x"}},
+                "renderedRole": "user", "userType": "external"}) + "\n" +
+    json.dumps({"type": "user", "message": {"role": "user", "content": "TASK_ID: S1-02-T3\nWrite the T3 tests."}}) + "\n")
+payload.update(cwd=wt, agent_id="w6", agent_type="agentic-agile:red-worker")
+assert sh(os.path.join(BIN, "budget"), "hook", "pre", inp=json.dumps(payload)) == ""
+copy = os.path.join(wt, ".aladdin", "task.env")
+assert os.path.isfile(copy) and "TASK_ID=S1-02-T3" in open(copy).read(), copy
+out6 = os.path.join(story6, "output.md")
+assert os.path.isfile(out6) and open(out6).read() == "---\ntype: output\nstory: S1-02\n---\n", out6
+open(out6, "a").write("## S1-02-T3 · attempt 1 · red-worker · now\n")
+sh(os.path.join(BIN, "budget"), "hook", "pre", inp=json.dumps(payload))
+assert open(out6).read().endswith("red-worker · now\n"), "an existing output.md is never rewritten"
+ok("TASK_ID is read past a session-context line; the story's output.md is seeded with its frontmatter once")
+
 print("\n%d checks passed" % PASS[0])
