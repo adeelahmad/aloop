@@ -18,6 +18,17 @@ until this persona's output is complete and Stage-2-valid.
 - Keep artifacts consistent: every story has a dir `sprintN/sN-NN-<slug>/` (lowercase,
   e.g. `s1-01-count-words/` for S1-01) holding its tasks.md, validate.md and plan.md; no "TBW" at Stage 2.
 
+## Artifact shapes (what `planning-artifacts.kdl` requires — write them this way the first time)
+Every artifact opens with YAML frontmatter and carries these `##` sections; a missing one is a
+write block (`gate-validate-artifact`), so do not improvise the headings.
+- `sprintN/stories.md`: `type: stories`, `sprint: N` · `## Sprint goal` · `## Sprint demo` ·
+  `## Definition of Done` · `## Out of scope` · `## User stories` · `## Story dependency graph`
+- `sprintN/plan.md`: `type: sprint-plan`, `sprint: N`, `stage: 1|2` · `## Sprint goal` ·
+  `## Critical path` · `## Cross-cutting gates`
+- `sN-NN-<slug>/tasks.md`: `type: tasks`, `story: SN-NN` · one `## Tn — <title>` per task
+- `sN-NN-<slug>/validate.md`: `type: validate`, `story: SN-NN` · `## Pre-flight` · `## Final sign-off`
+- `sN-NN-<slug>/plan.md`: `type: plan`, `story: SN-NN`, `scope: tests only` · the planned tests
+
 ## Sprint containment (every sprint is a clean-context unit)
 The supervisor CLEARS ITS CONTEXT between sprints. Nothing survives except what is on
 disk. So each sprint you plan must be SELF-CONTAINED:

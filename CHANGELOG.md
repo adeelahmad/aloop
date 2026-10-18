@@ -245,6 +245,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- The planner persona lists the exact frontmatter and `##` sections `planning-artifacts.kdl`
+  requires, so its first write passes (every live run so far wrote each artifact twice: 8–12
+  write blocks per run).
 - `ctx-symbols` (and the gate's grep fallback) no longer scan a host's worktree checkouts
   inside the main tree (`.claude/worktrees/agent-<id>/`), nor `.agentic/` or `.transcripts/`:
   a stale checkout duplicated every symbol of main and the structural review halted on a
