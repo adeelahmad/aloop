@@ -50,6 +50,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   overrides it (`breach:` line) and acts per class (SKILL.md "Breach classes").
 
 ### Added
+- **`task-worktree merge <TASK_ID> <BRANCH>`** records the §4.7 lineage on Claude Code, where the
+  host makes the worktree and the supervisor merges it (so `task-worktree remove` never runs): a
+  `--no-ff` merge, then `worktree.merged` + one `commit.created` per merged commit. SKILL.md tells the
+  supervisor to merge with it (a raw `git merge` left live runs 11–14 with no traceable commits), and
+  `make e2e-live` now checks every merged commit answers `events trace`.
 - Stuck release: a worker that hits the same gate block 3 times in a row (one gate, task,
   attempt and worktree; `AGENTIC_STUCK_BLOCKS`) is released **unverified** instead of
   looping until its time box (live run 10 lost 29 minutes to a RED worker that stopped 29
@@ -245,6 +250,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- The planner persona states `targets check`'s rules (`{"targets": [...]}`, `symbol` only for code
+  that exists, `planned_symbol` with `create`/`extend` for new code), so its first `targets.json`
+  passes (live runs 12–14: 2–3 blocks each).
 - The planner persona lists the exact frontmatter and `##` sections `planning-artifacts.kdl`
   requires, so its first write passes (every live run so far wrote each artifact twice: 8–12
   write blocks per run).

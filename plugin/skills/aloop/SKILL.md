@@ -617,9 +617,12 @@ before GREEN).
   in `tasks.md` scope, the **standards.md matrix** is green, zero suppressions,
   `output.md` validates.
 - On pass: tick the task's boxes in `plan-ready.md` and **merge its worktree branch** to
-  the sprint integration branch (`git merge --no-ff <branch>`; on Claude Code the branch is
-  `worktree-agent-<id>`). Never copy files out of a worktree: what you merge must be the
-  commits the gate verified. Workers commit their own work; the gate blocks uncommitted work.
+  the sprint integration branch with `aloop task-worktree merge <TASK_ID> <branch>` (a
+  `--no-ff` merge that also records the lineage: `worktree.merged` + one `commit.created` per
+  commit, so `events trace <sha>` finds the task; a raw `git merge` leaves the commits
+  untraceable). On Claude Code the branch is `worktree-agent-<id>`. Never copy files out of a
+  worktree: what you merge must be the commits the gate verified. Workers commit their own
+  work; the gate blocks uncommitted work.
 
 **STRUCTURAL-REVIEW** — dispatch `structural-reviewer` (read-only) after the
 wave's GREEN merges. Its contract is like any worker's (`TASK_ID` such as `S1-SR-W1`); a
