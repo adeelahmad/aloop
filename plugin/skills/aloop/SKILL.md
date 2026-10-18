@@ -347,15 +347,12 @@ worktree.
 ## The data plane (on-disk layout — the glue)
 
 ```
-docs/agents/
+docs/agents/                                     the plan and its audit trail
   memory.md                                      (you + human, at each retrospective)
   defaults.md                                    (aloop-init) confirmed limits, models, git settings
   NEXT.md                                        (stats sprint-close) the post-/clear handoff
-  sprintN/stats.md                               (stats sprint-close) the sprint's numbers
-<project>/.aladdin/                              run data, fixed layout (bin/_paths.sh), git-ignored
-                                                 (.agentic/ in a legacy project: `aloop layout show`):
-  transcripts/ budget/ ledger/ logs/ state/
   sprintN/
+    stats.md                                     (stats sprint-close) the sprint's numbers
     stories.md plan.md intake.md standards.md    (you / planning activities)
     execution.log                                (you, via bin/log-execution)
     sN-NN-<slug>/
@@ -369,6 +366,10 @@ docs/agents/
   # same pair. Each block is headed `## <task> · attempt N · <role> · <ISO8601>`; the file
   # opens with one `--- type: init|output · story: SN-NN ---` frontmatter. Read top-down =
   # the full negotiation history. This is how agents communicate across the chain.
+
+<project>/.aladdin/   run data only, never a sprint; git-ignored, fixed layout (bin/_paths.sh;
+                      .agentic/ in a legacy project: `aloop layout show`):
+  transcripts/ budget/ ledger/ logs/ state/
 
 main tree (git-ignored):
   .aladdin/state/tasks/<TASK_ID>.env  the per-task contract you write before dispatch
