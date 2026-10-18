@@ -533,7 +533,8 @@ Your job during execution is small, and that is on purpose (it keeps your contex
 which is what makes it traceable to its task and intent (`events trace`). An untracked file you
 notice (a lockfile, a generated file) is not yours to commit: leave it, or add it to the task
 whose worker produces it (live run 16: a supervisor's `Track Cargo.lock` commit was the one
-commit on main that traced to nothing).
+commit on main that traced to nothing). `gate-supervisor-scope` blocks such a commit while the
+sprint is live; the initial commit of an unborn repo and commits inside a task worktree pass.
 
 On a host without background task notifications, `sweep wait --timeout 1800` is the
 sleep: it blocks without a model call until an event or attempt state changes, then sweeps.
