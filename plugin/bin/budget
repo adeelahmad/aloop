@@ -26,6 +26,11 @@ Resolution order (first set wins):  per-task `budget:` line in tasks.md  >
 
 Usage:
   budget resolve [--tasks FILE --task Tn] [--worktree WT]   the resolved BUDGET_* lines + their source
+  budget contract TASK_ID --role ROLE --story DIR [--scope GLOBS] [--attempt N] [--symbols S]
+                                            before dispatch: write the task contract
+                                            (<run-data>/state/tasks/TASK_ID.env) with BASE_REF=HEAD and
+                                            the resolved BUDGET_* (DIR's tasks.md `budget:` line for
+                                            the id's Tn wins); prints one line
   budget hook pre|post|stop                 hook mode (reads the hook JSON on stdin)
   budget watch [--interval S] [--grace S]   supervisor: block until a worker must be
                                             killed, one was released STUCK, or none is running;
@@ -1039,6 +1044,49 @@ def replans(cwd, task):
     return 3 if n >= cap else 0
 
 
+def write_contract(cwd, task_id, opts):
+    """`budget contract`: the supervisor's per-task contract, written by the harness that owns
+    every key in it (live run 26: 9 hand-written heredocs a run, re-read on every later turn)."""
+    def refuse(msg):
+        print("budget contract: " + msg, file=sys.stderr)
+        return 64
+    if not re.match(r"^S\d+-[A-Za-z0-9._-]+$", task_id or ""):
+        return refuse("need a TASK_ID like S1-02-T3 (got %r)" % task_id)
+    role = (opts.get("role") or "").split(":")[-1]
+    if role not in WORKERS + tuple(ROLE_PROFILES):
+        return refuse("--role must be one of %s (got %r)" % (", ".join(WORKERS + tuple(ROLE_PROFILES)), role))
+    attempt = opts.get("attempt") or "1"
+    if not attempt.isdigit() or int(attempt) < 1:
+        return refuse("--attempt must be a number >= 1 (got %r)" % attempt)
+    root = main_tree(cwd)
+    story = os.path.realpath(os.path.join(cwd, opts.get("story") or ""))
+    rel = os.path.relpath(story, root)
+    if not opts.get("story") or rel.split(os.sep)[0] in (_paths.NEW_HOME, _paths.OLD_HOME) or rel.startswith(".."):
+        return refuse("--story must be the story's sN-NN-<slug>/ dir (or the sprint dir for a whole-sprint "
+                      "role) under docs/agents/sprintN/, never run data (got %r)" % opts.get("story"))
+    if not os.path.isdir(story):
+        return refuse("--story %s does not exist" % story)
+    tn = task_id.rsplit("-", 1)[-1]
+    tasks = os.path.join(story, "tasks.md")
+    b, src = resolve(cwd, tasks if os.path.isfile(tasks) else None, tn, None, with_source=True)
+    lines = [("TASK_ID", task_id), ("ATTEMPT", attempt), ("AGENT_ROLE", role), ("STORY_DIR", story),
+             ("SCOPE_GLOBS", opts.get("scope") or "")]
+    if opts.get("symbols"):
+        lines.append(("SCAFFOLD_SYMBOLS", opts["symbols"]))
+    lines.append(("BASE_REF", sh("git", "rev-parse", "HEAD", cwd=root)))
+    lines += [("BUDGET_" + k, str(b[k])) for k in ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN")]
+    lines.append(("BUDGET_TOKEN_METER", b["TOKEN_METER"]))
+    path = os.path.join(root, _paths.home_name(root), "state", "tasks", task_id + ".env")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".tmp", "w") as f:
+        f.write("".join('%s="%s"\n' % (k, v) if " " in v else "%s=%s\n" % (k, v) for k, v in lines))
+    os.replace(path + ".tmp", path)
+    print("%s: %s attempt %s, budget %d/%d tokens, %d/%d min (from %s)" % (
+        os.path.relpath(path, root), role, attempt, b["TOKENS_SOFT"], b["TOKENS_HARD"],
+        b["TIME_SOFT_MIN"], b["TIME_HARD_MIN"], src))
+    return 0
+
+
 def main(argv):
     cwd = os.getcwd()
     if not argv or argv[0] in ("-h", "--help", "help"):
@@ -1067,6 +1115,8 @@ def main(argv):
         print("BUDGET_TOKEN_METER=%s" % b["TOKEN_METER"])
         print("# from: %s" % src)
         return 0
+    if cmd == "contract":
+        return write_contract(cwd, (opts.get("_") or [""])[0], opts)
     if cmd == "watch":
         return watch(cwd, int(opts.get("interval") or 20), int(opts.get("grace") or 60))
     if cmd == "status":
