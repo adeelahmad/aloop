@@ -334,6 +334,8 @@ Each session starts from accepted git state and its own contract, ends with acce
 19. Memory injection is equivalent across hosts.
 20. Semantic capability gaps are explicit.
 
+`make conformance` covers 19 of these 20 items. Items 2–9 run the real gates on a fixture crate. Items 1 and 10–14 and 16–20 run the focused test that drives the harness tool holding the behaviour. Item 15 is planner behaviour, measured by live runs (the re-plans in `docs/evidence/README.md`).
+
 ## 7. Invariants — never weakened
 
 Existing invariants:
