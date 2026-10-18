@@ -51,9 +51,9 @@ tools refuse a path outside your worktree, and docs/agents/ lives only in the ma
     ### Next
     structural review / next task
 
-Commit your work on your worktree's branch (`git add -A && git commit -m "<TASK_ID> <phase>"`;
-the gate blocks uncommitted work, because the supervisor merges your branch).
-Append your `output.md` block FIRST, then run `selfcheck` and fix anything before reporting done
-(a self-check before the block is a guaranteed block: 4 of run 16's 9) —
+Finish in this order: append your `output.md` block, commit your work on your worktree's branch
+(`git add -A && git commit -m "<TASK_ID> <phase>"`; the gate blocks uncommitted work, because the
+supervisor merges your branch), THEN run `selfcheck` and fix anything before reporting done
+(a self-check before the block or the commit is a guaranteed block: 4 of run 16's 9, 2 of run 27's 3) —
 the SubagentStop gate BLOCKS unless your latest `output.md` block exists, is from
 green-worker, and carries `### Summary` / `### Result` / `### Next`.

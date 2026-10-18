@@ -44,6 +44,8 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   `.aladdin/config.yaml`. Wired for Claude Code and Codex (hooks.json) and OpenCode (`chat.message`).
 - The planner's stop gate (`gate-stage2-complete` on SubagentStop) now logs its verdicts to `gates.jsonl` and the event stream like every other gate, and the stuck release covers the planner: the same block three times in a row releases its stop unverified with a `state/stuck/plan-sprintN.<agent>` marker the supervisor acts on (a re-dispatch is a new agent id and starts over). A direct call (the supervisor's own check, `selfcheck`) is logged as a self-check and never releases. Reason: live e2e run 19's re-planning planner was blocked 9 times on one unchanged reason, none counted. Test: `scripts/test/planner-stuck.test.py`.
 
+- `run-summary` reports `selfcheck_blocks`, the blocks a worker's own `selfcheck` caught before stopping (they never reach the supervisor), beside `gate_blocks`. All 3 of live run 27's blocks were such catches. Test: `scripts/test/evidence.test.py`.
+
 ### Fixed
 - SKILL.md's data-plane tree drew `sprintN/` under `.aladdin/` (the run-data dir); it is now under
   `docs/agents/`, and `.aladdin/` is drawn as run data only (live run 24's haiku supervisor put the
@@ -58,6 +60,7 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   `#[cfg(not(test))]`, run by `selfcheck final-gate`), not an open-ended list; an `#[allow(dead_code)]`
   in `tests/common/` is not a suppression (live run 22: the persona failed the sprint on it and cost a
   GREEN re-dispatch). Test: `scripts/test/suppression-contract.test.py`; eval: final-gate #4.
+- RED, GREEN and SCAFFOLD worker prompts now give the finish order explicitly: append the `output.md` block, commit, then run `selfcheck`. The old text named the commit and the block-first rule in two separate sentences, and in live run 27 two scaffolders ran `selfcheck` before committing. Test: `scripts/test/dispatch.test.py`.
 - Planner persona: a later task's RED tests must fail against what the earlier tasks leave on main, not only the empty tree (live run 19: three of T2's tests passed against T1's placeholder, costing a re-plan).
 - `targets check` no longer rejects a `create` change whose file already exists **and defines its planned symbol**: that change has shipped. A mid-sprint re-plan re-runs the planner's stop gate over the whole plan, and live e2e run 19 blocked the planner 9 times on T1's merged `create tests/parse.rs` while its brief said not to touch T1. `target` now resolves such a change to `file:line`. Test: `scripts/test/semantic-targets.test.py`.
 

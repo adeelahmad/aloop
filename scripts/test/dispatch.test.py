@@ -139,4 +139,13 @@ r = subprocess.run([GATE], input=json.dumps(p), cwd=empty, env=ENV, capture_outp
 assert r.returncode == 0, r
 ok("a repo with no aloop state is not affected")
 
+# Every committing worker's prompt orders its finish: output.md block, commit, THEN selfcheck
+# (live run 27: all 3 blocks were self-checks run before the block or the commit).
+AGENTS = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "..", "plugin", "agents")
+for role in ("red-worker", "green-worker", "scaffolder"):
+    body = open(os.path.join(AGENTS, role + ".md")).read()
+    i = body.index("Finish in this order: append your `output.md` block")
+    assert i < body.index("git add -A && git commit", i) < body.index("THEN run `selfcheck`", i), role
+ok("red/green/scaffold prompts finish block, commit, then selfcheck")
+
 print("\n%d checks passed" % n)
