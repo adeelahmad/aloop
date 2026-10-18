@@ -9,8 +9,10 @@ gate log (<run-dir>/repo/.aladdin/logs/gates.jsonl, or .agentic/), writes
 row for docs/evidence/README.md. Numbers come from the harness, never from the model:
   cost_usd / supervisor_turns  the LAST `result` line (a resumed session reports again)
   wakes                        how many `result` lines: one per supervisor wake
-  plugin_reads                 sub-agent tool calls naming a plugin path, except
-                               `--schema <plugin>/schemas/…` (a legitimate md-db use)
+  plugin_reads                 sub-agent tool calls naming a plugin path, except a
+                               `<plugin>/schemas/…` file (md-db's schema: a legitimate use,
+                               also when bound to a shell variable first — run 19 counted 5
+                               such `SCH=…; md-db describe --schema "$SCH"` calls as reads)
   gate_verdicts / gate_blocks  lines in gates.jsonl / those with "exit":2
 Exit 0; a missing out.jsonl is a usage error (64)."""
 import json
@@ -37,7 +39,7 @@ def main():
     if not os.path.isfile(out):
         print("run-summary: no out.jsonl in %s" % run, file=sys.stderr); return 64
     plugin = os.path.abspath(arg("--plugin") or os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
-    pat = re.compile(r"--schema[= ]+" + re.escape(plugin) + r"/schemas/\S*")
+    pat = re.compile(re.escape(plugin) + r"/schemas/\S*")
     cost = turns = wakes = reads = 0
     secs = arg("--secs")
     for l in open(out):

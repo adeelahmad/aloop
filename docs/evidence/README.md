@@ -23,10 +23,12 @@ stories). What each run found and fixed is in ROADMAP M0.8.
 | run 16 | wordfreq | v0.11.x (master, 2026-10-18) | 12/13 | 13m04s | $0.79 | 4 | 4 | 9 | `make e2e-live YES=1 INTENT=wordfreq` |
 | run 17 | wordfreq | v0.11.x (master, 2026-10-18) | 13/13 | 12m58s | $0.95 | 2 | 0 | 6 | `make e2e-live YES=1 INTENT=wordfreq` |
 | run 18 | wordfreq | v0.12.0 (fd1fd31) | 13/13 | 21m21s | $1.03 | 6 | 2 | 6 | `make e2e-live YES=1 INTENT=wordfreq` |
-| run 19 | wordfreq | v0.12.0 + #29 (b93e6fd) | 13/13 | 15m24s | $1.01 | 1 | 5 | 3 | `make e2e-live YES=1 INTENT=wordfreq` |
+| run 19 | wordfreq | v0.12.0 + #29 (b93e6fd) | 13/13 | 15m24s | $1.01 | 1 | 0 | 3 | `make e2e-live YES=1 INTENT=wordfreq` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
 context; the main cost driver); *plugin reads* are sub-agent tool calls into the plugin's own
 source; *gate blocks* are `exit 2` verdicts in the run's `gates.jsonl` (host hooks and
 self-checks). A dash means the run predates that counter.
+Run 19's reads were first reported as 5: all five were the planner's `md-db describe --schema` on
+the plugin's schemas through a shell variable, which the counter now recognises as schema use.
