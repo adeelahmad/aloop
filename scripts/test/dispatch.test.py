@@ -110,6 +110,22 @@ r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.", model="haiku")
 assert r.returncode == 2 and "sonnet" in r.stderr, r
 ok("the resolved model (pinned id or route, by family) is accepted; a cheaper-than-confirmed pick is denied too")
 
+# The sprint lives in docs/agents/sprintN/, never in the run-data dir (live e2e run 24: a haiku
+# supervisor planned and built the whole sprint under .aladdin/sprint1/, which is git-ignored and
+# never committed; no gate noticed, and the run's planning checks found no sprint at all).
+open(os.path.join(T, "docs", "agents", "defaults.md"), "w").write(
+    "---\ntype: agentic-defaults\n---\n```conf\nAGENTIC_MODEL_PLANNING=haiku\nAGENTIC_MODEL_WORKER=haiku\n```\n")
+for home in (".aladdin", ".agentic"):
+    hidden = os.path.join(T, home, "sprint1", "s1-01-x")
+    os.makedirs(hidden, exist_ok=True)
+    open(contract, "w").write("TASK_ID=S1-01-T1\nSTORY_DIR=%s\n" % hidden)
+    r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.")
+    assert r.returncode == 2 and "docs/agents/sprint" in r.stderr and home in r.stderr, (home, r)
+open(contract, "w").write("TASK_ID=S1-01-T1\nSTORY_DIR=%s\n" % story)
+r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.")
+assert r.returncode == 0, r
+ok("a STORY_DIR inside the run-data dir (.aladdin/, .agentic/) is denied with the docs/agents/sprintN/ path")
+
 r = run("aloop:green-worker", "TASK_ID: S1-09-T9\nDo GREEN.", agent_type="aloop:planner")
 assert r.returncode == 0, r
 ok("a sub-agent's own Agent calls are not this gate's business")

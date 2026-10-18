@@ -69,6 +69,15 @@ fi
 # reviewer's contract had none, since a per-wave review has no single story). A whole-wave review
 # uses the sprint dir, whose init.md/output.md carry its dispatch and report blocks.
 sd="$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?STORY_DIR=["'"'"']?([^"'"'"'#]*[^"'"'"'#[:space:]])["'"'"']?[[:space:]]*(#.*)?$/\2/p' "$contract" | tail -1)"
+case "/$sd/" in
+  */.aladdin/*|*/.agentic/*)
+    # The comms live with the plan in docs/agents/sprintN/ (live e2e run 24: a haiku supervisor
+    # put the whole sprint under .aladdin/sprint1/, git-ignored and never committed).
+    _home="$(printf '%s' "/$sd/" | grep -oE '/\.(aladdin|agentic)/' | head -1 | tr -d /)"
+    echo "BLOCK[$GATE_NAME]: STORY_DIR=$sd is in the run-data dir $_home/, which is git-ignored and never committed:" >&2
+    echo "  the sprint and its story dirs live in docs/agents/sprintN/ (\`aloop layout show\`); move the sprint there and point STORY_DIR at it." >&2
+    exit 2 ;;
+esac
 if [ -z "$sd" ] || [ ! -d "$sd" ]; then
   echo "BLOCK[$GATE_NAME]: the task contract $contract must set STORY_DIR to an existing dir${sd:+ (STORY_DIR=$sd does not exist)}:" >&2
   echo "  the ABSOLUTE path of the story's comms dir, docs/agents/sprintN/sN-NN-<slug>/ (holds init.md + output.md)." >&2

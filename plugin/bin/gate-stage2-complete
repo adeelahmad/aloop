@@ -16,7 +16,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 sprint_dir="${1:-${SPRINT_DIR:-}}"
 if [ -z "$sprint_dir" ]; then
-  sprint_dir="$(find . -maxdepth 5 -type d -name 'sprint*' 2>/dev/null | sort | tail -1)"
+  # The layout's place first (docs/agents/sprintN/); anywhere else is found only to be refused below.
+  sprint_dir="$(find ./docs/agents -maxdepth 1 -type d -name 'sprint*' 2>/dev/null | sort -V | tail -1)"
+  [ -n "$sprint_dir" ] || sprint_dir="$(find . -maxdepth 5 -type d -name 'sprint*' 2>/dev/null | sort | tail -1)"
 fi
 if [ -z "$sprint_dir" ] || [ ! -d "$sprint_dir" ]; then
   echo "WARN[$GATE_NAME]: no sprint dir found; stage-2 check skipped (weaker)" >&2; exit 0
@@ -30,6 +32,15 @@ if [ -z "${TASK_ID:-}" ] && [ -n "$GATE_PAYLOAD" ]; then
     export TASK_ID="plan-$(basename "$sprint_dir")" ATTEMPT="${ATTEMPT:-$(printf '%s' "$_aid" | tr -c 'A-Za-z0-9_-' '_')}"
   fi
 fi
+
+# 0) The sprint lives in docs/agents/sprintN/ (bin/_paths.sh), never in the run-data dir, which
+# is git-ignored and never committed (live e2e run 24: a haiku supervisor had the whole sprint
+# planned and built under .aladdin/sprint1/ and this gate passed it).
+case "/$(cd "$sprint_dir" && pwd -P)/" in
+  */.aladdin/*|*/.agentic/*)
+    _home="$(printf '%s' "/$(cd "$sprint_dir" && pwd -P)/" | grep -oE '/\.(aladdin|agentic)/' | head -1 | tr -d /)"
+    fail "the sprint is in the run-data dir $_home/ ($sprint_dir), which is git-ignored and never committed: plan it in docs/agents/$(basename "$sprint_dir")/ (\`aloop layout show\` prints the layout): mv '$sprint_dir' docs/agents/" ;;
+esac
 
 # 1) No TBW placeholders anywhere.
 if grep -rl 'TBW' "$sprint_dir" >/dev/null 2>&1; then

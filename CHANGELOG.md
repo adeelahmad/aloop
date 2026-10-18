@@ -46,8 +46,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ### Fixed
 - The comms gate's "latest output.md block is not from '<role>'" block now says how to append the
-  report from a worktree (`cat >> … <<'EOF'`), like the missing-block one (live run 24: a GREEN worker
+  report from a worktree (`cat >> … <<'EOF'`), like the missing-block one (live run 25: a GREEN worker
   refused by the Write tool stopped three times on it and hit the stuck release). Conformance case.
+- `gate-stage2-complete` and `gate-dispatch` refuse a sprint (or a `STORY_DIR`) inside the run-data dir (`.aladdin/`, `.agentic/`) and name `docs/agents/sprintN/`; with no argument the stage-2 gate looks in `docs/agents/` first. Reason: live run 24 (a haiku-supervisor experiment) planned and built the whole sprint under `.aladdin/sprint1/`, which is git-ignored and never committed, and every gate passed it. Tests: `scripts/test/planner-stuck.test.py`, `scripts/test/dispatch.test.py`.
 - Final-gate persona: the suppression check is the gate's (`#[ignore]`, `.skip(`, `xit(`,
   `#[cfg(not(test))]`, run by `selfcheck final-gate`), not an open-ended list; an `#[allow(dead_code)]`
   in `tests/common/` is not a suppression (live run 22: the persona failed the sprint on it and cost a

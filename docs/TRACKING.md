@@ -53,3 +53,4 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.11 | Evidence: every public claim links to a reproducible measured run (`docs/evidence/README.md`, `run-summary`) | IMPLEMENTED_TESTED | `scripts/test/evidence.test.py` |
 | 7 | The final-gate persona's suppression check is the gate's (`assert_no_suppression`), never its own list | IMPLEMENTED_TESTED | `scripts/test/suppression-contract.test.py` |
 | 4.11 | The north-star run reproducible on every host (`e2e-live.sh --host codex|opencode`: host install + headless CLI, same checks) | IMPLEMENTED_TESTED | `scripts/test/e2e-live-hosts.test.py` (measured Codex/OpenCode rows still pending: no CLIs here) |
+| 7 | The sprint and every STORY_DIR live in `docs/agents/sprintN/`, never in the git-ignored run-data dir (`gate-stage2-complete`, `gate-dispatch`) | IMPLEMENTED_TESTED | `scripts/test/planner-stuck.test.py`, `scripts/test/dispatch.test.py` |
