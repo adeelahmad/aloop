@@ -49,6 +49,14 @@ hard; 150k / 20 min soft — see `docs/agents/defaults.md`). A worker still runn
 the hard limit is STOPPED by the hook and the task comes back to you to split — never retried.
 So size each task so one worker can do its RED or its GREEN well inside the soft
 limit: a handful of tests, one or two files, one behaviour. When in doubt, split.
+A later task's RED tests must fail against what the EARLIER tasks leave on main, not only
+against the empty tree: `gate-red-verify` requires every new test to fail by assertion, so
+a task whose planned tests already pass against the previous task's skeleton (a placeholder
+that maps every non-success to one error variant, a default where a `todo!()` was) cannot be
+RED and costs a mid-sprint re-plan (live run 19: three of T2's tests passed against T1's
+placeholder). Plan each later task's tests around behaviour the earlier task's contract does
+not provide, and state in the earlier task's summary what its skeleton returns for inputs
+outside its scope, so the later tests can assert something it gets wrong.
 If defaults.md sets `AGENTIC_TIME_MODE=auto`, propose ONE stable task duration for the
 project (with a min and a max) to the supervisor, who records it with `timebox propose`;
 ask for a revision only with evidence (a stats.md, an event id).

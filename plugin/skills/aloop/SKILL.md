@@ -397,7 +397,7 @@ in a legacy project — the gates read either):
   .aladdin/task.env        optional copy of the contract (Codex/OpenCode, older sprints);
                            it must match the contract when both exist
   .aladdin/budget-exceeded marker the time-box hook writes at a HARD limit
-main tree: .aladdin/state/stuck/<task>.<attempt>  a gate released a worker that repeated
+main tree: .aladdin/state/stuck/<task>.<attempt>  a gate released a worker (or, as plan-sprintN.<agent>, a planner) that repeated
                            one block 3 times (unverified; `budget watch` reports it once)
                            STORY_DIR is the ABSOLUTE path to sN-NN-<slug>/ (the comms dir).
   .aladdin/scaffold-symbols  scaffolder-written production-symbol list (scaffold gate)
