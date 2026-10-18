@@ -13,7 +13,11 @@ matrix is green with zero suppressions and every plan-ready.md fully ticked.
 
 ## Mandate
 - Run the full cross-cutting gate matrix from standards.md, zero exceptions.
-- Grep the workspace for every suppression pattern; confirm the count is zero.
+- Zero test suppressions, as the gate defines them: `#[ignore]`, `.skip(`, `xit(`,
+  `#[cfg(not(test))]`. `selfcheck final-gate` runs that check; its verdict is the answer.
+  Do not fail the sprint on any other pattern: an `#[allow(dead_code)]` in `tests/common/`
+  (shared test helpers each test crate uses only part of) is not a suppression. Note any
+  other lint `allow` you see in `src/` in your report for the retrospective.
 - Walk every story's plan-ready.md; confirm every checkbox is [x].
 
 ## Tools

@@ -23,7 +23,7 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
-- `gate-dispatch` now refuses a dispatch of any aloop role whose `model` is not the project's confirmed one (`aloop models resolve <role>`, matched by model family so `haiku` and `claude-haiku-5-5` agree), or that passes no model (which would fall back to the agent file's default, opus for the planning roles). Reason: live e2e run 20 dispatched planners on opus and workers on sonnet against a project whose defaults.md said haiku for both, and cost $2.79 instead of $0.99 for the same 12/12 result. Test: `scripts/test/dispatch.test.py`. Live run 21 with the gate: 12/12, 8m17s, $0.66, every dispatch on haiku Run 22 on the two-story `wordfreq` intent: 13/13, 10m58s, $0.76, 0 gate blocks (ledger rows for runs 20–22 in `docs/evidence/README.md`).
+- `gate-dispatch` now refuses a dispatch of any aloop role whose `model` is not the project's confirmed one (`aloop models resolve <role>`, matched by model family so `haiku` and `claude-haiku-5-5` agree), or that passes no model (which would fall back to the agent file's default, opus for the planning roles). Reason: live e2e run 20 dispatched planners on opus and workers on sonnet against a project whose defaults.md said haiku for both, and cost $2.79 instead of $0.99 for the same 12/12 result. Test: `scripts/test/dispatch.test.py`. Live run 21 with the gate: 12/12, 8m17s, $0.66, every dispatch on haiku Run 23 on the two-story `wordfreq` intent: 13/13, 10m58s, $0.76, 0 gate blocks (ledger rows for runs 20–23 in `docs/evidence/README.md`).
 - Evidence ledger (ROADMAP §4.11): `docs/evidence/README.md` lists every live run behind a public
   number (intent, plugin version, checks, wall, cost, wakes, plugin reads, gate blocks, reproduce
   command); `bin/run-summary <run-dir>` writes a run's `summary.json`, `summary.md` and ledger row from
@@ -45,6 +45,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - The planner's stop gate (`gate-stage2-complete` on SubagentStop) now logs its verdicts to `gates.jsonl` and the event stream like every other gate, and the stuck release covers the planner: the same block three times in a row releases its stop unverified with a `state/stuck/plan-sprintN.<agent>` marker the supervisor acts on (a re-dispatch is a new agent id and starts over). A direct call (the supervisor's own check, `selfcheck`) is logged as a self-check and never releases. Reason: live e2e run 19's re-planning planner was blocked 9 times on one unchanged reason, none counted. Test: `scripts/test/planner-stuck.test.py`.
 
 ### Fixed
+- Final-gate persona: the suppression check is the gate's (`#[ignore]`, `.skip(`, `xit(`,
+  `#[cfg(not(test))]`, run by `selfcheck final-gate`), not an open-ended list; an `#[allow(dead_code)]`
+  in `tests/common/` is not a suppression (live run 22: the persona failed the sprint on it and cost a
+  GREEN re-dispatch). Test: `scripts/test/suppression-contract.test.py`; eval: final-gate #4.
 - Planner persona: a later task's RED tests must fail against what the earlier tasks leave on main, not only the empty tree (live run 19: three of T2's tests passed against T1's placeholder, costing a re-plan).
 - `targets check` no longer rejects a `create` change whose file already exists **and defines its planned symbol**: that change has shipped. A mid-sprint re-plan re-runs the planner's stop gate over the whole plan, and live e2e run 19 blocked the planner 9 times on T1's merged `create tests/parse.rs` while its brief said not to touch T1. `target` now resolves such a change to `file:line`. Test: `scripts/test/semantic-targets.test.py`.
 
