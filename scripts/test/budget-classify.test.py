@@ -91,7 +91,7 @@ sh("git", "commit", "-q", "--allow-empty", "-m", "init")
 story = os.path.join(T, "docs", "agents", "sprint1", "s1-01-x")
 os.makedirs(story)
 wt = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T1")
-open(os.path.join(wt, ".agentic", "task.env"), "w").write(
+open(os.path.join(wt, ".aladdin", "task.env"), "w").write(
     "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBUDGET_TOKENS_HARD=20000\n" % story)
 sub = os.path.join(T, "cc", "sess", "subagents", "agent-w1.jsonl")
 os.makedirs(os.path.dirname(sub))

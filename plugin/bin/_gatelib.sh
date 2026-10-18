@@ -136,7 +136,7 @@ _gate_enter_bound_worktree
 # `isolation: "worktree"` creates the worktree (.claude/worktrees/agent-<id>) at dispatch, so
 # no one can pre-write a task.env inside it. The host records the dispatch prompt in the
 # sub-agent transcript (SubagentStop's agent_transcript_path), so the task id comes from the
-# host, not from the worker. A worktree .agentic/task.env (Codex/OpenCode, older sprints) is
+# host, not from the worker. A worktree task.env copy (.aladdin/ or .agentic/; Codex/OpenCode, older sprints) is
 # only a hint: when the contract exists, any key the copy sets must match it, or the gate
 # blocks; with no contract the copy is the contract, as before.
 #
@@ -176,7 +176,7 @@ _task_env_get() {
 }
 load_task_env() {
   local te contract="" tid k v cv
-  te="$(repo_dir)/.agentic/task.env"
+  te="$(agentic_marker "$(repo_dir)" task.env)" || true
   # Which task: the host's dispatch prompt, else the task worktree's own name
   # (.agentic/worktrees/<TASK_ID>, made by `aloop task-worktree add`), else the copy's hint.
   tid="$(_host_task_id)"
@@ -190,12 +190,12 @@ load_task_env() {
   # contract; bin/budget refreshes the copy on the worker's next tool call), not tampering:
   # a worker's edit makes the copy newer. Only a copy at least as new is compared.
   if [ -n "$contract" ] && [ -f "$te" ] && [ "$te" -ot "$contract" ]; then
-    note "the worktree's .agentic/task.env is older than the contract $contract; using the contract"
+    note "the worktree's task.env copy ($te) is older than the contract $contract; using the contract"
   elif [ -n "$contract" ]; then
     while IFS=$'\t' read -r k v; do
       cv="$(_task_env_get "$contract" "$k")" || cv=""
       if [ "$cv" != "$v" ]; then
-        fail "the worktree's .agentic/task.env disagrees with the supervisor's contract on $k ('$v' vs '$cv' in $contract). The contract is the supervisor's: do not edit it."
+        fail "the worktree's task.env copy ($te) disagrees with the supervisor's contract on $k ('$v' vs '$cv' in $contract). The contract is the supervisor's: do not edit it."
       fi
     done < <(_task_env_kv "$te")
   fi
@@ -237,7 +237,7 @@ _gate_bind_role
 # the supervisor never merges it, and the task goes to a mid-sprint re-plan. (A worker
 # forging the marker gains nothing: the only outcome is its task being re-planned.)
 budget_release() {
-  local m; m="$(repo_dir)/.agentic/budget-exceeded"
+  local m; m="$(agentic_marker "$(repo_dir)" budget-exceeded)" || return 0
   [ -f "$m" ] || return 0
   case "${AGENT_ROLE:-}" in red-worker|scaffolder|green-worker) ;; *) return 0 ;; esac
   grep -q "role=${AGENT_ROLE} attempt=${ATTEMPT:-}" "$m" 2>/dev/null || return 0

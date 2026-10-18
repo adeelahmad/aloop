@@ -32,8 +32,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   git-ignored. Every `AGENTIC_<KEY>` env var and settings key accepts `ALADDIN_<KEY>`
   (`AGENTIC_` wins when both are set). The gates and `budget` find the task contract in
   either dir, so a supervisor that writes the old literal path is still understood. The
-  worktree-local markers (`.agentic/task.env`, `budget-exceeded`, `scaffold-symbols`) keep
-  their name for now. Test: `scripts/test/layout.test.py`; every suite runs on the new layout.
+  worktree-local markers (`task.env` copy, `budget-exceeded`, `scaffold-symbols`) move with
+  it: written to the worker worktree's `.aladdin/` (guarded), read from `.agentic/` too.
+  Test: `scripts/test/layout.test.py`; every suite runs on the new layout.
 - **Workers append their `output.md` block before `selfcheck`** (RED/SCAFFOLD/GREEN personas,
   agents and pipeline sources). Reason: the soft-limit line said "run selfcheck, append your
   report", so workers self-checked first and were blocked for a missing report block: 4 of

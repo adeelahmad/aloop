@@ -82,7 +82,7 @@ await hooks["chat.message"]({ sessionID: "child", agent: "red-worker" }, { messa
 await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "4" }, { args: { command: "ls" } }),
   /bind your worktree first/, "unbound worker is refused")
 const wt = sh(join(BIN, "task-worktree"), ["add", "S1-01-T1"]).trim()
-writeFileSync(join(wt, ".agentic/task.env"), `TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=${join(T, "docs/agents/sprint1/s1-01-x")}\n`)
+writeFileSync(join(wt, ".aladdin/task.env"), `TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=${join(T, "docs/agents/sprint1/s1-01-x")}\n`)
 await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "5" }, { args: { command: `aloop bind ${wt}` } })
 const bashArgs = { command: "cargo test" }
 await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "6" }, { args: bashArgs })
@@ -121,7 +121,7 @@ const taskOut = { title: "", output: "worker done", metadata: { sessionId: "chil
 await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "12", args: {} }, taskOut)
 // the budget-exceeded marker releases the gate (a stopped worker is not trapped) — so no block:
 assert.ok(!/BLOCKED/.test(taskOut.output)); ok("budget-stopped worker is released by its gate")
-execFileSync("rm", ["-f", join(wt, ".agentic/budget-exceeded")])
+execFileSync("rm", ["-f", join(wt, ".aladdin/budget-exceeded")])
 const taskOut2 = { title: "", output: "worker done", metadata: { sessionId: "child" } }
 let before = calls.prompt.length
 await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "13", args: {} }, taskOut2)

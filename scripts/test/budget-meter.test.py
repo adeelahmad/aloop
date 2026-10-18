@@ -64,7 +64,7 @@ os.makedirs(story)
 
 def worktree(task, extra=""):
     wt = sh(os.path.join(BIN, "task-worktree"), "add", task)
-    open(os.path.join(wt, ".agentic", "task.env"), "w").write(
+    open(os.path.join(wt, ".aladdin", "task.env"), "w").write(
         "TASK_ID=%s\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\n%s" % (task, story, extra))
     return wt
 

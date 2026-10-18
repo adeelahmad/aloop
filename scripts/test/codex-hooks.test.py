@@ -130,7 +130,7 @@ assert os.path.isfile(os.path.join(T, ".aladdin/state/agents/th-red.json")); ok(
 assert denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "ls"})))
 ok("unbound worker's shell command is refused")
 wt = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T1")
-open(os.path.join(wt, ".agentic/task.env"), "w").write(
+open(os.path.join(wt, ".aladdin/task.env"), "w").write(
     "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=%s\n" % os.path.join(T, "docs/agents/sprint1/s1-01-x"))
 assert not denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "aloop bind " + wt}))); ok("`aloop bind` allowed")
 assert denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "cargo test"}))); ok("command outside the worktree refused")
@@ -156,7 +156,7 @@ assert any('"continue": false' in so for _, so, _ in r); ok("hard limit: 3 refus
 # SubagentStop from the MAIN cwd: the gate runs in the bound worktree and releases a stopped worker
 r = fire("SubagentStop", dict(worker, agent_transcript_path="", last_assistant_message="done", stop_hook_active=False))
 assert not any(c == 2 for c, _, _ in r); ok("budget-stopped worker released by its gate (from the bound worktree)")
-os.remove(os.path.join(wt, ".agentic/budget-exceeded"))
+os.remove(os.path.join(wt, ".aladdin/budget-exceeded"))
 r = fire("SubagentStop", dict(worker, agent_transcript_path="", last_assistant_message="done", stop_hook_active=False))
 blocks = [se for c, _, se in r if c == 2]
 assert blocks and "init.md" in blocks[0] and "s1-01-x" in blocks[0]; ok("SubagentStop gate blocks with the worker's own STORY_DIR (task.env read in its worktree)")

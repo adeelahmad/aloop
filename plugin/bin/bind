@@ -2,7 +2,7 @@
 # bind — a worker's FIRST command on Codex / OpenCode:   aloop bind <worktree>
 #
 # Validates that <worktree> is a linked git worktree carrying this task's
-# .agentic/task.env. The binding itself is recorded by the host-adapter hook, which
+# task.env copy (.aladdin/ or .agentic/). The binding itself is recorded by the host-adapter hook, which
 # sees this command together with the worker's agent id; from then on every shell
 # command and file edit of that worker is confined to <worktree>, and its gates run
 # there. (On Claude Code the Agent tool's isolation: "worktree" does this natively;
@@ -12,6 +12,7 @@ wt="${1:-}"
 [ -n "$wt" ] || { echo "bind: usage: aloop bind <absolute worktree path>" >&2; exit 64; }
 case "$wt" in /*) ;; *) echo "bind: the path must be absolute" >&2; exit 64 ;; esac
 [ -f "$wt/.git" ] || { echo "bind: $wt is not a linked git worktree (create it with: aloop task-worktree add <TASK_ID>)" >&2; exit 2; }
-[ -f "$wt/.agentic/task.env" ] || { echo "bind: $wt/.agentic/task.env missing — the supervisor writes it before dispatch" >&2; exit 2; }
-echo "bound: $wt ($(grep -E '^(TASK_ID|AGENT_ROLE|ATTEMPT)=' "$wt/.agentic/task.env" | tr '\n' ' '))"
+te=""; for h in .aladdin .agentic; do [ -f "$wt/$h/task.env" ] && { te="$wt/$h/task.env"; break; }; done
+[ -n "$te" ] || { echo "bind: $wt/.aladdin/task.env missing — the supervisor writes it before dispatch (aloop task-worktree add)" >&2; exit 2; }
+echo "bound: $wt ($(grep -E '^(TASK_ID|AGENT_ROLE|ATTEMPT)=' "$te" | tr '\n' ' '))"
 echo "Run EVERY shell command as:  cd $wt && <command>   and use absolute paths under $wt for every file edit."

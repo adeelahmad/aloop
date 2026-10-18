@@ -392,14 +392,15 @@ main tree (git-ignored):
                            read this. (Store paths are fixed — never put paths for logs or
                            transcripts in here.)
 
-per worktree (transient, git-ignored, removed on stop):
-  .agentic/task.env        optional copy of the contract (Codex/OpenCode, older sprints);
+per worktree (transient, git-ignored, removed on stop; .aladdin/ here too, or .agentic/
+in a legacy project — the gates read either):
+  .aladdin/task.env        optional copy of the contract (Codex/OpenCode, older sprints);
                            it must match the contract when both exist
-  .agentic/budget-exceeded marker the time-box hook writes at a HARD limit
+  .aladdin/budget-exceeded marker the time-box hook writes at a HARD limit
 main tree: .aladdin/state/stuck/<task>.<attempt>  a gate released a worker that repeated
                            one block 3 times (unverified; `budget watch` reports it once)
                            STORY_DIR is the ABSOLUTE path to sN-NN-<slug>/ (the comms dir).
-  .agentic/scaffold-symbols  scaffolder-written production-symbol list (scaffold gate)
+  .aladdin/scaffold-symbols  scaffolder-written production-symbol list (scaffold gate)
   .transcripts/            READ-ONLY task transcript staged in for the worker
 ```
 
@@ -468,7 +469,7 @@ call, SubagentStop) measures the worker from its own transcript and
   the harness appends the attempt's output.md block (`status: re-plan`, limits, worktree
   diff, transcript path) and records `task.token_hard_limit` / `task.time_hard_timeout`.
   No model decides the kill, and no model tokens are spent after it. It also writes
-  `.agentic/budget-exceeded`, so the worker's SubagentStop gate releases it *unverified*.
+  `.aladdin/budget-exceeded` in the worktree, so the worker's SubagentStop gate releases it *unverified*.
 
 Every **other** model role (intake, standards, planner, archivist, structural-reviewer,
 final-gate) is metered too, against its own profile (planning roles 300k/600k tokens,
@@ -618,12 +619,12 @@ before GREEN).
   tests reference, create the canonical stub **once** (signature inferred from the
   test call; body = `panic("SUB-AGENT-TODO: <recipe>")`). Delete the marked shim
   files (`// agentic:shim`) and write the stubbed production symbols, one per line, to
-  `.agentic/scaffold-symbols`. Append each create/update/delete to its `output.md` block
+  `.aladdin/scaffold-symbols` in the worktree. Append each create/update/delete to its `output.md` block
   (under `### Scaffold`) and to `execution.log`.
 - **Idempotent**: stub only symbols that do not yet exist; NEVER clobber a symbol
   that already has a real (non-panic) body from an earlier wave's GREEN.
 - SubagentStop → `gate-scaffold-verify`: each referenced symbol defined **exactly
-  once** (`ctx-symbols count == 1` over `.agentic/scaffold-symbols`), every new body
+  once** (`ctx-symbols count == 1` over `.aladdin/scaffold-symbols`), every new body
   is `panic+TODO` (a real body where a stub belongs → reject), no marked shim
   (`// agentic:shim`) remains, no clobber.
 
@@ -852,8 +853,8 @@ Before each dispatch, write the contract in the MAIN tree's run-data dir, i.e.
 `.aladdin/state/tasks/<TASK_ID>.env` (`.agentic/state/tasks/...` in a legacy project; `aloop
 layout show` prints the dir, and the gates search both), with `TASK_ID`, `ATTEMPT`, `AGENT_ROLE`, `STORY_DIR`
 (absolute path to the story dir — where `validate_comms` reads init.md/output.md),
-`SCOPE_GLOBS` (GREEN diff-scope), `SCAFFOLD_SYMBOLS` (or write
-`.agentic/scaffold-symbols`), `BASE_REF` (diff base), and the four `BUDGET_*` lines printed by
+`SCOPE_GLOBS` (GREEN diff-scope), `SCAFFOLD_SYMBOLS` (or the scaffolder writes
+`.aladdin/scaffold-symbols` in its worktree), `BASE_REF` (diff base), and the four `BUDGET_*` lines printed by
 `budget resolve --tasks <STORY_DIR>/tasks.md --task Tn`. Then make the dispatch prompt's
 FIRST line `TASK_ID: <TASK_ID>`. (`gate-dispatch` refuses an execution dispatch without that line or before the contract exists.) Write plain `KEY=value` lines (quotes allowed, lists space- or comma-separated, no `$VAR`
 expansion, no commands): the gate library PARSES the contract keys and ignores everything else.
@@ -862,8 +863,9 @@ Why the main tree: on Claude Code `isolation: "worktree"` creates the worktree
 (`.claude/worktrees/agent-<id>`) at dispatch, so there is no worktree to write into
 beforehand. The gates and the time box find the contract from the `TASK_ID` line the host
 records in the worker's transcript, and a worker may not write `<run-data>/state/` or
-`.agentic/task.env` (`gate-supervisor-scope`). A worktree `.agentic/task.env` (Codex/OpenCode
-worktrees from `aloop task-worktree add`, older sprints) still works; once the contract
+its worktree's `task.env` copy (`gate-supervisor-scope`). A worktree `.aladdin/task.env`
+(`.agentic/task.env` in a legacy project; Codex/OpenCode worktrees from `aloop task-worktree
+add`, older sprints) still works; once the contract
 exists, any key the copy sets must match it or the gate blocks.
 
 ## Reference
