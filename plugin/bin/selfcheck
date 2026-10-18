@@ -2,15 +2,19 @@
 # selfcheck — run THIS activity's gate as a pre-flight check, BEFORE you report done.
 # It runs the exact script the SubagentStop hook will run, so a PASS here means the
 # hook will pass too. Run it, read the reason, fix, re-run until PASS.
-#   selfcheck [role]       role defaults to $AGENT_ROLE (from .agentic/task.env)
+#   selfcheck [role]       role defaults to $AGENT_ROLE (from the worktree's task.env copy)
 #   selfcheck --help
 # EXIT: 0 = PASS (safe to report done) · 2 = FAIL (fix and re-run) · 64 = unknown role
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # AGENT_ROLE from task.env: parsed, never sourced (the worker can edit that file).
-if [ -z "${AGENT_ROLE:-}" ] && [ -f "$top/.agentic/task.env" ]; then
-  AGENT_ROLE="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?AGENT_ROLE=['\"]?([A-Za-z-]*)['\"]?[[:space:]]*$/\2/p" "$top/.agentic/task.env" | tail -1)"
+if [ -z "${AGENT_ROLE:-}" ]; then
+  for te in "$top/.aladdin/task.env" "$top/.agentic/task.env"; do
+    [ -f "$te" ] || continue
+    AGENT_ROLE="$(sed -nE "s/^[[:space:]]*(export[[:space:]]+)?AGENT_ROLE=['\"]?([A-Za-z-]*)['\"]?[[:space:]]*$/\2/p" "$te" | tail -1)"
+    break
+  done
 fi
 
 case "${1:-}" in

@@ -29,11 +29,11 @@ def sh(*args, cwd=T, inp=None):
 
 
 def state(agent):
-    return json.load(open(os.path.join(T, ".agentic", "budget", agent + ".json")))
+    return json.load(open(os.path.join(T, ".aladdin", "budget", agent + ".json")))
 
 
 def events(agent):
-    p = os.path.join(T, ".agentic", "logs", "events.jsonl")
+    p = os.path.join(T, ".aladdin", "logs", "events.jsonl")
     return [json.loads(l)["event"] for l in open(p) if json.loads(l)["agent_id"] == agent] if os.path.exists(p) else []
 
 
@@ -84,5 +84,26 @@ assert b["TOKENS_HARD"] == 90000 and b["TIME_HARD_MIN"] == 15 and b["TIME_SOFT_M
 call("a1", "archivist", 1000, mode="stop")
 assert state("a1")["done"] and "observe" in sh(os.path.join(BIN, "budget"), "status")
 ok("AGENTIC_BUDGET_<ROLE> in defaults.md overrides the profile; stop marks it done")
+
+# 5) an observed role dispatched into a host worktree gets the contract copy too, so its own
+# `selfcheck` finds the task (live runs 15–17: every structural reviewer's first self-check
+# blocked "STORY_DIR unset" because only the three workers got the copy)
+wt = os.path.join(T, ".claude", "worktrees", "agent-r2")
+sh("git", "worktree", "add", "-q", "-b", "worktree-agent-r2", wt)
+os.makedirs(os.path.join(T, ".agentic", "state", "tasks"), exist_ok=True)
+story = os.path.join(T, "docs", "agents", "sprint1"); os.makedirs(story, exist_ok=True)
+open(os.path.join(T, ".agentic", "state", "tasks", "S1-SR-W1.env"), "w").write(
+    "TASK_ID=S1-SR-W1\nATTEMPT=1\nAGENT_ROLE=structural-reviewer\nSTORY_DIR=%s\n" % story)
+sub = os.path.join(T, "cc", "sess", "subagents", "agent-r2.jsonl"); os.makedirs(os.path.dirname(sub), exist_ok=True)
+open(sub, "w").write(json.dumps({"type": "user", "message": {"role": "user", "content": "TASK_ID: S1-SR-W1\nReview wave 1."}}) + "\n")
+payload = {"hook_event_name": "PreToolUse", "session_id": "sess", "transcript_path": os.path.join(T, "cc", "sess.jsonl"),
+           "cwd": wt, "agent_id": "r2", "agent_type": "agentic-agile:structural-reviewer", "tool_name": "Bash",
+           "tool_input": {"command": "selfcheck"}}
+assert sh(os.path.join(BIN, "budget"), "hook", "pre", inp=json.dumps(payload)) == ""
+copy = os.path.join(wt, ".agentic", "task.env")
+assert os.path.isfile(copy) and "TASK_ID=S1-SR-W1" in open(copy).read(), copy
+s = state("r2")
+assert s["observe"] and s["task"] == "S1-SR-W1" and s["story_dir"] == story and s["worktree"] == wt, s
+ok("an observed role in a host worktree gets the contract copy (selfcheck finds its task); state names the task")
 
 print("\n%d checks passed" % PASS[0])

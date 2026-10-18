@@ -178,7 +178,7 @@ def render(vals, who, rendered_from=None, extra=None):
     for k in ORDER:
         lines.append("- `AGENTIC_%s` — %s" % (k, EXPLAIN[k]))
     lines += ["", "## Layout (fixed — bin/_paths.sh)", "",
-              "- `.agentic/` — run data: transcripts, budget, token ledger, gate log, state. Always git-ignored.",
+              "- `.aladdin/` — run data: transcripts, budget, token ledger, gate log, state (legacy projects keep `.agentic/` until `aloop layout migrate`). Never committed: `.aladdin/.gitignore` keeps only config.yaml.",
               "- `docs/agents/` — planning docs, `defaults.md`, `NEXT.md` (orchestrator handoff), `sprintN/stats.md`.", ""]
     return "\n".join(lines)
 
@@ -235,7 +235,7 @@ def apply(cwd, pairs):
         if vals[key] and git(cwd, "config", cfg) != vals[key]:
             git(cwd, "config", "--local", cfg, vals[key])
             print("  git config --local %s %s" % (cfg, vals[key]))
-    _paths.home(cwd)                                 # create .agentic/ now that it is ignored
+    _paths.home(cwd)                                 # create the run-data dir (its own .gitignore guards .aladdin/)
     try:                                             # keep Codex / OpenCode agents in step
         import importlib.machinery
         import importlib.util

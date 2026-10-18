@@ -31,7 +31,7 @@ def sh(*args, cwd=T, inp=None):
 
 
 def state(agent):
-    return json.load(open(os.path.join(T, ".agentic", "budget", agent + ".json")))
+    return json.load(open(os.path.join(T, ".aladdin", "budget", agent + ".json")))
 
 
 # A cached session, the common shape: 10 calls, each re-reading a ~190k cached prefix.
@@ -64,7 +64,7 @@ os.makedirs(story)
 
 def worktree(task, extra=""):
     wt = sh(os.path.join(BIN, "task-worktree"), "add", task)
-    open(os.path.join(wt, ".agentic", "task.env"), "w").write(
+    open(os.path.join(wt, ".aladdin", "task.env"), "w").write(
         "TASK_ID=%s\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\n%s" % (task, story, extra))
     return wt
 

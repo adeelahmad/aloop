@@ -91,7 +91,7 @@ sh("git", "commit", "-q", "--allow-empty", "-m", "init")
 story = os.path.join(T, "docs", "agents", "sprint1", "s1-01-x")
 os.makedirs(story)
 wt = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T1")
-open(os.path.join(wt, ".agentic", "task.env"), "w").write(
+open(os.path.join(wt, ".aladdin", "task.env"), "w").write(
     "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBUDGET_TOKENS_HARD=20000\n" % story)
 sub = os.path.join(T, "cc", "sess", "subagents", "agent-w1.jsonl")
 os.makedirs(os.path.dirname(sub))
@@ -102,7 +102,7 @@ payload = {"hook_event_name": "PostToolUse", "session_id": "sess", "transcript_p
 assert '"continue": false' in sh(os.path.join(BIN, "budget"), "hook", "post", inp=json.dumps(payload))
 out = open(os.path.join(story, "output.md")).read()
 assert "| breach class | AGENT_LOOPING | the same Bash call repeated 8 of 8 times" in out, out
-ev = [json.loads(l) for l in open(os.path.join(T, ".agentic", "logs", "events.jsonl"))]
+ev = [json.loads(l) for l in open(os.path.join(T, ".aladdin", "logs", "events.jsonl"))]
 assert ev[-1]["event"] == "task.token_hard_limit" and ev[-1]["data"]["breach_class"] == "AGENT_LOOPING" and ev[-1]["schema"] == "aladdin.event/1", ev[-1]
 assert "AGENT_LOOPING" in sh(os.path.join(BIN, "budget"), "classify", "S1-01-T1")
 ok("hard stop: class + evidence in output.md, the event, and `budget classify`")

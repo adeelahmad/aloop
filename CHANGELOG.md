@@ -27,6 +27,18 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   order, every `aloop <tool>` / `aladdin <sub>` it names exists, the install lines name this
   repo's plugin and marketplace, every relative link resolves, and every demo time/cost figure
   is one ROADMAP §0 records. Reason: the README was the last §4.11 row without a test.
+- **Run data moves to `.aladdin/`** (ROADMAP M1). Fresh projects keep transcripts, budgets,
+  the ledger, logs, state, host records and task worktrees under `.aladdin/`, next to
+  `config.yaml`; `.aladdin/.gitignore` (written by the plugin) keeps everything but
+  `config.yaml` out of git. A project that already has `.agentic/` keeps using it until
+  `aloop layout migrate` moves it (refused while worker worktrees are live); `aloop layout
+  show` says which dir is live and `aloop layout check` fails unless the run data is
+  git-ignored. Every `AGENTIC_<KEY>` env var and settings key accepts `ALADDIN_<KEY>`
+  (`AGENTIC_` wins when both are set). The gates and `budget` find the task contract in
+  either dir, so a supervisor that writes the old literal path is still understood. The
+  worktree-local markers (`task.env` copy, `budget-exceeded`, `scaffold-symbols`) move with
+  it: written to the worker worktree's `.aladdin/` (guarded), read from `.agentic/` too.
+  Test: `scripts/test/layout.test.py`; every suite runs on the new layout.
 - **Workers append their `output.md` block before `selfcheck`** (RED/SCAFFOLD/GREEN personas,
   agents and pipeline sources). Reason: the soft-limit line said "run selfcheck, append your
   report", so workers self-checked first and were blocked for a missing report block: 4 of
@@ -297,6 +309,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- **Reviewers and the final gate get the task-contract copy in their host worktree** (`budget hook`).
+  Reason: only the three workers did, so every structural reviewer's first `selfcheck` on Claude
+  Code blocked "STORY_DIR unset" (runs 15–17: 2, 1 and 3 blocks) until it guessed the contract.
+  The observed role's state now names its task and story dir too.
 - The planner persona states `targets check`'s rules (`{"targets": [...]}`, `symbol` only for code
   that exists, `planned_symbol` with `create`/`extend` for new code), so its first `targets.json`
   passes (live runs 12–14: 2–3 blocks each).

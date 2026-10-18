@@ -21,13 +21,13 @@ have_ctx_symbols || warn "ctx-symbols absent; using grep fallback for uniqueness
 # 1) Resolve the symbol set: $SCAFFOLD_SYMBOLS, else parse `path::Sym` backticks
 #    from this story's plan-ready.md (the test call-sites name the prod symbols).
 # Symbol set = the PRODUCTION symbols the scaffolder stubbed. Source order:
-#   1) SCAFFOLD_SYMBOLS env (from .agentic/task.env)
-#   2) .agentic/scaffold-symbols (scaffolder-written, one symbol per line)
+#   1) SCAFFOLD_SYMBOLS env (from the task contract)
+#   2) <worktree>/.aladdin/scaffold-symbols, or .agentic/ (scaffolder-written, one symbol per line)
 # NOTE: plan-ready.md lists TEST paths (path::test_fn), NOT production symbols, so it is
 # NOT a valid source for this check (v0.2 fix).
 symbols="${SCAFFOLD_SYMBOLS:-}"
 if [ -z "$symbols" ]; then
-  sf="$root/.agentic/scaffold-symbols"
+  sf="$(agentic_marker "$root" scaffold-symbols)" || true
   if [ -f "$sf" ]; then
     # one symbol per line; anything after it on the line is a note ("Foo (enum) @ src/lib.rs")
     symbols="$(grep -vE '^[[:space:]]*(#|$)' "$sf" | awk '
@@ -38,7 +38,7 @@ if [ -z "$symbols" ]; then
 fi
 # keep only identifiers / paths (`Foo`, `crate::Foo`): punctuation is never a symbol
 symbols="$(printf '%s\n' $symbols | tr -d '`,' | grep -E '^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$' | sort -u)"
-[ -z "$symbols" ] && warn "no scaffold symbols resolved (set SCAFFOLD_SYMBOLS or write .agentic/scaffold-symbols); uniqueness check skipped"
+[ -z "$symbols" ] && warn "no scaffold symbols resolved (set SCAFFOLD_SYMBOLS or write .aladdin/scaffold-symbols in the worktree); uniqueness check skipped"
 
 # 2) Each symbol defined exactly once across the tree.
 for sym in $symbols; do

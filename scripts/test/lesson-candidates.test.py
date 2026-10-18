@@ -46,7 +46,7 @@ r = add("S1-01-T1")
 assert r.returncode == 0 and r.stdout.strip() == "L-001", r.stderr
 c = json.loads(open(os.path.join(DOCS, "lessons.jsonl")).readline())
 assert c["evidence_refs"] == ["ev_123", "sprint1/s1-01-x/output.md"] and c["task"] == "S1-01-T1", c
-ev = [json.loads(x) for x in open(os.path.join(T, ".agentic", "logs", "events.jsonl"))]
+ev = [json.loads(x) for x in open(os.path.join(T, ".aladdin", "logs", "events.jsonl"))]
 assert ev[-1]["event"] == "memory.candidate" and ev[-1]["data"]["lesson_id"] == "L-001", ev[-1]
 ok("candidate recorded with symptom/cause/change/applies_to/evidence_refs; memory.candidate emitted")
 

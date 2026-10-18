@@ -54,7 +54,7 @@ doc.update({"actor": "analyst", "want": "export the report table as CSV", "why":
 json.dump(doc, open(path, "w"))
 r = run(I, "check", path)
 assert r.returncode == 0, r.stderr
-evs = [json.loads(l)["event"] for l in open(os.path.join(T, ".agentic", "logs", "events.jsonl"))]
+evs = [json.loads(l)["event"] for l in open(os.path.join(T, ".aladdin", "logs", "events.jsonl"))]
 assert evs == ["intent.received", "intent.normalized"], evs
 ok("a complete contract passes; intent.received → intent.normalized in the event stream")
 

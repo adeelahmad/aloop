@@ -43,5 +43,6 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.10 | Context-window share (peak / `AGENTIC_CONTEXT_WINDOW`) | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.11 | Entry points: `aladdin` CLI (intent, run, status, resume, report, semantic queries) and `/aladdin` | IMPLEMENTED_TESTED | `scripts/test/aladdin-cli.test.py` |
 | 4.11 | Compatibility aliases (`agentic`, `/aloop`, `.agentic/` alongside `.aladdin/`) | IMPLEMENTED_TESTED | `scripts/test/rename-compat.test.py` |
+| M1 | Run data in `.aladdin/` (guarded by its `.gitignore`), `.agentic/` read as legacy, `aloop layout show\|check\|migrate`, `ALADDIN_*` aliases, contract and worktree markers found in either dir | IMPLEMENTED_TESTED | `scripts/test/layout.test.py` |
 | 4.11 | README reordered product-first (intent → demo → TDD agents → loop → gates → install → hosts → evidence → audit → architecture → limitations) | IMPLEMENTED_TESTED | `scripts/test/readme.test.py` (section order, named tools exist, install names, links, demo figures sourced from §0) |
 | 4.11 | Site (`docs/index.html`, GitHub Pages from `/docs`) with the lamp motif, RED explainer and audit tree; numbers sourced from §0 | IMPLEMENTED_TESTED | `scripts/test/site.test.py` |

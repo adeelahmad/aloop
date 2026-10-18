@@ -35,7 +35,8 @@ ask — one question per topic, the default first (Claude Code: `AskUserQuestion
    orchestrator runs on `strong`). Routes resolve per host (`aloop models routes`: on Claude
    Code `claude-opus-5-5` / `sonnet`); a pinned id is accepted too. Keep, or which?
 3. **`.gitignore`** — may I add `.agentic/` and `.transcripts/` (run data: transcripts,
-   token ledger, logs — never meant for GitHub)? Default **yes**.
+   token ledger, logs — never meant for GitHub)? Default **yes**. (Run data lives in
+   `.aladdin/`, guarded by its own `.gitignore`; `.agentic/` covers a legacy project.)
 4. **Track `docs/agents/` in git?** Default **no** (it is then git-ignored too).
 5. **Commit author** — every commit is authored by *the human*, not Claude: default is the
    identity `aloop-init --show` detected from git config (name + email). Confirm or

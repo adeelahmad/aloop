@@ -30,11 +30,11 @@ def sh(*args, cwd=T, inp=None, check=True, env=ENV):
 
 
 def state(agent):
-    return json.load(open(os.path.join(T, ".agentic", "budget", agent + ".json")))
+    return json.load(open(os.path.join(T, ".aladdin", "budget", agent + ".json")))
 
 
 def events():
-    p = os.path.join(T, ".agentic", "logs", "events.jsonl")
+    p = os.path.join(T, ".aladdin", "logs", "events.jsonl")
     return [json.loads(l) for l in open(p)] if os.path.exists(p) else []
 
 
@@ -63,7 +63,7 @@ out_md = os.path.join(story, "output.md")
 
 def worktree(task, extra=""):
     wt = sh(os.path.join(BIN, "task-worktree"), "add", task)
-    open(os.path.join(wt, ".agentic", "task.env"), "w").write(
+    open(os.path.join(wt, ".aladdin", "task.env"), "w").write(
         "TASK_ID=%s\nATTEMPT=2\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBUDGET_TOKENS_HARD=200000\n%s" % (task, story, extra))
     return wt
 

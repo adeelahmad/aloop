@@ -35,7 +35,7 @@ story = os.path.join(sprint, "s1-01-x")
 os.makedirs(story)
 open(os.path.join(story, "tasks.md"), "w").write("## T1\n## T2\n## T3\n## T4\n")
 open(os.path.join(sprint, "execution.log"), "w").write("2026-10-17T01:00:00Z wave-1 replan S1-01 start T3\n")
-BD = os.path.join(T, ".agentic", "budget")
+BD = os.path.join(T, ".aladdin", "budget")
 os.makedirs(BD)
 for i, (task, toks, mins, killed, cls) in enumerate([
         ("S1-01-T1", 40000, 4.0, False, None), ("S1-01-T2", 60000, 8.0, False, None),
@@ -47,7 +47,7 @@ for i, (task, toks, mins, killed, cls) in enumerate([
     if killed:
         s.update({"hook_killed": 2, "breach_class": [cls, "x"]})
     json.dump(s, open(os.path.join(BD, s["agent_id"] + ".json"), "w"))
-logs = os.path.join(T, ".agentic", "logs")
+logs = os.path.join(T, ".aladdin", "logs")
 os.makedirs(logs)
 with open(os.path.join(logs, "gates.jsonl"), "w") as f:
     for task, rc in (("S1-01-T1", 0), ("S1-01-T2", 2), ("S1-01-T2", 0), ("S1-01-T4", 0)):

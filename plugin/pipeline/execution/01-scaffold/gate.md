@@ -13,7 +13,7 @@ Enforced by: SubagentStop(scaffolder) -> bin/gate-scaffold-verify (exit 2 blocks
 Added check: scaffolding is idempotent — a symbol that already has a real body is
 left untouched (no clobber); only new symbols are stubbed.
 
-Fixed (v0.2): symbol set comes from `.agentic/scaffold-symbols` (scaffolder-written),
+Fixed (v0.2): symbol set comes from the worktree's `.aladdin/scaffold-symbols` (or `.agentic/`; scaffolder-written),
 not from plan-ready.md test paths; shim detection keys on the `// agentic:shim` marker,
 not any `mod common`.
 

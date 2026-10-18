@@ -22,12 +22,12 @@
 #   transcripts view --all|--task ID  read the store (supervisor)
 #   transcripts prune                 manual: keep last N events/task (AGENTIC_TRANSCRIPTS_KEEP, default all)
 #
-# Per-worktree contract: the supervisor writes ./.agentic/task.env at dispatch with
+# Per-worktree contract: the supervisor writes ./.aladdin/task.env (./.agentic/ in a legacy project) at dispatch with
 #   TASK_ID, ATTEMPT, AGENT_ROLE  (real env overrides it). The store path is fixed (_paths.sh).
 set -uo pipefail
 
 WT="${AGENTIC_WORKTREE:-$PWD}"
-[ -f "$WT/.agentic/task.env" ] && { set -a; . "$WT/.agentic/task.env"; set +a; }
+for te in "$WT/.aladdin/task.env" "$WT/.agentic/task.env"; do [ -f "$te" ] && { set -a; . "$te"; set +a; break; }; done
 TASK_ID="${TASK_ID:-session}"
 # THE store location (bin/_paths.sh): <main worktree>/.agentic/transcripts — never a
 # model-chosen or per-worktree path, so every task of every sprint lands in one place.

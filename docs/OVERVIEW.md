@@ -97,7 +97,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 | `execution.log` | sprint | One-line state ledger |
 | `sprintN/stats.md`, `sprintN/handoff.json`, `docs/agents/NEXT.md` | sprint | Harness-written stats (incl. the §4.10 metrics), the canonical handoff and its view |
 | `docs/agents/intents/<id>.json` | project | Intent Contracts, with the raw words beside them |
-| `.agentic/` | local | Transcripts, budgets, token ledger, worktree state, the `aladdin.event/1` stream (`logs/events.jsonl`), gate verdicts, host-swap record (git-ignored) |
+| `.aladdin/` | local | Transcripts, budgets, token ledger, worktree state, the `aladdin.event/1` stream (`logs/events.jsonl`), gate verdicts, host-swap record; its own `.gitignore` keeps everything but `config.yaml` out of git. A project that still has `.agentic/` keeps using it until `aloop layout migrate` (`aloop layout show\|check`) |
 
 ## Where it stands
 
@@ -114,8 +114,8 @@ The model can ignore a skill; it cannot ignore an exit code.
 - The north-star run, `make e2e-live YES=1 [INTENT=wordfreq]`: a one-line intent becomes
   planned, test-first, gate-verified, merged code in a real Claude Code session with the
   approval given up front. Two intents pass every check (semver parser: 11/11, ~$0.65–1.15,
-  11–19 min; word frequencies with two dependent stories: 13/13, $0.86–1.56, 13–45 min; the last run 13m04s, $0.79, 4 supervisor wakes,
-  every task commit traced to its task by `events trace`). Every run so far has found a gate false positive or a
+  11–19 min; word frequencies with two dependent stories: 13/13, $0.86–1.56, 13–45 min; the last run 12m58s, $0.95, 2 supervisor wakes, 0 plugin-source reads,
+  every merged commit traced to its task by `events trace`). Every run so far has found a gate false positive or a
   dead path that unit tests missed; ROADMAP M0.8 lists them.
 - One measured real run (*TheNoteBook*, a Go backend): ~17K LOC, 322 tests, 74 commits in 6
   sprints for ~1.55M output tokens, 76% of it on Sonnet. See the
@@ -128,8 +128,10 @@ The model can ignore a skill; it cannot ignore an exit code.
 - The default standards matrix targets Rust; other stacks need `standards.md` and gate edits.
 - `refs` / `callers` / `callees` need a configured LSP server; without one they say so (exit 4).
 - Hosts do not report the model's context window; `AGENTIC_CONTEXT_WINDOW` is the human's number.
-- The on-disk layout keeps the pre-rename names (`.agentic/`, `AGENTIC_*`) for the migration
-  window; the move to `.aladdin/` is an open decision in ROADMAP M1.
+- `AGENTIC_*` settings keys stay canonical; `ALADDIN_*` is an alias (`AGENTIC_` wins when both
+  are set). Worktree-local markers (`task.env`, `budget-exceeded`, `scaffold-symbols`) live in
+  the worker worktree's `.aladdin/` too, and are read from `.agentic/` where a host or an
+  older sprint still writes them there.
 - Measured runs: TheNoteBook plus the `make e2e-live` runs in ROADMAP §0; no live-session test in CI.
 
 ## The docs, and which ones are current

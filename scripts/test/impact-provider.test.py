@@ -59,7 +59,7 @@ assert "dropped 1 result(s) without a source_ref" in r.stderr
 saved = [f for f in os.listdir(os.path.join(T, "docs", "agents", "impact"))]
 doc = json.load(open(os.path.join(T, "docs", "agents", "impact", saved[0])))
 assert doc["dropped_without_source"] == 1 and doc["results"][0]["source_ref"].startswith("github:"), doc
-ev = [json.loads(x) for x in open(os.path.join(T, ".agentic", "logs", "events.jsonl"))][-1]
+ev = [json.loads(x) for x in open(os.path.join(T, ".aladdin", "logs", "events.jsonl"))][-1]
 assert ev["event"] == "artifact.created" and ev["data"]["kind"] == "impact.consumers" and ev["ids"]["task"] == "S1-01-T1"
 assert ev["refs"]["impact"].endswith(saved[0])
 ok("answers carry source refs; unsourced claims dropped; saved + recorded as planning provenance")

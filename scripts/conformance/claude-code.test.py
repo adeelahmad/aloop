@@ -84,7 +84,7 @@ def worktree(role, scope=""):
     n[0] += 1
     wt = os.path.join(T, "wt%d" % n[0])
     sh("git", "worktree", "add", "-q", "-b", "agentic/case%d" % n[0], wt)
-    write(os.path.join(wt, ".agentic", "task.env"),
+    write(os.path.join(wt, ".aladdin", "task.env"),
           "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=%s\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS='%s'\n" % (role, STORY, scope))
     return wt
 
@@ -164,13 +164,13 @@ case(3, "RED that reports a test already on the base as PASS is accepted", "gate
 wt = worktree("scaffolder")
 write(os.path.join(wt, "src", "lib.rs"), LIB + "\npub fn sub(_a: i32, _b: i32) -> i32 {\n    panic!(\"SUB-AGENT-TODO\")\n}\n")
 write(os.path.join(wt, "tests", "sub.rs"), GREEN_TEST)
-write(os.path.join(wt, ".agentic", "scaffold-symbols"), "# symbols\nsub (fn) @ src/lib.rs\n")
+write(os.path.join(wt, ".aladdin", "scaffold-symbols"), "# symbols\nsub (fn) @ src/lib.rs\n")
 commit(wt, "scaffold")
 report("scaffolder", [("src/lib.rs::sub", "STUB")])
 case(3, "SCAFFOLD with annotated scaffold-symbols lines is accepted", "gate-scaffold-verify", wt, 0)
 # ...or a tab-separated table with a header row and trait-impl lines (live e2e run 7: `symbol`
 # and `Display` were each "defined 0 times").
-write(os.path.join(wt, ".agentic", "scaffold-symbols"), "symbol\tpath\tkind\nsub\tsrc/lib.rs\tfn\nDisplay for Sub\tsrc/lib.rs\timpl\n")
+write(os.path.join(wt, ".aladdin", "scaffold-symbols"), "symbol\tpath\tkind\nsub\tsrc/lib.rs\tfn\nDisplay for Sub\tsrc/lib.rs\timpl\n")
 case(3, "SCAFFOLD with a header row and trait-impl lines in scaffold-symbols is accepted", "gate-scaffold-verify", wt, 0)
 
 # §6.4 RED cannot write production code
@@ -199,7 +199,7 @@ case(5, "GREEN that adds #[cfg(not(test))] is rejected", "gate-green-verify", wt
 
 # A worker's `selfcheck <role>` with no AGENT_ROLE in its env must run the gate, not crash it
 # (live e2e run: `AGENT_ROLE: unbound variable` made the self-check fail closed on good work).
-os.remove(os.path.join(green_ok_wt, ".agentic", "task.env"))
+os.remove(os.path.join(green_ok_wt, ".aladdin", "task.env"))
 report("green-worker", [("tests/sub.rs::sub_works", "PASS")])
 r = subprocess.run([os.path.join(BIN, "selfcheck"), "green-worker"], cwd=green_ok_wt, capture_output=True, text=True,
                    env=dict(ENV, STORY_DIR=STORY, STANDARDS_FILE=os.path.join(MAIN, "standards.md")), stdin=subprocess.DEVNULL)
@@ -239,7 +239,7 @@ case(6, "a worker that leaves its work uncommitted is blocked", "gate-green-veri
 # contract must not turn a failing attempt into a pass.
 def tamper(lines):
     wt = green(lib=LIB + "\npub fn sub(a: i32, b: i32) -> i32 {\n    a + b\n}\n")   # tests still fail
-    with open(os.path.join(wt, ".agentic", "task.env"), "a") as f:
+    with open(os.path.join(wt, ".aladdin", "task.env"), "a") as f:
         f.write("".join(l + "\n" for l in lines))
     return wt
 
@@ -252,25 +252,25 @@ wt = tamper(["SCOPE_GLOBS='*'", "true; exit 0"])
 case(6, "task.env is data, never executed (`true; exit 0`)", "gate-green-verify", wt, 2, "matrix command failed")
 
 # §6.7 Worktrees stay isolated
-write(os.path.join(MAIN, ".agentic", "task.env"),
+write(os.path.join(MAIN, ".aladdin", "task.env"),
       "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=%s\n" % STORY)
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
 case(7, "a RED worker running in the shared main tree is blocked", "gate-red-verify", MAIN, 2, "worktree isolation dropped")
-with open(os.path.join(MAIN, ".agentic", "task.env"), "a") as f:
+with open(os.path.join(MAIN, ".aladdin", "task.env"), "a") as f:
     f.write("SKIP_HOOKS=1\n")
 case(7, "SKIP_HOOKS=1 written into task.env does not lift isolation", "gate-red-verify", MAIN, 2, "worktree isolation dropped")
-os.remove(os.path.join(MAIN, ".agentic", "task.env"))
+os.remove(os.path.join(MAIN, ".aladdin", "task.env"))
 report("green-worker", [("tests/sub.rs::sub_works", "PASS")])
 case(7, "a GREEN worker running in the shared main tree is blocked", "gate-green-verify", MAIN, 2, "worktree isolation dropped",
      extra={"AGENT_ROLE": "green-worker", "STORY_DIR": STORY})
 
 # the role comes from the host, not from the worker-editable task.env
-write(os.path.join(MAIN, ".agentic", "task.env"),
+write(os.path.join(MAIN, ".aladdin", "task.env"),
       "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=planner\nSTORY_DIR=%s\n" % STORY)
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
 case(7, "a RED worker that relabels itself AGENT_ROLE=planner is still caught", "gate-red-verify", MAIN, 2,
      "the host dispatched a 'red-worker'", agent_type="aloop:red-worker")
-os.remove(os.path.join(MAIN, ".agentic", "task.env"))
+os.remove(os.path.join(MAIN, ".aladdin", "task.env"))
 case(7, "with no task.env role, the host's role still enforces isolation", "gate-red-verify", MAIN, 2,
      "worktree isolation dropped", extra={"STORY_DIR": STORY}, agent_type="aloop:red-worker")
 
@@ -278,12 +278,12 @@ case(7, "with no task.env role, the host's role still enforces isolation", "gate
 # TASK_ID the host's dispatch prompt names. On Claude Code `isolation: "worktree"` creates
 # the worktree (.claude/worktrees/agent-<id>) at dispatch, so nobody can pre-write its task.env;
 # a worktree copy is only a hint, and one that disagrees with the contract is tampering.
-CONTRACT = os.path.join(MAIN, ".agentic", "state", "tasks", "S1-01-T1.env")
+CONTRACT = os.path.join(MAIN, ".aladdin", "state", "tasks", "S1-01-T1.env")
 TRANSCRIPT = os.path.join(T, "agent-a1.jsonl")
 write(TRANSCRIPT, json.dumps({"type": "user", "message": {"role": "user", "content": "TASK_ID: S1-01-T1\nMake the RED test pass."}}) + "\n")
 write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS='src/*.rs'\n" % STORY)
 wt = green()
-os.remove(os.path.join(wt, ".agentic", "task.env"))
+os.remove(os.path.join(wt, ".aladdin", "task.env"))
 case(6, "a worktree with no task.env is gated by the supervisor's contract the dispatch names", "gate-green-verify", wt, 0,
      agent_type="aloop:green-worker", transcript=TRANSCRIPT)
 wt = green(scope="*")
@@ -294,7 +294,7 @@ case(6, "a worker that widens SCOPE_GLOBS in its worktree copy is blocked", "gat
 case(6, "the same tamper is caught by a self-check (no host payload)", "gate-green-verify", wt, 2,
      "disagrees with the supervisor's contract")
 wt = green()
-with open(os.path.join(wt, ".agentic", "task.env"), "a") as f:
+with open(os.path.join(wt, ".aladdin", "task.env"), "a") as f:
     f.write("TASK_ID=S1-01-T9\n")
 case(6, "a worker that points its task.env at another task is blocked", "gate-green-verify", wt, 2,
      "TASK_ID", agent_type="aloop:green-worker", transcript=TRANSCRIPT)
@@ -303,7 +303,7 @@ case(6, "a worker that points its task.env at another task is blocked", "gate-gr
 # SCOPE_GLOBS). Accept commas; trust the host's role over a mistyped contract role.
 write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-wrker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS=src/lib.rs,tests/sub.rs\n" % STORY)
 wt = green()
-os.remove(os.path.join(wt, ".agentic", "task.env"))
+os.remove(os.path.join(wt, ".aladdin", "task.env"))
 case(6, "a comma-separated SCOPE_GLOBS and a mistyped contract role don't block good work", "gate-green-verify", wt, 0,
      agent_type="aloop:green-worker", transcript=TRANSCRIPT)
 # A re-dispatch bumps ATTEMPT in the contract while the worktree copy keeps the old value: the
@@ -312,7 +312,7 @@ case(6, "a comma-separated SCOPE_GLOBS and a mistyped contract role don't block 
 write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS='src/*.rs'\n" % STORY)
 wt = green()
 write(CONTRACT, "TASK_ID=S1-01-T1\nATTEMPT=2\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS='src/*.rs'\n" % STORY)
-later = os.stat(os.path.join(wt, ".agentic", "task.env")).st_mtime + 5
+later = os.stat(os.path.join(wt, ".aladdin", "task.env")).st_mtime + 5
 os.utime(CONTRACT, (later, later))
 case(6, "a worktree copy older than a re-dispatched contract is stale, not tampering", "gate-green-verify", wt, 0,
      agent_type="aloop:green-worker", transcript=TRANSCRIPT)
@@ -345,7 +345,7 @@ results.append((8, "the accepted GREEN branch merges into main and main's tests 
 
 # §6.9 Hard-breached work is discarded (the gate releases the stop UNVERIFIED, never as a pass)
 wt = green(lib=LIB + "\npub fn sub(a: i32, b: i32) -> i32 {\n    a + b\n}\n")
-write(os.path.join(wt, ".agentic", "budget-exceeded"), "role=green-worker attempt=1 kind=time_hard\n")
+write(os.path.join(wt, ".aladdin", "budget-exceeded"), "role=green-worker attempt=1 kind=time_hard\n")
 rc, lines = gate("gate-green-verify", wt)
 said = any("NOT verified" in l for l in lines) and any("do not merge" in l for l in lines)
 results.append((9, "a hard-breached worker is released as 'not a pass, do not merge'", rc == 0 and said,
@@ -356,7 +356,7 @@ results.append((9, "a hard-breached worker is released as 'not a pass, do not me
 # that stopped 29 times on one unchanged reason. A different reason or a new attempt resets.
 def stuck_wt(attempt):
     wt = worktree("red-worker")
-    write(os.path.join(wt, ".agentic", "task.env"),
+    write(os.path.join(wt, ".aladdin", "task.env"),
           "TASK_ID=S1-01-T1\nATTEMPT=%d\nAGENT_ROLE=red-worker\nSTORY_DIR=%s\nBASE_REF=main\n" % (attempt, STORY))
     write(os.path.join(wt, "tests", "common", "mod.rs"), SHIM)
     write(os.path.join(wt, "tests", "sub.rs"), RED_TEST.replace("2);", "0);"))   # passes: not RED
@@ -368,7 +368,7 @@ wt = stuck_wt(7)
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])          # block A: the test passes with no production code
 rcs = [gate("gate-red-verify", wt)[0] for _ in range(2)]
 rc, lines = gate("gate-red-verify", wt)
-marker = os.path.join(MAIN, ".agentic", "state", "stuck", "S1-01-T1.7")
+marker = os.path.join(MAIN, ".aladdin", "state", "stuck", "S1-01-T1.7")
 said = any("STUCK" in l for l in lines) and any("NOT verified" in l for l in lines) and any("do not merge" in l for l in lines)
 results.append((9, "the third identical block releases the worker unverified, with a stuck marker", rcs == [2, 2] and rc == 0 and said
                 and os.path.isfile(marker) and "attempt=7" in open(marker).read(), "exits %s then %d %s" % (rcs, rc, (lines[0] if lines else "")[:120])))
@@ -416,7 +416,7 @@ sh("git", "worktree", "remove", "--force", wt)
 # the exclusion applies below the walk root, never to the root itself.
 hostwt = os.path.join(MAIN, ".claude", "worktrees", "agent-f00dbabe")
 sh("git", "worktree", "add", "-q", "-b", "agentic/hostwt", hostwt)
-write(os.path.join(hostwt, ".agentic", "task.env"),
+write(os.path.join(hostwt, ".aladdin", "task.env"),
       "TASK_ID=S1-SR-W9\nATTEMPT=1\nAGENT_ROLE=structural-reviewer\nSTORY_DIR=%s\nBASE_REF=main\n" % STORY)
 write(os.path.join(hostwt, "src", "dup.rs"), "pub fn sub(a: i32, b: i32) -> i32 {\n    a - b\n}\n")
 commit(hostwt, "dup in a host checkout")

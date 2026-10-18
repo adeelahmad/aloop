@@ -31,7 +31,7 @@ def sh(*args, cwd=T, inp=None):
 
 
 def state(agent):
-    return json.load(open(os.path.join(T, ".agentic", "budget", agent + ".json")))
+    return json.load(open(os.path.join(T, ".aladdin", "budget", agent + ".json")))
 
 
 def call(agent, tool, tool_input, mode="post", tokens=None, role="green-worker", cwd=T):
@@ -54,7 +54,7 @@ sh("git", "commit", "-q", "--allow-empty", "-m", "init")
 os.makedirs(os.path.join(T, "docs", "agents", "sprint1", "s1-01-x"))
 open(os.path.join(T, "docs", "STYLE.md"), "w").write("style\n")
 wt = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T1")
-open(os.path.join(wt, ".agentic", "task.env"), "w").write(
+open(os.path.join(wt, ".aladdin", "task.env"), "w").write(
     "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBUDGET_TOKENS_SOFT=300000\nBUDGET_TOKENS_HARD=400000\n"
     % os.path.join(T, "docs", "agents", "sprint1", "s1-01-x"))
 
@@ -85,10 +85,10 @@ assert s3["worktree"] == wt and s3["budget"]["TOKENS_HARD"] == 400000, s3; ok("f
 # 4) worktree ambiguous at first (two green worktrees), found on a later call: budget re-resolved, clock kept,
 #    and a hard verdict reached under the default budget is withdrawn
 wt2 = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T2")
-open(os.path.join(wt2, ".agentic", "task.env"), "w").write("TASK_ID=S1-01-T2\nATTEMPT=1\nAGENT_ROLE=green-worker\nBUDGET_TOKENS_HARD=500000\n")
+open(os.path.join(wt2, ".aladdin", "task.env"), "w").write("TASK_ID=S1-01-T2\nATTEMPT=1\nAGENT_ROLE=green-worker\nBUDGET_TOKENS_HARD=500000\n")
 for a in ("a1", "a2", "a3"):
-    os.remove(os.path.join(T, ".agentic", "budget", a + ".json"))
-    os.remove(os.path.join(T, ".agentic", "state", "agents", a + ".json"))
+    os.remove(os.path.join(T, ".aladdin", "budget", a + ".json"))
+    os.remove(os.path.join(T, ".aladdin", "state", "agents", a + ".json"))
 out = call("a4", "Read", {"file_path": os.path.join(T, "docs", "STYLE.md")}, tokens=260000)
 s4 = state("a4")
 assert s4["budget"]["TOKENS_HARD"] == 250000 and s4["hard"] and not s4["task_env_found"], s4
@@ -110,7 +110,7 @@ assert "BUDGET_TOKENS_HARD=260000" in b and "defaults.md" in b; ok("defaults.md 
 
 # 7) Claude Code's own worktree (.claude/worktrees/agent-<id>) has no task.env: the budget comes from the
 #    supervisor's contract in the main tree, picked by the TASK_ID on the host's dispatch prompt
-tasks = os.path.join(T, ".agentic", "state", "tasks")
+tasks = os.path.join(T, ".aladdin", "state", "tasks")
 os.makedirs(tasks, exist_ok=True)
 open(os.path.join(tasks, "S1-01-T7.env"), "w").write("TASK_ID=S1-01-T7\nATTEMPT=1\nAGENT_ROLE=green-worker\nBUDGET_TOKENS_HARD=410000\n")
 cc = os.path.join(T, ".claude", "worktrees", "agent-c7")
@@ -121,14 +121,15 @@ call("c7", "Bash", {"command": "cargo test"}, tokens=5000, cwd=cc)
 s7 = state("c7")
 assert s7["task"] == "S1-01-T7" and s7["budget"]["TOKENS_HARD"] == 410000 and "contract" in s7["budget_source"], s7
 ok("Claude Code worktree without task.env: budget from the supervisor's contract")
-copy = os.path.join(cc, ".agentic", "task.env")
+copy = os.path.join(cc, ".aladdin", "task.env")      # a fresh project: markers live in .aladdin/
+assert os.path.isfile(os.path.join(cc, ".aladdin", ".gitignore")), "the worktree copy must be guarded"
 assert os.path.isfile(copy) and open(copy).read() == open(os.path.join(tasks, "S1-01-T7.env")).read(), "no contract copy in the worktree"
 ok("the first tool call copies the contract into the worktree, so the worker's selfcheck finds it")
 
 # 8) a worker that raises BUDGET_* in its worktree copy does not get the bigger budget
 open(copy, "w").write(
     "TASK_ID=S1-01-T7\nAGENT_ROLE=green-worker\nBUDGET_TOKENS_HARD=9999999\n")
-os.remove(os.path.join(T, ".agentic", "budget", "c7.json"))
+os.remove(os.path.join(T, ".aladdin", "budget", "c7.json"))
 call("c7", "Bash", {"command": "cargo test"}, tokens=5001, cwd=cc)
 assert state("c7")["budget"]["TOKENS_HARD"] == 410000, state("c7")
 ok("a raised BUDGET_* in the worktree copy is ignored when the contract exists")

@@ -130,12 +130,13 @@ _gate_enter_bound_worktree
 # BASE_REF, STORY_DIR, AGENTIC_TRANSCRIPTS_DIR (+ BUDGET_*, read by bin/budget). Real env
 # still overrides (only unset keys are loaded).
 #
-# WHERE IT LIVES. The supervisor writes it in the MAIN tree, .agentic/state/tasks/<TASK_ID>.env,
+# WHERE IT LIVES. The supervisor writes it in the MAIN tree's run-data dir (`aloop layout show`):
+# .aladdin/state/tasks/<TASK_ID>.env, or .agentic/... in a legacy project (both are searched),
 # and names the task on the dispatch prompt's first line (`TASK_ID: <id>`). On Claude Code
 # `isolation: "worktree"` creates the worktree (.claude/worktrees/agent-<id>) at dispatch, so
 # no one can pre-write a task.env inside it. The host records the dispatch prompt in the
 # sub-agent transcript (SubagentStop's agent_transcript_path), so the task id comes from the
-# host, not from the worker. A worktree .agentic/task.env (Codex/OpenCode, older sprints) is
+# host, not from the worker. A worktree task.env copy (.aladdin/ or .agentic/; Codex/OpenCode, older sprints) is
 # only a hint: when the contract exists, any key the copy sets must match it, or the gate
 # blocks; with no contract the copy is the contract, as before.
 #
@@ -175,28 +176,26 @@ _task_env_get() {
 }
 load_task_env() {
   local te contract="" tid k v cv
-  te="$(repo_dir)/.agentic/task.env"
+  te="$(agentic_marker "$(repo_dir)" task.env)" || true
   # Which task: the host's dispatch prompt, else the task worktree's own name
   # (.agentic/worktrees/<TASK_ID>, made by `aloop task-worktree add`), else the copy's hint.
   tid="$(_host_task_id)"
   if [ -z "$tid" ]; then
     case "$(repo_dir)" in "$AGENTIC_HOME"/worktrees/*) tid="$(basename "$(repo_dir)")" ;; esac
-    [ -f "$AGENTIC_STATE/tasks/$tid.env" ] || tid=""
+    agentic_contract_path "$tid" >/dev/null || tid=""
   fi
   [ -n "$tid" ] || tid="$(_task_env_get "$te" TASK_ID)"
-  case "$tid" in ''|*[!A-Za-z0-9._-]*) ;; *)
-    [ -f "$AGENTIC_STATE/tasks/$tid.env" ] && contract="$AGENTIC_STATE/tasks/$tid.env" ;;
-  esac
+  contract="$(agentic_contract_path "$tid")" || contract=""
   # A copy OLDER than the contract is stale (the supervisor re-dispatched and bumped the
   # contract; bin/budget refreshes the copy on the worker's next tool call), not tampering:
   # a worker's edit makes the copy newer. Only a copy at least as new is compared.
   if [ -n "$contract" ] && [ -f "$te" ] && [ "$te" -ot "$contract" ]; then
-    note "the worktree's .agentic/task.env is older than the contract $contract; using the contract"
+    note "the worktree's task.env copy ($te) is older than the contract $contract; using the contract"
   elif [ -n "$contract" ]; then
     while IFS=$'\t' read -r k v; do
       cv="$(_task_env_get "$contract" "$k")" || cv=""
       if [ "$cv" != "$v" ]; then
-        fail "the worktree's .agentic/task.env disagrees with the supervisor's contract on $k ('$v' vs '$cv' in $contract). The contract is the supervisor's: do not edit it."
+        fail "the worktree's task.env copy ($te) disagrees with the supervisor's contract on $k ('$v' vs '$cv' in $contract). The contract is the supervisor's: do not edit it."
       fi
     done < <(_task_env_kv "$te")
   fi
@@ -238,7 +237,7 @@ _gate_bind_role
 # the supervisor never merges it, and the task goes to a mid-sprint re-plan. (A worker
 # forging the marker gains nothing: the only outcome is its task being re-planned.)
 budget_release() {
-  local m; m="$(repo_dir)/.agentic/budget-exceeded"
+  local m; m="$(agentic_marker "$(repo_dir)" budget-exceeded)" || return 0
   [ -f "$m" ] || return 0
   case "${AGENT_ROLE:-}" in red-worker|scaffolder|green-worker) ;; *) return 0 ;; esac
   grep -q "role=${AGENT_ROLE} attempt=${ATTEMPT:-}" "$m" 2>/dev/null || return 0
@@ -260,7 +259,7 @@ budget_release
 # frontmatter; the dynamic `##` blocks are grep-checked (md-db can't enumerate them).
 validate_comms() {
   local dir="${STORY_DIR:-${1:-}}"
-  [ -n "$dir" ] || fail "STORY_DIR unset — cannot find the story's comms (init.md/output.md). The supervisor must set STORY_DIR in the task contract .agentic/state/tasks/<TASK_ID>.env and name TASK_ID on the dispatch prompt's first line (absolute path to docs/agents/sprintN/sN-NN-<slug>/; a whole-wave structural review uses the sprint dir docs/agents/sprintN/)."
+  [ -n "$dir" ] || fail "STORY_DIR unset — cannot find the story's comms (init.md/output.md). The supervisor must set STORY_DIR in the task contract <run-data>/state/tasks/<TASK_ID>.env (\`aloop layout show\`) and name TASK_ID on the dispatch prompt's first line (absolute path to docs/agents/sprintN/sN-NN-<slug>/; a whole-wave structural review uses the sprint dir docs/agents/sprintN/)."
   local out="$dir/output.md" ini="$dir/init.md"
 
   # init.md: the supervisor's inbound contract must exist (this is how you were briefed).
@@ -318,7 +317,7 @@ symbol_count() {
 
 # Build artifacts that are never "worker edits" — excluded from diff-scope checks.
 # `|| true` so an all-artifacts diff (grep -v matches nothing) is success, not exit 1.
-changed_paths_filter() { grep -vE '(^|/)(target/|Cargo\.lock$|\.git/|\.agentic/|docs/agents/)' || true; }
+changed_paths_filter() { grep -vE '(^|/)(target/|Cargo\.lock$|\.git/|\.agentic/|\.aladdin/|docs/agents/)' || true; }
 
 # Changed paths in REPO_DIR (one per line). Uses BASE_REF if set, else working tree.
 changed_paths() {
@@ -392,7 +391,7 @@ assert_work_committed() {
   local dirty
   dirty="$(git -C "$(repo_dir)" status --porcelain --untracked-files=all 2>/dev/null \
     | awk '!($1 == "??" && $NF ~ /(^|\/)Cargo\.lock$/) {print $NF}' \
-    | grep -vE '^(\.agentic/|\.transcripts/)' | head -5)"   # an untracked Cargo.lock is cargo's, not the worker's
+    | grep -vE '^(\.agentic/|\.aladdin/|\.transcripts/)' | head -5)"   # an untracked Cargo.lock is cargo's, not the worker's
   [ -z "$dirty" ] || fail "uncommitted work in your worktree — commit it on this branch (git add -A && git commit -m '<task> <phase>') so the supervisor can merge it:
 $(printf '    %s\n' $dirty)"
 }

@@ -42,7 +42,7 @@ def actions():
 subprocess.run(["git", "init", "-q"], cwd=T, check=True)
 os.makedirs(os.path.join(SP, "s1-01-x"))
 open(os.path.join(SP, "s1-01-x", "tasks.md"), "w").write("".join("## T%d — t\n" % i for i in range(1, 9)))
-BD = os.path.join(T, ".agentic", "budget")
+BD = os.path.join(T, ".aladdin", "budget")
 os.makedirs(BD)
 
 # T1 merged · T2 gate passed · T3 failed attempt 1 · T4 failed attempt 3 · T5 hard-stopped

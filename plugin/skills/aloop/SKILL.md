@@ -50,15 +50,18 @@ models, the `.gitignore` edit, whether `docs/agents/` is tracked (default no), a
 commit author (default: the human's git identity, no Claude trailers). The harness writes
 the file; you never hand-edit `defaults.md`, `NEXT.md` or `stats.md` (a hook blocks it).
 
-The layout is FIXED by `bin/_paths.sh` — never invent another directory name:
+The layout is FIXED by `bin/_paths.sh` — never invent another directory name. The run-data
+dir is `.aladdin/` (its own `.gitignore` keeps everything but `config.yaml` out of git); a
+project that still has `.agentic/` keeps using it until `aloop layout migrate` moves it.
+`aloop layout show` prints which one is live. Below, `.aladdin/` stands for either:
 
 | Path | What | Git |
 |---|---|---|
-| `.agentic/transcripts/` | full capture (global.jsonl + per task) | always ignored |
-| `.agentic/budget/` | one `<agent_id>.json` per worker attempt (time box) | always ignored |
-| `.agentic/ledger/` | one `<session_id>.jsonl` per session (token usage) | always ignored |
-| `.agentic/logs/gates.jsonl` | every gate verdict | always ignored |
-| `.agentic/state/` | sprint closes, locks, markers | always ignored |
+| `.aladdin/transcripts/` | full capture (global.jsonl + per task) | always ignored |
+| `.aladdin/budget/` | one `<agent_id>.json` per worker attempt (time box) | always ignored |
+| `.aladdin/ledger/` | one `<session_id>.jsonl` per session (token usage) | always ignored |
+| `.aladdin/logs/gates.jsonl` | every gate verdict | always ignored |
+| `.aladdin/state/` | sprint closes, locks, markers | always ignored |
 | `docs/agents/defaults.md` | confirmed settings | ignored unless tracked |
 | `docs/agents/NEXT.md` | orchestrator handoff, reloaded after `/clear` | ignored unless tracked |
 | `docs/agents/sprintN/` | sprint artifacts + `stats.md` | ignored unless tracked |
@@ -87,8 +90,8 @@ runs this plugin's `hooks/hooks.json` natively; OpenCode runs them through the p
 | Fresh context per sprint | `/clear` | `/clear` or `/new` | `/new` |
 
 On Codex/OpenCode the dispatch message MUST contain the worktree line — e.g. "Your
-worktree: /abs/.agentic/worktrees/S1-02-T3. First command: `aloop bind
-/abs/.agentic/worktrees/S1-02-T3`." The task contract is written before dispatch,
+worktree: /abs/.aladdin/worktrees/S1-02-T3. First command: `aloop bind
+/abs/.aladdin/worktrees/S1-02-T3`." The task contract is written before dispatch,
 exactly as on Claude Code (see "The task contract" below). Models per role come from the generated agent files
 (`aloop install` renders them from `docs/agents/defaults.md`).
 
@@ -364,7 +367,8 @@ docs/agents/
   defaults.md                                    (aloop-init) confirmed limits, models, git settings
   NEXT.md                                        (stats sprint-close) the post-/clear handoff
   sprintN/stats.md                               (stats sprint-close) the sprint's numbers
-<project>/.agentic/                              run data, fixed layout (bin/_paths.sh), git-ignored:
+<project>/.aladdin/                              run data, fixed layout (bin/_paths.sh), git-ignored
+                                                 (.agentic/ in a legacy project: `aloop layout show`):
   transcripts/ budget/ ledger/ logs/ state/
   sprintN/
     stories.md plan.md intake.md standards.md    (you / planning activities)
@@ -382,20 +386,21 @@ docs/agents/
   # the full negotiation history. This is how agents communicate across the chain.
 
 main tree (git-ignored):
-  .agentic/state/tasks/<TASK_ID>.env  the per-task contract you write before dispatch
+  .aladdin/state/tasks/<TASK_ID>.env  the per-task contract you write before dispatch
                            (TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS,
                            BASE_REF, STORY_DIR, BUDGET_*) — the gates and the time-box hook
                            read this. (Store paths are fixed — never put paths for logs or
                            transcripts in here.)
 
-per worktree (transient, git-ignored, removed on stop):
-  .agentic/task.env        optional copy of the contract (Codex/OpenCode, older sprints);
+per worktree (transient, git-ignored, removed on stop; .aladdin/ here too, or .agentic/
+in a legacy project — the gates read either):
+  .aladdin/task.env        optional copy of the contract (Codex/OpenCode, older sprints);
                            it must match the contract when both exist
-  .agentic/budget-exceeded marker the time-box hook writes at a HARD limit
-main tree: .agentic/state/stuck/<task>.<attempt>  a gate released a worker that repeated
+  .aladdin/budget-exceeded marker the time-box hook writes at a HARD limit
+main tree: .aladdin/state/stuck/<task>.<attempt>  a gate released a worker that repeated
                            one block 3 times (unverified; `budget watch` reports it once)
                            STORY_DIR is the ABSOLUTE path to sN-NN-<slug>/ (the comms dir).
-  .agentic/scaffold-symbols  scaffolder-written production-symbol list (scaffold gate)
+  .aladdin/scaffold-symbols  scaffolder-written production-symbol list (scaffold gate)
   .transcripts/            READ-ONLY task transcript staged in for the worker
 ```
 
@@ -410,7 +415,7 @@ main tree: .agentic/state/stuck/<task>.<attempt>  a gate released a worker that 
   spec. NEVER rewrite an earlier block. The file opens once with `--- type: init ---`.
   That list IS the block's whole shape: do not read `pipeline/execution/*/init.template.md`
   or `bin/log-execution` to learn it (live runs 13–15 spent 4–6 reads per run on them).
-  At dispatch you also write the task contract `.agentic/state/tasks/<TASK_ID>.env` (with
+  At dispatch you also write the task contract `<run-data>/state/tasks/<TASK_ID>.env` (with
   `STORY_DIR` = absolute path to this story dir) and `bin/transcripts stage-in` stages `.transcripts/`.
 - `output.md` (story-bound, **append-only**) — the **agent** APPENDS one block per
   attempt: `## <task> · attempt N · <role> · <ts>`, `status:`, then `### Summary`, a
@@ -457,14 +462,14 @@ call, SubagentStop) measures the worker from its own transcript and
 - at the **soft time** limit tells the worker, inside its tool result, what is left and to
   finish or end gracefully (and once more at 90% of hard, tokens or time);
 - at the **soft token** limit tells the worker nothing: it is telemetry only. The hook
-  records `task.token_soft_limit` (`.agentic/logs/events.jsonl`) and the next sprint's
+  records `task.token_soft_limit` (`.aladdin/logs/events.jsonl`) and the next sprint's
   `stats.md` / `NEXT.md` list those tasks so the planner sizes similar work smaller;
 - at the **hard** limit **stops the worker itself** on that call — PostToolUse
   `continue: false` — and refuses every later call. The worker is not asked to narrate:
   the harness appends the attempt's output.md block (`status: re-plan`, limits, worktree
   diff, transcript path) and records `task.token_hard_limit` / `task.time_hard_timeout`.
   No model decides the kill, and no model tokens are spent after it. It also writes
-  `.agentic/budget-exceeded`, so the worker's SubagentStop gate releases it *unverified*.
+  `.aladdin/budget-exceeded` in the worktree, so the worker's SubagentStop gate releases it *unverified*.
 
 Every **other** model role (intake, standards, planner, archivist, structural-reviewer,
 final-gate) is metered too, against its own profile (planning roles 300k/600k tokens,
@@ -513,7 +518,7 @@ Your job during execution is small, and that is on purpose (it keeps your contex
      in the feedback loop (tick/merge on pass, retry within the gate-retry budget);
    - `budget watch` printed `STUCK …` lines (a worker hit the same gate block 3 times in a
      row and its stop was released **unverified**; the reason is quoted on the line and in
-     `.agentic/state/stuck/<task>.<attempt>`) → not a pass: do not merge, discard its
+     `.aladdin/state/stuck/<task>.<attempt>`) → not a pass: do not merge, discard its
      worktree, and re-dispatch the task with a `### Feedback` block that addresses that
      reason (a new attempt), or re-plan it if the reason is the plan's;
    - `budget watch` printed `STOPPED …` lines (the hook already ended those workers) or
@@ -614,12 +619,12 @@ before GREEN).
   tests reference, create the canonical stub **once** (signature inferred from the
   test call; body = `panic("SUB-AGENT-TODO: <recipe>")`). Delete the marked shim
   files (`// agentic:shim`) and write the stubbed production symbols, one per line, to
-  `.agentic/scaffold-symbols`. Append each create/update/delete to its `output.md` block
+  `.aladdin/scaffold-symbols` in the worktree. Append each create/update/delete to its `output.md` block
   (under `### Scaffold`) and to `execution.log`.
 - **Idempotent**: stub only symbols that do not yet exist; NEVER clobber a symbol
   that already has a real (non-panic) body from an earlier wave's GREEN.
 - SubagentStop → `gate-scaffold-verify`: each referenced symbol defined **exactly
-  once** (`ctx-symbols count == 1` over `.agentic/scaffold-symbols`), every new body
+  once** (`ctx-symbols count == 1` over `.aladdin/scaffold-symbols`), every new body
   is `panic+TODO` (a real body where a stub belongs → reject), no marked shim
   (`// agentic:shim`) remains, no clobber.
 
@@ -806,7 +811,7 @@ All of these are on PATH — call them by bare name.
   candidate that would (e.g. "skip the flaky test" → instead "fix the flakiness").
 
 ## Transcripts (full capture, file-based — bin/transcripts)
-- Store at `.agentic/transcripts/` in the main tree (fixed path, git-ignored, never merged):
+- Store at `.aladdin/transcripts/` in the main tree (fixed path, git-ignored, never merged):
   - `global.jsonl` — thin cross-task causal stream (tool/file/prompt/stop markers) the
     retrospective scans without reading every payload.
   - `<task>/events.jsonl` — the FULL hook payload per tool call (tool_input +
@@ -834,7 +839,8 @@ All of these are on PATH — call them by bare name.
   into the main tree, never a copy inside its own worktree, so the checked-out copy is
   pure redundant, would-go-stale weight. Per-worktree config; the main tree and
   sibling worktrees are untouched.
-- Same hook bootstraps the main tree's `.gitignore` with `.agentic/`/`.transcripts/`
+- Same hook bootstraps the main tree's `.gitignore` with `.agentic/`/`.transcripts/` (and
+  `.aladdin/.gitignore` guards that dir's run data)
   the first time a worker runs against it (idempotent — a no-op check after that).
   Fires regardless of whether the harness's built-in `isolation: "worktree"` or the
   optional `bin/worktree-create` made the worktree, since the built-in path never
@@ -842,12 +848,13 @@ All of these are on PATH — call them by bare name.
 - The retrospective reads this to distill memory. Gate verdicts, supervisor decisions,
   and worktree create/merge/abandon are all captured here.
 
-## The task contract (.agentic/state/tasks/<TASK_ID>.env)
-Before each dispatch, write the contract in the MAIN tree at
-`.agentic/state/tasks/<TASK_ID>.env` with `TASK_ID`, `ATTEMPT`, `AGENT_ROLE`, `STORY_DIR`
+## The task contract (<run-data>/state/tasks/<TASK_ID>.env)
+Before each dispatch, write the contract in the MAIN tree's run-data dir, i.e.
+`.aladdin/state/tasks/<TASK_ID>.env` (`.agentic/state/tasks/...` in a legacy project; `aloop
+layout show` prints the dir, and the gates search both), with `TASK_ID`, `ATTEMPT`, `AGENT_ROLE`, `STORY_DIR`
 (absolute path to the story dir — where `validate_comms` reads init.md/output.md),
-`SCOPE_GLOBS` (GREEN diff-scope), `SCAFFOLD_SYMBOLS` (or write
-`.agentic/scaffold-symbols`), `BASE_REF` (diff base), and the four `BUDGET_*` lines printed by
+`SCOPE_GLOBS` (GREEN diff-scope), `SCAFFOLD_SYMBOLS` (or the scaffolder writes
+`.aladdin/scaffold-symbols` in its worktree), `BASE_REF` (diff base), and the four `BUDGET_*` lines printed by
 `budget resolve --tasks <STORY_DIR>/tasks.md --task Tn`. Then make the dispatch prompt's
 FIRST line `TASK_ID: <TASK_ID>`. (`gate-dispatch` refuses an execution dispatch without that line or before the contract exists.) Write plain `KEY=value` lines (quotes allowed, lists space- or comma-separated, no `$VAR`
 expansion, no commands): the gate library PARSES the contract keys and ignores everything else.
@@ -855,9 +862,10 @@ expansion, no commands): the gate library PARSES the contract keys and ignores e
 Why the main tree: on Claude Code `isolation: "worktree"` creates the worktree
 (`.claude/worktrees/agent-<id>`) at dispatch, so there is no worktree to write into
 beforehand. The gates and the time box find the contract from the `TASK_ID` line the host
-records in the worker's transcript, and a worker may not write `.agentic/state/` or
-`.agentic/task.env` (`gate-supervisor-scope`). A worktree `.agentic/task.env` (Codex/OpenCode
-worktrees from `aloop task-worktree add`, older sprints) still works; once the contract
+records in the worker's transcript, and a worker may not write `<run-data>/state/` or
+its worktree's `task.env` copy (`gate-supervisor-scope`). A worktree `.aladdin/task.env`
+(`.agentic/task.env` in a legacy project; Codex/OpenCode worktrees from `aloop task-worktree
+add`, older sprints) still works; once the contract
 exists, any key the copy sets must match it or the gate blocks.
 
 ## Reference
