@@ -110,6 +110,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - **Usage accuracy is explicit** (ROADMAP §4.9, conformance 12). Each attempt's usage
   carries `accuracy: exact` and names any class the host never reports (Codex has no cache
   write) instead of a silent zero; stats.md shows it in the Metrics table.
+- **`aladdin` entry point** (ROADMAP §4.11). `aladdin "<intent>"` records the Intent Contract
+  (plus the raw words) and says how to start the run; `aladdin status|resume|report` read the
+  harness files (sweep, the resume rule, NEXT.md, stats.md); `aladdin target|context|refs|…`
+  are the semantic queries; every aloop tool answers under the new name. A `/aladdin` skill
+  defers to `/aloop`; installs link `~/.local/bin/aladdin` and copy the skill. The stray
+  `bin/aloop-init.orig` left by the rename merge is gone.
 - **Context-window share** (ROADMAP §4.10). stats.md divides the context peak by the new
   `AGENTIC_CONTEXT_WINDOW` setting (`context.window` in `.aladdin/config.yaml`, default 200000):
   hosts do not report the window, so the human states it instead of the harness guessing.

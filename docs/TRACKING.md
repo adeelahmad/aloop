@@ -41,4 +41,6 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.10 | Commits, tests added, time soft limits, semantic context served | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Rotations / compactions | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Context-window share (peak / `AGENTIC_CONTEXT_WINDOW`) | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
-| 4.11 | Rebrand and product surface | NOT_IMPLEMENTED | PR #7 starts the rename |
+| 4.11 | Entry points: `aladdin` CLI (intent, run, status, resume, report, semantic queries) and `/aladdin` | IMPLEMENTED_TESTED | `scripts/test/aladdin-cli.test.py` |
+| 4.11 | Compatibility aliases (`agentic`, `/aloop`, `.agentic/` alongside `.aladdin/`) | IMPLEMENTED_TESTED | `scripts/test/rename-compat.test.py` |
+| 4.11 | README reordered product-first; site / GitHub Pages; every public claim linked to a measured run | NOT_IMPLEMENTED | after the loop is stable; the measured runs exist (M0.8) |

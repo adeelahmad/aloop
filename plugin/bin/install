@@ -129,7 +129,7 @@ def remove_legacy_opencode(base, removed):
 def link_dispatcher(written):
     bin_dir = os.path.join(os.path.expanduser("~"), ".local", "bin")
     os.makedirs(bin_dir, exist_ok=True)
-    for name in ("aloop", "agentic"):                # agentic: the pre-rename alias
+    for name in ("aloop", "aladdin", "agentic"):     # aladdin: the product CLI; agentic: the pre-rename alias
         dst, src = os.path.join(bin_dir, name), os.path.join(HERE, name)
         if os.path.islink(dst) or not os.path.exists(dst):
             if os.path.islink(dst):
@@ -189,7 +189,7 @@ def install_opencode(opts, st):
             fm.append("model: %s" % m)
         fm += ["---", "<!-- %s -->" % MARK, ""]
         write(os.path.join(base, "agents", name + ".md"), "\n".join(fm) + host_body(body, "opencode"), written)
-    for skill, new_name in (("aloop", "aloop"), ("init", "aloop-init")):
+    for skill, new_name in (("aloop", "aloop"), ("aladdin", "aladdin"), ("init", "aloop-init")):
         fm, body = split_frontmatter(open(os.path.join(ROOT, "skills", skill, "SKILL.md")).read())
         desc = re.sub(r"\s+", " ", fm.get("description", "")).strip(" >-")[:1024]
         text = "---\nname: %s\ndescription: %s\n---\n<!-- %s -->\n%s" % (new_name, json.dumps(desc, ensure_ascii=False), MARK, host_body(body, "opencode"))
@@ -224,7 +224,7 @@ def uninstall(host, opts):
             if os.path.isfile(p) and (ours(p) or p.endswith("aloop.js")):
                 os.remove(p)
                 removed.append(p)
-        for s in ("aloop", "aloop-init"):
+        for s in ("aloop", "aladdin", "aloop-init"):
             d = os.path.join(b, "skills", s)
             if os.path.isdir(d):
                 shutil.rmtree(d)

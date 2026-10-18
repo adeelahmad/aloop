@@ -25,7 +25,7 @@ case "${1:-}" in
   --list)
     for f in "$BIN"/*; do
       b="$(basename "$f")"
-      case "$b" in aloop|agentic|agentic-init|_*|*.md|*.py) continue ;; esac
+      case "$b" in aloop|aladdin|agentic|agentic-init|_*|*.md|*.py) continue ;; esac
       [ -x "$f" ] && echo "$b"
     done; exit 0 ;;
 esac

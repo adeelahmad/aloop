@@ -269,6 +269,7 @@ No extra model calls are made just for telemetry.
 
 ### 4.11 Rebrand and product surface (last)
 
+- 🟡 *Partly done (Unreleased): `bin/aladdin` (`"<intent>"`, `run`, `status`, `resume`, `report`, the semantic queries, every aloop tool) and the `/aladdin` skill, linked and copied by the installers beside `aloop` / `agentic`. Test: `scripts/test/aladdin-cli.test.py`. Open: the product-first README, the site, and linking every public claim to a measured run.*
 - **New entry points:** `/aladdin` and an `aladdin` CLI (`"<intent>"`, `run`, `status`, `resume`, `report`, plus the semantic queries). Natural-language auto-trigger inside hosts.
 - **Compatibility aliases for one migration window:**
   - `/agentic-agile:init`
