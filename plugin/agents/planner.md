@@ -89,7 +89,7 @@ one or more tasks hit their hard budget. Your init block lists which tasks are D
 - Each killed task carries a **breach class** (its output.md block's `| breach class |`
   row, with evidence). Confirm or override it from the transcript, write the class you act
   on under the task as `breach: <CLASS> — <one-line reason>`, and act on THAT class
-  (SKILL.md "Breach classes"): only `TASK_TOO_LARGE` / `CONTEXT_PATHOLOGY` / `UNKNOWN`
+  (skills/aloop/reference.md "Breach classes"): only `TASK_TOO_LARGE` / `CONTEXT_PATHOLOGY` / `UNKNOWN`
   default to a split; `AGENT_LOOPING` reframes, `PLAN_AMBIGUOUS` repairs the contract,
   `BLOCKED_DEPENDENCY` reorders, the slow classes adjust commands or the `budget:` time
   line, `EXTERNAL_SERVICE` isolates or mocks it.

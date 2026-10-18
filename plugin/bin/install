@@ -194,6 +194,10 @@ def install_opencode(opts, st):
         desc = re.sub(r"\s+", " ", fm.get("description", "")).strip(" >-")[:1024]
         text = "---\nname: %s\ndescription: %s\n---\n<!-- %s -->\n%s" % (new_name, json.dumps(desc, ensure_ascii=False), MARK, host_body(body, "opencode"))
         write(os.path.join(base, "skills", new_name, "SKILL.md"), text, written)
+        ref = os.path.join(ROOT, "skills", skill, "reference.md")   # the playbook's on-demand sections
+        if os.path.isfile(ref):
+            write(os.path.join(base, "skills", new_name, "reference.md"),
+                  "<!-- %s -->\n%s" % (MARK, host_body(open(ref).read(), "opencode")), written)
     write(os.path.join(base, "commands", "aloop-init.md"),
           "---\ndescription: Set up aloop for this project (limits, models, .gitignore, commit author), then start sprint planning\n---\n"
           "<!-- %s -->\nLoad the `aloop-init` skill with the skill tool and follow it exactly. $ARGUMENTS\n" % MARK, written)

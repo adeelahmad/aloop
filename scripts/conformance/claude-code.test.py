@@ -139,6 +139,12 @@ write(os.path.join(wt, "tests", "sub.rs"), "#[test]\nfn sub_works() {\n    asser
 commit(wt, "red no shim")
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
 case(3, "RED that fails by missing symbol (not by assertion) is rejected", "gate-red-verify", wt, 2, "do NOT compile")
+# live e2e run 25: a RED worker blocked 5 times on a bare "add mod-common shims" after its
+# mandate let it put a skeleton in src/ and the gate made it revert; the block now names the
+# symbol the tests cannot find and where its shim goes.
+# (one case: a third identical block in a row would be the stuck release)
+case(3, "the RED compile block names the missing symbol and its shim in tests/common/mod.rs", "gate-red-verify", wt, 2,
+     "cannot find `sub`. RED's tests must compile and fail by assertion, so each missing item gets a shim in tests/common/mod.rs, marked // agentic:shim: pub fn sub(")
 
 # RED's tests must already pass the matrix's format check: GREEN may not touch them, so an
 # unformatted RED file blocks every GREEN attempt (live e2e run 3: 19 GREEN fmt blocks).

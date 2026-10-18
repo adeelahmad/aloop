@@ -53,8 +53,27 @@ run_format_checks
 if [ "${GATE_RUN_TESTS:-auto}" != "0" ] && is_cargo_repo; then
   root="$(repo_dir)"
   note "compiling tests (must succeed against mod-common shims)"
-  ( cd "$root" && cargo test --no-run --workspace ) \
-    || fail "RED tests do NOT compile — they fail by missing symbol, not by assertion (add mod-common shims)"
+  _build="$(mktemp)"
+  if ! ( cd "$root" && cargo test --no-run --workspace ) >"$_build" 2>&1; then
+    grep -E '^(error|warning: unused)|^ *--> ' "$_build" | head -20 >&2
+    # Name what the tests cannot find and where its shim goes (live e2e run 25: a RED worker
+    # blocked 5 times on a bare "add mod-common shims" after reverting a src/ skeleton).
+    _missing="$(sed -nE \
+      -e 's/.*error\[E04(25|12|22|23)\]: cannot find [a-z ]+ `([A-Za-z_][A-Za-z0-9_]*)`.*/\2/p' \
+      -e 's/.*error\[E0432\]: unresolved import `([A-Za-z0-9_:]*::)?([A-Za-z_][A-Za-z0-9_]*)`.*/\2/p' \
+      -e 's/.*error\[E0599\]: no (function or associated item|method) named `([A-Za-z_][A-Za-z0-9_]*)`.*/\2/p' \
+      "$_build" | awk '!seen[$0]++' | head -6)"
+    rm -f "$_build"
+    if [ -n "$_missing" ]; then
+      _names="$(printf '`%s` ' $_missing)"; _shims=""
+      for _m in $_missing; do
+        case "$_m" in [A-Z]*) _shims="$_shims pub struct $_m; //" ;; *) _shims="$_shims pub fn $_m(…) -> … { todo!() } //" ;; esac
+      done
+      fail "RED tests do NOT compile: they cannot find ${_names% }. RED's tests must compile and fail by assertion, so each missing item gets a shim in tests/common/mod.rs, marked // agentic:shim:${_shims%//} — and the test files call it through \`mod common;\` (common::$(printf '%s' "$_missing" | head -1)), not the crate; src/ is SCAFFOLD's and GREEN's."
+    fi
+    fail "RED tests do NOT compile — they fail by missing symbol, not by assertion: add the missing items as shims in tests/common/mod.rs (marked // agentic:shim) and call them through \`mod common;\`"
+  fi
+  rm -f "$_build"
   note "running tests (must fail by assertion)"
   if ( cd "$root" && cargo test --workspace >/dev/null 2>&1 ); then
     fail "RED tests PASS with no production code — they exercise nothing"
