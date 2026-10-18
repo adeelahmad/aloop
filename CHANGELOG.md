@@ -23,6 +23,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Changed
+- **Workers append their `output.md` block before `selfcheck`** (RED/SCAFFOLD/GREEN personas,
+  agents and pipeline sources). Reason: the soft-limit line said "run selfcheck, append your
+  report", so workers self-checked first and were blocked for a missing report block: 4 of
+  run 16's 9 blocks, 3 of run 15's 6.
 - **The supervisor never commits on main** (SKILL.md): every commit on main arrives through
   `task-worktree merge`. Reason: live run 16's one untraceable commit was the supervisor's own
   `Track Cargo.lock`; the e2e fixture now commits the lockfile in its seed.
