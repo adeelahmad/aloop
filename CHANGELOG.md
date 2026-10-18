@@ -35,6 +35,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   worktree-local markers (`task.env` copy, `budget-exceeded`, `scaffold-symbols`) move with
   it: written to the worker worktree's `.aladdin/` (guarded), read from `.agentic/` too.
   Test: `scripts/test/layout.test.py`; every suite runs on the new layout.
+- **Workers append their `output.md` block before `selfcheck`** (RED/SCAFFOLD/GREEN personas,
+  agents and pipeline sources). Reason: the soft-limit line said "run selfcheck, append your
+  report", so workers self-checked first and were blocked for a missing report block: 4 of
+  run 16's 9 blocks, 3 of run 15's 6.
 - **The supervisor never commits on main** (SKILL.md): every commit on main arrives through
   `task-worktree merge`. Reason: live run 16's one untraceable commit was the supervisor's own
   `Track Cargo.lock`; the e2e fixture now commits the lockfile in its seed.
