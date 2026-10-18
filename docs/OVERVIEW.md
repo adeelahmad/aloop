@@ -114,7 +114,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 - The north-star run, `make e2e-live YES=1 [INTENT=wordfreq]`: a one-line intent becomes
   planned, test-first, gate-verified, merged code in a real Claude Code session with the
   approval given up front. Two intents pass every check (semver parser: 11/11, ~$0.65–1.15,
-  11–19 min; word frequencies with two dependent stories: 13/13, $0.79–1.56, 13–45 min; the last two runs $0.95 and $1.03, 2–6 supervisor wakes, 0–2 plugin-source reads,
+  11–19 min; word frequencies with two dependent stories: 13/13, $0.79–1.56, 13–45 min; the last three runs $0.95–1.03, 1–6 supervisor wakes, 0–5 plugin-source reads,
   every merged commit traced to its task by `events trace`). Every run so far has found a gate false positive or a
   dead path that unit tests missed; ROADMAP M0.8 lists them.
 - One measured real run (*TheNoteBook*, a Go backend): ~17K LOC, 322 tests, 74 commits in 6

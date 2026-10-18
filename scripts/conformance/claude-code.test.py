@@ -103,7 +103,7 @@ def gate(name, cwd, extra=None, agent_type=None, transcript=None):
 def case(item, title, name, cwd, expect, must_say=None, extra=None, agent_type=None, transcript=None):
     rc, lines = gate(name, cwd, extra, agent_type, transcript)
     blocks = [l for l in lines if l.startswith("BLOCK[")]
-    good = rc == expect and (must_say is None or any(must_say in l for l in blocks))
+    good = rc == expect and (must_say is None or any(must_say in l for l in (blocks if expect else lines)))
     detail = blocks[0] if blocks else (lines[-1] if lines else "")
     results.append((item, title, good, "exit %d (want %d) %s" % (rc, expect, detail[:140])))
 
@@ -172,6 +172,15 @@ case(3, "SCAFFOLD with annotated scaffold-symbols lines is accepted", "gate-scaf
 # and `Display` were each "defined 0 times").
 write(os.path.join(wt, ".aladdin", "scaffold-symbols"), "symbol\tpath\tkind\nsub\tsrc/lib.rs\tfn\nDisplay for Sub\tsrc/lib.rs\timpl\n")
 case(3, "SCAFFOLD with a header row and trait-impl lines in scaffold-symbols is accepted", "gate-scaffold-verify", wt, 0)
+# ...or the "### Scaffold" report shape with a title line, a verb, a keyword, a crate path and a
+# deletion line (live e2e runs 18–19: `create` was "defined 0 times", four blocks in run 19).
+write(os.path.join(wt, ".aladdin", "scaffold-symbols"),
+      "S1-01-T1 scaffold\n+ create fn mycrate::sub @ src/lib.rs\n- delete tests/common/mod.rs (redundant shim)\n")
+case(3, "SCAFFOLD whose scaffold-symbols carry verbs, keywords, crate paths and deletions is accepted", "gate-scaffold-verify", wt, 0, "1 symbol(s) unique")
+write(os.path.join(wt, ".aladdin", "scaffold-symbols"), "create fn mycrate::nosuch @ src/lib.rs\n")
+case(3, "SCAFFOLD naming an undefined symbol is still rejected, with the file's shape in the block",
+     "gate-scaffold-verify", wt, 2, "one production symbol per line")
+write(os.path.join(wt, ".aladdin", "scaffold-symbols"), "sub\n")
 
 # §6.4 RED cannot write production code
 wt = red_ok()

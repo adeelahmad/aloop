@@ -29,21 +29,29 @@ symbols="${SCAFFOLD_SYMBOLS:-}"
 if [ -z "$symbols" ]; then
   sf="$(agentic_marker "$root" scaffold-symbols)" || true
   if [ -f "$sf" ]; then
-    # one symbol per line; anything after it on the line is a note ("Foo (enum) @ src/lib.rs")
+    # one symbol per line; anything after it on the line is a note ("Foo (enum) @ src/lib.rs").
+    # Workers also write the "### Scaffold" report shape ("+ create fn crate::Foo @ src/lib.rs",
+    # "- delete tests/common/mod.rs"): a leading marker, verb or keyword is skipped, the first
+    # identifier after them is the symbol (live runs 18–19: `create` was "defined 0 times").
     symbols="$(grep -vE '^[[:space:]]*(#|$)' "$sf" | awk '
-      $2 == "for" { next }                                    # "Display for Foo": a trait impl, not a new symbol
+      /(^|[[:space:]])for([[:space:]]|$)/ { next }            # "Display for Foo": a trait impl, not a new symbol
       NR == 1 && tolower($1) ~ /^(symbol|name)$/ && tolower($2) ~ /^(path|kind|file)$/ { next }  # table header
-      { print $1 }' | sort -u)"
+      { i = 1
+        while (i <= NF && ($i ~ /^[-+~*|]$/ || tolower($i) ~ /^(create|created|add|added|stub|stubbed|new|delete|deleted|remove|removed|update|updated|change|changed|pub|fn|struct|enum|trait|type|mod|const|static|impl|unsafe|async)$/)) i++
+        if (i <= NF) print $i }' | sort -u)"
   fi
 fi
-# keep only identifiers / paths (`Foo`, `crate::Foo`): punctuation is never a symbol
-symbols="$(printf '%s\n' $symbols | tr -d '`,' | grep -E '^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$' | sort -u)"
+# keep only identifiers / paths (`Foo`, `crate::Foo`): punctuation is never a symbol. A path is
+# reduced to its last segment: `ctx-symbols count` and the grep fallback count by name.
+symbols="$(printf '%s\n' $symbols | tr -d '`,' | grep -E '^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$' | sed 's/.*:://' | sort -u)"
 [ -z "$symbols" ] && warn "no scaffold symbols resolved (set SCAFFOLD_SYMBOLS or write .aladdin/scaffold-symbols in the worktree); uniqueness check skipped"
 
 # 2) Each symbol defined exactly once across the tree.
 for sym in $symbols; do
   n="$(symbol_count "$sym" "$root")"
-  [ "$n" = "1" ] || fail "symbol \`$sym\` defined $n times (must be exactly 1 — duplicate/parallel definition)"
+  hint=""
+  [ "${n:-0}" = "0" ] && hint=". .aladdin/scaffold-symbols is one production symbol per line (\`count_words @ src/lib.rs\`): no verbs, keywords or test paths"
+  [ "$n" = "1" ] || fail "symbol \`$sym\` defined ${n:-0} times (must be exactly 1 — duplicate/parallel definition)$hint"
 done
 
 # 3) No MARKED shim remains. RED shims carry `// agentic:shim`; a normal
