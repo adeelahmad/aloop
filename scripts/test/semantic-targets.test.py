@@ -108,4 +108,20 @@ r = run(os.path.join(BIN, "gate-stage2-complete"), SP)
 assert r.returncode == 0, r.stderr
 ok("unknown symbol/task, create-over-existing, ghost path, bad op, escaping path, duplicate ref → blocked; gate runs it")
 
+# 6) a mid-sprint re-plan re-checks changes that already shipped (live e2e run 18: T1's
+#    `create tests/parse.rs` merged, then the T2 re-plan's planner was blocked 9 times with
+#    "already exists" for a change it was told not to touch). A create whose file now exists
+#    AND defines its planned_symbol is realized, not wrong; one whose file exists without the
+#    symbol is still a plan defect.
+targets(C1, C2)
+write("src/export/csv_writer.py", "import csv\n\n\ndef write_csv(rows):\n    return rows\n")
+r = run(TG, "check", SD)
+assert r.returncode == 0, r.stderr
+assert "src/export/csv_writer.py:4 write_csv" in run(TG, "target", "T1", SD).stdout
+write("src/export/csv_writer.py", "import csv\n\n\ndef other():\n    return 1\n")
+r = run(TG, "check", SD)
+assert r.returncode == 2 and "already exists" in r.stderr, r.stderr
+os.remove(os.path.join(T, "src", "export", "csv_writer.py"))
+ok("a create whose file already defines its planned_symbol is realized (passes); without the symbol it is still blocked")
+
 print("\n%d checks passed" % PASS[0])

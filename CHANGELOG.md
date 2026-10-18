@@ -22,6 +22,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+### Fixed
+- `targets check` no longer rejects a `create` change whose file already exists **and defines its planned symbol**: that change has shipped. A mid-sprint re-plan re-runs the planner's stop gate over the whole plan, and live e2e run 18 blocked the planner 9 times on T1's merged `create tests/parse.rs` while its brief said not to touch T1. `target` now resolves such a change to `file:line`. Test: `scripts/test/semantic-targets.test.py`.
+
 ### Added
 - `gate-supervisor-scope` now also enforces **the supervisor never commits on main**: a `git commit` from the main agent in the main tree while a sprint is live is blocked (a commit inside a task worktree, the initial commit of an unborn repo, `task-worktree merge` and a stale lock pass). Reason: live e2e run 16's `Track Cargo.lock` commit on main traced to nothing; the rule was prose in SKILL.md only. Test: `scripts/test/supervisor-scope.test.py`.
 
