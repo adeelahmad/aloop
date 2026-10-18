@@ -38,8 +38,10 @@ Roles map to a ROUTE (`strongest` · `strong` · `economical`), and each host re
 its own id (`plugin/hosts/routes.json`). The project's confirmed choice lives in
 `docs/agents/defaults.md` (`AGENTIC_MODEL_PLANNING`, `AGENTIC_MODEL_WORKER`: a route or a
 pinned id). On every dispatch pass `aloop models resolve planning|worker` as the Agent
-call's `model`; never hard-code an id. The agent frontmatter carries the Claude Code
-resolution of the defaults.
+call's `model`; never hard-code an id. `gate-dispatch` refuses a dispatch on any other model,
+or with none (live run 20: planners on opus and workers on sonnet against a haiku project cost
+$2.79 instead of $0.99). The agent frontmatter carries the Claude Code resolution of the
+defaults.
 
 ## Project setup comes first (init) — and where everything lives
 
