@@ -493,11 +493,21 @@ def observe(mode, payload, agent_id, role):
     spath = os.path.join(state_dir(cwd), "%s.json" % safe(agent_id))
     st = load_state(spath)
     now = time.time()
+    # A reviewer or final gate dispatched into a host worktree needs the contract copy as much
+    # as a worker does: its own `selfcheck` finds the task only through it (live runs 15–17).
+    wt, how = find_worktree(payload, cwd, agent_id, role)
+    host_tid = host_task_id(payload, agent_id) if mode != "stop" else ""
+    if host_tid and wt:
+        copy_contract(cwd, wt, host_tid)
     if st is None:
         b, src = role_profile(cwd, role)
         st = {"agent_id": agent_id, "role": role, "task": "", "attempt": "", "story_dir": "", "start": now,
               "budget": b, "budget_source": src, "observe": True, "found_by": "role profile",
               "soft_warned": False, "final_warned": False, "hard": False, "done": None}
+    if host_tid and not st.get("task"):
+        env = contract(cwd, host_tid) or {}
+        st.update({"task": host_tid, "attempt": env.get("ATTEMPT", ""), "story_dir": env.get("STORY_DIR", ""),
+                   "worktree": wt or st.get("worktree"), "found_by": how or st.get("found_by")})
     if mode == "stop":
         st["done"] = now
         save_state(spath, st)

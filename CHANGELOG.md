@@ -293,6 +293,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- **Reviewers and the final gate get the task-contract copy in their host worktree** (`budget hook`).
+  Reason: only the three workers did, so every structural reviewer's first `selfcheck` on Claude
+  Code blocked "STORY_DIR unset" (runs 15–17: 2, 1 and 3 blocks) until it guessed the contract.
+  The observed role's state now names its task and story dir too.
 - The planner persona states `targets check`'s rules (`{"targets": [...]}`, `symbol` only for code
   that exists, `planned_symbol` with `create`/`extend` for new code), so its first `targets.json`
   passes (live runs 12–14: 2–3 blocks each).
