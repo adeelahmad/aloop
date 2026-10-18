@@ -406,6 +406,10 @@ case(7, "a stale worktree checkout under .claude/worktrees is not a duplicate de
 write(os.path.join(wt, "src", "dup.rs"), "pub fn sub(a: i32, b: i32) -> i32 {\n    a - b\n}\n")
 commit(wt, "dup")
 case(7, "a real duplicate definition in the reviewed tree halts the chain (HIGH)", "gate-structural-integrity", wt, 2, "HIGH")
+rc1 = gate("gate-structural-integrity", wt)[0]
+rc, lines = gate("gate-structural-integrity", wt)
+results.append((9, "a reviewer blocked 3x on the same HIGH finding is released unverified (it cannot fix code)",
+                rc1 == 2 and rc == 0 and any("STUCK" in l for l in lines), "exits %d then %d" % (rc1, rc)))
 shutil.rmtree(os.path.join(MAIN, ".claude"), ignore_errors=True)
 sh("git", "worktree", "remove", "--force", wt)
 

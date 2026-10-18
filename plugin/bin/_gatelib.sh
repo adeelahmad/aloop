@@ -74,7 +74,9 @@ trap '_gate_log_verdict; exit $?' EXIT
 _gate_stuck() {
   local rh="$1" self="$2" n="${AGENTIC_STUCK_BLOCKS:-3}" prior log="$AGENTIC_LOGS/gates.jsonl"
   [ "$self" = false ] && [ -n "${TASK_ID:-}" ] && [ -n "${ATTEMPT:-}" ] || return 1
-  case "${AGENT_ROLE:-}" in red-worker|scaffolder|green-worker) ;; *) return 1 ;; esac
+  # The build roles, plus the two read-only roles whose blocks can name a defect only the
+  # supervisor can act on (live e2e run 12: a HIGH structural finding blocked the reviewer 10x).
+  case "${AGENT_ROLE:-}" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate) ;; *) return 1 ;; esac
   [ "$n" -ge 2 ] 2>/dev/null && [ -f "$log" ] || return 1
   prior="$(grep -F "\"gate\":\"${GATE_NAME:-?}\"" "$log" | grep -F "\"task\":\"$TASK_ID\",\"attempt\":\"$ATTEMPT\"" \
     | grep -F "\"wt\":\"$(repo_dir)\"" | grep -F '"selfcheck":false' | tail -n $((n - 1)) | grep -c -F "\"exit\":2,\"selfcheck\":false,\"reason\":\"$rh\"}")"

@@ -249,6 +249,8 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   inside the main tree (`.claude/worktrees/agent-<id>/`), nor `.agentic/` or `.transcripts/`:
   a stale checkout duplicated every symbol of main and the structural review halted on a
   false HIGH finding 20 times (live e2e run 12). 2 conformance checks (§6.7), 1 unit test.
+- The stuck release also covers the structural reviewer and the final gate, whose blocks can name
+  a defect only the supervisor can act on (run 12: 10 identical blocks). 1 conformance check.
 - `gate-validate-artifact`'s block now carries md-db's diagnostics (the missing section or field
   and its hint): a PostToolUse block hands the model only stderr, and the bare "failed the
   schema" made the planner guess (live e2e run 11: every planning artifact was written twice,
