@@ -28,15 +28,18 @@ doc). It folds the structural-review corrections directly into the process.
 
 ## Models (who thinks with what)
 
-| Role | Default model |
-|---|---|
-| **You, the supervisor/orchestrator** | `sonnet` — you dispatch, sleep, sweep; you don't author |
-| Planning: `intake`, `standards`, `planner` (incl. re-plans), `archivist` | `claude-opus-5-5` |
-| Execution: `red-worker`, `scaffolder`, `green-worker`, `structural-reviewer`, `final-gate` | `sonnet` |
+| Role | Default route | On Claude Code |
+|---|---|---|
+| **You, the supervisor/orchestrator** | `strong` — you dispatch, sleep, sweep; you don't author | `sonnet` |
+| Planning: `intake`, `standards`, `planner` (incl. re-plans), `archivist` | `strongest` | `claude-opus-5-5` |
+| Execution: `red-worker`, `scaffolder`, `green-worker`, `structural-reviewer`, `final-gate` | `strong` | `sonnet` |
 
-The agent frontmatter carries these defaults. The project's confirmed choice lives in
-`docs/agents/defaults.md` (`AGENTIC_MODEL_PLANNING`, `AGENTIC_MODEL_WORKER`): pass that
-value as the Agent call's `model` on every dispatch of that group.
+Roles map to a ROUTE (`strongest` · `strong` · `economical`), and each host resolves it to
+its own id (`plugin/hosts/routes.json`). The project's confirmed choice lives in
+`docs/agents/defaults.md` (`AGENTIC_MODEL_PLANNING`, `AGENTIC_MODEL_WORKER`: a route or a
+pinned id). On every dispatch pass `aloop models resolve planning|worker` as the Agent
+call's `model`; never hard-code an id. The agent frontmatter carries the Claude Code
+resolution of the defaults.
 
 ## Project setup comes first (init) — and where everything lives
 

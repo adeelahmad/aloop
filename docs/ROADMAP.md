@@ -96,7 +96,7 @@ These parts already exist but their semantics must change:
 
    Replacement tasks must fit the normal time and token budgets, and vertical slices are preferred.
 5. **No post-kill narration.** ✅ *Done (Unreleased): the hook stops the worker on the crossing call and the harness writes the `status: re-plan` block. Test: `scripts/test/budget-hard-stop.test.py`.* After the hard stop, no model tokens are spent asking the worker for a report.
-6. **Abstract model routes.** Roles map to `strongest | strong | economical`, and each host resolves those to concrete IDs.
+6. **Abstract model routes.** ✅ *Done (Unreleased): `bin/models` + `plugin/hosts/routes.json`; `AGENTIC_MODEL_*` default to routes; `aloop install` renders the host's id. Test: `scripts/test/model-routes.test.py`.* Roles map to `strongest | strong | economical`, and each host resolves those to concrete IDs.
 
 ## 4. New work
 

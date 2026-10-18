@@ -50,6 +50,12 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   overrides it (`breach:` line) and acts per class (SKILL.md "Breach classes").
 
 ### Added
+- **Abstract model routes** (ROADMAP §3.6). Roles map to `strongest | strong | economical`
+  and each host resolves the route to its own id (`plugin/hosts/routes.json`; Codex: the
+  session's model). `AGENTIC_MODEL_PLANNING` / `AGENTIC_MODEL_WORKER` default to
+  `strongest` / `strong`; a pinned id still passes through. `aloop models resolve` is what
+  the supervisor passes on dispatch and what `aloop install` renders; `--json` makes the
+  route observable (conformance 18).
 - **Sprint token envelope and admission control** (ROADMAP §4.2). `budget admit <task>`
   runs before each dispatch. At `SPRINT_TOKENS_SOFT` it prints one rollover warning, and
   at `SPRINT_TOKENS_HARD` admission closes (exit 3). Refused tasks are carried over in

@@ -27,8 +27,9 @@ DEFAULTS = {
     "CONTEXT_BOUNDARY": "rotate",
     # optional cross-project impact provider (ROADMAP §4.8): a command, empty = none
     "IMPACT_PROVIDER": "",
-    "MODEL_PLANNING": "claude-opus-5-5",
-    "MODEL_WORKER": "sonnet",
+    # a ROUTE (strongest | strong | economical, resolved per host by bin/models) or a pinned id
+    "MODEL_PLANNING": "strongest",
+    "MODEL_WORKER": "strong",
     "GITIGNORE": "yes",
     "TRACK_DOCS": "no",
     "COMMIT_AUTHOR_NAME": "",
