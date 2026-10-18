@@ -408,6 +408,8 @@ main tree: .agentic/state/stuck/<task>.<attempt>  a gate released a worker that 
   tagged for this role or `all`, top ~7) and — on a re-spawn — a `### Feedback` block
   derived from the prior `output.md`. It POINTS at `plan-ready.md`; never copies the
   spec. NEVER rewrite an earlier block. The file opens once with `--- type: init ---`.
+  That list IS the block's whole shape: do not read `pipeline/execution/*/init.template.md`
+  or `bin/log-execution` to learn it (live runs 13–15 spent 4–6 reads per run on them).
   At dispatch you also write the task contract `.agentic/state/tasks/<TASK_ID>.env` (with
   `STORY_DIR` = absolute path to this story dir) and `bin/transcripts stage-in` stages `.transcripts/`.
 - `output.md` (story-bound, **append-only**) — the **agent** APPENDS one block per
@@ -420,9 +422,11 @@ main tree: .agentic/state/stuck/<task>.<attempt>  a gate released a worker that 
 - `plan-ready.md` — **you** write it once per story after RED is verified; tick a
   box `[ ]→[x]` ONLY when that task's GREEN gate passes. A re-spawn (on fail)
   always precedes ticking, so there is no partial-tick race.
-- `execution.log` — **you** append one line per transition via
-  `bin/log-execution`. Format enforced by `bin/gate-ledger-format`:
-  `<ISO8601> wave-K red|green|scaffold|review|gate SN-NN start|complete …`
+- `execution.log` — **you** append one line per transition:
+  `log-execution wave-K <red|green|scaffold|review|gate|budget|replan> SN-NN <start|complete|kill> Tn [words…]`
+  (it appends to the latest `docs/agents/sprintN/execution.log`; pass that path as the last
+  argument to pick another; `log-execution --help` shows the shape). Format enforced by
+  `bin/gate-ledger-format`: `<ISO8601> wave-K red|green|scaffold|review|gate SN-NN start|complete …`
 
 ### Per-task retry budget (corrections §12 + OPEN-4/6)
 

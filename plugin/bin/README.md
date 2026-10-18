@@ -43,7 +43,7 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 | `worktree-hygiene` | SubagentStart · exec roles — sparse-checks `docs/agents/` out of the new worktree (workers reach it via the absolute `STORY_DIR` back into the main tree, never their own copy) + bootstraps the main tree's `.gitignore` with `.agentic/`/`.transcripts/` if missing. Runs regardless of whether the harness's built-in isolation or `worktree-create` made the worktree. |
 | `worktree-create` | OPTIONAL `git worktree add` helper — wire into **user `settings.json`** as a `WorktreeCreate` hook for a non-git VCS (NOT a valid plugin-manifest event). Built-in `isolation: "worktree"` covers plain git. Also applies the same sparse-checkout + `.gitignore` bootstrap as `worktree-hygiene`. |
 | `worktree-remove` | OPTIONAL `git worktree remove` cleanup companion for the above (user `settings.json` `WorktreeRemove`) |
-| `log-execution` | append a transition line to `execution.log` |
+| `log-execution` | `wave-K activity SN-NN transition [detail…] [execution.log]` — append one transition line (default ledger: the latest sprint's); `--help` |
 | `ensure-tools` | SessionStart — builds md-db + ctx-symbols into `$CLAUDE_PLUGIN_DATA/bin` on first run / version change (background), tells the model where the tools are. `--sync` build now · `--wait` · `--resolve T` real binary path |
 | `md-db`, `ctx-symbols` | PATH shims (this `bin/` is on PATH in every session): exec the real binary, building it once if needed. Gates test presence with `ensure-tools --resolve`, never `command -v` |
 | `aloop` | the one entrypoint: `aloop <tool> …` (`aloop --list`); `aloop init` = aloop-init, `aloop install` = install. Linked into `~/.local/bin` for Codex/OpenCode |

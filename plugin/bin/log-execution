@@ -1,4 +1,32 @@
 #!/usr/bin/env bash
-# Append one transition line to docs/agents/sprintN/execution.log (only writer + supervisor).
+# Append one transition line to docs/agents/sprintN/execution.log (the supervisor is the only writer).
+#
+# usage: log-execution <wave-K> <activity> <SN-NN> <transition> [<detail>…] [<path/to/execution.log>]
+#   activity    red|green|scaffold|review|gate|budget|replan
+#   transition  start|complete|kill|…   detail: usually the task (T1), then free words
+#   ledger      optional last argument ending in execution.log; default: the latest
+#               docs/agents/sprintN/execution.log under the current directory
+# line: <ISO8601> wave-K activity SN-NN transition detail…   (checked by gate-ledger-format)
+# e.g. log-execution wave-1 red S1-01 start T1
 set -euo pipefail
-printf '%s %s %s %s %s\n' "$(date -u +%FT%TZ)" "$1" "$2" "$3" "${4:-}" >> "$5"
+
+usage() {
+  sed -n '4,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+case "${1:-}" in -h|--help|help) usage; exit 0 ;; esac
+if [ $# -lt 4 ]; then usage >&2; exit 64; fi
+
+ledger=""
+case "${!#}" in *execution.log) ledger="${!#}"; set -- "${@:1:$#-1}" ;; esac
+if [ -z "$ledger" ]; then
+  latest="$(ls -d docs/agents/sprint[0-9]* 2>/dev/null | sed 's#.*/sprint##' | sort -n | tail -1)"
+  [ -n "$latest" ] || { echo "log-execution: no docs/agents/sprintN/ here — pass the ledger path" >&2; usage >&2; exit 64; }
+  ledger="docs/agents/sprint$latest/execution.log"
+fi
+[ -d "$(dirname "$ledger")" ] || { echo "log-execution: $(dirname "$ledger") does not exist" >&2; exit 64; }
+if [ $# -lt 4 ]; then usage >&2; exit 64; fi
+
+printf '%s %s %s %s %s' "$(date -u +%FT%TZ)" "$1" "$2" "$3" "$4" >> "$ledger"
+shift 4
+[ $# -eq 0 ] || printf ' %s' "$@" >> "$ledger"
+printf '\n' >> "$ledger"

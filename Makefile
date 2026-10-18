@@ -111,6 +111,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/supervisor-scope.test.py
 	python3 scripts/test/hook-matchers.test.py
 	python3 scripts/test/dispatch.test.py
+	python3 scripts/test/log-execution.test.py
 	python3 scripts/test/ensure-tools.test.py
 	python3 scripts/test/fail-closed.test.py
 	@if command -v node >/dev/null; then node scripts/test/opencode-plugin.test.mjs; else echo "node not found — skipped OpenCode test (CI runs it)"; fi
