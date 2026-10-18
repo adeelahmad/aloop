@@ -30,7 +30,7 @@ def run(*args, inp=None, **env):
 
 def events():
     try:
-        return [json.loads(x) for x in open(os.path.join(T, ".agentic", "logs", "events.jsonl"))]
+        return [json.loads(x) for x in open(os.path.join(T, ".aladdin", "logs", "events.jsonl"))]
     except OSError:
         return []
 
@@ -70,9 +70,9 @@ assert len(events()) == n
 ok("SessionStart: clear → context.rotated, compact → context.compacted, startup → nothing")
 
 # 4) the sprint-close message names the host's own rotate command
-os.makedirs(os.path.join(T, ".agentic", "state"), exist_ok=True)
+os.makedirs(os.path.join(T, ".aladdin", "state"), exist_ok=True)
 for host, cmd in (("claude", "/clear"), ("opencode", "/new")):
-    open(os.path.join(T, ".agentic", "state", "pending-close"), "w").write("Sprint 1 closed.")
+    open(os.path.join(T, ".aladdin", "state", "pending-close"), "w").write("Sprint 1 closed.")
     r = run(os.path.join(BIN, "stats"), "hook", inp=json.dumps({"hook_event_name": "Stop", "cwd": T}), AGENTIC_HOST=host)
     msg = json.loads(r.stdout)["reason"]
     assert "rotate: start a fresh session with %s" % cmd in msg, (host, msg)

@@ -63,7 +63,7 @@ assert "src/report.py:4 render" in out and "weaker" in out, out
 out = run(TG, "target", "T1", SD).stdout
 assert "src/export/csv_writer.py write_csv (planned, shadow)" in out, out
 assert not os.path.exists(os.path.join(T, "src", "export")), "no physical stub may be created"
-served = [json.loads(x) for x in open(os.path.join(T, ".agentic", "logs", "events.jsonl"))]
+served = [json.loads(x) for x in open(os.path.join(T, ".aladdin", "logs", "events.jsonl"))]
 served = [e for e in served if e["event"] == "semantic_target.resolved"]
 assert [e["ids"]["task"] for e in served] == ["S1-01-T2", "S1-01-T1"] and served[0]["data"]["change_ref"] == "C2", served
 ok("check passes; target gives file:line for an existing symbol and a shadow entry for a planned file")

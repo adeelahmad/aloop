@@ -38,7 +38,7 @@ def write(path, text):
 
 
 def events():
-    return [json.loads(x) for x in open(os.path.join(T, ".agentic", "logs", "events.jsonl"))]
+    return [json.loads(x) for x in open(os.path.join(T, ".aladdin", "logs", "events.jsonl"))]
 
 
 sh("git", "init", "-q", "-b", "main")

@@ -1,0 +1,99 @@
+#!/usr/bin/env python3
+"""layout — where this project's run data lives (ROADMAP M1: the move to .aladdin/).
+
+Usage:
+  layout show              the run-data dir in use (.aladdin/ or the legacy .agentic/), why,
+                           and whether .aladdin/.gitignore protects it
+  layout migrate           move .agentic/ (transcripts, budget, ledger, logs, state, host,
+                           worktrees' metadata) into .aladdin/ and write .aladdin/.gitignore.
+                           Refuses while a worker worktree is live. Idempotent.
+  layout check             exit 2 when run data could reach git: a .aladdin/ with run data
+                           and no .gitignore, or an un-ignored legacy .agentic/
+
+Old names keep working: a project with .agentic/ and no run data in .aladdin/ keeps using
+.agentic/ until migrated; ALADDIN_<KEY> and AGENTIC_<KEY> environment overrides are equivalent.
+"""
+import os
+import shutil
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _paths  # noqa: E402
+
+
+def ignored(root, rel):
+    r = subprocess.run(["git", "-C", root, "check-ignore", "-q", rel], capture_output=True)
+    return r.returncode == 0
+
+
+def show(root):
+    name = _paths.home_name(root)
+    why = {_paths.NEW_HOME: "run data present" if any(os.path.isdir(os.path.join(root, _paths.NEW_HOME, d)) for d in _paths.RUN_DIRS)
+           else "fresh project (no .agentic/)", _paths.OLD_HOME: "legacy dir present, nothing in .aladdin/ yet"}[name]
+    guard = os.path.isfile(os.path.join(root, _paths.NEW_HOME, ".gitignore"))
+    print("run data: %s/  (%s)" % (name, why))
+    print("protected: %s" % ("yes — .aladdin/.gitignore" if guard else ("by the root .gitignore" if ignored(root, ".agentic/x") else "NO")))
+    if name == _paths.OLD_HOME:
+        print("migrate with: aloop layout migrate")
+    return 0
+
+
+def check(root):
+    bad = []
+    new = os.path.join(root, _paths.NEW_HOME)
+    if any(os.path.isdir(os.path.join(new, d)) for d in _paths.RUN_DIRS) and not ignored(root, _paths.NEW_HOME + "/logs/x"):
+        bad.append(".aladdin/ holds run data and is not git-ignored (missing .aladdin/.gitignore)")
+    old = os.path.join(root, _paths.OLD_HOME)
+    if os.path.isdir(old) and not ignored(root, _paths.OLD_HOME + "/x"):
+        bad.append(".agentic/ exists and is not git-ignored (run `aloop init --ensure-gitignore`)")
+    for b in bad:
+        print("BLOCK[layout]: %s" % b, file=sys.stderr)
+    if not bad:
+        print("layout ok: %s/ is protected" % _paths.home_name(root))
+    return 2 if bad else 0
+
+
+def migrate(root):
+    old, new = os.path.join(root, _paths.OLD_HOME), os.path.join(root, _paths.NEW_HOME)
+    if not os.path.isdir(old):
+        print("layout: no .agentic/ to migrate; run data is %s/" % _paths.home_name(root))
+        return 0
+    live = [p for p in os.listdir(os.path.join(old, "worktrees")) if not p.startswith(".")] if os.path.isdir(os.path.join(old, "worktrees")) else []
+    if live:
+        print("BLOCK[layout]: worker worktrees still live under .agentic/worktrees (%s): finish or `task-worktree remove` them first" % ", ".join(live), file=sys.stderr)
+        return 2
+    os.makedirs(new, exist_ok=True)
+    moved = []
+    for name in sorted(os.listdir(old)):
+        src, dst = os.path.join(old, name), os.path.join(new, name)
+        if os.path.exists(dst):
+            if os.path.isdir(src) and os.path.isdir(dst):
+                for sub in os.listdir(src):             # merge one level (e.g. logs/ on both sides)
+                    if not os.path.exists(os.path.join(dst, sub)):
+                        shutil.move(os.path.join(src, sub), os.path.join(dst, sub))
+                        moved.append("%s/%s" % (name, sub))
+                shutil.rmtree(src, ignore_errors=True)
+                continue
+            print("layout: %s exists on both sides; left .agentic/%s in place" % (dst, name), file=sys.stderr)
+            continue
+        shutil.move(src, dst)
+        moved.append(name)
+    _paths.home_guard(root)
+    if not os.listdir(old):
+        os.rmdir(old)
+    print("moved .agentic/ -> .aladdin/: %s" % (", ".join(moved) or "nothing"))
+    print("protected: .aladdin/.gitignore")
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    root = _paths.project(os.getcwd())
+    return {"show": show, "check": check, "migrate": migrate}.get(argv[0], lambda r: (print("layout: unknown command", file=sys.stderr), 64)[1])(root)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

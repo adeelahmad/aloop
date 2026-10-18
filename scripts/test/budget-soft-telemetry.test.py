@@ -28,11 +28,11 @@ def sh(*args, cwd=T, inp=None):
 
 
 def state(agent):
-    return json.load(open(os.path.join(T, ".agentic", "budget", agent + ".json")))
+    return json.load(open(os.path.join(T, ".aladdin", "budget", agent + ".json")))
 
 
 def events():
-    p = os.path.join(T, ".agentic", "logs", "events.jsonl")
+    p = os.path.join(T, ".aladdin", "logs", "events.jsonl")
     evs = [json.loads(l) for l in open(p)] if os.path.exists(p) else []
     return [e for e in evs if e["event"].startswith("task.")]      # budget events only
 
@@ -87,7 +87,7 @@ ok("hard-limit behaviour unchanged")
 # 5) the soft TIME limit still warns (graceful wrap-up stays for time)
 open(os.path.join(wt, ".agentic", "task.env"), "a").write("BUDGET_TIME_SOFT_MIN=0\n")
 call("w1", wt, 1, mode="stop")
-os.remove(os.path.join(T, ".agentic", "budget", "w1.json"))
+os.remove(os.path.join(T, ".aladdin", "budget", "w1.json"))
 os.remove(os.path.join(wt, ".agentic", "budget-exceeded"))
 out = call("w2", wt, 1000)
 assert "SOFT TIME LIMIT" in out and state("w2")["soft_warned"], out
@@ -96,7 +96,7 @@ ok("soft time limit still tells the worker to wrap up")
 # 6) the next planning cycle sees it: stats.md + NEXT.md
 st = state("w2")
 st.update({"token_soft_limit": st["start"], "tokens": 150000, "done": st["start"]})
-json.dump(st, open(os.path.join(T, ".agentic", "budget", "w2.json"), "w"))
+json.dump(st, open(os.path.join(T, ".aladdin", "budget", "w2.json"), "w"))
 sh(os.path.join(BIN, "stats"), "sprint-close", "1")
 stats = open(os.path.join(T, "docs", "agents", "sprint1", "stats.md")).read()
 nxt = open(os.path.join(T, "docs", "agents", "NEXT.md")).read()

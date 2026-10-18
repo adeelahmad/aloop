@@ -10,12 +10,14 @@ never calls them directly. Shared helpers live in `_gatelib.sh`.
 Transcripts hooks (`transcripts`) ALWAYS exit `0` — they must never block an agent.
 
 ## Per-task contract
-Gates read the supervisor's contract `<main tree>/.agentic/state/tasks/<TASK_ID>.env`
+Gates read the supervisor's contract `<main tree>/.aladdin/state/tasks/<TASK_ID>.env`
+(`.agentic/...` in a legacy project; both dirs are searched)
 (written before dispatch; the dispatch prompt's first line `TASK_ID: <id>` names it):
 `TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS, BASE_REF, STORY_DIR,
 BUDGET_*`. A worktree `.agentic/task.env` is a fallback and must match the contract when
 both exist. Parsed, never sourced. Real env overrides. Store paths are NOT part of the contract:
-`_paths.sh` / `_paths.py` fix them (`<main tree>/.agentic/{transcripts,budget,ledger,logs,state}`,
+`_paths.sh` / `_paths.py` fix them (`<main tree>/.aladdin/{transcripts,budget,ledger,logs,state}`,
+or `.agentic/` where a project still has one — `aloop layout show|check|migrate`;
 `docs/agents/{defaults.md,NEXT.md}`). A missing backend (md-db /
 ctx-symbols) → WARN + grep fallback; never a silent pass.
 
@@ -23,7 +25,7 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 | script | event · matcher | checks | exit 2 when |
 |--------|-----------------|--------|-------------|
 | gate-supervisor-scope     | PreToolUse · Write\|Edit\|MultiEdit\|Bash | MAIN agent (no `agent_type`) may not write production source mid-sprint, nor hand-author planning artifacts (stories/tasks/validate/plan/intake/standards.md — dispatch the activity); sub-agents (`agent_type` present) exempt | supervisor writes source / hand-writes a planner-owned artifact |
-| gate-dispatch             | PreToolUse · Agent\|Task | the MAIN agent's dispatch of an execution role opens with `TASK_ID: <id>` and that task's contract `.agentic/state/tasks/<id>.env` exists (repos with `.agentic/` only) | no TASK_ID line / contract not written yet |
+| gate-dispatch             | PreToolUse · Agent\|Task | the MAIN agent's dispatch of an execution role opens with `TASK_ID: <id>` and that task's contract `<run-data>/state/tasks/<id>.env` exists (repos with a run-data dir only) | no TASK_ID line / contract not written yet |
 | gate-tooling              | SubagentStart · exec roles + supervisor self-check | md-db + ctx-symbols installed (execution may not run grep-degraded); runs `ensure-tools --sync` first | a backend is missing and can't be built |
 | gate-validate-artifact    | PostToolUse · Write         | md-db-validate the written artifact | artifact malformed |
 | gate-red-verify           | SubagentStop · red-worker   | worktree-isolated; appended output.md block (validate_comms); every new test FAILS BY ASSERTION; no regression; diff = tests+shims | no/stale output.md block / shared-tree run / a new test passes / prod code / regression |
@@ -64,6 +66,7 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 | `ids` | canonical identity + referential integrity (ROADMAP §4.5): `freeze SPRINT_DIR` checks the structured references (story frontmatter ↔ dir, dirs ↔ stories.md, validate.md ↔ tasks.md headings, `split_from` → a retired task) and issues frozen UUIDv7 ids in `sprintN/ids.json`; a retired alias is never reused · `check` · `resolve ALIAS`. Run by `gate-stage2-complete`; events then carry `story_uid`/`task_uid`. |
 | `targets` | semantic execution map (ROADMAP §4.6): the planner's `<story>/targets.json` — change targets and, with `tasks`, the whole semantic plan. `render STORY_DIR [--check]` writes tasks.md / validate.md / plan.md as deterministic views over it (the gate refuses a hand-edited view) · `check STORY_DIR` (run by `gate-stage2-complete`) · `target Tn STORY_DIR` (file:line, or `planned` for the shadow workspace) · `shadow` · `scope Tn STORY_DIR` (the diff scope gate-green-verify derives when SCOPE_GLOBS is unset) · `context Cn --budget N` (just the target's definition) · `refs\|callers\|callees` via the LSP server in `AGENTIC_LSP_COMMAND` (`_lsp.py`: references + call hierarchy); no server or a missing capability → exit 4, never guessed. Backend: ctx-symbols, else a definition regex flagged weaker. |
 | `impact` | optional cross-project impact provider seam (ROADMAP §4.8): `query consumers\|rationale\|migration\|standards SUBJECT [--task]` runs `AGENTIC_IMPACT_PROVIDER` (defaults.md or env), keeps only results with a `source_ref`, saves them under `docs/agents/impact/` and emits `artifact.created`. No provider or a failing one → WARN, exit 0. Builds no index. |
+| `layout` | the run-data dir (ROADMAP M1): `show` (which of `.aladdin/` / `.agentic/` is live and why) · `check` (exit 2 unless every run dir is git-ignored) · `migrate` (move `.agentic/` run data into `.aladdin/`, refused while worker worktrees are live; in `make test-hosts`) |
 | `config` | the portable project config `.aladdin/config.yaml` (ROADMAP §4.9; sections budgets · context · semantic · models · provenance · memory · git, plus `budgets.roles.<role>`): `migrate` writes it from the current settings and renders `docs/agents/defaults.md` from it · `sync` re-renders defaults.md (SessionStart, `aloop-init --apply`) so bash readers see the same values · `check` validates (exit 2) · `show [--json]` effective value + source per setting. When it exists it is authoritative. |
 | `capabilities` | the host capability matrix (`plugin/hosts/capabilities.json`: usage, compaction, live messaging, lifecycle, gate blocking; `unknown` = not advertised) · `boundary [HOST]` → rotate (default, the host's `/clear` or `/new`) or compact only when `AGENTIC_CONTEXT_BOUNDARY=compact` and advertised · `boundary --keep --reason` records the exception. SessionStart records `context.rotated` / `context.compacted`. |
 | `models` | abstract model routes (ROADMAP §3.6): `resolve planning\|worker\|<role> [--host H] [--json]` → the host's id for the group's route (`strongest\|strong\|economical`, or a pinned id passed through; `--json` shows the route, conformance 18) · `routes` prints `hosts/routes.json`. `aloop install` renders from the same table. |

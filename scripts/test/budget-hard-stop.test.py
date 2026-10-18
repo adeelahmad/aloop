@@ -30,11 +30,11 @@ def sh(*args, cwd=T, inp=None, check=True, env=ENV):
 
 
 def state(agent):
-    return json.load(open(os.path.join(T, ".agentic", "budget", agent + ".json")))
+    return json.load(open(os.path.join(T, ".aladdin", "budget", agent + ".json")))
 
 
 def events():
-    p = os.path.join(T, ".agentic", "logs", "events.jsonl")
+    p = os.path.join(T, ".aladdin", "logs", "events.jsonl")
     return [json.loads(l) for l in open(p)] if os.path.exists(p) else []
 
 

@@ -23,6 +23,17 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Changed
+- **Run data moves to `.aladdin/`** (ROADMAP M1). Fresh projects keep transcripts, budgets,
+  the ledger, logs, state, host records and task worktrees under `.aladdin/`, next to
+  `config.yaml`; `.aladdin/.gitignore` (written by the plugin) keeps everything but
+  `config.yaml` out of git. A project that already has `.agentic/` keeps using it until
+  `aloop layout migrate` moves it (refused while worker worktrees are live); `aloop layout
+  show` says which dir is live and `aloop layout check` fails unless the run data is
+  git-ignored. Every `AGENTIC_<KEY>` env var and settings key accepts `ALADDIN_<KEY>`
+  (`AGENTIC_` wins when both are set). The gates and `budget` find the task contract in
+  either dir, so a supervisor that writes the old literal path is still understood. The
+  worktree-local markers (`.agentic/task.env`, `budget-exceeded`, `scaffold-symbols`) keep
+  their name for now. Test: `scripts/test/layout.test.py`; every suite runs on the new layout.
 - **Workers append their `output.md` block before `selfcheck`** (RED/SCAFFOLD/GREEN personas,
   agents and pipeline sources). Reason: the soft-limit line said "run selfcheck, append your
   report", so workers self-checked first and were blocked for a missing report block: 4 of

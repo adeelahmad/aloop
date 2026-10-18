@@ -20,7 +20,7 @@ GATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plu
 T = tempfile.mkdtemp(prefix="aloop-scope-")
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = {k: v for k, v in os.environ.items() if k not in ("SKIP_HOOKS", "AGENTIC_SPRINT_LOCK_TTL")}
-LOCK = os.path.join(T, ".agentic", "state", "sprint.lock")
+LOCK = os.path.join(T, ".aladdin", "state", "sprint.lock")
 n = 0
 
 
@@ -67,7 +67,7 @@ assert r.returncode == 0, r
 ok("a dispatched sub-agent may write source (its own gate constrains it)")
 
 # The task contract is the supervisor's (M0.7): a worker may not write it, in the main tree or its worktree.
-for path in (".agentic/state/tasks/S1-01-T1.env", ".agentic/task.env", ".agentic/state/agents/a1.json"):
+for path in (".aladdin/state/tasks/S1-01-T1.env", ".agentic/task.env", ".aladdin/state/agents/a1.json"):
     r = run(path, agent_type="aloop:green-worker")
     assert r.returncode == 2 and "task contract" in r.stderr, (path, r)
 ok("a sub-agent may not write the task contract or the supervisor's state")
@@ -83,15 +83,15 @@ def bash(cmd, agent_type="aloop:green-worker"):
 
 
 for cmd in ("echo SCOPE_GLOBS=* >> .agentic/task.env",
-            "sed -i 's/BUDGET_TOKENS_HARD=.*/BUDGET_TOKENS_HARD=9999999/' /repo/.agentic/state/tasks/S1-01-T1.env",
-            "cp /tmp/x .agentic/state/tasks/S1-01-T1.env",
+            "sed -i 's/BUDGET_TOKENS_HARD=.*/BUDGET_TOKENS_HARD=9999999/' /repo/.aladdin/state/tasks/S1-01-T1.env",
+            "cp /tmp/x .aladdin/state/tasks/S1-01-T1.env",
             "printf 'x' | tee .agentic/task.env"):
     r = bash(cmd)
     assert r.returncode == 2 and "task contract" in r.stderr, (cmd, r)
 ok("a sub-agent may not rewrite the task contract through Bash")
-for cmd in ("cat .agentic/task.env", "grep SCOPE .agentic/state/tasks/S1-01-T1.env", "cargo test > out.txt",
+for cmd in ("cat .agentic/task.env", "grep SCOPE .aladdin/state/tasks/S1-01-T1.env", "cargo test > out.txt",
             # live e2e run 5: a read-only probe was blocked (a redirect elsewhere + a contract path later)
-            "cat .agentic/state/agents/*.json 2>/dev/null | head -40; echo ---; ls -la .agentic/task.env 2>&1",
+            "cat .aladdin/state/agents/*.json 2>/dev/null | head -40; echo ---; ls -la .agentic/task.env 2>&1",
             "rm -rf target; cat .agentic/task.env"):
     r = bash(cmd)
     assert r.returncode == 0, (cmd, r)

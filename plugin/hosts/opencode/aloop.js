@@ -46,7 +46,17 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
   const env = { ...process.env, AGENTIC_HOST: "opencode", PATH: `${BIN}:${process.env.PATH || ""}` }
   const sessions = new Map()       // id -> { parentID, root, agent }
   const startCtx = new Map()       // root id -> SessionStart additionalContext
-  const hostDir = join(project, ".agentic", "host", "opencode")
+  // the run-data dir (bin/_paths.sh): .aladdin/, or the legacy .agentic/ until `aloop layout migrate`
+  const homeDir = (() => {
+    const nu = join(project, ".aladdin")
+    if (["transcripts", "budget", "ledger", "logs", "state", "host", "worktrees"].some((d) => existsSync(join(nu, d)))) return nu
+    return existsSync(join(project, ".agentic")) ? join(project, ".agentic") : nu
+  })()
+  const homeGuard = () => {        // .aladdin/.gitignore: config.yaml is committed, run data never is
+    if (homeDir.endsWith(".aladdin") && existsSync(homeDir) && !existsSync(join(homeDir, ".gitignore")))
+      try { writeFileSync(join(homeDir, ".gitignore"), "# aloop run data (transcripts, budgets, ledger, logs, state) — never committed\n*\n!.gitignore\n!config.yaml\n") } catch {}
+  }
+  const hostDir = join(homeDir, "host", "opencode")
   const safe = (s) => String(s || "").replace(/[^A-Za-z0-9_.-]/g, "_")
 
   const run = (script, args, payload, cwd = project) => {
@@ -81,7 +91,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
     return p
   }
   const bound = (id) => {
-    try { return JSON.parse(readFileSync(join(project, ".agentic", "state", "agents", `${safe(id)}.json`), "utf8")).worktree || "" } catch { return "" }
+    try { return JSON.parse(readFileSync(join(homeDir, "state", "agents", `${safe(id)}.json`), "utf8")).worktree || "" } catch { return "" }
   }
   const toolInput = (tool, a) =>
     tool === "bash" ? { command: a.command, workdir: a.workdir }
@@ -230,6 +240,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
         if (m.mode && s.parentID) s.agent = s.agent || m.mode
         const file = transcriptOf(s, m.sessionID)
         mkdirSync(dirname(file), { recursive: true })
+        homeGuard()
         appendFileSync(file, JSON.stringify({
           timestamp: new Date(m.time.completed).toISOString(),
           message: { id: m.id, model: `${m.providerID}/${m.modelID}`, usage: {

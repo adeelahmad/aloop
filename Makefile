@@ -73,7 +73,7 @@ shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent
 .PHONY: pycheck
 pycheck: ## Byte-compile the Python hook scripts
 	@python3 -m py_compile plugin/bin/budget plugin/bin/stats plugin/bin/aloop-init plugin/bin/gate-commit-author plugin/bin/_paths.py \
-	    plugin/bin/_usage.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/capabilities plugin/bin/models plugin/bin/_routes.py plugin/bin/host plugin/bin/_host.py plugin/bin/config plugin/bin/_config.py plugin/bin/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
+	    plugin/bin/_usage.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/capabilities plugin/bin/models plugin/bin/_routes.py plugin/bin/host plugin/bin/_host.py plugin/bin/config plugin/bin/_config.py plugin/bin/layout plugin/bin/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
 	  && rm -rf plugin/bin/__pycache__ && echo "python ok"
 
 .PHONY: test-hosts
@@ -106,6 +106,8 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/host-swap.test.py
 	python3 scripts/test/aladdin-cli.test.py
 	python3 scripts/test/site.test.py
+	python3 scripts/test/layout.test.py
+	plugin/bin/layout check
 	plugin/bin/host check
 	python3 scripts/test/targets-scope.test.py
 	python3 scripts/test/plan-render.test.py

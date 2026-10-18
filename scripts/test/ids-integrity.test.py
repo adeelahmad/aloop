@@ -105,7 +105,7 @@ ok("gate-stage2-complete blocks a broken reference graph and freezes a sound one
 sys.path.insert(0, BIN)
 import _events  # noqa: E402
 _events.emit(T, "task.dispatched", task="S1-01-T3", role="red-worker")
-ev = [json.loads(x) for x in open(os.path.join(T, ".agentic", "logs", "events.jsonl"))][-1]
+ev = [json.loads(x) for x in open(os.path.join(T, ".aladdin", "logs", "events.jsonl"))][-1]
 assert ev["ids"]["task_uid"] == frozen()["S1-01-T3"]["id"] and ev["ids"]["story_uid"] == frozen()["S1-01"]["id"], ev["ids"]
 ok("events emitted for a frozen task carry task_uid and story_uid")
 

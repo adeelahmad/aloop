@@ -46,7 +46,7 @@ contract = r.stdout.split("intent recorded: ")[1].split(" (raw")[0]
 doc = json.load(open(contract))
 assert doc["intent_id"].startswith("int_") and doc["source"] == "prompt" and doc["provenance"]["raw_ref"].startswith("docs/agents/intents/raw-")
 assert open(os.path.join(T, doc["provenance"]["raw_ref"])).read() == "add a csv export\n"
-ev = [json.loads(x) for x in open(os.path.join(T, ".agentic", "logs", "events.jsonl"))]
+ev = [json.loads(x) for x in open(os.path.join(T, ".aladdin", "logs", "events.jsonl"))]
 assert [e["event"] for e in ev] == ["intent.received"], ev
 r = run(A, "run")
 assert r.returncode == 0 and "intent: " + contract in r.stdout and "/aladdin add a csv export" in r.stdout, r

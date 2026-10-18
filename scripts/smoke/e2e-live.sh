@@ -67,14 +67,14 @@ check "planning wrote stories.md + a story dir" '[ -f docs/agents/sprint1/storie
 check "planning artifacts are schema-valid" \
   '[ -n "$story" ] && find docs/agents/sprint1 -name "*.md" \( -name stories.md -o -name tasks.md -o -name validate.md -o -name plan.md \) | "$PLUGIN/bin/md-db" validate --stdin-list --schema "$PLUGIN/schemas/planning-artifacts.kdl" >/dev/null 2>&1'
 check "RED and GREEN gates both passed at least once" \
-  'grep -q "\"gate\":\"gate-red-verify\".*\"exit\":0" .agentic/logs/gates.jsonl 2>/dev/null && grep -q "\"gate\":\"gate-green-verify\".*\"exit\":0" .agentic/logs/gates.jsonl'
+  'grep -q "\"gate\":\"gate-red-verify\".*\"exit\":0" .aladdin/logs/gates.jsonl 2>/dev/null && grep -q "\"gate\":\"gate-green-verify\".*\"exit\":0" .aladdin/logs/gates.jsonl'
 check "work is merged into main (src/ changed since init)" '[ -n "$(git diff --name-only HEAD~1 -- src 2>/dev/null; git log --oneline main | sed -n 3p)" ]'
 check "main has a test that exercises the library ($KEYWORD)" 'grep -rqsE "#\[test\]" tests src && grep -rqsiE "$KEYWORD" tests src'
 check "main's tests pass" 'cargo test -q >/dev/null 2>&1'
 check "no suppressed tests on main" '! grep -rqsE "#\[ignore\]|cfg\(not\(test\)\)" src tests'
 check "SubagentStop gates ran on the host (not only workers' self-checks)" \
-  'grep -q "\"selfcheck\":false" .agentic/logs/gates.jsonl 2>/dev/null'
-check "final gate passed" 'grep -q "\"gate\":\"gate-final\".*\"exit\":0" .agentic/logs/gates.jsonl 2>/dev/null'
+  'grep -q "\"selfcheck\":false" .aladdin/logs/gates.jsonl 2>/dev/null'
+check "final gate passed" 'grep -q "\"gate\":\"gate-final\".*\"exit\":0" .aladdin/logs/gates.jsonl 2>/dev/null'
 check "no hook crashed" '! grep -q "the gate itself failed" "$T/out.jsonl"'
 # Auditable: every commit the run merged traces back to its task from the event stream alone
 # (ROADMAP §4.7). `init` and `aloop init` are the two seed commits.
@@ -110,7 +110,7 @@ for l in open(sys.argv[1]):
 print(n)
 PY
 )"
-[ -f .agentic/logs/gates.jsonl ] && echo "gate verdicts: $(grep -c . .agentic/logs/gates.jsonl) ($(grep -c '"exit":2' .agentic/logs/gates.jsonl) blocks)"
+[ -f .aladdin/logs/gates.jsonl ] && echo "gate verdicts: $(grep -c . .aladdin/logs/gates.jsonl) ($(grep -c '"exit":2' .aladdin/logs/gates.jsonl) blocks)"
 # Keep the transcript and the repo, drop the build artifacts (a cargo target dir per worktree
 # is hundreds of MB; a dozen kept runs filled the disk).
 rm -rf "$T"/repo/target "$T"/repo/.claude/worktrees/*/target 2>/dev/null

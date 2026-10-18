@@ -173,17 +173,17 @@ def host_task_id(payload, agent_id):
 
 
 def contract(cwd, task_id):
-    """The supervisor's task contract in the MAIN tree (.agentic/state/tasks/<TASK_ID>.env), or {}."""
+    """The supervisor's task contract in the MAIN tree (<run-data>/state/tasks/<TASK_ID>.env), or {}."""
     if not task_id or not re.match(r"^[A-Za-z0-9._-]+$", task_id):
         return {}
-    return read_kv(os.path.join(_paths.home(cwd, "state/tasks", make=False), task_id + ".env"))
+    return read_kv(_paths.contract_path(cwd, task_id))
 
 
 def copy_contract(cwd, top, task_id):
     """Put a copy of the supervisor's contract in the worker's worktree (Claude Code makes the
     worktree at dispatch, so no one could write it before), so `selfcheck` there finds the
     task. The gates compare the copy with the contract, so editing it gains nothing."""
-    src = os.path.join(_paths.home(cwd, "state/tasks", make=False), task_id + ".env")
+    src = _paths.contract_path(cwd, task_id)
     dst = os.path.join(top, ".agentic", "task.env")
     if not os.path.isfile(os.path.join(top, ".git")) or not os.path.isfile(src):
         return
@@ -283,7 +283,7 @@ def find_worktree(payload, cwd, agent_id, role):
         return top, "cwd (host worktree)"      # Claude Code's isolation worktree has no task.env
     claimed = claimed_worktrees(cwd, agent_id)
     mine = []
-    for te in glob.glob(os.path.join(project, ".agentic", "worktrees", "*", ".agentic", "task.env")) + \
+    for te in glob.glob(os.path.join(_paths.home(project, "worktrees", make=False), "*", ".agentic", "task.env")) + \
             [os.path.join(w, ".agentic", "task.env") for w in _worktree_list(project)]:
         w = os.path.dirname(os.path.dirname(te))
         if w in claimed or w in [m for m in mine] or not os.path.isfile(te):
@@ -935,7 +935,7 @@ def envelope(cwd, task):
         "changed: %s" % (", ".join(changed[:12]) + (" …" if len(changed) > 12 else "") if changed else "none in worktree"),
         "refs:",
         "  transcript: %s" % (s.get("transcript") or "?"),
-        "  events: .agentic/logs/events.jsonl (task=%s)" % task,
+        "  events: %s (task=%s)" % (_paths.home_rel(None, "logs", "events.jsonl"), task),
         "  output: %s" % (os.path.join(s["story_dir"], "output.md") if s.get("story_dir") else "?"),
         "  diff: git -C %s diff HEAD" % (wt or "?"),
     ]))

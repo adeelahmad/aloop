@@ -15,9 +15,9 @@ PLUGIN="$(cd "$(dirname "$0")/../../plugin" && pwd)"
 T="$(mktemp -d)"; cd "$T" || exit 1
 git init -q -b main && git config user.email ada@x.io && git config user.name Ada
 echo "# demo" > README.md && git add -A && git commit -qm init
-mkdir -p docs/agents .agentic/state
+mkdir -p docs/agents .aladdin/state
 printf '# handoff\nMarker: SMOKE-7731. Next: plan sprint 2.\n' > docs/agents/NEXT.md
-echo "other-session" > .agentic/state/sprint.lock          # a resumed, live sprint
+echo "other-session" > .aladdin/state/sprint.lock          # a resumed, live sprint
 
 AGENTIC_NO_AUTOINSTALL=1 timeout 300 claude -p --plugin-dir "$PLUGIN" --model haiku \
   --output-format stream-json --verbose --allowedTools Write --max-turns 4 \
@@ -31,8 +31,8 @@ check "session ran (exit $rc)" '[ "$rc" -eq 0 ]'
 check "SessionStart injected the NEXT.md handoff" 'grep -q "SMOKE-7731" out.jsonl && grep -q "\"text\": *\"[^\"]*SMOKE-7731" out.jsonl'
 check "supervisor write to src/ was blocked" '[ ! -e src/lib.rs ] && grep -q "may not write production source" out.jsonl'
 check "no hook crashed" '! grep -q "unbound variable" out.jsonl'
-check "transcripts captured the session" '[ -s .agentic/transcripts/global.jsonl ]'
-check "Stop hook wrote the token ledger" 'ls .agentic/ledger/*.jsonl >/dev/null 2>&1'
+check "transcripts captured the session" '[ -s .aladdin/transcripts/global.jsonl ]'
+check "Stop hook wrote the token ledger" 'ls .aladdin/ledger/*.jsonl >/dev/null 2>&1'
 cost="$(python3 -c 'import json,sys
 for l in open("out.jsonl"):
     e=json.loads(l)
