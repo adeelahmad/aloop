@@ -52,7 +52,7 @@ SETTING = re.compile(r"^\s*(?:export\s+)?(?:AGENTIC|ALADDIN)_([A-Z_]+)\s*=\s*['\
 # ALADDIN_<KEY> is the new spelling of every AGENTIC_<KEY> environment override (ROADMAP M1):
 # both are read, the old one wins when both are set; scripts keep using the AGENTIC_ name.
 ENV_KEYS = ("HOST", "CWD", "NO_AUTOINSTALL", "NO_BUDGET", "LSP_COMMAND", "IMPACT_PROVIDER", "SELFCHECK", "WORKTREE",
-            "AUTONOMY_MODE", "STUCK_BLOCKS", "SPRINT_LOCK_TTL", "TRANSCRIPTS_KEEP")
+            "AUTONOMY_MODE", "STUCK_BLOCKS", "SPRINT_LOCK_TTL", "TRANSCRIPTS_KEEP", "AUTO_TRIGGER")
 for _k in ENV_KEYS:
     if not os.environ.get("AGENTIC_" + _k) and os.environ.get("ALADDIN_" + _k):
         os.environ["AGENTIC_" + _k] = os.environ["ALADDIN_" + _k]

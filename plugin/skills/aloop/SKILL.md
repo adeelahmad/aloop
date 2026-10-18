@@ -827,6 +827,9 @@ All of these are on PATH — call them by bare name.
   own task slice.
 - Lifecycle (wired in hooks.json, all non-blocking — exit 0):
     UserPromptSubmit → `transcripts prompt`   capture each human message.
+    UserPromptSubmit → `intent-trigger hook`  a plain build/fix request in an aloop project with no
+        sprint running gets context to run it as `/aladdin "<intent>"` (quiet for questions,
+        slash commands, a live sprint; off with `ALADDIN_AUTO_TRIGGER=off` / `intent.auto_trigger: false`).
     SubagentStart    → `transcripts stage-in` copy this task's slice into the worktree
         as READ-ONLY `.transcripts/` (a frozen pre-run snapshot).
     PostToolUse *    → `transcripts record`   append the full tool payload to the store.
