@@ -75,7 +75,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 | Pipeline source | [`plugin/pipeline/`](../plugin/pipeline/) | Per activity: `persona.md`, `init.template.md`, `artifacts.md`, `gate.md` |
 | Hook wiring | [`plugin/hooks/hooks.json`](../plugin/hooks/hooks.json) | SessionStart, PreToolUse, PostToolUse, SubagentStart/Stop, Stop, UserPromptSubmit (transcript capture and the natural-language auto-trigger, `intent-trigger`) |
 | Gates | [`plugin/bin/gate-*`](../plugin/bin/README.md) | 15 bash gates; exit `0` pass, `2` block with reason |
-| Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `aladdin` / `aloop` (entry points), `intent`, `budget` (time box, envelope, breach classes), `sweep` (the orchestrator loop), `targets` (semantic plan, shadow workspace, render), `ids`, `events` (audit stream, lineage, trace), `stats` (ledger, metrics, handoff), `models` / `host` / `config` (routes, HostAdapter, portable config), `transcripts`, `install`, `aloop-init`, worktree helpers |
+| Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `aladdin` / `aloop` (entry points), `intent`, `budget` (time box, envelope, breach classes), `sweep` (the orchestrator loop), `targets` (semantic plan, shadow workspace, render), `ids`, `events` (audit stream, lineage, trace), `stats` (ledger, metrics, handoff), `models` / `host` / `config` (routes, HostAdapter, portable config), `transcripts`, `intent-trigger` (natural-language auto-trigger), `run-summary` (a live run's measured record for `docs/evidence/`), `install`, `aloop-init`, worktree helpers |
 | Schemas | [`plugin/schemas/*.kdl`](../plugin/schemas/) | What `md-db validate` enforces on every planning and comms artifact |
 | `ctx-symbols` | [`plugin/tools/ctx-symbols/`](../plugin/tools/ctx-symbols/) | Rust, tree-sitter symbol resolver (Rust, Python, JS/TS, Go): count, locate, conflicts |
 | `md-db` | [`plugin/tools/md-db/`](../plugin/tools/md-db/) | Vendored Rust markdown-as-database validator (AGPL-3.0 subtree) |
@@ -105,7 +105,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 - The full planning → execution loop on Claude Code; Codex and OpenCode via generated
   agents and the same gates.
 - CI on every PR: Rust fmt/clippy/tests for both backends, shellcheck on every gate, the
-  ROADMAP §6 conformance fixtures (real gates on a fixture crate, 58 checks), the host tests
+  ROADMAP §6 conformance fixtures (real gates on a fixture crate, 60 checks), the host tests
   (budget/worktree, Codex hooks emulation, supervisor scope, hook matchers, dispatch,
   ensure-tools, fail-closed: 73 checks; OpenCode end-to-end: 20), `claude plugin validate
   --strict`, eval-suite and version-lockstep checks,
