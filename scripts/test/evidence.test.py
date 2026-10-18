@@ -32,6 +32,7 @@ plug = os.path.join(ROOT, "plugin")
 lines = [
     {"type": "assistant", "message": {"content": [{"type": "tool_use", "input": {"command": "cat %s/skills/aloop/SKILL.md" % plug}}]}},
     {"type": "assistant", "message": {"content": [{"type": "tool_use", "input": {"command": "md-db validate --schema %s/schemas/x.kdl a.md" % plug}}]}},
+    {"type": "assistant", "message": {"content": [{"type": "tool_use", "input": {"command": "SCH=%s/schemas/x.kdl; md-db describe --schema \"$SCH\" --type stories" % plug}}]}},
     {"type": "assistant", "message": {"content": "plain string content is fine"}},
     {"type": "result", "total_cost_usd": 1.2345, "num_turns": 41, "duration_ms": 925000},
     {"type": "result", "total_cost_usd": 1.3, "num_turns": 44, "duration_ms": 940000},
@@ -54,7 +55,7 @@ assert re.fullmatch(r"[0-9a-f]{40}", s["run_repo_head"]) and s["reproduce"].star
 row = [l for l in r.stdout.splitlines() if l.startswith("| ")][-1]
 assert "| wordfreq |" in row and "| 13/13 |" in row and "| 15m24s |" in row and "| $1.30 |" in row and "| 2 |" in row, row
 assert os.path.isfile(os.path.join(T, "summary.md"))
-ok("run-summary: last result line wins, wakes counted, plugin reads exclude --schema, gates tallied; summary.json/.md + ledger row")
+ok("run-summary: last result line wins, wakes counted, plugin reads exclude schema uses (also via a shell variable), gates tallied; summary.json/.md + ledger row")
 
 # 2) the ledger: every row has a run, intent, version, checks, wall, cost and a reproduce command
 ledger = open(os.path.join(ROOT, "docs", "evidence", "README.md")).read()
