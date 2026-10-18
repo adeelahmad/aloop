@@ -23,12 +23,14 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
-- `gate-dispatch` now refuses a dispatch of any aloop role whose `model` is not the project's confirmed one (`aloop models resolve <role>`, matched by model family so `haiku` and `claude-haiku-5-5` agree), or that passes no model (which would fall back to the agent file's default, opus for the planning roles). Reason: live e2e run 20 dispatched planners on opus and workers on sonnet against a project whose defaults.md said haiku for both, and cost $2.79 instead of $0.99 for the same 12/12 result. Test: `scripts/test/dispatch.test.py`.
+- `gate-dispatch` now refuses a dispatch of any aloop role whose `model` is not the project's confirmed one (`aloop models resolve <role>`, matched by model family so `haiku` and `claude-haiku-5-5` agree), or that passes no model (which would fall back to the agent file's default, opus for the planning roles). Reason: live e2e run 20 dispatched planners on opus and workers on sonnet against a project whose defaults.md said haiku for both, and cost $2.79 instead of $0.99 for the same 12/12 result. Test: `scripts/test/dispatch.test.py`. Live run 21 with the gate: 12/12, 8m17s, $0.66, every dispatch on haiku (ledger rows for runs 20 and 21 in `docs/evidence/README.md`).
 - Evidence ledger (ROADMAP §4.11): `docs/evidence/README.md` lists every live run behind a public
   number (intent, plugin version, checks, wall, cost, wakes, plugin reads, gate blocks, reproduce
   command); `bin/run-summary <run-dir>` writes a run's `summary.json`, `summary.md` and ledger row from
   the session's `result` lines and the gate log, and `e2e-live.sh` calls it. README and the site link
   every figure to the ledger; `scripts/test/evidence.test.py` fails on an unsourced figure.
+- `run-summary` counts a `<plugin>/schemas/…` reference as schema use, not a plugin-source read, also
+  when the path is bound to a shell variable first (run 19: 5 → 0).
 - Natural-language auto-trigger (ROADMAP §4.11): `bin/intent-trigger` on UserPromptSubmit adds context
   to run a plain build/fix request as `/aladdin "<intent>"` when it lands in an aloop project with no
   sprint running. Quiet for questions, slash commands, short replies, a live sprint lock and non-aloop
