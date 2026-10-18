@@ -44,18 +44,20 @@ with open(os.path.join(T, "out.jsonl"), "w") as f:
 with open(os.path.join(repo, ".aladdin", "logs", "gates.jsonl"), "w") as f:
     for g, x in (("gate-red-verify", 2), ("gate-red-verify", 0), ("gate-green-verify", 0), ("gate-final", 0)):
         f.write(json.dumps({"gate": g, "exit": x, "selfcheck": False}) + "\n")
+    f.write(json.dumps({"gate": "gate-scaffold-verify", "exit": 2, "selfcheck": True}) + "\n")   # caught by the worker's own self-check
 r = subprocess.run([os.path.join(BIN, "run-summary"), T, "--intent", "wordfreq", "--checks", "13/13", "--secs", "924",
                     "--plugin", plug], capture_output=True, text=True)
 assert r.returncode == 0, r.stderr
 s = json.load(open(os.path.join(T, "summary.json")))
 assert s["cost_usd"] == 1.3 and s["wakes"] == 2 and s["supervisor_turns"] == 44 and s["wall"] == "15m24s", s
-assert s["plugin_reads"] == 1 and s["gate_verdicts"] == 4 and s["gate_blocks"] == 1 and s["checks"] == "13/13", s
+assert s["plugin_reads"] == 1 and s["gate_verdicts"] == 5 and s["gate_blocks"] == 2 and s["checks"] == "13/13", s
 assert s["intent"] == "wordfreq" and s["plugin_version"] == json.load(open(os.path.join(plug, ".claude-plugin", "plugin.json")))["version"]
 assert re.fullmatch(r"[0-9a-f]{40}", s["run_repo_head"]) and s["reproduce"].startswith("make e2e-live YES=1 INTENT=wordfreq"), s
 row = [l for l in r.stdout.splitlines() if l.startswith("| ")][-1]
 assert "| wordfreq |" in row and "| 13/13 |" in row and "| 15m24s |" in row and "| $1.30 |" in row and "| 2 |" in row, row
+assert s["selfcheck_blocks"] == 1 and "2 blocks, 1 caught by the worker's own self-check" in r.stdout, (s, r.stdout)
 assert os.path.isfile(os.path.join(T, "summary.md"))
-ok("run-summary: last result line wins, wakes counted, plugin reads exclude schema uses (also via a shell variable), gates tallied; summary.json/.md + ledger row")
+ok("run-summary: last result line wins, wakes counted, plugin reads exclude schema uses (also via a shell variable), gates tallied (self-check catches apart); summary.json/.md + ledger row")
 
 # 2) the ledger: every row has a run, intent, version, checks, wall, cost and a reproduce command
 ledger = open(os.path.join(ROOT, "docs", "evidence", "README.md")).read()

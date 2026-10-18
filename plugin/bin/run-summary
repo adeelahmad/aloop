@@ -16,6 +16,8 @@ row for docs/evidence/README.md. Numbers come from the harness, never from the m
                                also when bound to a shell variable first — run 19 counted 5
                                such `SCH=…; md-db describe --schema "$SCH"` calls as reads)
   gate_verdicts / gate_blocks  lines in gates.jsonl / those with "exit":2
+  selfcheck_blocks             the blocks a worker's own `selfcheck` caught ("selfcheck":true): they
+                               never reach the supervisor (run 27: 2 of its 3 blocks)
 Exit 0; a missing out.jsonl is a usage error (64)."""
 import json
 import os
@@ -68,14 +70,20 @@ def main():
             if plugin + "/" in pat.sub("", text):
                 reads += 1
     repo = os.path.join(run, "repo")
-    verdicts = blocks = 0
+    verdicts = blocks = self_blocks = 0
     for h in (".aladdin", ".agentic"):
         g = os.path.join(repo, h, "logs", "gates.jsonl")
         if os.path.isfile(g):
             for l in open(g):
                 if l.strip():
                     verdicts += 1
-                    blocks += '"exit":2' in l or '"exit": 2' in l
+                    try:
+                        v = json.loads(l)
+                    except ValueError:
+                        continue
+                    if isinstance(v, dict) and v.get("exit") == 2:
+                        blocks += 1
+                        self_blocks += v.get("selfcheck") is True
             break
     try:
         head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
@@ -89,7 +97,8 @@ def main():
     s = {"run_dir": run, "intent": intent, "host": host, "plugin_version": version, "checks": arg("--checks") or "",
          "wall": wall(secs or 0), "cost_usd": None if cost is None else round(float(cost), 2),
          "supervisor_turns": turns, "wakes": wakes,
-         "plugin_reads": reads, "gate_verdicts": verdicts, "gate_blocks": blocks, "run_repo_head": head,
+         "plugin_reads": reads, "gate_verdicts": verdicts, "gate_blocks": blocks,
+         "selfcheck_blocks": self_blocks, "run_repo_head": head,
          "reproduce": "make e2e-live YES=1" + (" INTENT=%s" % intent if intent else "") + (" HOST=%s" % host if host != "claude" else ""),
          "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     cost_cell = "—" if s["cost_usd"] is None else "$%.2f" % s["cost_usd"]
@@ -106,7 +115,8 @@ def main():
     print("cost: %s · supervisor turns: %s · wall: %s" % (cost_cell, turns, s["wall"]))
     print("supervisor wakes: %d · sub-agent reads of the plugin's own source: %d" % (wakes, reads))
     if verdicts:
-        print("gate verdicts: %d (%d blocks)" % (verdicts, blocks))
+        print("gate verdicts: %d (%d blocks%s)" % (verdicts, blocks,
+              ", %d caught by the worker's own self-check" % self_blocks if self_blocks else ""))
     print("evidence row (docs/evidence/README.md):")
     print(row)
     return 0
