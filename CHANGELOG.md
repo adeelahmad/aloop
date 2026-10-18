@@ -25,6 +25,18 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ### Added
 - `gate-supervisor-scope` now also enforces **the supervisor never commits on main**: a `git commit` from the main agent in the main tree while a sprint is live is blocked (a commit inside a task worktree, the initial commit of an unborn repo, `task-worktree merge` and a stale lock pass). Reason: live e2e run 16's `Track Cargo.lock` commit on main traced to nothing; the rule was prose in SKILL.md only. Test: `scripts/test/supervisor-scope.test.py`.
 
+### Fixed
+- `budget hook`: the worker's `TASK_ID` is read from the first transcript line that names one, not
+  the first `user` line — Claude Code now prepends a session-context attachment, which left the
+  worker unbound and its first `selfcheck` blocked "STORY_DIR unset" (live run 18).
+- `budget hook pre` seeds the story's `output.md` with its `type: output` frontmatter before the
+  worker's first tool call, so a bare `cat >>` of the report block no longer fails the comms gate
+  (live run 18: 4 blocks). An existing `output.md` is never touched.
+
+### Changed
+- SKILL.md: a RED mandate names `tests/common/mod.rs` as the shims' home, never a `src/` path
+  (one `gate-red-verify` block per live run 14–18 came from a mandate saying "shim in `src/lib.rs`").
+
 ## [0.12.0] - 2026-10-18
 
 The first release of **aloop** (Aladdin's Loop), the plugin formerly published as agentic-agile.

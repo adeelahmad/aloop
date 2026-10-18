@@ -605,7 +605,10 @@ defaults.md; default 4M / 6M, summed over every worker attempt's charge):
   `path::fn`, against **minimal `mod common` shims** (each shim carries the marker
   `// agentic:shim`) so each test **FAILS BY ASSERTION** — not by a missing symbol or
   compile error. RED is not vacuous.
-- No production code beyond the shims.
+- No production code beyond the shims. **Your RED mandate names `tests/common/mod.rs` as
+  the shims' home and never a `src/` path**: a mandate that says "shim in `src/lib.rs`"
+  sends the worker straight into `gate-red-verify`'s non-test-path block (live runs 14–18,
+  one block each).
 - SubagentStop → `gate-red-verify`. It asserts: every new test is FAIL (a new test
   that PASSES exercises nothing → reject), `regressed=0`, and `git diff --stat`
   touches only test files + `tests/common/**`; it validates `output.md` via
