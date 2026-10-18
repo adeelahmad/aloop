@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""config — the portable project config, .aladdin/config.yaml (ROADMAP §4.9).
+
+Usage:
+  config migrate            write .aladdin/config.yaml from the current settings
+                            (docs/agents/defaults.md + built-ins), then render defaults.md
+                            from it. Refuses to overwrite an existing config.yaml.
+  config sync               re-render docs/agents/defaults.md from config.yaml (run by
+                            SessionStart and aloop-init --apply); no-op without config.yaml
+  config check              validate config.yaml (schema, sections, keys, numbers); exit 2 on
+                            a problem
+  config show [--json]      the effective settings and where each one comes from
+"""
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, HERE)
+import _config  # noqa: E402
+import _paths  # noqa: E402
+
+
+def init_module():
+    loader = importlib.machinery.SourceFileLoader("aloop_init_mod", os.path.join(HERE, "aloop-init"))
+    spec = importlib.util.spec_from_loader("aloop_init_mod", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def role_profiles_from_defaults(cwd):
+    """AGENTIC_BUDGET_<ROLE> lines of defaults.md (they are not in DEFAULTS)."""
+    out = {}
+    try:
+        for line in open(_paths.defaults_file(cwd)):
+            m = _paths.SETTING.match(line)
+            if m and m.group(1).startswith("BUDGET_"):
+                out[m.group(1)] = m.group(2).strip()
+    except OSError:
+        pass
+    return out
+
+
+def sync(cwd, quiet=False):
+    vals = _config.load(cwd)
+    if vals is None:
+        return 0
+    problems = _config.check(cwd)
+    if problems:
+        for p in problems:
+            print("BLOCK[config]: %s" % p, file=sys.stderr)
+        return 2
+    full = _paths.settings(cwd)
+    extra = {k: v for k, v in vals.items() if k.startswith("BUDGET_")}
+    text = init_module().render(full, full.get("COMMIT_AUTHOR_NAME"), rendered_from=_config.FILE, extra=extra)
+    os.makedirs(_paths.docs(cwd), exist_ok=True)
+    df = _paths.defaults_file(cwd)
+    strip = lambda t: "\n".join(l for l in t.splitlines() if not l.startswith("confirmed_at:"))  # noqa: E731
+    try:
+        if strip(open(df).read()) == strip(text):
+            return 0
+    except OSError:
+        pass
+    with open(df, "w") as f:
+        f.write(text)
+    if not quiet:
+        print("rendered %s from %s" % (os.path.relpath(df, _paths.project(cwd)), _config.FILE))
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    cwd = os.getcwd()
+    cmd = argv[0]
+    if cmd == "migrate":
+        p = _config.path(cwd)
+        if os.path.exists(p):
+            print("config: %s exists; edit it (then `config sync`) instead of migrating again" % _config.FILE, file=sys.stderr)
+            return 2
+        vals = dict(_paths.settings(cwd))
+        vals.update(role_profiles_from_defaults(cwd))
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w") as f:
+            f.write(_config.render(vals))
+        print("wrote %s" % _config.FILE)
+        return sync(cwd)
+    if cmd == "sync":
+        return sync(cwd)
+    if cmd == "check":
+        problems = _config.check(cwd)
+        for p in problems:
+            print("BLOCK[config]: %s" % p, file=sys.stderr)
+        if not problems:
+            print("config ok: %s" % _config.FILE)
+        return 2 if problems else 0
+    if cmd == "show":
+        yaml_vals = _config.load(cwd) or {}
+        st = _paths.settings(cwd)
+        rows = []
+        for k in list(_paths.DEFAULTS) + sorted(k for k in yaml_vals if k not in _paths.DEFAULTS):
+            src = _config.FILE if k in yaml_vals else ("docs/agents/defaults.md" if os.path.isfile(_paths.defaults_file(cwd)) and k in _defaults_keys(cwd) else "built-in")
+            rows.append({"key": "AGENTIC_" + k, "value": st.get(k, yaml_vals.get(k)), "source": src})
+        if "--json" in argv:
+            print(json.dumps(rows))
+        else:
+            for r in rows:
+                print("%-28s %-22s %s" % (r["key"], r["value"], r["source"]))
+        return 0
+    print("config: unknown command (see config --help)", file=sys.stderr)
+    return 64
+
+
+def _defaults_keys(cwd):
+    try:
+        return {m.group(1) for m in map(_paths.SETTING.match, open(_paths.defaults_file(cwd))) if m}
+    except OSError:
+        return set()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

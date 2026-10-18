@@ -458,10 +458,20 @@ def harness_report(st, left, cls):
         pass
 
 
+def _config_profile(cwd, key):
+    import _config
+    return (_config.load(cwd) or {}).get(key)
+
+
 def role_profile(cwd, role):
     b = dict(zip(("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN"), ROLE_PROFILES[role]))
     src = "built-in %s profile" % role
     key = "AGENTIC_BUDGET_" + role.upper().replace("-", "_")
+    spec = (_config_profile(cwd, key[len("AGENTIC_"):]) or "")
+    if spec:
+        for k, v in re.findall(r"(tokens_soft|tokens_hard|time_soft|time_hard)\s*=\s*(\d+)", spec):
+            b[k.upper() + ("_MIN" if k.startswith("time") else "")] = int(v)
+        src = ".aladdin/config.yaml budgets.roles.%s" % role
     try:
         for line in open(_paths.defaults_file(cwd)):
             m = re.match(r"^\s*(?:export\s+)?%s\s*=\s*['\"]?([^'\"#\n]*)" % key, line)

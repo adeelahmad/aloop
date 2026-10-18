@@ -31,8 +31,9 @@ ask — one question per topic, the default first (Claude Code: `AskUserQuestion
 
 1. **Limits** — per worker attempt: tokens soft/hard (default 150k / 250k), minutes
    soft/hard (20 / 30), re-plan cap (2). Keep the defaults, or which values?
-2. **Models** — planning agents `claude-opus-5-5`, workers `sonnet` (the orchestrator
-   runs on `sonnet`). Keep, or which?
+2. **Models** — a route per group: planning agents `strongest`, workers `strong` (the
+   orchestrator runs on `strong`). Routes resolve per host (`aloop models routes`: on Claude
+   Code `claude-opus-5-5` / `sonnet`); a pinned id is accepted too. Keep, or which?
 3. **`.gitignore`** — may I add `.agentic/` and `.transcripts/` (run data: transcripts,
    token ledger, logs — never meant for GitHub)? Default **yes**.
 4. **Track `docs/agents/` in git?** Default **no** (it is then git-ignored too).

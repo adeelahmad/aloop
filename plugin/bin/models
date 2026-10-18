@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+"""models — abstract model routes (ROADMAP §3.6).
+
+Roles map to a route — strongest | strong | economical — and each host resolves the route
+to its own concrete id (plugin/hosts/routes.json). docs/agents/defaults.md sets the route
+(or a pinned id) per group: AGENTIC_MODEL_PLANNING, AGENTIC_MODEL_WORKER.
+
+Usage:
+  models resolve planning|worker|<role> [--host claude|codex|opencode] [--json]
+        the concrete model id for this host (empty = the host session's own model).
+        --json adds group, host, route and the setting it came from (conformance 18:
+        the route is observable).
+  models routes [--host H]            the route table
+"""
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _routes  # noqa: E402
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    host = argv[argv.index("--host") + 1] if "--host" in argv[:-1] else (os.environ.get("AGENTIC_HOST") or "claude")
+    if argv[0] == "routes":
+        t = _routes.table()
+        for h in ([host] if "--host" in argv else sorted(t["hosts"])):
+            if h not in t["hosts"]:
+                print("models: unknown host %r" % h, file=sys.stderr)
+                return 64
+            print("%-9s %s" % (h, "  ".join("%s=%s" % (r, t["hosts"][h][r] or "<session model>") for r in t["routes"])))
+        return 0
+    if argv[0] == "resolve" and len(argv) >= 2:
+        try:
+            r = _routes.resolve(host, argv[1], cwd=os.getcwd())
+        except ValueError as e:
+            print("models: %s" % e, file=sys.stderr)
+            return 2
+        print(json.dumps(r) if "--json" in argv else r["model"])
+        return 0
+    print("models: unknown command (see models --help)", file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
