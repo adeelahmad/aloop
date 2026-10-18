@@ -622,7 +622,10 @@ before GREEN).
   commits the gate verified. Workers commit their own work; the gate blocks uncommitted work.
 
 **STRUCTURAL-REVIEW** — dispatch `structural-reviewer` (read-only) after the
-wave's GREEN merges.
+wave's GREEN merges. Its contract is like any worker's (`TASK_ID` such as `S1-SR-W1`); a
+review of a whole wave has no single story, so its `STORY_DIR` is the **sprint dir**
+(`docs/agents/sprintN/`): append its dispatch block to that dir's `init.md`, and it reports
+to that dir's `output.md`. A review of one story uses that story's dir.
 - Detects orphan modules, parallel implementations of one abstraction, and
   duplicate helpers (`ctx-symbols conflicts`, grep fallback). Writes findings to
   `output.md`; fixes nothing.

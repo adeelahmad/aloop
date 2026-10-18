@@ -98,7 +98,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 - CI on every PR: Rust fmt/clippy/tests for both backends, shellcheck on every gate, the
   ROADMAP §6 conformance fixtures (real gates on a fixture crate, 54 checks), the host tests
   (budget/worktree, Codex hooks emulation, supervisor scope, hook matchers, dispatch,
-  ensure-tools, fail-closed: 68 checks; OpenCode end-to-end: 18), `claude plugin validate
+  ensure-tools, fail-closed: 73 checks; OpenCode end-to-end: 20), `claude plugin validate
   --strict`, eval-suite and version-lockstep checks.
 - The north-star run, `make e2e-live YES=1 [INTENT=wordfreq]`: a one-line intent becomes
   planned, test-first, gate-verified, merged code in a real Claude Code session with the

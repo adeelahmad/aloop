@@ -26,6 +26,7 @@ Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbol
 - Read-only. Writes only output.md findings; fixes nothing itself.
 
 ## Comms — the channel (story-bound, append-only)
+`$STORY_DIR` is the story's dir, or the sprint dir (`docs/agents/sprintN/`) for a whole-wave review.
 Read the story's chain in `$STORY_DIR/output.md` (the red/scaffold/green blocks) plus the
 merged code. When done you MUST **append** your findings as a new block to
 `$STORY_DIR/output.md` — never rewrite an earlier block (append with a shell heredoc, `cat >> "$STORY_DIR/output.md" <<'EOF'`: the Write/Edit

@@ -437,14 +437,16 @@ if md_db():
                      (os.path.join(STORY, "tasks.md"), "a schema-valid tasks.md is accepted")):
         r = sh(os.path.join(BIN, "gate-validate-artifact"), f, check=False)
         results.append((2, title, r.returncode == 0, "exit %d %s" % (r.returncode, r.stderr.strip()[:140])))
-    bad = (("stories.md", plan, STORIES.split("## Sprint demo")[0], "stories.md missing required sections is rejected"),
-           ("tasks.md", STORY, "---\ntype: tasks\nstory: X1\n---\n# Tasks\n", "tasks.md with a malformed story id is rejected"))
-    for name, d, text, title in bad:
+    # The block carries md-db's diagnostics (what is missing and the hint), since a PostToolUse
+    # block hands the model only stderr (live e2e run 11: the planner guessed twice per artifact).
+    bad = (("stories.md", plan, STORIES.split("## Sprint demo")[0], "stories.md missing required sections is rejected, naming them", '"Sprint demo"'),
+           ("tasks.md", STORY, "---\ntype: tasks\nstory: X1\n---\n# Tasks\n", "tasks.md with a malformed story id is rejected, naming the field", "story"))
+    for name, d, text, title, says in bad:
         f = os.path.join(d, name)
         write(f, text)
         r = sh(os.path.join(BIN, "gate-validate-artifact"), f, check=False)
-        results.append((2, title, r.returncode == 2 and "BLOCK[gate-validate-artifact]" in r.stderr,
-                        "exit %d %s" % (r.returncode, r.stderr.strip()[-140:])))
+        results.append((2, title, r.returncode == 2 and "BLOCK[gate-validate-artifact]" in r.stderr and says in r.stderr
+                        and "hint:" in r.stderr, "exit %d %s" % (r.returncode, r.stderr.strip()[-140:])))
     # memory.md: `aloop init` seeds a schema-valid one, so no agent has to guess its frontmatter
     # (live e2e run 7: the archivist wrote `type: agent-memory`, the supervisor's stop was blocked 15 times).
     seed = os.path.join(T, "seed")

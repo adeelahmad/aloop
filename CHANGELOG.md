@@ -245,6 +245,17 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
   reading it stays allowed. 2 checks failed before.
 
 ### Fixed
+- `gate-validate-artifact`'s block now carries md-db's diagnostics (the missing section or field
+  and its hint): a PostToolUse block hands the model only stderr, and the bare "failed the
+  schema" made the planner guess (live e2e run 11: every planning artifact was written twice,
+  12 of 25 gate verdicts).
+- `gate-dispatch` refuses a task contract with no `STORY_DIR`, or one naming a dir that does
+  not exist, and tells a whole-wave structural review to use the sprint dir
+  `docs/agents/sprintN/` (run 11: the reviewer's contract had none, 2 blocks the worker could
+  not fix). 5 new dispatch checks.
+- OpenCode: a stuck release (exit 0 with `STUCK … NOT verified`) is reported to the supervisor
+  as "released UNVERIFIED, do not merge", never as a silent pass; 2 new checks.
+- `make test-hosts` masked a failing OpenCode test as "node not found".
 - The host tests (Codex hooks, OpenCode plugin, rename-compat, budget, fail-closed, scope,
   dispatch) each leaked a temp dir, and the Codex and OpenCode ones started a real background
   cargo build over their fake tools (~500MB per run; 57 leaked dirs filled the disk and killed

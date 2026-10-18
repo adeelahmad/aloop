@@ -39,4 +39,15 @@ if [ ! -f "$AGENTIC_STATE/tasks/$tid.env" ]; then
   echo "  (TASK_ID, ATTEMPT, AGENT_ROLE=$role, STORY_DIR, SCOPE_GLOBS, BASE_REF, BUDGET_* — see the skill's \"The task contract\")" >&2
   exit 2
 fi
+# The contract must say WHERE the comms live: a worker whose contract has no STORY_DIR, or one
+# naming a dir that does not exist, blocks on every stop (live e2e run 11: the structural
+# reviewer's contract had none, since a per-wave review has no single story). A whole-wave review
+# uses the sprint dir, whose init.md/output.md carry its dispatch and report blocks.
+sd="$(sed -nE 's/^[[:space:]]*(export[[:space:]]+)?STORY_DIR=["'"'"']?([^"'"'"'#]*[^"'"'"'#[:space:]])["'"'"']?[[:space:]]*(#.*)?$/\2/p' "$AGENTIC_STATE/tasks/$tid.env" | tail -1)"
+if [ -z "$sd" ] || [ ! -d "$sd" ]; then
+  echo "BLOCK[$GATE_NAME]: the task contract $AGENTIC_STATE/tasks/$tid.env must set STORY_DIR to an existing dir${sd:+ (STORY_DIR=$sd does not exist)}:" >&2
+  echo "  the ABSOLUTE path of the story's comms dir, docs/agents/sprintN/sN-NN-<slug>/ (holds init.md + output.md)." >&2
+  [ "$role" = structural-reviewer ] && echo "  A structural review of a whole wave has no single story: use the sprint dir, docs/agents/sprintN/, and append its dispatch block to that dir's init.md." >&2
+  exit 2
+fi
 exit 0

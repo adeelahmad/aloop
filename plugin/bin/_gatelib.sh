@@ -258,7 +258,7 @@ budget_release
 # frontmatter; the dynamic `##` blocks are grep-checked (md-db can't enumerate them).
 validate_comms() {
   local dir="${STORY_DIR:-${1:-}}"
-  [ -n "$dir" ] || fail "STORY_DIR unset — cannot find the story's comms (init.md/output.md). The supervisor must set STORY_DIR in the task contract .agentic/state/tasks/<TASK_ID>.env and name TASK_ID on the dispatch prompt's first line (absolute path to docs/agents/sprintN/sN-NN-<slug>/)."
+  [ -n "$dir" ] || fail "STORY_DIR unset — cannot find the story's comms (init.md/output.md). The supervisor must set STORY_DIR in the task contract .agentic/state/tasks/<TASK_ID>.env and name TASK_ID on the dispatch prompt's first line (absolute path to docs/agents/sprintN/sN-NN-<slug>/; a whole-wave structural review uses the sprint dir docs/agents/sprintN/)."
   local out="$dir/output.md" ini="$dir/init.md"
 
   # init.md: the supervisor's inbound contract must exist (this is how you were briefed).
