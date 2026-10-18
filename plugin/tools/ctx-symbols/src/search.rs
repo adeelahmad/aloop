@@ -14,6 +14,12 @@ pub const DEFAULT_EXCLUDES: &[&str] = &[
     "/dist/",
     "/build/",
     "/.next/",
+    // A host's worktree checkouts live INSIDE the main tree (Claude Code: .claude/worktrees/
+    // agent-<id>/), so a stale one duplicates every symbol of main (live e2e run 12: 20
+    // false HIGH findings). The plugin's own state and transcripts hold no source either.
+    "/.claude/worktrees/",
+    "/.agentic/",
+    "/.transcripts/",
 ];
 
 const SUPPORTED_EXTS: &[&str] = &["rs", "py", "js", "ts", "tsx", "go"];
@@ -67,5 +73,24 @@ mod tests {
         assert!(names.contains(&"a.rs".to_string()));
         assert!(!names.contains(&"b.txt".to_string()));
         assert!(!names.contains(&"c.rs".to_string()), "target/ excluded");
+    }
+
+    #[test]
+    fn collect_skips_host_worktree_checkouts() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/lib.rs"), "pub fn count_words() {}").unwrap();
+        for d in [
+            ".claude/worktrees/agent-a1b2/src",
+            ".agentic/x",
+            ".transcripts",
+        ] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+            std::fs::write(root.join(d).join("lib.rs"), "pub fn count_words() {}").unwrap();
+        }
+        let files = collect_source_files(root).unwrap();
+        assert_eq!(files.len(), 1, "only the main tree's file: {:?}", files);
+        assert!(files[0].ends_with("src/lib.rs"));
     }
 }

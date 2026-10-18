@@ -29,7 +29,7 @@ else
   # Fragile fallback: flag any top-level fn name defined in 2+ files. Not under tests/: each
   # integration-test file is its own crate, so helpers there cannot collide.
   dups="$(grep -rhoE '^[[:space:]]*(pub[[:space:]]+)?fn[[:space:]]+[A-Za-z_][A-Za-z0-9_]*' \
-            --include='*.rs' --exclude-dir=target --exclude-dir=tests "$root" 2>/dev/null \
+            --include='*.rs' --exclude-dir=target --exclude-dir=tests --exclude-dir=.claude --exclude-dir=.agentic "$root" 2>/dev/null \
             | sed -E 's/.*fn[[:space:]]+//' | sort | uniq -d)"
   if [ -n "$dups" ]; then
     echo "HIGH (grep): duplicate fn name(s): $(echo "$dups" | tr '\n' ' ')" >&2

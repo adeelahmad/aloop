@@ -395,6 +395,20 @@ results.append((9, "budget watch reports the stuck release once as a STUCK line"
 r = subprocess.run([os.path.join(BIN, "budget"), "watch", "--interval", "1", "--grace", "1"], cwd=MAIN, env=ENV, capture_output=True, text=True)
 results.append((9, "a reported stuck release is not reported again", "STUCK" not in r.stdout, r.stdout.strip()[:140]))
 
+# §6.7 Structural review: a stale host worktree checkout inside the main tree (Claude Code keeps
+# them under .claude/worktrees/agent-<id>/) duplicates every symbol of main; it is a workspace
+# artifact, not a defect (live e2e run 12: 20 false HIGH halts). A real duplicate still halts.
+wt = worktree("structural-reviewer")
+report("structural-reviewer", [("structural review", "PASS")])
+stale = os.path.join(MAIN, ".claude", "worktrees", "agent-a1b2c3", "src", "lib.rs")
+write(stale, open(os.path.join(MAIN, "src", "lib.rs")).read())
+case(7, "a stale worktree checkout under .claude/worktrees is not a duplicate definition", "gate-structural-integrity", wt, 0)
+write(os.path.join(wt, "src", "dup.rs"), "pub fn sub(a: i32, b: i32) -> i32 {\n    a - b\n}\n")
+commit(wt, "dup")
+case(7, "a real duplicate definition in the reviewed tree halts the chain (HIGH)", "gate-structural-integrity", wt, 2, "HIGH")
+shutil.rmtree(os.path.join(MAIN, ".claude"), ignore_errors=True)
+sh("git", "worktree", "remove", "--force", wt)
+
 # FINAL: every test the story's plan.md names must exist on main. A RED re-plan that drops a
 # planned test otherwise loses coverage silently (live e2e run 6), since plan-ready.md only
 # lists what RED actually wrote.
