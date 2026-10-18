@@ -5,6 +5,12 @@
 #   task-worktree add <TASK_ID> [BASE_REF]   create (or reuse) the task's worktree; prints its path
 #   task-worktree path <TASK_ID>             print the path (exit 1 if it doesn't exist)
 #   task-worktree remove <TASK_ID>           remove it (after merge, or to abandon)
+#   task-worktree merge <TASK_ID> <BRANCH>   merge a worker's branch into the current branch
+#                                            (--no-ff) and record the lineage: worktree.merged +
+#                                            one commit.created per commit, so `events trace SHA`
+#                                            finds the task. On Claude Code the branch is the
+#                                            host's worktree-agent-<id>; a raw `git merge` there
+#                                            leaves the commits untraceable (live e2e run 14).
 #
 # Worktrees live at <project>/.agentic/worktrees/<TASK_ID> on branch agentic/<TASK_ID> —
 # inside the git-ignored run-data dir, same fixed layout on every host (_paths.sh).
@@ -52,6 +58,19 @@ case "$cmd" in
     git -C "$AGENTIC_PROJECT" worktree remove --force "$wt" >&2 2>/dev/null || rm -rf "$wt"
     git -C "$AGENTIC_PROJECT" worktree prune >/dev/null 2>&1 || true
     rm -f "$AGENTIC_HOME/worktrees/.$task.base" ;;
-  -h|--help|"") sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
+  merge)
+    branch="${3:-}"
+    [ -n "$branch" ] && git -C "$AGENTIC_PROJECT" rev-parse -q --verify "$branch^{commit}" >/dev/null 2>&1 \
+      || { echo "task-worktree merge: need an existing branch: task-worktree merge <TASK_ID> <BRANCH>" >&2; exit 64; }
+    before="$(git -C "$AGENTIC_PROJECT" rev-parse HEAD)"
+    git -C "$AGENTIC_PROJECT" merge --no-ff -m "Merge $task ($branch)" "$branch" >&2 || exit $?
+    mid="$("$HERE/events" emit worktree.merged --task "$task" --data "branch=$branch" 2>/dev/null)"
+    # every commit the merge brought in, oldest first, traces back to the task
+    git -C "$AGENTIC_PROJECT" log --reverse --no-merges --format='%H %s' "$before..$branch" 2>/dev/null |
+      while read -r sha subject; do
+        "$HERE/events" emit commit.created --task "$task" --parent "$mid" --data "sha=$sha" --data "subject=$subject" >/dev/null 2>&1 || true
+      done
+    git -C "$AGENTIC_PROJECT" rev-parse HEAD ;;
+  -h|--help|"") sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) echo "task-worktree: unknown command '$cmd'" >&2; exit 64 ;;
 esac

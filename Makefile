@@ -114,9 +114,10 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/supervisor-scope.test.py
 	python3 scripts/test/hook-matchers.test.py
 	python3 scripts/test/dispatch.test.py
+	python3 scripts/test/log-execution.test.py
 	python3 scripts/test/ensure-tools.test.py
 	python3 scripts/test/fail-closed.test.py
-	@command -v node >/dev/null && node scripts/test/opencode-plugin.test.mjs || { echo "node not found — skipped OpenCode test (CI runs it)"; }
+	@if command -v node >/dev/null; then node scripts/test/opencode-plugin.test.mjs; else echo "node not found — skipped OpenCode test (CI runs it)"; fi
 
 .PHONY: conformance
 conformance: ## ROADMAP §6 conformance fixtures on today's gates (needs cargo; no network, no tokens)

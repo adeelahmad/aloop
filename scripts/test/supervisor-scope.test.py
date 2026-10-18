@@ -9,13 +9,16 @@ supervisor's write went through. Found by a live Claude Code smoke run.
     python3 scripts/test/supervisor-scope.test.py
 """
 import json
+import atexit
 import os
+import shutil
 import subprocess
 import tempfile
 import time
 
 GATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin", "gate-supervisor-scope")
 T = tempfile.mkdtemp(prefix="aloop-scope-")
+atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = {k: v for k, v in os.environ.items() if k not in ("SKIP_HOOKS", "AGENTIC_SPRINT_LOCK_TTL")}
 LOCK = os.path.join(T, ".agentic", "state", "sprint.lock")
 n = 0

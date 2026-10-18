@@ -37,7 +37,8 @@ your init block's `### Budget` line has the exact numbers). Plan for it:
 Your brief is the LAST `## … · green-worker · …` block in `$STORY_DIR/init.md`; read the
 whole file plus the red-worker and scaffolder blocks in `$STORY_DIR/output.md` (what was
 tested, what was stubbed). When done you MUST **append** your report as a new block to
-`$STORY_DIR/output.md` — never rewrite an earlier block:
+`$STORY_DIR/output.md` — never rewrite an earlier block (append with a shell heredoc, `cat >> "$STORY_DIR/output.md" <<'EOF'`: the Write/Edit
+tools refuse a path outside your worktree, and docs/agents/ lives only in the main tree):
 
     ## <task> · attempt <N> · green-worker · <ISO8601>
     status: ok            (or retry|escalate)

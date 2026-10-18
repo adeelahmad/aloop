@@ -392,6 +392,8 @@ per worktree (transient, git-ignored, removed on stop):
   .agentic/task.env        optional copy of the contract (Codex/OpenCode, older sprints);
                            it must match the contract when both exist
   .agentic/budget-exceeded marker the time-box hook writes at a HARD limit
+main tree: .agentic/state/stuck/<task>.<attempt>  a gate released a worker that repeated
+                           one block 3 times (unverified; `budget watch` reports it once)
                            STORY_DIR is the ABSOLUTE path to sN-NN-<slug>/ (the comms dir).
   .agentic/scaffold-symbols  scaffolder-written production-symbol list (scaffold gate)
   .transcripts/            READ-ONLY task transcript staged in for the worker
@@ -406,6 +408,8 @@ per worktree (transient, git-ignored, removed on stop):
   tagged for this role or `all`, top ~7) and — on a re-spawn — a `### Feedback` block
   derived from the prior `output.md`. It POINTS at `plan-ready.md`; never copies the
   spec. NEVER rewrite an earlier block. The file opens once with `--- type: init ---`.
+  That list IS the block's whole shape: do not read `pipeline/execution/*/init.template.md`
+  or `bin/log-execution` to learn it (live runs 13–15 spent 4–6 reads per run on them).
   At dispatch you also write the task contract `.agentic/state/tasks/<TASK_ID>.env` (with
   `STORY_DIR` = absolute path to this story dir) and `bin/transcripts stage-in` stages `.transcripts/`.
 - `output.md` (story-bound, **append-only**) — the **agent** APPENDS one block per
@@ -418,9 +422,11 @@ per worktree (transient, git-ignored, removed on stop):
 - `plan-ready.md` — **you** write it once per story after RED is verified; tick a
   box `[ ]→[x]` ONLY when that task's GREEN gate passes. A re-spawn (on fail)
   always precedes ticking, so there is no partial-tick race.
-- `execution.log` — **you** append one line per transition via
-  `bin/log-execution`. Format enforced by `bin/gate-ledger-format`:
-  `<ISO8601> wave-K red|green|scaffold|review|gate SN-NN start|complete …`
+- `execution.log` — **you** append one line per transition:
+  `log-execution wave-K <red|green|scaffold|review|gate|budget|replan> SN-NN <start|complete|kill> Tn [words…]`
+  (it appends to the latest `docs/agents/sprintN/execution.log`; pass that path as the last
+  argument to pick another; `log-execution --help` shows the shape). Format enforced by
+  `bin/gate-ledger-format`: `<ISO8601> wave-K red|green|scaffold|review|gate SN-NN start|complete …`
 
 ### Per-task retry budget (corrections §12 + OPEN-4/6)
 
@@ -501,6 +507,11 @@ Your job during execution is small, and that is on purpose (it keeps your contex
    attempt states, not from worker prose. Act on those lines:
    - finished workers → read the gate verdict + latest `output.md` block, and proceed as
      in the feedback loop (tick/merge on pass, retry within the gate-retry budget);
+   - `budget watch` printed `STUCK …` lines (a worker hit the same gate block 3 times in a
+     row and its stop was released **unverified**; the reason is quoted on the line and in
+     `.agentic/state/stuck/<task>.<attempt>`) → not a pass: do not merge, discard its
+     worktree, and re-dispatch the task with a `### Feedback` block that addresses that
+     reason (a new attempt), or re-plan it if the reason is the plan's;
    - `budget watch` printed `STOPPED …` lines (the hook already ended those workers) or
      `KILL …` lines (backstop: the hook could not — `TaskStop` each, then `budget
      mark-killed <agent_id>`) → log `log-execution wave-K budget SN-NN kill Tn
@@ -610,12 +621,18 @@ before GREEN).
   in `tasks.md` scope, the **standards.md matrix** is green, zero suppressions,
   `output.md` validates.
 - On pass: tick the task's boxes in `plan-ready.md` and **merge its worktree branch** to
-  the sprint integration branch (`git merge --no-ff <branch>`; on Claude Code the branch is
-  `worktree-agent-<id>`). Never copy files out of a worktree: what you merge must be the
-  commits the gate verified. Workers commit their own work; the gate blocks uncommitted work.
+  the sprint integration branch with `aloop task-worktree merge <TASK_ID> <branch>` (a
+  `--no-ff` merge that also records the lineage: `worktree.merged` + one `commit.created` per
+  commit, so `events trace <sha>` finds the task; a raw `git merge` leaves the commits
+  untraceable). On Claude Code the branch is `worktree-agent-<id>`. Never copy files out of a
+  worktree: what you merge must be the commits the gate verified. Workers commit their own
+  work; the gate blocks uncommitted work.
 
 **STRUCTURAL-REVIEW** — dispatch `structural-reviewer` (read-only) after the
-wave's GREEN merges.
+wave's GREEN merges. Its contract is like any worker's (`TASK_ID` such as `S1-SR-W1`); a
+review of a whole wave has no single story, so its `STORY_DIR` is the **sprint dir**
+(`docs/agents/sprintN/`): append its dispatch block to that dir's `init.md`, and it reports
+to that dir's `output.md`. A review of one story uses that story's dir.
 - Detects orphan modules, parallel implementations of one abstraction, and
   duplicate helpers (`ctx-symbols conflicts`, grep fallback). Writes findings to
   `output.md`; fixes nothing.

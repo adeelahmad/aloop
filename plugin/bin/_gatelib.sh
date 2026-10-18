@@ -35,25 +35,63 @@ export PATH="$GATELIB_DIR:$PATH"   # bare `md-db`/`ctx-symbols` -> shim -> real 
 # stats count attempts/failures from here, not from anything a model wrote.
 # shellcheck source=/dev/null
 . "$GATELIB_DIR/_failclosed.sh"
+# A block's reason is logged as a checksum, so the same block repeating is detectable.
+GATE_BLOCK_REASON=""
 _gate_log_verdict() {
   local rc=$?
   _gate_fail_closed "$rc"; rc=$?                 # a crashed gate blocks (see _failclosed.sh)
   mkdir -p "$AGENTIC_LOGS" 2>/dev/null || return "$rc"
-  printf '{"ts":"%s","gate":"%s","role":"%s","task":"%s","attempt":"%s","story_dir":"%s","exit":%d,"selfcheck":%s}\n' \
-    "$(date -u +%FT%TZ)" "${GATE_NAME:-?}" "${AGENT_ROLE:-}" "${TASK_ID:-}" "${ATTEMPT:-}" "${STORY_DIR:-}" \
-    "$rc" "$([ "${AGENTIC_SELFCHECK:-}" = 1 ] && echo true || echo false)" >> "$AGENTIC_LOGS/gates.jsonl" 2>/dev/null
+  local self rh="" released=""
+  self="$([ "${AGENTIC_SELFCHECK:-}" = 1 ] && echo true || echo false)"
+  if [ "$rc" -eq 2 ]; then
+    rh="$(printf '%s' "$GATE_BLOCK_REASON" | cksum | cut -d' ' -f1)"
+    _gate_stuck "$rh" "$self" && { rc=0; released=',"released":"stuck"'; }
+  fi
+  printf '{"ts":"%s","gate":"%s","role":"%s","task":"%s","attempt":"%s","story_dir":"%s","wt":"%s","exit":%d,"selfcheck":%s,"reason":"%s"%s}\n' \
+    "$(date -u +%FT%TZ)" "${GATE_NAME:-?}" "${AGENT_ROLE:-}" "${TASK_ID:-}" "${ATTEMPT:-}" "${STORY_DIR:-}" "$(repo_dir)" \
+    "$rc" "$self" "$rh" "$released" >> "$AGENTIC_LOGS/gates.jsonl" 2>/dev/null
   # the aladdin.event/1 stream: real verdicts only (a self-check is not a gate run)
   if [ "${AGENTIC_SELFCHECK:-}" != 1 ] && [ "$rc" -le 2 ]; then
-    "$GATELIB_DIR/events" emit "$([ "$rc" = 0 ] && echo gate.passed || echo gate.failed)" \
+    # a stuck release exits 0 but is NOT a pass: it is a gate.failed with released=stuck
+    "$GATELIB_DIR/events" emit "$([ "$rc" = 0 ] && [ -z "$released" ] && echo gate.passed || echo gate.failed)" \
       --task "${TASK_ID:-}" --attempt "${ATTEMPT:-}" --role "${AGENT_ROLE:-}" \
-      --ref "story_dir=${STORY_DIR:-}" --data "gate=${GATE_NAME:-?}" --data "exit=$rc" >/dev/null 2>&1 || true
+      --ref "story_dir=${STORY_DIR:-}" --data "gate=${GATE_NAME:-?}" --data "exit=$rc" \
+      ${released:+--data "released=stuck"} >/dev/null 2>&1 || true
   fi
   return "$rc"
 }
 trap '_gate_log_verdict; exit $?' EXIT
 
+# Stuck release. A worker that hits the SAME block AGENTIC_STUCK_BLOCKS times in a row (same
+# gate, task and attempt, host-run verdicts only) is not going to fix it: in live run 10 a RED
+# worker stopped 29 times on one unchanged reason and burnt its whole time box. The Nth
+# identical block releases the stop UNVERIFIED: not a pass, never merged. The release leaves
+# `.agentic/state/stuck/<TASK_ID>.<ATTEMPT>` with the reason, which `budget watch` reports as
+# a STUCK line; the supervisor re-dispatches the task with feedback that addresses the
+# reason (a new attempt starts the count over), or re-plans it. A different reason resets the
+# count, and a self-check never releases. The key includes the worktree, so one worker's
+# repeats count and a re-dispatch in a fresh worktree starts over. Returns 0 on the release.
+_gate_stuck() {
+  local rh="$1" self="$2" n="${AGENTIC_STUCK_BLOCKS:-3}" prior log="$AGENTIC_LOGS/gates.jsonl"
+  [ "$self" = false ] && [ -n "${TASK_ID:-}" ] && [ -n "${ATTEMPT:-}" ] || return 1
+  # The build roles, plus the two read-only roles whose blocks can name a defect only the
+  # supervisor can act on (live e2e run 12: a HIGH structural finding blocked the reviewer 10x).
+  case "${AGENT_ROLE:-}" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate) ;; *) return 1 ;; esac
+  [ "$n" -ge 2 ] 2>/dev/null && [ -f "$log" ] || return 1
+  prior="$(grep -F "\"gate\":\"${GATE_NAME:-?}\"" "$log" | grep -F "\"task\":\"$TASK_ID\",\"attempt\":\"$ATTEMPT\"" \
+    | grep -F "\"wt\":\"$(repo_dir)\"" | grep -F '"selfcheck":false' | tail -n $((n - 1)) | grep -c -F "\"exit\":2,\"selfcheck\":false,\"reason\":\"$rh\"}")"
+  [ "$prior" -ge $((n - 1)) ] || return 1
+  mkdir -p "$AGENTIC_STATE/stuck" 2>/dev/null
+  printf 'role=%s gate=%s task=%s attempt=%s blocks=%s\n%s\n' "${AGENT_ROLE:-}" "${GATE_NAME:-?}" "$TASK_ID" "$ATTEMPT" "$n" \
+    "$GATE_BLOCK_REASON" > "$AGENTIC_STATE/stuck/$TASK_ID.$ATTEMPT" 2>/dev/null
+  echo "[${GATE_NAME:-gate}] STUCK — the same block $n times in a row; stop released, NOT verified." >&2
+  echo "  This attempt is not a pass. Supervisor: do not merge; discard the worktree and re-dispatch" >&2
+  echo "  $TASK_ID with a Feedback block that addresses the reason (.agentic/state/stuck/$TASK_ID.$ATTEMPT), or re-plan." >&2
+  return 0
+}
+
 warn() { echo "WARN[$GATE_NAME]: $*" >&2; }
-fail() { echo "BLOCK[$GATE_NAME]: $*" >&2; exit 2; }
+fail() { GATE_BLOCK_REASON="$*"; echo "BLOCK[$GATE_NAME]: $*" >&2; exit 2; }
 note() { echo "[$GATE_NAME] $*" >&2; }
 
 # Resolve REPO_DIR.
@@ -149,15 +187,20 @@ load_task_env() {
   case "$tid" in ''|*[!A-Za-z0-9._-]*) ;; *)
     [ -f "$AGENTIC_STATE/tasks/$tid.env" ] && contract="$AGENTIC_STATE/tasks/$tid.env" ;;
   esac
-  if [ -n "$contract" ]; then
+  # A copy OLDER than the contract is stale (the supervisor re-dispatched and bumped the
+  # contract; bin/budget refreshes the copy on the worker's next tool call), not tampering:
+  # a worker's edit makes the copy newer. Only a copy at least as new is compared.
+  if [ -n "$contract" ] && [ -f "$te" ] && [ "$te" -ot "$contract" ]; then
+    note "the worktree's .agentic/task.env is older than the contract $contract; using the contract"
+  elif [ -n "$contract" ]; then
     while IFS=$'\t' read -r k v; do
       cv="$(_task_env_get "$contract" "$k")" || cv=""
       if [ "$cv" != "$v" ]; then
         fail "the worktree's .agentic/task.env disagrees with the supervisor's contract on $k ('$v' vs '$cv' in $contract). The contract is the supervisor's: do not edit it."
       fi
     done < <(_task_env_kv "$te")
-    te="$contract"
   fi
+  [ -n "$contract" ] && te="$contract"
   TASK_CONTRACT="$contract"
   while IFS=$'\t' read -r k v; do
     case "$k" in ''|BUDGET_*) continue ;; esac
@@ -217,7 +260,7 @@ budget_release
 # frontmatter; the dynamic `##` blocks are grep-checked (md-db can't enumerate them).
 validate_comms() {
   local dir="${STORY_DIR:-${1:-}}"
-  [ -n "$dir" ] || fail "STORY_DIR unset — cannot find the story's comms (init.md/output.md). The supervisor must set STORY_DIR in the task contract .agentic/state/tasks/<TASK_ID>.env and name TASK_ID on the dispatch prompt's first line (absolute path to docs/agents/sprintN/sN-NN-<slug>/)."
+  [ -n "$dir" ] || fail "STORY_DIR unset — cannot find the story's comms (init.md/output.md). The supervisor must set STORY_DIR in the task contract .agentic/state/tasks/<TASK_ID>.env and name TASK_ID on the dispatch prompt's first line (absolute path to docs/agents/sprintN/sN-NN-<slug>/; a whole-wave structural review uses the sprint dir docs/agents/sprintN/)."
   local out="$dir/output.md" ini="$dir/init.md"
 
   # init.md: the supervisor's inbound contract must exist (this is how you were briefed).
@@ -225,12 +268,13 @@ validate_comms() {
   frontmatter_type "$ini" init || fail "init.md missing top frontmatter 'type: init'"
 
   # output.md: the agent must have appended its report block.
-  [ -f "$out" ] || fail "no output.md in $dir — APPEND your report block to the story's output.md. This is the comms channel between agents, not optional."
+  local how="append it from your worktree with a shell heredoc: cat >> \"$dir/output.md\" <<'EOF' … EOF (create the file with a 'type: output' frontmatter first if it is missing). The Write/Edit tools refuse a path outside your worktree, and docs/agents/ lives only in the main tree."
+  [ -f "$out" ] || fail "no output.md in $dir — APPEND your report block to the story's output.md. This is the comms channel between agents, not optional. How: $how"
   frontmatter_type "$out" output || fail "output.md missing top frontmatter 'type: output'"
 
   # The LAST appended block must be THIS dispatch's (role match) and well-formed.
   local last; last="$(awk '/^## /{n=NR} END{print n+0}' "$out")"
-  [ "${last:-0}" -gt 0 ] || fail "output.md has no '## <task> · attempt N · <role> · <ts>' block — append your report."
+  [ "${last:-0}" -gt 0 ] || fail "output.md has no '## <task> · attempt N · <role> · <ts>' block — append your report. How: $how"
   local block; block="$(awk -v s="$last" 'NR>=s' "$out")"
   if [ -n "${AGENT_ROLE:-}" ]; then
     printf '%s\n' "$block" | head -1 | grep -q "$AGENT_ROLE" \

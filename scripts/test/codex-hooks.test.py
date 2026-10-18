@@ -8,8 +8,10 @@ SubagentStart/Stop), runs each command with `sh -c` and CLAUDE_PLUGIN_ROOT set (
 exports it for plugin hooks), and feeds Codex-shaped payloads (turn_id, rollout
 transcript paths, apply_patch `{command: <patch>}`).   python3 scripts/test/codex-hooks.test.py
 """
+import atexit
 import json
 import os
+import shutil
 import re
 import subprocess
 import sys
@@ -20,6 +22,7 @@ BIN = os.path.join(ROOT, "bin")
 HOOKS = json.load(open(os.path.join(ROOT, "hooks", "hooks.json")))["hooks"]
 ALIASES = {"apply_patch": ["Write", "Edit"], "spawn_agent": ["Agent"]}
 T = tempfile.mkdtemp(prefix="agentic-codex-")
+atexit.register(shutil.rmtree, T, ignore_errors=True)  # a leaked dir held ~500MB
 ENV = dict(os.environ, HOME=os.path.join(T, "home"), CLAUDE_PLUGIN_ROOT=ROOT, PLUGIN_ROOT=ROOT,
            CLAUDE_PLUGIN_DATA=os.path.join(T, "pdata"), CODEX_HOME=os.path.join(T, "codex"),
            AGENTIC_NO_AUTOINSTALL="1")  # no background cargo build into the temp dir (it filled the disk)
