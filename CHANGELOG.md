@@ -22,6 +22,21 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-18
+
+The first release of **aloop** (Aladdin's Loop), the plugin formerly published as agentic-agile.
+It carries the 0.11.0 rename (below: *Upgrading from agentic-agile*) and everything the roadmap
+shipped since v0.10.1: the intent contract and the `aladdin.event/1` stream with `events trace`
+(a commit on main answers with its task, gates, plan, intent and approver), sprint budget and
+admission control, the planning feedback lifecycle, frozen ids, semantic targets, the stuck
+release, the impact-provider seam, the portable host core (Claude Code, Codex, OpenCode), run
+data under `.aladdin/` with a `.agentic/` fallback, and seventeen measured live runs of the
+north-star loop (`make e2e-live`), each of which fixed a gate false positive or a dead path.
+
+**Upgrading from agentic-agile:** uninstall `agentic-agile@agentic-agile-marketplace`, install
+`aloop@aloop-marketplace`; `agentic …` commands keep working as aliases and existing `.agentic/`
+project data is read as before (see 0.11.0 → Compatibility, and README → *Upgrading*).
+
 ### Changed
 - **The README is tested** (`scripts/test/readme.test.py`, in `make test-hosts`): the §4.11 section
   order, every `aloop <tool>` / `aladdin <sub>` it names exists, the install lines name this

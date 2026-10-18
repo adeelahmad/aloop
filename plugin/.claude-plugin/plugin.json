@@ -1,6 +1,6 @@
 {
   "name": "aloop",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Two-stage agile planning (interactive, human-gated) + two-phase TDD execution (autonomous, hook-enforced), with md-db/KDL artifact validation, ctx-symbols structure checks, per-task transcripts, and a planning retrospective that distills durable memory. Runs on Claude Code, Codex and OpenCode.",
   "author": { "name": "Adeel Ahmad" },
   "license": "MIT",
