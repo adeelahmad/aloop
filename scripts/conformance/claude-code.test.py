@@ -206,7 +206,7 @@ case(5, "GREEN that adds #[ignore] is rejected", "gate-green-verify", wt, 2, "su
 wt = green(lib=GREEN_LIB + "\n#[cfg(not(test))]\npub fn hidden() {}\n")
 case(5, "GREEN that adds #[cfg(not(test))] is rejected", "gate-green-verify", wt, 2, "suppression")
 # A GREEN worker whose report is not the latest block (RED's is) is told HOW to append it: live
-# e2e run 23's haiku GREEN tried the Write tool on the main tree's output.md, was refused by
+# e2e run 24's haiku GREEN tried the Write tool on the main tree's output.md, was refused by
 # worktree isolation, and stopped 3 times on a block that named no way out (stuck release).
 wt = green()
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])

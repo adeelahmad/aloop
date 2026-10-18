@@ -23,7 +23,7 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
-- `gate-dispatch` now refuses a dispatch of any aloop role whose `model` is not the project's confirmed one (`aloop models resolve <role>`, matched by model family so `haiku` and `claude-haiku-5-5` agree), or that passes no model (which would fall back to the agent file's default, opus for the planning roles). Reason: live e2e run 20 dispatched planners on opus and workers on sonnet against a project whose defaults.md said haiku for both, and cost $2.79 instead of $0.99 for the same 12/12 result. Test: `scripts/test/dispatch.test.py`. Live run 21 with the gate: 12/12, 8m17s, $0.66, every dispatch on haiku (ledger rows for runs 20 and 21 in `docs/evidence/README.md`).
+- `gate-dispatch` now refuses a dispatch of any aloop role whose `model` is not the project's confirmed one (`aloop models resolve <role>`, matched by model family so `haiku` and `claude-haiku-5-5` agree), or that passes no model (which would fall back to the agent file's default, opus for the planning roles). Reason: live e2e run 20 dispatched planners on opus and workers on sonnet against a project whose defaults.md said haiku for both, and cost $2.79 instead of $0.99 for the same 12/12 result. Test: `scripts/test/dispatch.test.py`. Live run 21 with the gate: 12/12, 8m17s, $0.66, every dispatch on haiku Run 23 on the two-story `wordfreq` intent: 13/13, 10m58s, $0.76, 0 gate blocks (ledger rows for runs 20–23 in `docs/evidence/README.md`).
 - Evidence ledger (ROADMAP §4.11): `docs/evidence/README.md` lists every live run behind a public
   number (intent, plugin version, checks, wall, cost, wakes, plugin reads, gate blocks, reproduce
   command); `bin/run-summary <run-dir>` writes a run's `summary.json`, `summary.md` and ledger row from
@@ -46,7 +46,7 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ### Fixed
 - The comms gate's "latest output.md block is not from '<role>'" block now says how to append the
-  report from a worktree (`cat >> … <<'EOF'`), like the missing-block one (live run 23: a GREEN worker
+  report from a worktree (`cat >> … <<'EOF'`), like the missing-block one (live run 24: a GREEN worker
   refused by the Write tool stopped three times on it and hit the stuck release). Conformance case.
 - Final-gate persona: the suppression check is the gate's (`#[ignore]`, `.skip(`, `xit(`,
   `#[cfg(not(test))]`, run by `selfcheck final-gate`), not an open-ended list; an `#[allow(dead_code)]`
