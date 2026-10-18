@@ -22,7 +22,7 @@ if [ -z "$sprint_dir" ] || [ ! -d "$sprint_dir" ]; then
   echo "WARN[$GATE_NAME]: no sprint dir found; stage-2 check skipped (weaker)" >&2; exit 0
 fi
 # The planner has no task contract: its stuck key is the sprint it plans and the host's agent
-# id (live e2e run 18: one planner was blocked 9 times on one unchanged reason, uncounted).
+# id (live e2e run 19: one planner was blocked 9 times on one unchanged reason, uncounted).
 # A re-dispatch is a new agent id, so it starts the count over.
 if [ -z "${TASK_ID:-}" ] && [ -n "$GATE_PAYLOAD" ]; then
   _aid="$(printf '%s' "$GATE_PAYLOAD" | sed -nE 's/.*"agent_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"

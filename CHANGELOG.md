@@ -23,7 +23,7 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
-- The planner's stop gate (`gate-stage2-complete` on SubagentStop) now logs its verdicts to `gates.jsonl` and the event stream like every other gate, and the stuck release covers the planner: the same block three times in a row releases its stop unverified with a `state/stuck/plan-sprintN.<agent>` marker the supervisor acts on (a re-dispatch is a new agent id and starts over). A direct call (the supervisor's own check, `selfcheck`) is logged as a self-check and never releases. Reason: live e2e run 18's re-planning planner was blocked 9 times on one unchanged reason, none counted. Test: `scripts/test/planner-stuck.test.py`.
+- The planner's stop gate (`gate-stage2-complete` on SubagentStop) now logs its verdicts to `gates.jsonl` and the event stream like every other gate, and the stuck release covers the planner: the same block three times in a row releases its stop unverified with a `state/stuck/plan-sprintN.<agent>` marker the supervisor acts on (a re-dispatch is a new agent id and starts over). A direct call (the supervisor's own check, `selfcheck`) is logged as a self-check and never releases. Reason: live e2e run 19's re-planning planner was blocked 9 times on one unchanged reason, none counted. Test: `scripts/test/planner-stuck.test.py`.
 
 ### Fixed
 - Planner persona: a later task's RED tests must fail against what the earlier tasks leave on main, not only the empty tree (live run 19: three of T2's tests passed against T1's placeholder, costing a re-plan).

@@ -53,7 +53,7 @@ A later task's RED tests must fail against what the EARLIER tasks leave on main,
 against the empty tree: `gate-red-verify` requires every new test to fail by assertion, so
 a task whose planned tests already pass against the previous task's skeleton (a placeholder
 that maps every non-success to one error variant, a default where a `todo!()` was) cannot be
-RED and costs a mid-sprint re-plan (live run 18: three of T2's tests passed against T1's
+RED and costs a mid-sprint re-plan (live run 19: three of T2's tests passed against T1's
 placeholder). Plan each later task's tests around behaviour the earlier task's contract does
 not provide, and state in the earlier task's summary what its skeleton returns for inputs
 outside its scope, so the later tests can assert something it gets wrong.

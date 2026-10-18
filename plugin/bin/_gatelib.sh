@@ -76,7 +76,7 @@ _gate_stuck() {
   [ "$self" = false ] && [ -n "${TASK_ID:-}" ] && [ -n "${ATTEMPT:-}" ] || return 1
   # The build roles, plus the two read-only roles whose blocks can name a defect only the
   # supervisor can act on (live e2e run 12: a HIGH structural finding blocked the reviewer 10x).
-  # And the planner (live e2e run 18: 9 identical blocks on a re-plan); its key is the sprint
+  # And the planner (live e2e run 19: 9 identical blocks on a re-plan); its key is the sprint
   # + the host's agent id (gate-stage2-complete), so a re-dispatch starts over.
   case "${AGENT_ROLE:-}" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate|planner) ;; *) return 1 ;; esac
   [ "$n" -ge 2 ] 2>/dev/null && [ -f "$log" ] || return 1

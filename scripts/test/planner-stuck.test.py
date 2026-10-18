@@ -2,7 +2,7 @@
 """The planner's stop gate (gate-stage2-complete on SubagentStop) logs its verdicts to
 gates.jsonl like every other gate, and the stuck release covers it: the same block three
 times in a row releases the planner's stop UNVERIFIED with a stuck marker the supervisor
-acts on. Live e2e run 18: a re-planning planner was blocked 9 times on one unchanged reason,
+acts on. Live e2e run 19: a re-planning planner was blocked 9 times on one unchanged reason,
 none of them counted, and only a second dispatch ended it.
 
     python3 scripts/test/planner-stuck.test.py
