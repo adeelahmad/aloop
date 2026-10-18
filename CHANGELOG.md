@@ -248,7 +248,9 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - `ctx-symbols` (and the gate's grep fallback) no longer scan a host's worktree checkouts
   inside the main tree (`.claude/worktrees/agent-<id>/`), nor `.agentic/` or `.transcripts/`:
   a stale checkout duplicated every symbol of main and the structural review halted on a
-  false HIGH finding 20 times (live e2e run 12). 2 conformance checks (§6.7), 1 unit test.
+  false HIGH finding 20 times (live e2e run 12). The exclusion applies below the walk root, so a
+  reviewer whose own worktree is such a checkout is still scanned. 3 conformance checks (§6.7),
+  2 unit tests.
 - The stuck release also covers the structural reviewer and the final gate, whose blocks can name
   a defect only the supervisor can act on (run 12: 10 identical blocks). 1 conformance check.
 - `gate-validate-artifact`'s block now carries md-db's diagnostics (the missing section or field

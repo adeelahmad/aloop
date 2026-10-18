@@ -30,7 +30,11 @@ pub fn collect_source_files(root: &Path) -> Result<Vec<PathBuf>> {
     for entry in WalkDir::new(root)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|e| !is_excluded(e.path()))
+        .filter_entry(|e| {
+            // judge the path below the walk root: a root that itself sits inside an excluded
+            // fragment (a gate scanning .claude/worktrees/agent-<id>) must still be walked
+            !is_excluded(e.path().strip_prefix(root).unwrap_or_else(|_| e.path()))
+        })
     {
         let entry = entry?;
         if !entry.file_type().is_file() {
@@ -92,5 +96,15 @@ mod tests {
         let files = collect_source_files(root).unwrap();
         assert_eq!(files.len(), 1, "only the main tree's file: {:?}", files);
         assert!(files[0].ends_with("src/lib.rs"));
+    }
+
+    #[test]
+    fn collect_walks_a_root_inside_an_excluded_fragment() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join(".claude/worktrees/agent-a1b2");
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("src/lib.rs"), "pub fn count_words() {}").unwrap();
+        let files = collect_source_files(&root).unwrap();
+        assert_eq!(files.len(), 1, "{:?}", files);
     }
 }

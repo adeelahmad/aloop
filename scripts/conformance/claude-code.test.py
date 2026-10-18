@@ -412,6 +412,17 @@ results.append((9, "a reviewer blocked 3x on the same HIGH finding is released u
                 rc1 == 2 and rc == 0 and any("STUCK" in l for l in lines), "exits %d then %d" % (rc1, rc)))
 shutil.rmtree(os.path.join(MAIN, ".claude"), ignore_errors=True)
 sh("git", "worktree", "remove", "--force", wt)
+# ...and a reviewer whose OWN worktree is a host checkout under .claude/worktrees/ is still scanned:
+# the exclusion applies below the walk root, never to the root itself.
+hostwt = os.path.join(MAIN, ".claude", "worktrees", "agent-f00dbabe")
+sh("git", "worktree", "add", "-q", "-b", "agentic/hostwt", hostwt)
+write(os.path.join(hostwt, ".agentic", "task.env"),
+      "TASK_ID=S1-SR-W9\nATTEMPT=1\nAGENT_ROLE=structural-reviewer\nSTORY_DIR=%s\nBASE_REF=main\n" % STORY)
+write(os.path.join(hostwt, "src", "dup.rs"), "pub fn sub(a: i32, b: i32) -> i32 {\n    a - b\n}\n")
+commit(hostwt, "dup in a host checkout")
+case(7, "a real duplicate inside a reviewer's own .claude/worktrees checkout still halts (HIGH)", "gate-structural-integrity", hostwt, 2, "HIGH")
+sh("git", "worktree", "remove", "--force", hostwt)
+shutil.rmtree(os.path.join(MAIN, ".claude"), ignore_errors=True)
 
 # FINAL: every test the story's plan.md names must exist on main. A RED re-plan that drops a
 # planned test otherwise loses coverage silently (live e2e run 6), since plan-ready.md only
