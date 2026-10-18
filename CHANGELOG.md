@@ -45,6 +45,10 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - The planner's stop gate (`gate-stage2-complete` on SubagentStop) now logs its verdicts to `gates.jsonl` and the event stream like every other gate, and the stuck release covers the planner: the same block three times in a row releases its stop unverified with a `state/stuck/plan-sprintN.<agent>` marker the supervisor acts on (a re-dispatch is a new agent id and starts over). A direct call (the supervisor's own check, `selfcheck`) is logged as a self-check and never releases. Reason: live e2e run 19's re-planning planner was blocked 9 times on one unchanged reason, none counted. Test: `scripts/test/planner-stuck.test.py`.
 
 ### Fixed
+- SKILL.md's data-plane tree drew `sprintN/` under `.aladdin/` (the run-data dir); it is now under
+  `docs/agents/`, and `.aladdin/` is drawn as run data only (live run 24's haiku supervisor put the
+  whole sprint in `.aladdin/sprint1/`). `scripts/test/skill-layout.test.py` checks the tree and holds
+  SKILL.md to a 50 KB budget so the #43 trim does not grow back.
 - `gate-red-verify`: when RED's tests do not compile, the block names each symbol they cannot find and the shim to add (`pub fn <name>(…) -> … { todo!() }` or `pub struct <Name>;` in `tests/common/mod.rs`, marked `// agentic:shim`, called through `mod common;`) instead of a bare "add mod-common shims". Reason: live run 26, a RED worker blocked 5 times and hit the stuck release. Test: conformance §6.3.
 - The comms gate's "latest output.md block is not from '<role>'" block now says how to append the
   report from a worktree (`cat >> … <<'EOF'`), like the missing-block one (live run 25: a GREEN worker
