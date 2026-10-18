@@ -285,7 +285,7 @@ validate_comms() {
   local block; block="$(awk -v s="$last" 'NR>=s' "$out")"
   if [ -n "${AGENT_ROLE:-}" ]; then
     printf '%s\n' "$block" | head -1 | grep -q "$AGENT_ROLE" \
-      || fail "the latest output.md block is not from '$AGENT_ROLE' — append YOUR report block for this dispatch (one block per attempt, append-only)."
+      || fail "the latest output.md block is not from '$AGENT_ROLE' — append YOUR report block for this dispatch (one block per attempt, append-only). How: $how"
   fi
   printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Summary' || fail "latest output.md block missing '### Summary'"
   printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Result'  || fail "latest output.md block missing '### Result'"

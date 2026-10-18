@@ -31,6 +31,7 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 22 | wordfreq | v0.12.0 + #37 (361f8d7) | 13/13 | 16m18s | $1.14 | 2 | 0 | 3 | `make e2e-live YES=1 INTENT=wordfreq` |
 | run 23 | wordfreq | v0.12.0 + #33 (7417bb9) | 13/13 | 10m58s | $0.76 | 4 | 1 | 0 | `make e2e-live YES=1 INTENT=wordfreq` |
 | run 24 | wordfreq, haiku supervisor | v0.12.0 + #39 (9826566) | 10/13 | 19m09s | $0.66 | 4 | 1 | 6 | `make e2e-live YES=1 INTENT=wordfreq MODEL=haiku` |
+| run 25 | wordfreq | v0.12.0 + #40 (9c6a16c) | 13/13 | 16m13s | $0.98 | 3 | 0 | 5 | `make e2e-live YES=1 INTENT=wordfreq` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
