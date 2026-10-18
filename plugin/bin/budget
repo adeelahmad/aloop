@@ -19,7 +19,7 @@ each with a SOFT and a HARD limit:
                    spent after the stop (ROADMAP §3.5). A `<worktree>/.aladdin/budget-exceeded`
                    marker lets its SubagentStop gate release it, and `budget watch` tells
                    the supervisor to TaskStop it if the hook could not. The task is NOT retried — it goes back to the planner
-                   to be split (SKILL.md "Budget overrun -> mid-sprint re-plan").
+                   to be split (skills/aloop/reference.md "Budget overrun -> mid-sprint re-plan").
 
 Resolution order (first set wins):  per-task `budget:` line in tasks.md  >
     BUDGET_* in the worktree's task.env copy  >  docs/agents/defaults.md  >  built-ins.
@@ -474,7 +474,7 @@ def harness_report(st, left, cls):
              "the worker was not asked to report.\n\n### Result\n| Check | Status | Detail |\n|---|---|---|\n"
              "| budget | HARD (%s) | %s |\n| worktree diff | discarded | %s |\n"
              "| breach class | %s | %s |\n\n### Next\n"
-             "re-plan: confirm or override the breach class, then act on it (SKILL.md \"Breach classes\"). "
+             "re-plan: confirm or override the breach class, then act on it (skills/aloop/reference.md \"Breach classes\"). "
              "Transcript: %s\n") % (
         st.get("task") or "?", st.get("attempt") or "?", st["role"], ts, cls, left, cls, left, diff,
         breach, why.replace("|", "/"), st.get("transcript") or "?")
@@ -824,7 +824,7 @@ def watch(cwd, interval, grace):
             if kill:
                 print("-> KILL lines: the hook could not stop these — TaskStop each, then `budget mark-killed <agent_id>`.")
             print("-> Budget overrun: discard these attempts (never merge), PAUSE the sprint and dispatch the "
-                  "planner in replan mode (SKILL.md 'Budget overrun'). Do NOT retry these tasks as-is.")
+                  "planner in replan mode (skills/aloop/reference.md 'Budget overrun'). Do NOT retry these tasks as-is.")
             return 3
         if not running:
             print("IDLE: no worker running.")

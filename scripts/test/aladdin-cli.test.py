@@ -97,6 +97,10 @@ assert sk.startswith("---\nname: aladdin\n") and "skills/aloop/SKILL.md" in sk
 r = run(os.path.join(BIN, "aloop"), "install", "opencode")
 assert r.returncode == 0, r
 assert os.path.isfile(os.path.join(T, ".opencode", "skills", "aladdin", "SKILL.md"))
+# the playbook's on-demand sections travel with it (SKILL.md points at its own reference.md)
+ref = os.path.join(T, ".opencode", "skills", "aloop", "reference.md")
+assert os.path.isfile(ref) and "Budget overrun" in open(ref).read(), "reference.md not installed beside the aloop skill"
+assert "reference.md" in open(os.path.join(T, ".opencode", "skills", "aloop", "SKILL.md")).read()
 lb = os.path.join(ENV["HOME"], ".local", "bin")
 assert os.path.realpath(os.path.join(lb, "aladdin")) == os.path.realpath(A) and os.path.islink(os.path.join(lb, "aloop"))
 ok("/aladdin skill beside /aloop; opencode install copies it; ~/.local/bin/aladdin links to the plugin")

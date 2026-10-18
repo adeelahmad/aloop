@@ -170,7 +170,7 @@ pipeline/                    design source of truth (persona/init/artifacts/gate
   one-story sprint. The hook *wiring* should be smoke-tested in a live Claude Code
   session before relying on it in anger.
 - Suppression detection is syntactic; a test weakened by deleting an assertion is
-  caught by the RED-invariant + diff-scope, not by grep. See SKILL.md
+  caught by the RED-invariant + diff-scope, not by grep. See skills/aloop/reference.md
   "Known gate limitations."
 
 ## License
