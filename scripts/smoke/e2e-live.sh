@@ -58,8 +58,8 @@ timeout "$TIMEOUT" claude -p --plugin-dir "$PLUGIN" --model "$SUP_MODEL" \
 rc=$?
 secs=$(( $(date +%s) - start ))
 
-fails=0
-check() { if eval "$2"; then echo "ok - $1"; else echo "FAIL - $1"; fails=$((fails + 1)); fi; }
+fails=0; checks=0
+check() { checks=$((checks + 1)); if eval "$2"; then echo "ok - $1"; else echo "FAIL - $1"; fails=$((fails + 1)); fi; }
 story="$(ls -d docs/agents/sprint1/s1-* 2>/dev/null | head -1)"
 check "session finished (exit $rc)" '[ "$rc" -eq 0 ]'
 check "planning wrote stories.md + a story dir" '[ -f docs/agents/sprint1/stories.md ] && [ -n "$story" ]'
@@ -81,36 +81,9 @@ check "no hook crashed" '! grep -q "the gate itself failed" "$T/out.jsonl"'
 untraced=0; for sha in $(git log --no-merges --format=%H HEAD | head -n -2); do "$PLUGIN/bin/events" trace "$sha" >/dev/null 2>&1 || untraced=$((untraced + 1)); done
 check "every merged commit traces to its task (events trace)" '[ "$untraced" -eq 0 ]'
 
-python3 - "$T/out.jsonl" "$secs" <<'PY'
-import json, sys
-cost = turns = 0
-for l in open(sys.argv[1]):
-    try: e = json.loads(l)
-    except ValueError: continue
-    if e.get("type") == "result":
-        cost, turns = e.get("total_cost_usd") or 0, e.get("num_turns") or 0
-print("cost: $%.2f · supervisor turns: %s · wall: %dm%02ds" % (cost, turns, int(sys.argv[2]) // 60, int(sys.argv[2]) % 60))
-PY
-# A sub-agent "read" of the plugin's source is any tool call that names a plugin path, except
-# passing `--schema $PLUGIN/schemas/…` to md-db, which is a legitimate use of the schema.
-echo "sub-agent reads of the plugin's own source: $(python3 - "$T/out.jsonl" "$PLUGIN" <<'PY'
-import json, re, sys
-n = 0
-plug, pat = sys.argv[2], re.compile(r"--schema[= ]+" + re.escape(sys.argv[2]) + r"/schemas/\S*")
-for l in open(sys.argv[1]):
-    try: e = json.loads(l)
-    except ValueError: continue
-    m = e.get("message")
-    content = m.get("content") if isinstance(m, dict) else None
-    for c in content if isinstance(content, list) else []:
-        if not isinstance(c, dict) or c.get("type") != "tool_use": continue
-        i = c.get("input") or {}
-        text = i.get("command") or i.get("file_path") or i.get("path") or ""
-        if plug + "/" in pat.sub("", text): n += 1
-print(n)
-PY
-)"
-[ -f .aladdin/logs/gates.jsonl ] && echo "gate verdicts: $(grep -c . .aladdin/logs/gates.jsonl) ($(grep -c '"exit":2' .aladdin/logs/gates.jsonl) blocks)"
+# The measured record (ROADMAP §4.11): summary.json, summary.md and a docs/evidence/README.md row
+# in the run dir; the numbers come from the session's `result` lines and the gate log.
+"$PLUGIN/bin/run-summary" "$T" --intent "$FIXTURE" --checks "$((checks - fails))/$checks" --secs "$secs" --plugin "$PLUGIN"
 # Keep the transcript and the repo, drop the build artifacts (a cargo target dir per worktree
 # is hundreds of MB; a dozen kept runs filled the disk).
 rm -rf "$T"/repo/target "$T"/repo/.claude/worktrees/*/target 2>/dev/null

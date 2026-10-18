@@ -23,6 +23,11 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
+- Evidence ledger (ROADMAP §4.11): `docs/evidence/README.md` lists every live run behind a public
+  number (intent, plugin version, checks, wall, cost, wakes, plugin reads, gate blocks, reproduce
+  command); `bin/run-summary <run-dir>` writes a run's `summary.json`, `summary.md` and ledger row from
+  the session's `result` lines and the gate log, and `e2e-live.sh` calls it. README and the site link
+  every figure to the ledger; `scripts/test/evidence.test.py` fails on an unsourced figure.
 - Natural-language auto-trigger (ROADMAP §4.11): `bin/intent-trigger` on UserPromptSubmit adds context
   to run a plain build/fix request as `/aladdin "<intent>"` when it lands in an aloop project with no
   sprint running. Quiet for questions, slash commands, short replies, a live sprint lock and non-aloop
