@@ -31,6 +31,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.7 | Decision rationale + authority record | IMPLEMENTED_TESTED | `scripts/test/events.test.py` |
 | 4.7 | Lineage: commit → intent → approver | IMPLEMENTED_TESTED | `scripts/test/commit-trace.test.py` |
 | 4.7 | Every commit on main is a task's: the supervisor's own `git commit` on main is blocked mid-sprint | IMPLEMENTED_TESTED | `scripts/test/supervisor-scope.test.py` |
+| 6.9 | Stuck release covers the planner; its stop verdicts are logged like every gate | IMPLEMENTED_TESTED | `scripts/test/planner-stuck.test.py` |
 | 4.7 | Commit messages from rationale; graph export | IMPLEMENTED_TESTED | `scripts/test/commit-trace.test.py` |
 | 4.8 | Cross-project impact provider seam | IMPLEMENTED_TESTED | `scripts/test/impact-provider.test.py` |
 | 4.9 | Usage reporting: classes apart, exact or marked, unreported classes named | IMPLEMENTED_TESTED | `scripts/test/budget-meter.test.py` |

@@ -116,6 +116,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/codex-hooks.test.py
 	python3 scripts/test/rename-compat.test.py
 	python3 scripts/test/supervisor-scope.test.py
+	python3 scripts/test/planner-stuck.test.py
 	python3 scripts/test/hook-matchers.test.py
 	python3 scripts/test/dispatch.test.py
 	python3 scripts/test/log-execution.test.py

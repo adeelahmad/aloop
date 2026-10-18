@@ -76,7 +76,9 @@ _gate_stuck() {
   [ "$self" = false ] && [ -n "${TASK_ID:-}" ] && [ -n "${ATTEMPT:-}" ] || return 1
   # The build roles, plus the two read-only roles whose blocks can name a defect only the
   # supervisor can act on (live e2e run 12: a HIGH structural finding blocked the reviewer 10x).
-  case "${AGENT_ROLE:-}" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate) ;; *) return 1 ;; esac
+  # And the planner (live e2e run 18: 9 identical blocks on a re-plan); its key is the sprint
+  # + the host's agent id (gate-stage2-complete), so a re-dispatch starts over.
+  case "${AGENT_ROLE:-}" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate|planner) ;; *) return 1 ;; esac
   [ "$n" -ge 2 ] 2>/dev/null && [ -f "$log" ] || return 1
   prior="$(grep -F "\"gate\":\"${GATE_NAME:-?}\"" "$log" | grep -F "\"task\":\"$TASK_ID\",\"attempt\":\"$ATTEMPT\"" \
     | grep -F "\"wt\":\"$(repo_dir)\"" | grep -F '"selfcheck":false' | tail -n $((n - 1)) | grep -c -F "\"exit\":2,\"selfcheck\":false,\"reason\":\"$rh\"}")"
@@ -85,8 +87,14 @@ _gate_stuck() {
   printf 'role=%s gate=%s task=%s attempt=%s blocks=%s\n%s\n' "${AGENT_ROLE:-}" "${GATE_NAME:-?}" "$TASK_ID" "$ATTEMPT" "$n" \
     "$GATE_BLOCK_REASON" > "$AGENTIC_STATE/stuck/$TASK_ID.$ATTEMPT" 2>/dev/null
   echo "[${GATE_NAME:-gate}] STUCK — the same block $n times in a row; stop released, NOT verified." >&2
-  echo "  This attempt is not a pass. Supervisor: do not merge; discard the worktree and re-dispatch" >&2
-  echo "  $TASK_ID with a Feedback block that addresses the reason (.agentic/state/stuck/$TASK_ID.$ATTEMPT), or re-plan." >&2
+  if [ "${AGENT_ROLE:-}" = planner ]; then
+    echo "  The plan is not approved. Supervisor: read the reason ($AGENTIC_STATE/stuck/$TASK_ID.$ATTEMPT), then" >&2
+    echo "  re-dispatch the planner with a Feedback block that addresses it (fix the plan defect it names, or" >&2
+    echo "  say which changes already shipped), or fix the artifact out of band and run gate-stage2-complete." >&2
+  else
+    echo "  This attempt is not a pass. Supervisor: do not merge; discard the worktree and re-dispatch" >&2
+    echo "  $TASK_ID with a Feedback block that addresses the reason ($AGENTIC_STATE/stuck/$TASK_ID.$ATTEMPT), or re-plan." >&2
+  fi
   return 0
 }
 

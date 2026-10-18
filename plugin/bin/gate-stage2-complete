@@ -5,10 +5,14 @@
 set -uo pipefail
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; export PATH="$BIN_DIR:$PATH"  # md-db shim -> real binary
 GATE_NAME="gate-stage2-complete"
+# A direct call (the supervisor's own check, bin/selfcheck) is logged as a self-check; only a
+# host SubagentStop payload makes a verdict. Decided before _gatelib.sh reads the payload.
+[ -t 0 ] && export AGENTIC_SELFCHECK=1
 # shellcheck source=/dev/null
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"   # a crash blocks, never allows
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_gatelib.sh"   # fail-closed + verdict log + stuck release
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${CLAUDE_PLUGIN_ROOT:=$(cd "$HERE/.." && pwd)}"
+[ -n "$GATE_PAYLOAD" ] || export AGENTIC_SELFCHECK=1
 
 sprint_dir="${1:-${SPRINT_DIR:-}}"
 if [ -z "$sprint_dir" ]; then
@@ -17,11 +21,19 @@ fi
 if [ -z "$sprint_dir" ] || [ ! -d "$sprint_dir" ]; then
   echo "WARN[$GATE_NAME]: no sprint dir found; stage-2 check skipped (weaker)" >&2; exit 0
 fi
+# The planner has no task contract: its stuck key is the sprint it plans and the host's agent
+# id (live e2e run 18: one planner was blocked 9 times on one unchanged reason, uncounted).
+# A re-dispatch is a new agent id, so it starts the count over.
+if [ -z "${TASK_ID:-}" ] && [ -n "$GATE_PAYLOAD" ]; then
+  _aid="$(printf '%s' "$GATE_PAYLOAD" | sed -nE 's/.*"agent_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+  if [ -n "$_aid" ]; then
+    export TASK_ID="plan-$(basename "$sprint_dir")" ATTEMPT="${ATTEMPT:-$(printf '%s' "$_aid" | tr -c 'A-Za-z0-9_-' '_')}"
+  fi
+fi
 
 # 1) No TBW placeholders anywhere.
 if grep -rl 'TBW' "$sprint_dir" >/dev/null 2>&1; then
-  echo "BLOCK[$GATE_NAME]: TBW remains in $sprint_dir (partial Stage-2 forbidden)" >&2
-  exit 2
+  fail "TBW remains in $sprint_dir (partial Stage-2 forbidden)"
 fi
 
 # 2) Every SN-NN story in stories.md has a dir with tasks.md + validate.md + plan.md.
@@ -33,13 +45,12 @@ if [ -f "$stories" ]; then
     lc="$(echo "$id" | tr 'A-Z' 'a-z')"          # s1-01
     dir="$(find "$sprint_dir" -maxdepth 1 -type d -name "${lc}-*" | head -1)"
     if [ -z "$dir" ]; then
-      echo "BLOCK[$GATE_NAME]: no story dir for $id: expected $sprint_dir/${lc}-<slug>/ (lowercase, e.g. ${lc}-count-words/) holding tasks.md, validate.md and plan.md" >&2
       other="$(find "$sprint_dir" -maxdepth 1 -type d -iname "${lc}*" | head -1)"
-      [ -n "$other" ] && echo "  found $other: rename it, e.g. git mv '$other' '$sprint_dir/${lc}-<slug>'" >&2
-      exit 2
+      fail "no story dir for $id: expected $sprint_dir/${lc}-<slug>/ (lowercase, e.g. ${lc}-count-words/) holding tasks.md, validate.md and plan.md${other:+
+  found $other: rename it, e.g. git mv '$other' '$sprint_dir/${lc}-<slug>'}"
     fi
     for f in tasks.md validate.md plan.md; do
-      [ -f "$dir/$f" ] || { echo "BLOCK[$GATE_NAME]: $id missing $f" >&2; exit 2; }
+      [ -f "$dir/$f" ] || fail "$id missing $f"
     done
   done
 else
@@ -56,32 +67,26 @@ if [ -n "$this_n" ]; then
             -exec grep -hoE '\bS[0-9]+-[0-9]+\b' {} + 2>/dev/null \
             | sed -E 's/^S([0-9]+)-.*/\1/' | sort -un | awk -v n="$this_n" '$1>n' | head -1)"
   if [ -n "$later" ]; then
-    echo "BLOCK[$GATE_NAME]: sprint $this_n references story IDs from later sprint $later —" \
-         "a sprint must be self-contained (context is cleared between sprints). Cut the" \
-         "dependency or move the story into this sprint." >&2
-    exit 2
+    fail "sprint $this_n references story IDs from later sprint $later — a sprint must be self-contained (context is cleared between sprints). Cut the dependency or move the story into this sprint."
   fi
   spill="$(find "$sprint_dir" -name '*.md' ! -name stories.md ! -name init.md ! -name output.md \
              -exec grep -lEi '(continue|continued|finish|finished|complete|completed|defer|deferred|carry|carried|spill|pick(ed)? up)[a-z]* (it |this |the rest )?(in|into|to|over to|during) (the )?(next|later|following|future|subsequent) sprint|sprint ?(n ?\+ ?1|'"$((this_n+1))"')\b' {} + 2>/dev/null | head -1)"
   if [ -n "$spill" ]; then
-    echo "BLOCK[$GATE_NAME]: $spill defers work into a later sprint — every task must" \
-         "finish inside sprint $this_n. Cut the story smaller; list the remainder under" \
-         "stories.md 'Out of scope'." >&2
-    exit 2
+    fail "$spill defers work into a later sprint — every task must finish inside sprint $this_n. Cut the story smaller; list the remainder under stories.md 'Out of scope'."
   fi
 fi
 
 # 4) Identity + referential integrity (ROADMAP §4.5): issue canonical ids for every story
 #    and task alias, check the structured references between artifacts, freeze the map.
 "$BIN_DIR/ids" freeze "$sprint_dir" \
-  || { echo "BLOCK[$GATE_NAME]: broken cross-artifact reference in $sprint_dir (see above)" >&2; exit 2; }
+  || fail "broken cross-artifact reference in $sprint_dir (see above)"
 
 # 5) Semantic change targets (ROADMAP §4.6), where the planner wrote them: each target's
 #    task, operation, path and symbol must hold against tasks.md and the real tree.
 for t in "$sprint_dir"/s*-*-*/targets.json; do
   [ -f "$t" ] || continue
   "$BIN_DIR/targets" check "$(dirname "$t")" \
-    || { echo "BLOCK[$GATE_NAME]: invalid change targets in $t (see above)" >&2; exit 2; }
+    || fail "invalid change targets in $t (see above)"
 done
 
 # 6) Structural validation via md-db (fallback to frontmatter check).
@@ -91,7 +96,7 @@ if "$BIN_DIR/ensure-tools" --resolve md-db >/dev/null 2>&1; then
   find "$sprint_dir" -type f \( -name stories.md -o -name tasks.md -o -name validate.md \
        -o -name plan.md -o -name plan-ready.md \) \
     | md-db validate --stdin-list --schema "${CLAUDE_PLUGIN_ROOT}/schemas/planning-artifacts.kdl" \
-    || { echo "BLOCK[$GATE_NAME]: md-db rejected $sprint_dir" >&2; exit 2; }
+    || fail "md-db rejected $sprint_dir"
 else
   echo "WARN[$GATE_NAME]: md-db absent; structural validation limited to dir/frontmatter checks" >&2
 fi
