@@ -40,6 +40,7 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 31 | semver | v0.12.0 + #52 (b33c932) | 12/12 | 10m24s | $0.91 | 2 | 1 | 5 | `make e2e-live YES=1` |
 | run 32 | semver | v0.12.0 + #53 (5e9a0a9), 11m05s to the final gate then a stale wakeup | 12/12 | 23m30s | $0.90 | 3 | 2 | 2 | `make e2e-live YES=1` |
 | run 33 | wordfreq | v0.12.0 + #54 (002e4ff) | 13/13 | 12m20s | $0.84 | 2 | 0 | 5 | `make e2e-live YES=1 INTENT=wordfreq` |
+| run 34 | semver | v0.12.0 + #55 (2ceeada) | 12/12 | 10m23s | $0.74 | 2 | 1 | 1 | `make e2e-live YES=1` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads

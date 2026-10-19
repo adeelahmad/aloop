@@ -96,4 +96,24 @@ r = subprocess.run([os.path.join(BIN, "run-summary"), rd, "--intent", "semver"],
 assert json.load(open(os.path.join(rd, "summary.json")))["host"] == "claude" and "HOST=" not in r.stdout
 ok("run-summary --host records the host, names it in the reproduce command, and never prints $0.00 for an unmeasured cost")
 
+# 6) a run started from inside a Claude Code session does not inherit that session: live runs 32-34
+#    reported the parent's session id and recalled the parent's team memory (memory_recall of this
+#    repo's own agent notes), so the measured supervisor was not a clean one.
+spy = os.path.join(T, "spy"); os.makedirs(spy)
+p = os.path.join(spy, "claude")
+open(p, "w").write("#!/bin/sh\nenv > \"$E2E_DIR/child.env\"\nexit 0\n")
+os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC)
+PARENT = {"CLAUDE_CODE_SESSION_ID": "parent", "CLAUDE_CODE_REMOTE_SESSION_ID": "cse_parent",
+          "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE": "/tmp/parent-mem", "CLAUDE_MEMORY_STORES": "[]",
+          "CLAUDE_CODE_MESSAGING_SOCKET": "/tmp/s.sock", "CLAUDE_CODE_MESSAGING_TOKEN": "t",
+          "CLAUDE_CODE_REMOTE_SDK_URL": "https://example.invalid/v1/code/sessions/cse_parent"}
+d = tempfile.mkdtemp(prefix="run-", dir=T)
+subprocess.run([SH, "--yes"], cwd=T, env=dict(ENV, E2E_DIR=d, PATH=spy + ":" + ENV["PATH"], TIMEOUT="30", **PARENT),
+               capture_output=True, text=True)
+child = open(os.path.join(d, "child.env")).read()
+for k in PARENT:
+    assert ("\n%s=" % k) not in "\n" + child, (k, child)
+assert "\nE2E_DIR=" in "\n" + child
+ok("the supervisor CLI runs without the parent session's id, memory store or messaging socket")
+
 print("\n%d checks passed" % PASS[0])
