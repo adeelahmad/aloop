@@ -81,5 +81,41 @@ r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx
 assert r.returncode == 0 and r.stdout.strip() == os.path.join(real, "ctx-symbols"), r
 ok("--resolve skips another plugin checkout's shims on PATH and finds the real binary behind them")
 
+# A stale own build loses to a current binary on PATH (live runs 38 and 40): a worker's `selfcheck`
+# runs without CLAUDE_PLUGIN_DATA, so its data dir is ~/.local/share/aloop, holding a 0.11.0
+# ctx-symbols that predates the .aladdin/ exclusion; --resolve returned it ahead of the session's
+# current build on PATH, and the structural reviewer reported a false HIGH on worktree copies.
+stale = os.path.join(T, "data-stale")
+os.makedirs(os.path.join(stale, "bin"))
+for name in ("ctx-symbols", "md-db"):
+    open(os.path.join(stale, "bin", name), "w").write("#!/bin/sh\n")
+    os.chmod(os.path.join(stale, "bin", name), 0o755)
+open(os.path.join(stale, "bin", ".version"), "w").write("0.11.0+1\n")
+envs = dict(ENV, CLAUDE_PLUGIN_DATA=stale, PATH=real + ":" + ENV["PATH"])
+r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
+                   capture_output=True, text=True, timeout=20)
+assert r.returncode == 0 and r.stdout.strip() == os.path.join(real, "ctx-symbols"), r
+envs["PATH"] = ENV["PATH"]
+r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
+                   capture_output=True, text=True, timeout=20)
+assert r.returncode == 1 and not r.stdout.strip(), ("a stale own build is not a resolution", r)
+ok("--resolve skips its own stale build (older version or sources): a current one on PATH wins, else none (the shim rebuilds)")
+
+# An installed copy of the plugin (aloop install opencode|codex) carries no tools/ sources, so it
+# cannot tell a source change: its own build at the same version is current (CI hosts job).
+bare = os.path.join(T, "bare")
+os.makedirs(os.path.join(bare, "bin"))
+shutil.copy(os.path.join(PLUGIN, "bin", "ensure-tools"), os.path.join(bare, "bin"))
+shutil.copytree(os.path.join(ROOT, ".claude-plugin"), os.path.join(bare, ".claude-plugin"))
+open(os.path.join(stale, "bin", ".version"), "w").write("9.9.9+12345\n")
+r = subprocess.run([os.path.join(bare, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
+                   capture_output=True, text=True, timeout=20)
+assert r.returncode == 0 and r.stdout.strip() == os.path.join(stale, "bin", "ctx-symbols"), r
+os.remove(os.path.join(stale, "bin", ".version"))
+r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
+                   capture_output=True, text=True, timeout=20)
+assert r.returncode == 0 and r.stdout.strip() == os.path.join(stale, "bin", "ctx-symbols"), r
+ok("a plugin copy with no tool sources trusts its own build at the same version; an unstamped binary is used as is")
+
 shutil.rmtree(T, ignore_errors=True)
 print("\n%d checks passed" % n)

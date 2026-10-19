@@ -3,11 +3,12 @@
 # REAL host session with the plugin, the human's only input being approval (given up front
 # here). Spends real tokens (dollars, not cents), so it needs --yes; CI does not run it.
 #
-#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq] [--host claude|codex|opencode]
+#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq|slugify|roman] [--host claude|codex|opencode]
 #                                   [--model M] [--worker-model M] [--dry-run]
 #   (or: make e2e-live YES=1 [INTENT=wordfreq] [HOST=opencode])
 #
-# Intents: semver (one story) · wordfreq (two dependent stories: counting, then top-N ranking).
+# Intents: semver (one story) · wordfreq (two dependent stories: counting, then top-N ranking) ·
+# slugify (Python, pytest) · roman (Go, go test).
 # Hosts (ROADMAP §4.11, M8: measured runs on every host):
 #   claude    `claude -p --plugin-dir` (the reference; the plugin needs no install)
 #   opencode  `aloop install opencode` into the run repo, then `opencode run --format json`
@@ -39,6 +40,7 @@ case "$HOST" in claude|codex|opencode) ;; *) echo "unknown host: $HOST (claude|c
 command -v "$HOST" >/dev/null || { echo "$HOST CLI not found"; exit 2; }
 case "$FIXTURE" in
   slugify) python3 -m pytest --version >/dev/null 2>&1 || { echo "python3 with pytest needed for INTENT=slugify"; exit 2; } ;;
+  roman) command -v go >/dev/null || { echo "go needed for INTENT=roman"; exit 2; } ;;
   *) command -v cargo >/dev/null || { echo "cargo not found"; exit 2; } ;;
 esac
 PLUGIN="$(cd "$(dirname "$0")/../../plugin" && pwd)"
@@ -60,9 +62,17 @@ case "$FIXTURE" in
   slugify)   # a Python intent: the gates hold beyond Rust (RED runs the matrix's pytest)
     CRATE=slugify KEYWORD=slugify
     INTENT="Plan and build a small Python package \"slugify\" with one function slugify(text) that lowercases the text, replaces every run of characters that are not ASCII letters or digits with a single hyphen, and strips leading and trailing hyphens. Tests with pytest. One story, one sprint, TDD." ;;
-  *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify)"; exit 2 ;;
+  roman)     # a Go intent: RED runs the matrix's `go test` and blocks a build failure
+    CRATE=roman KEYWORD=roman
+    INTENT="Plan and build a small Go package \"roman\" (in the roman/ directory of this module) with ToRoman(n int) (string, error) for 1..3999 using subtractive notation, and FromRoman(s string) (int, error) that rejects malformed numerals. Tests with go test. One story, one sprint, TDD." ;;
+  *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify|roman)"; exit 2 ;;
 esac
-if [ "$FIXTURE" = slugify ]; then
+if [ "$FIXTURE" = roman ]; then
+  SRC=roman TEST_RE='func Test' TEST_CMD='go test ./...' SUPPRESS_RE='t\.Skip(Now|f)?\('
+  # go.mod by hand: seeding needs no go toolchain call (and no network)
+  printf 'module example.com/roman\n\ngo 1.21\n' > go.mod
+  mkdir -p roman && printf '// Package roman converts integers to and from Roman numerals.\npackage roman\n' > roman/roman.go
+elif [ "$FIXTURE" = slugify ]; then
   # python3 -m pytest: a bare `pytest` leaves the repo root off sys.path (run 36)
   SRC=slugify TEST_RE='def test_' TEST_CMD='python3 -m pytest -q' SUPPRESS_RE='pytest\.mark\.(skip|xfail)|pytest\.skip\('
   mkdir -p slugify && printf '"""slugify."""\n' > slugify/__init__.py

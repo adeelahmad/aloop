@@ -40,8 +40,8 @@ if printf '%s\n' "$block" | grep -qiE 'regressed=[1-9]'; then
 fi
 
 # 3) Diff scope: only test files + shim module.
-# Rust's tests/ and tests/common/, any tests/ dir, and the Python/Go/JS test-file conventions.
-: "${TEST_GLOBS:=*/tests/*.rs tests/*.rs */tests/common/*.rs tests/common/*.rs **/tests/** tests/* test_*.py */test_*.py *_test.py conftest.py */conftest.py *_test.go */__tests__/* __tests__/* *.test.[jt]s *.test.[jt]sx *.spec.[jt]s *.spec.[jt]sx}"
+# Test files only (DEFAULT_TEST_GLOBS in _gatelib.sh: any language).
+: "${TEST_GLOBS:=$DEFAULT_TEST_GLOBS}"
 while IFS= read -r p; do
   [ -z "$p" ] && continue
   path_matches_any "$p" "$TEST_GLOBS" \

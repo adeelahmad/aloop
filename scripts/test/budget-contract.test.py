@@ -75,6 +75,22 @@ r = budget("S1-SR-W1", "--role", "structural-reviewer", "--story", os.path.dirna
 assert r.returncode == 0 and kv("S1-SR-W1")["STORY_DIR"] == os.path.realpath(os.path.dirname(story)), r
 ok("a whole-sprint role is contracted on the sprint dir")
 
+# Live run 38: the supervisor started the sprint dir's init.md with its dispatch block and no
+# frontmatter, and gate-structural-integrity blocked the reviewer 7 times on it. The contract
+# command owns that header: it creates init.md with it, or puts it on top of a file without one,
+# and leaves a file that has it (and its blocks) as it was.
+sprint = os.path.dirname(story)
+ini = lambda d: open(os.path.join(d, "init.md")).read()
+assert ini(sprint).startswith("---\ntype: init\nstory: S1\n---\n"), ini(sprint)
+assert ini(story).startswith("---\ntype: init\nstory: S1-01\n---\n"), ini(story)
+open(os.path.join(sprint, "init.md"), "w").write("## S1-SR-W1 · attempt 1 · structural-reviewer · t\n### Task\nreview\n")
+assert budget("S1-SR-W1", "--role", "structural-reviewer", "--story", sprint, "--attempt", "2").returncode == 0
+assert ini(sprint) == "---\ntype: init\nstory: S1\n---\n\n## S1-SR-W1 · attempt 1 · structural-reviewer · t\n### Task\nreview\n", ini(sprint)
+kept = ini(story) + "## S1-01-T1 · attempt 1 · red-worker · t\n"
+open(os.path.join(story, "init.md"), "w").write(kept)
+assert budget("S1-01-T1", "--role", "red-worker", "--story", story).returncode == 0 and ini(story) == kept
+ok("init.md gets its 'type: init' frontmatter: created, or put on top of a file without one; never rewritten")
+
 gate = subprocess.run([os.path.join(BIN, "gate-dispatch")], cwd=T, env=ENV, capture_output=True, text=True, input=json.dumps(
     {"session_id": "s", "cwd": T, "tool_name": "Agent", "tool_input": {
         "subagent_type": "aloop:red-worker", "prompt": "TASK_ID: S1-01-T2\nDo RED.", "isolation": "worktree", "model": "haiku"}}))

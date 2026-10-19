@@ -750,8 +750,8 @@ Before each dispatch, write the contract with ONE command (never a heredoc):
 `<run-data>/state/tasks/<TASK_ID>.env` with `TASK_ID`, `ATTEMPT`, `AGENT_ROLE`, the absolute
 `STORY_DIR` (the story dir, or the sprint dir for a whole-sprint role), `SCOPE_GLOBS`,
 `SCAFFOLD_SYMBOLS`, `BASE_REF=HEAD` and the resolved `BUDGET_*` (the story's tasks.md
-`budget:` line for the id's Tn wins), and prints one line with the budget for your init.md
-block. Then make the dispatch prompt's FIRST line `TASK_ID: <TASK_ID>` (`gate-dispatch`
+`budget:` line for the id's Tn wins), gives `STORY_DIR/init.md` its `type: init` header, and
+prints one line with the budget for your init.md block. Then make the dispatch prompt's FIRST line `TASK_ID: <TASK_ID>` (`gate-dispatch`
 refuses an execution dispatch without that line or before the contract exists).
 
 Why the main tree: on Claude Code `isolation: "worktree"` creates the worktree

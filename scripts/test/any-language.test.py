@@ -163,6 +163,32 @@ r = red("context", {"tests/shim.py": SHIM,
 assert r.returncode == 0, r.stderr
 ok("a PASS row for a test already on the base (Python `def`) is accepted as context")
 
+# 5b) GREEN drops RED's shim from the test file: any language's test file is in GREEN's scope,
+#     not only Rust's tests/*.rs (live run 39: a Go GREEN removing the shim from roman_test.go was
+#     blocked 10 times as out of scope)
+wt = os.path.join(T, "green")
+sh("git", "worktree", "add", "-q", "-b", "agentic/green", wt, "agentic/assert")
+write(os.path.join(wt, ".aladdin", "task.env"),
+      "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\nBASE_REF=main\nSCOPE_GLOBS=calc.py\n" % STORY)
+write(os.path.join(wt, "calc.py"), "def add(a, b):\n    return a + b\n\n\ndef sub(a, b):\n    return a - b\n")
+os.remove(os.path.join(wt, "tests", "shim.py"))
+write(os.path.join(wt, "tests", "test_sub.py"), "from calc import sub\n\n\ndef test_sub():\n    assert sub(3, 1) == 2\n")
+write(os.path.join(wt, "sub_test.go"), "package calc\n")
+sh("git", "add", "-A", cwd=wt)
+sh("git", "commit", "-qm", "green", cwd=wt)
+write(os.path.join(STORY, "output.md"),
+      "---\ntype: output\n---\n# output\n\n## S1-01-T1 · attempt 1 · green-worker · 2026-10-19T00:02:00Z\n"
+      "### Summary\nwork\n### Result\n| Check | Status |\n|---|---|\n| tests/test_sub.py::test_sub | PASS |\nregressed=0\n### Next\nnext\n")
+r = subprocess.run([os.path.join(BIN, "gate-green-verify")], cwd=wt, env=dict(ENV, REPO_DIR=wt), capture_output=True, text=True, input="")
+assert "out-of-scope" not in r.stderr, r.stderr
+assert r.returncode == 0, r.stderr
+write(os.path.join(wt, "other.py"), "x = 1\n")
+sh("git", "add", "-A", cwd=wt)
+sh("git", "commit", "-qm", "green 2", cwd=wt)
+r = subprocess.run([os.path.join(BIN, "gate-green-verify")], cwd=wt, env=dict(ENV, REPO_DIR=wt), capture_output=True, text=True, input="")
+assert r.returncode == 2 and "out-of-scope path: other.py" in r.stderr, r.stderr
+ok("GREEN may edit Python and Go test files (to drop RED's shims) besides its scope; any other file is out of scope")
+
 # 6) suppressions in Python, Go and JS are refused like #[ignore]; the final gate finds a planned
 #    Python test on main by its `def`
 def final(files, plan_refs):
