@@ -151,7 +151,11 @@ assert seed.count("#[test]") >= 3, seed
 assert 'name = "semver_lite"' in open(os.path.join(repo, "Cargo.toml")).read()
 tracked = subprocess.run(["git", "ls-files"], cwd=repo, capture_output=True, text=True).stdout.split()
 assert "src/lib.rs" in tracked and "tests/parse.rs" in tracked, tracked
-ok("--intent extend: a working crate with its own passing tests is seeded and committed before the run")
+r, d = run("--intent", "modify")
+assert r.returncode == 0, (r.stdout, r.stderr)
+assert "pub fn parse(" in open(os.path.join(d, "repo", "src", "lib.rs")).read()
+assert open(os.path.join(d, "repo", "tests", "parse.rs")).read() == seed
+ok("--intent extend|modify: a working crate with its own passing tests is seeded and committed before the run")
 
 # 6) a run started from inside a Claude Code session does not inherit that session: live runs 32-34
 #    reported the parent's session id and recalled the parent's team memory (memory_recall of this
@@ -175,13 +179,13 @@ ok("the supervisor CLI runs without the parent session's id, memory store or mes
 
 # 7) every intent's post-run checks run to the end (live run 37: the slugify branch never set
 #    SUPPRESS_RE, so the checks died on an unbound variable after a successful session)
-for intent in ("semver", "wordfreq", "slugify", "roman", "camel", "extend"):
+for intent in ("semver", "wordfreq", "slugify", "roman", "camel", "extend", "modify"):
     d = tempfile.mkdtemp(prefix="run-", dir=T)
     r = subprocess.run([SH, "--yes", "--intent", intent], cwd=T, capture_output=True, text=True,
                        env=dict(ENV, E2E_DIR=d, PATH=spy + ":" + ENV["PATH"], TIMEOUT="30"))
     out = r.stdout + r.stderr
     assert "unbound variable" not in out and "no suppressed tests on main" in out and "every merged commit traces" in out, (intent, out[-2000:])
-    assert intent != "extend" or "the seed's own tests are still on main" in out, out[-2000:]
-ok("the post-run checks of every intent (semver, wordfreq, slugify, roman, camel, extend) run to the end")
+    assert intent not in ("extend", "modify") or "the seed's own tests are still on main" in out, out[-2000:]
+ok("the post-run checks of every intent (semver, wordfreq, slugify, roman, camel, extend, modify) run to the end")
 
 print("\n%d checks passed" % PASS[0])
