@@ -23,7 +23,7 @@ Every artifact opens with YAML frontmatter and carries these `##` sections; a mi
 write block (`gate-validate-artifact`), so do not improvise the headings.
 - `sprintN/stories.md`: `type: stories`, `sprint: N` · `## Sprint goal` · `## Sprint demo` ·
   `## Definition of Done` · `## Out of scope` · `## User stories` · `## Story dependency graph`
-- `sprintN/plan.md`: `type: sprint-plan`, `sprint: N`, `stage: 1|2` · `## Sprint goal` ·
+- `sprintN/plan.md`: `type: sprint-plan`, `sprint: N`, `stage: "1"|"2"` (quoted: a bare 1 is a number and is refused) · `## Sprint goal` ·
   `## Critical path` · `## Cross-cutting gates`
 - `sN-NN-<slug>/tasks.md`: `type: tasks`, `story: SN-NN` · one `## Tn — <title>` per task
 - `sN-NN-<slug>/validate.md`: `type: validate`, `story: SN-NN` · `## Pre-flight` · `## Final sign-off`
@@ -129,6 +129,7 @@ the first write passes (live runs 12–14 hit each of these):
 - `symbol` names something that EXISTS in the tree now; a function this sprint will add is a
   `planned_symbol` — `create` for a new file (the path must not exist yet), `extend` for a new
   symbol in an existing file (`"operation": "extend", "path": "src/lib.rs", "planned_symbol": "count_words"`);
+  a `create` of a test file may omit it when the task's `tests` name that path (the first `fn` is used);
 - `modify|refactor|replace|delete` need a `symbol` that exists (or `planned_symbol` for `extend`).
 Prefer the whole plan in targets.json: add `story` and `tasks` (`id` T1…, `title`, `summary`,
 optional `budget`, `tests` [{path, fn, assert}], optional `validate` [{run, expect}]) and run

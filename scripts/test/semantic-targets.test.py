@@ -124,4 +124,24 @@ assert r.returncode == 2 and "already exists" in r.stderr, r.stderr
 os.remove(os.path.join(T, "src", "export", "csv_writer.py"))
 ok("a create whose file already defines its planned_symbol is realized (passes); without the symbol it is still blocked")
 
+# 7) a create of a test file takes its planned_symbol from the task's own `tests` (live runs 36–41:
+#    8 planner blocks "create needs planned_symbol" on a new test file, whose symbols are the
+#    tests the plan already lists); with no test for that path it is still required
+C3 = {"change_ref": "C3", "task": "T1", "operation": "create", "path": "tests/test_csv_writer.py",
+      "reason": "the T1 tests", "evidence_refs": [], "constraints": []}
+plan = {"story": "S1-01", "tasks": [
+    {"id": "T1", "title": "csv writer", "summary": "s", "tests": [{"path": "tests/test_csv_writer.py", "fn": "test_writes_rows", "assert": "rows"}]},
+    {"id": "T2", "title": "wire it", "summary": "s", "tests": [{"path": "tests/test_report.py", "fn": "test_offers_export", "assert": "export"}]}]}
+write(os.path.relpath(os.path.join(SD, "targets.json"), T), json.dumps(dict(plan, targets=[C1, C2, C3])))
+assert run(TG, "render", SD).returncode == 0
+r = run(TG, "check", SD)
+assert r.returncode == 0, r.stderr
+assert "test_writes_rows" in run(TG, "target", "T1", SD).stdout
+plan["tasks"][0]["tests"][0]["path"] = "tests/test_other.py"
+write(os.path.relpath(os.path.join(SD, "targets.json"), T), json.dumps(dict(plan, targets=[C1, C2, C3])))
+assert run(TG, "render", SD).returncode == 0
+r = run(TG, "check", SD)
+assert r.returncode == 2 and "C3 (#2): create needs planned_symbol" in r.stderr, r.stderr
+ok("a create of a test file the task's tests name gets its planned_symbol from them; with none it is still required")
+
 print("\n%d checks passed" % PASS[0])

@@ -77,6 +77,10 @@ def load_doc(sdir):
         raise ValueError("%s needs a top-level \"targets\" list" % p)
     if "tasks" in doc and not isinstance(doc["tasks"], list):
         raise ValueError("%s: \"tasks\" must be a list" % p)
+    for x in t:
+        if isinstance(x, dict) and x.get("operation") == "create" and not x.get("planned_symbol") \
+                and not x.get("symbol") and planned_test(doc, x):
+            x["planned_symbol"] = planned_test(doc, x)
     return doc
 
 
@@ -209,6 +213,17 @@ def locate(root, path, symbol):
     return None, "regex (weaker: ctx-symbols not installed)"
 
 
+def planned_test(doc, t):
+    """A new test file's planned symbol is the first test the plan lists for that path (live runs
+    36-41: 8 planner blocks on a test-file create with no planned_symbol)."""
+    for d in (doc or {}).get("tasks") or []:
+        if str(d.get("id")) == str(t.get("task")):
+            for x in d.get("tests") or []:
+                if x.get("path") == t.get("path") and x.get("fn"):
+                    return x["fn"]
+    return ""
+
+
 def problems(sdir, targets, root, doc=None):
     p, seen = [], set()
     if doc and doc.get("tasks") is not None:        # the semantic plan names the tasks; tasks.md is its view
@@ -241,14 +256,14 @@ def problems(sdir, targets, root, doc=None):
                 p.append("%s: %s must be a list" % (where, k))
         exists = os.path.exists(os.path.join(root, path))
         if op == "create":
-            if not t.get("planned_symbol"):
+            psym = t.get("planned_symbol")
+            if not psym:
                 p.append("%s: create needs planned_symbol" % where)
             if t.get("symbol"):
                 p.append("%s: create names a planned_symbol, not an existing symbol" % where)
             # A create whose file now exists AND defines its planned_symbol is realized (its task
             # merged; a mid-sprint re-plan re-checks the whole plan), not a defect.
-            if exists and (not t.get("planned_symbol")
-                           or locate(root, path, t["planned_symbol"])[0] is None):
+            if exists and (not psym or locate(root, path, psym)[0] is None):
                 p.append("%s: create targets %s, which already exists (use modify/extend)" % (where, path))
         elif not exists and path not in planned:
             p.append("%s: %s targets %s, which is neither in the tree nor planned" % (where, op, path))
