@@ -23,6 +23,7 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 ## [Unreleased]
 
 ### Added
+- GREEN may edit any language's test files (to drop RED's shims) besides its scope, not only Rust's `tests/*.rs`; RED and GREEN share `DEFAULT_TEST_GLOBS`. Reason: live run 39, a Go GREEN removing the shim from `roman_test.go` was blocked 10 times as out of scope. Test: `any-language.test.py`.
 - `make e2e-live YES=1 INTENT=roman` runs the loop on a Go intent (Roman numerals; needs `go`, checks `func Test`, `go test ./...` and no `t.Skip`). Run 38, the first Go run: 12/12, 14m15s, $1.02.
 - `aloop budget contract` gives the story's (or sprint's) `init.md` its `type: init` frontmatter: it creates the file with it, or puts it on top of a file without one, and never rewrites a file that has it. Reason: live run 38, the supervisor began the sprint dir's `init.md` with a dispatch block, and `gate-structural-integrity` blocked the reviewer 7 times (STUCK twice) on the missing header. Test: `budget-contract.test.py`.
 - `gate-standards-cited` blocks a `standards.md` whose gate matrix the gates cannot run (no `## Gate matrix` heading followed by one fenced block of commands), and the standards persona states that format. Reason: live run 37, the first matrix was a table, it parsed empty and RED was blocked 3 times until standards was re-run. The matrix parser moved to `bin/_matrix.sh`, shared by both. Test: `scripts/test/any-language.test.py`.

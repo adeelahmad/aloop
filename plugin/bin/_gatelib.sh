@@ -12,7 +12,7 @@
 #   REPO_DIR        worktree root with source + tests        (default: git toplevel or PWD)
 #   STANDARDS_FILE  path to standards.md (the gate matrix)   (default: auto-discovered)
 #   BASE_REF        git ref to diff scope against            (default: working-tree diff)
-#   TEST_GLOBS      space-sep globs for test files (RED scope)  (default: rust test conventions)
+#   TEST_GLOBS      space-sep globs for test files (RED scope)  (default: DEFAULT_TEST_GLOBS, any language)
 #   SCOPE_GLOBS     space-sep globs this task may touch (GREEN scope) (default: unset → skip)
 #   SCAFFOLD_SYMBOLS  space-sep symbols the RED tests reference (scaffold count==1)
 #   GATE_RUN_TESTS  1 to actually run cargo (default: 1 if a Cargo.toml is found)
@@ -349,6 +349,10 @@ changed_paths() {
 }
 
 # True if $1 matches any space-separated glob in $2.
+# Test files by convention: Rust's tests/ and tests/common/, any tests/ dir, and the Python/Go/JS
+# test-file names. RED writes only these; GREEN may touch them besides its scope, to drop shims.
+DEFAULT_TEST_GLOBS="*/tests/*.rs tests/*.rs */tests/common/*.rs tests/common/*.rs **/tests/** tests/* test_*.py */test_*.py *_test.py conftest.py */conftest.py *_test.go */__tests__/* __tests__/* *.test.[jt]s *.test.[jt]sx *.spec.[jt]s *.spec.[jt]sx"
+
 path_matches_any() {
   # Split on whitespace WITHOUT pathname expansion: `tests/**` must stay a pattern, not
   # become the files that happen to exist in the cwd (live e2e run 8).
