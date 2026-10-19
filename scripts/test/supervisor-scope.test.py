@@ -169,6 +169,28 @@ r = sup("cat >> %s/docs/agents/sprint1/output.md <<EOF\nx\nEOF" % T, cwd=os.path
 assert r.returncode == 0, r
 ok("a shell append from inside a linked task worktree passes (Codex/OpenCode workers carry no agent_type)")
 
+# ── The supervisor never schedules a wakeup while a sprint is live (live e2e run 32: a 1200s
+# "fallback heartbeat" set while the planner ran outlived the sprint, and the headless session
+# sat idle 12 minutes after the final gate). A sub-agent's result arrives on its own.
+def wake(session="s-main", agent_type=None):
+    p = {"session_id": session, "cwd": T, "tool_name": "ScheduleWakeup", "tool_input": {"delaySeconds": 1200, "prompt": "check planner"}}
+    if agent_type:
+        p["agent_type"] = agent_type
+    return subprocess.run([GATE], input=json.dumps(p), cwd=T, env=ENV, capture_output=True, text=True)
+
+
+open(LOCK, "w").write("s-main\n")
+r = wake()
+assert r.returncode == 2 and "notification" in r.stderr, r
+ok("live sprint: the supervisor's ScheduleWakeup is blocked")
+r = wake(agent_type="aloop:planner")
+assert r.returncode == 0, r
+ok("a dispatched agent's ScheduleWakeup is not judged here")
+os.utime(LOCK, (old, old)); open(LOCK, "w").write("s-other\n"); os.utime(LOCK, (old, old))
+r = wake()
+assert r.returncode == 0, r
+ok("stale lock from another session: ScheduleWakeup is allowed (no sprint is live)")
+
 os.utime(LOCK, (old, old))
 open(LOCK, "w").close(); open(LOCK, "w").write("s-other\n"); os.utime(LOCK, (old, old))
 r = sup("git commit -am wip")

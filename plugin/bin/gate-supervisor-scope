@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gate-supervisor-scope — PreToolUse(Write|Edit|MultiEdit|NotebookEdit).
+# gate-supervisor-scope — PreToolUse(Write|Edit|MultiEdit|NotebookEdit|Bash|ScheduleWakeup).
 #
 # Enforces two playbook invariants on the MAIN agent (the supervisor):
 #   1. It never writes production source — code is written by a dispatched worker in
@@ -69,6 +69,20 @@ for a, b in re.findall(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move 
     printf '%s' "$one" | "$0" || exit 2
   done
   exit $?
+fi
+
+# The supervisor never schedules a wakeup while a sprint is live: a dispatched agent's result
+# arrives on its own (its completion notification starts the next turn), and a pending wakeup
+# outlives the sprint. Live e2e run 32: a 1200s "fallback heartbeat" set while the planner ran
+# kept the headless session idle 12 minutes after the final gate had passed.
+if [ "$tool" = "ScheduleWakeup" ]; then
+  [ -z "$(field agent_type)" ] && [ -f "$lock" ] || exit 0
+  [ "$(head -1 "$lock" 2>/dev/null)" = "$session" ] || lock_recent || exit 0
+  echo "BLOCK[$GATE_NAME]: no ScheduleWakeup during a sprint. A dispatched agent's result arrives on" >&2
+  echo "  its own: its completion notification starts your next turn, even when the host moved it" >&2
+  echo "  to the background. A pending wakeup outlives the sprint (live e2e run 32: 12 idle minutes" >&2
+  echo "  after the final gate). End the turn, or do the next independent step." >&2
+  exit 2
 fi
 
 # A dispatched agent's Bash may READ the task contract but not rewrite it (redirect, tee,

@@ -132,4 +132,17 @@ assert {"from": plan[0]["event_id"], "to": intent_ev["event_id"], "rel": "caused
 assert sh(os.path.join(BIN, "events"), "graph", "--format", "dot").stdout.startswith("digraph aladdin {")
 ok("events graph exports nodes and edges (json/dot) derived only from the stream")
 
+# Live e2e run 32: `task-worktree add --help` took "--help" for a TASK_ID and created a worktree
+# and an agentic/--help branch the supervisor then had to clean up by hand.
+tw = os.path.join(BIN, "task-worktree")
+before = sh("git", "worktree", "list").stdout
+for args in (("add", "--help"), ("add", "-h"), ("--help",)):
+    r = sh(tw, *args)
+    assert "task-worktree add <TASK_ID>" in r.stdout, (args, r)
+r = sh(tw, "add", "-x", check=False)
+assert r.returncode == 64 and "TASK_ID" in r.stderr, r
+assert sh("git", "worktree", "list").stdout == before
+assert "--help" not in sh("git", "branch").stdout and "-x" not in sh("git", "branch").stdout
+ok("task-worktree <cmd> --help prints usage; a dash-led TASK_ID is refused; neither creates a worktree")
+
 print("\n%d checks passed" % PASS[0])
