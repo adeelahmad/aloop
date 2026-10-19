@@ -87,7 +87,10 @@ elif [ "${GATE_RUN_TESTS:-auto}" != "0" ] && tc="$(standards_test_command)" && [
   note "running tests (must fail by assertion): $tc"
   ( cd "$root" && eval "$tc" ) >"$_out" 2>&1; rc=$?
   tail -15 "$_out" >&2
-  _build_failed=""; grep -qE '\[(build|setup) failed\]' "$_out" && _build_failed=1; rm -f "$_out"
+  _build_failed=""; grep -qE '\[(build|setup) failed\]' "$_out" && _build_failed=1
+  # JS: a test file that cannot load what it imports also exits 1, like a failed assertion
+  _load_failed=""; grep -qE 'ERR_MODULE_NOT_FOUND|Cannot find module|does not provide an export named|SyntaxError:|ReferenceError:' "$_out" && _load_failed=1
+  rm -f "$_out"
   [ "$rc" -ne 0 ] || fail "RED tests PASS with no production code — they exercise nothing ($tc exited 0)"
   case "$tc" in
     *pytest*)   # pytest: 1 tests failed · 2 collection error (an import) · 3/4 internal/usage · 5 none collected
@@ -99,6 +102,9 @@ elif [ "${GATE_RUN_TESTS:-auto}" != "0" ] && tc="$(standards_test_command)" && [
     *"go test"*)
       [ -z "$_build_failed" ] \
         || fail "RED tests do NOT compile ($tc: build failed): add each missing name as a shim in a _test.go file (marked // agentic:shim); the source tree is SCAFFOLD's and GREEN's." ;;
+    *"node --test"*|*npm*|*yarn*|*pnpm*|*jest*|*vitest*|*"bun test"*|*"deno test"*)
+      [ -z "$_load_failed" ] \
+        || fail "RED tests do NOT load ($tc: a module, export or name is missing, not an assertion): import each missing name from a shim in a test file (e.g. src/<name>.shim.test.js, marked // agentic:shim); the source tree is SCAFFOLD's and GREEN's." ;;
   esac
   note "RED verified: $tc fails (exit $rc)"
 else

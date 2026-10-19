@@ -423,7 +423,7 @@ run_format_checks() { run_standards_matrix "$FORMAT_CHECK_RE"; }
 
 # The test command in the standards.md gate matrix: its first line naming a known test runner
 # (empty when there is none). RED runs it in a non-cargo repo and requires a failure.
-TEST_RUNNER_RE='(^|[[:space:]/])(pytest|py\.test|go test|npm (run )?test|yarn test|pnpm test|jest|vitest|mvn test|gradle test|dotnet test|rspec|mix test|bun test)([[:space:]]|$)'
+TEST_RUNNER_RE='(^|[[:space:]/])(pytest|py\.test|go test|node --test|deno test|npm (run )?test|yarn test|pnpm test|jest|vitest|mvn test|gradle test|dotnet test|rspec|mix test|bun test)([[:space:]]|$)'
 standards_test_command() {
   local sf; sf="$(standards_file)"
   [ -n "$sf" ] || return 0

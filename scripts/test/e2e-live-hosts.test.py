@@ -110,10 +110,10 @@ assert r.returncode == 2 and "pytest" in r.stdout, r.stdout
 ok("--intent slugify: a Python package is seeded with no cargo, and the run needs python3 with pytest")
 
 # 5c) the Go intent seeds a Go module (no cargo) and needs go, not cargo
-nogo = os.path.join(T, "nogo"); os.makedirs(nogo)   # /usr/bin and /bin without go (CI runners ship one)
+nogo = os.path.join(T, "nogo"); os.makedirs(nogo)   # /usr/bin and /bin without go, node, npm (CI runners ship them)
 for b in ("/usr/bin", "/bin"):
     for f in os.listdir(b):
-        if f not in ("go", "gofmt") and not os.path.lexists(os.path.join(nogo, f)):
+        if f not in ("go", "gofmt", "node", "npm") and not os.path.lexists(os.path.join(nogo, f)):
             os.symlink(os.path.join(b, f), os.path.join(nogo, f))
 r, d = run("--intent", "roman", env=dict(ENV, PATH=STUBS + ":" + nogo))
 assert r.returncode == 2 and "go needed" in r.stdout, r.stdout
@@ -125,6 +125,19 @@ repo = os.path.join(d, "repo")
 assert open(os.path.join(repo, "go.mod")).read().startswith("module "), os.listdir(repo)
 assert os.path.isfile(os.path.join(repo, "roman", "roman.go")) and not os.path.exists(os.path.join(repo, "Cargo.toml")), os.listdir(repo)
 ok("--intent roman: a Go module is seeded with no cargo, and the run needs go")
+
+# 5d) the JS intent seeds an npm package with a node --test script (no cargo) and needs node + npm
+r, d = run("--intent", "camel", env=dict(ENV, PATH=STUBS + ":" + nogo))
+assert r.returncode == 2 and "node and npm needed" in r.stdout, r.stdout
+for name in ("node", "npm"):
+    open(os.path.join(STUBS, name), "w").write("#!/bin/sh\nexit 0\n"); os.chmod(os.path.join(STUBS, name), 0o755)
+r, d = run("--intent", "camel")
+assert r.returncode == 0, (r.stdout, r.stderr)
+repo = os.path.join(d, "repo")
+pkg = json.load(open(os.path.join(repo, "package.json")))
+assert pkg["scripts"]["test"] == "node --test" and pkg["type"] == "module", pkg
+assert os.path.isfile(os.path.join(repo, "src", "camel.js")) and not os.path.exists(os.path.join(repo, "Cargo.toml")), os.listdir(repo)
+ok("--intent camel: an npm package (node --test) is seeded with no cargo, and the run needs node and npm")
 
 # 6) a run started from inside a Claude Code session does not inherit that session: live runs 32-34
 #    reported the parent's session id and recalled the parent's team memory (memory_recall of this
@@ -148,12 +161,12 @@ ok("the supervisor CLI runs without the parent session's id, memory store or mes
 
 # 7) every intent's post-run checks run to the end (live run 37: the slugify branch never set
 #    SUPPRESS_RE, so the checks died on an unbound variable after a successful session)
-for intent in ("semver", "wordfreq", "slugify", "roman"):
+for intent in ("semver", "wordfreq", "slugify", "roman", "camel"):
     d = tempfile.mkdtemp(prefix="run-", dir=T)
     r = subprocess.run([SH, "--yes", "--intent", intent], cwd=T, capture_output=True, text=True,
                        env=dict(ENV, E2E_DIR=d, PATH=spy + ":" + ENV["PATH"], TIMEOUT="30"))
     out = r.stdout + r.stderr
     assert "unbound variable" not in out and "no suppressed tests on main" in out and "every merged commit traces" in out, (intent, out[-2000:])
-ok("the post-run checks of every intent (semver, wordfreq, slugify, roman) run to the end")
+ok("the post-run checks of every intent (semver, wordfreq, slugify, roman, camel) run to the end")
 
 print("\n%d checks passed" % PASS[0])

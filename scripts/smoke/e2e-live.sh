@@ -3,12 +3,12 @@
 # REAL host session with the plugin, the human's only input being approval (given up front
 # here). Spends real tokens (dollars, not cents), so it needs --yes; CI does not run it.
 #
-#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq|slugify|roman] [--host claude|codex|opencode]
+#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq|slugify|roman|camel] [--host claude|codex|opencode]
 #                                   [--model M] [--worker-model M] [--dry-run]
 #   (or: make e2e-live YES=1 [INTENT=wordfreq] [HOST=opencode])
 #
 # Intents: semver (one story) · wordfreq (two dependent stories: counting, then top-N ranking) ·
-# slugify (Python, pytest) · roman (Go, go test).
+# slugify (Python, pytest) · roman (Go, go test) · camel (JS, node --test).
 # Hosts (ROADMAP §4.11, M8: measured runs on every host):
 #   claude    `claude -p --plugin-dir` (the reference; the plugin needs no install)
 #   opencode  `aloop install opencode` into the run repo, then `opencode run --format json`
@@ -41,6 +41,7 @@ command -v "$HOST" >/dev/null || { echo "$HOST CLI not found"; exit 2; }
 case "$FIXTURE" in
   slugify) python3 -m pytest --version >/dev/null 2>&1 || { echo "python3 with pytest needed for INTENT=slugify"; exit 2; } ;;
   roman) command -v go >/dev/null || { echo "go needed for INTENT=roman"; exit 2; } ;;
+  camel) command -v node >/dev/null && command -v npm >/dev/null || { echo "node and npm needed for INTENT=camel"; exit 2; } ;;
   *) command -v cargo >/dev/null || { echo "cargo not found"; exit 2; } ;;
 esac
 PLUGIN="$(cd "$(dirname "$0")/../../plugin" && pwd)"
@@ -65,9 +66,17 @@ case "$FIXTURE" in
   roman)     # a Go intent: RED runs the matrix's `go test` and blocks a build failure
     CRATE=roman KEYWORD=roman
     INTENT="Plan and build a small Go package \"roman\" (in the roman/ directory of this module) with ToRoman(n int) (string, error) for 1..3999 using subtractive notation, and FromRoman(s string) (int, error) that rejects malformed numerals. Tests with go test. One story, one sprint, TDD." ;;
-  *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify|roman)"; exit 2 ;;
+  camel)     # a JS intent: RED runs the matrix's `npm test` (node --test) and blocks a load failure
+    CRATE=camel KEYWORD=camel
+    INTENT="Plan and build a small JavaScript ES module src/camel.js exporting camelCase(text), which splits the text into words on any run of characters that are not ASCII letters or digits, lowercases every word, then capitalises the first letter of each word after the first and joins them (\"hello world\" -> \"helloWorld\", \"  Foo-BAR_baz \" -> \"fooBarBaz\", \"\" -> \"\"). Tests with node's built-in test runner (npm test runs node --test), in src/*.test.js files. One story, one sprint, TDD." ;;
+  *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify|roman|camel)"; exit 2 ;;
 esac
-if [ "$FIXTURE" = roman ]; then
+if [ "$FIXTURE" = camel ]; then
+  SRC=src TEST_RE='(^|[^A-Za-z.])(test|it)\(' TEST_CMD='npm test --silent' SUPPRESS_RE='\.(skip|todo)\(|(^|[^A-Za-z])x(it|describe|test)\('
+  printf '{\n  "name": "camel",\n  "version": "0.0.0",\n  "type": "module",\n  "private": true,\n  "scripts": { "test": "node --test" }\n}\n' > package.json
+  mkdir -p src && printf '// camel: camelCase conversion\n' > src/camel.js
+  printf 'node_modules/\n' > .gitignore
+elif [ "$FIXTURE" = roman ]; then
   SRC=roman TEST_RE='func Test' TEST_CMD='go test ./...' SUPPRESS_RE='t\.Skip(Now|f)?\('
   # go.mod by hand: seeding needs no go toolchain call (and no network)
   printf 'module example.com/roman\n\ngo 1.21\n' > go.mod
