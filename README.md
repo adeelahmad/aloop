@@ -42,8 +42,8 @@ aladdin "add CSV export to the report"      # records the intent, tells you how 
 ## Demo
 
 A one-line intent, start to merged code, in a real Claude Code session with the approval
-given up front — reproducible with `make e2e-live YES=1` (spends about a dollar; `HOST=codex` or
-`HOST=opencode` runs the same loop on those hosts):
+given up front — reproducible with `make e2e-live YES=1` (spends about a dollar; `INTENT=slugify|roman|camel` picks
+the Python, Go or JS intent, and `HOST=codex` or `HOST=opencode` runs the same loop on those hosts):
 
 | Intent | Result | Time | Cost |
 |---|---|---|---|
@@ -52,6 +52,9 @@ given up front — reproducible with `make e2e-live YES=1` (spends about a dolla
 | the same tool on v0.12.0 ([run 19](docs/evidence/README.md)) | 13/13 checks, 1 supervisor wake, every merged commit traces to its task | 15m24s | $1.01 |
 | the same tool with the dispatch model gate ([run 23](docs/evidence/README.md)) | 13/13 checks, 0 gate blocks, every dispatch on the project's model | 10m58s | $0.76 |
 | the same tool on today's master ([run 27](docs/evidence/README.md)) | 13/13 checks, 1 supervisor wake, 3 blocks fixed on retry | 9m54s | $0.70 |
+| a Python slugify package, pytest ([run 37](docs/evidence/README.md)) | 12/12 checks, RED run by the declared pytest | 9m42s | $0.69 |
+| a Go Roman-numeral package, `go test` ([run 40](docs/evidence/README.md)) | 12/12 checks, 1 supervisor wake, every block caught by a self-check | 13m03s | $0.75 |
+| a JS camelCase module, `node --test` ([run 41](docs/evidence/README.md)) | 12/12 checks, 1 supervisor wake, 2 blocks | 6m45s | $0.56 |
 
 Every public number is a row in [docs/evidence/README.md](docs/evidence/README.md), with the command
 that reproduces it; what each run found and fixed is logged in [ROADMAP §0](docs/ROADMAP.md#0-at-a-glance)
@@ -302,8 +305,9 @@ make publish        # pushes branch + tags
 
 ## Limitations
 
-- The standards matrix targets **Rust** by default; retarget it by editing `standards.md` and the
-  gates (see [`plugin/README.md`](plugin/README.md)). The loop itself is language-agnostic.
+- With no `standards.md` matrix the gates default to **Rust**. Python, Go and JS run the matrix the
+  standards role writes, and RED is checked by their declared runner (pytest, `go test`,
+  `node --test`/npm); any other stack runs its matrix, but RED checks only the exit code.
 - Gates run at full strength only with the Rust-built `ctx-symbols` + `md-db`; without them they
   degrade to a grep fallback that is flagged as weaker.
 - `refs` / `callers` / `callees` need a configured LSP server (`AGENTIC_LSP_COMMAND`); without one
