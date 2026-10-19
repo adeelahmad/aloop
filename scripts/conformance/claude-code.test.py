@@ -106,7 +106,7 @@ def case(item, title, name, cwd, expect, must_say=None, extra=None, agent_type=N
     blocks = [l for l in lines if l.startswith("BLOCK[")]
     good = rc == expect and (must_say is None or any(must_say in l for l in (blocks if expect else lines)))
     detail = blocks[0] if blocks else (lines[-1] if lines else "")
-    results.append((item, title, good, "exit %d (want %d) %s" % (rc, expect, detail[:140])))
+    results.append((item, title, good, "exit %d (want %d) %s" % (rc, expect, detail if not good else detail[:140])))
 
 
 def commit(wt, msg):

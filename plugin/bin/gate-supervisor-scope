@@ -49,6 +49,9 @@ lock_recent() {
   [ -f "$lock" ] || return 1
   local now m
   now="$(date +%s 2>/dev/null)" || return 1
+  # A bad clock is a gate failure, not "lock is stale": bash 3.2 (macOS /bin/bash) does not
+  # abort on `$(( not-a-number ))` under set -u, so the arm below would quietly allow.
+  case "$now" in ''|*[!0-9]*) echo "$GATE_NAME: date +%s printed '$now'" >&2; exit 1 ;; esac
   # GNU first: on Linux `stat -f` means "filesystem status" and prints a report instead of
   # failing, which used to crash this arm (and a crashed hook does not block).
   m="$(stat -c %Y "$lock" 2>/dev/null)" || m="$(stat -f %m "$lock" 2>/dev/null)" || return 1

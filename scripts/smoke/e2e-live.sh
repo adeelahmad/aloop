@@ -88,11 +88,15 @@ if [ -n "$DRY" ]; then echo "cmd: ${CMD[*]}"; [ -n "$STDIN_PROMPT" ] && echo "pr
 unset CLAUDE_CODE_SESSION_ID CLAUDE_CODE_REMOTE_SESSION_ID CLAUDE_CODE_REMOTE_SDK_URL \
       CLAUDE_COWORK_MEMORY_PATH_OVERRIDE CLAUDE_MEMORY_STORES \
       CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
+# macOS has no GNU `timeout` (coreutils installs it as gtimeout); perl's alarm survives exec.
+if command -v timeout >/dev/null; then TO=(timeout "$TIMEOUT")
+elif command -v gtimeout >/dev/null; then TO=(gtimeout "$TIMEOUT")
+else TO=(perl -e 'alarm shift; exec @ARGV or die "exec: $!\n"' "$TIMEOUT"); fi
 start=$(date +%s)
 if [ -n "$STDIN_PROMPT" ]; then
-  timeout "$TIMEOUT" "${CMD[@]}" <<<"$PROMPT" > "$T/out.jsonl" 2> "$T/err.log"
+  "${TO[@]}" "${CMD[@]}" <<<"$PROMPT" > "$T/out.jsonl" 2> "$T/err.log"
 else
-  timeout "$TIMEOUT" "${CMD[@]}" > "$T/out.jsonl" 2> "$T/err.log" </dev/null
+  "${TO[@]}" "${CMD[@]}" > "$T/out.jsonl" 2> "$T/err.log" </dev/null
 fi
 rc=$?
 secs=$(( $(date +%s) - start ))

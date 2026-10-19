@@ -67,7 +67,7 @@ if [ "${GATE_RUN_TESTS:-auto}" != "0" ] && is_cargo_repo; then
     if [ -n "$_missing" ]; then
       _names="$(printf '`%s` ' $_missing)"; _shims=""
       for _m in $_missing; do
-        case "$_m" in [A-Z]*) _shims="$_shims pub struct $_m; //" ;; *) _shims="$_shims pub fn $_m(…) -> … { todo!() } //" ;; esac
+        case "$_m" in [[:upper:]]*) _shims="$_shims pub struct $_m; //" ;; *) _shims="$_shims pub fn $_m(…) -> … { todo!() } //" ;; esac
       done
       fail "RED tests do NOT compile: they cannot find ${_names% }. RED's tests must compile and fail by assertion, so each missing item gets a shim in tests/common/mod.rs, marked // agentic:shim:${_shims%//} — and the test files call it through \`mod common;\` (common::$(printf '%s' "$_missing" | head -1)), not the crate; src/ is SCAFFOLD's and GREEN's."
     fi
