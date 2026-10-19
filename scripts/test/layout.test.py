@@ -22,7 +22,7 @@ def ok(name):
 
 
 def fresh():
-    t = tempfile.mkdtemp(prefix="agentic-layout-")
+    t = os.path.realpath(tempfile.mkdtemp(prefix="agentic-layout-"))  # git reports /private/var on macOS
     subprocess.run(["git", "init", "-q", "-b", "main"], cwd=t, check=True)
     return t
 

@@ -103,7 +103,7 @@ assert sh(os.path.join(BIN, "budget"), "hook", "pre", inp=json.dumps(payload)) =
 copy = os.path.join(wt, ".aladdin", "task.env")      # a fresh project: markers live in .aladdin/
 assert os.path.isfile(copy) and "TASK_ID=S1-SR-W1" in open(copy).read(), copy
 s = state("r2")
-assert s["observe"] and s["task"] == "S1-SR-W1" and s["story_dir"] == story and s["worktree"] == wt, s
+assert s["observe"] and s["task"] == "S1-SR-W1" and s["story_dir"] == story and os.path.realpath(s["worktree"]) == os.path.realpath(wt), s
 ok("an observed role in a host worktree gets the contract copy (selfcheck finds its task); state names the task")
 
 # 6) Claude Code prepends a session-context attachment line (renderedRole "user", no TASK_ID)
