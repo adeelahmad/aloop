@@ -85,7 +85,10 @@ write(os.path.join(MAIN, ".gitignore"), ".aladdin/\n.agentic/\ndocs/agents/\n__p
 sh("git", "add", "-A")
 sh("git", "commit", "-qm", "init")
 write(os.path.join(STORY, "init.md"), "---\ntype: init\n---\n# init\n\n## S1-01-T1 · attempt 1 · supervisor · 2026-10-19T00:00:00Z\ncontract\n")
-write(os.path.join(MAIN, "standards.md"), "# standards\n\n## Gate matrix\n\n```\npytest -q\n```\n")
+# Where the standards role writes it: the sprint dir, git-ignored, so absent from every worker's
+# worktree (live run 36: the gate looked only in the worktree and ran the Rust matrix instead)
+STANDARDS = os.path.join(os.path.dirname(STORY), "standards.md")
+write(STANDARDS, "# standards\n\n## Gate matrix\n\n```\npytest -q\n```\n")
 
 
 def red(name, files, rows):
@@ -102,7 +105,7 @@ def red(name, files, rows):
     write(os.path.join(STORY, "output.md"),
           "---\ntype: output\n---\n# output\n\n## S1-01-T1 · attempt 1 · red-worker · 2026-10-19T00:01:00Z\n"
           "### Summary\nwork\n### Result\n| Check | Status |\n|---|---|\n%s\nregressed=0\n### Next\nnext\n" % table)
-    env = dict(ENV, REPO_DIR=wt, STANDARDS_FILE=os.path.join(MAIN, "standards.md"))
+    env = dict(ENV, REPO_DIR=wt)
     return subprocess.run([os.path.join(BIN, "gate-red-verify")], cwd=wt, env=env, capture_output=True, text=True, input="")
 
 
@@ -131,6 +134,16 @@ ok("Python RED that fails to import (pytest exit 2) is rejected, and the block s
 r = red("none", {"tests/notes.txt": "todo\n"}, [("tests/test_sub.py::test_sub", "FAIL")])
 assert r.returncode == 2, r.stderr
 ok("Python RED with no collected test (pytest exit 5) is rejected")
+
+# 4b) no gate matrix anywhere in a non-cargo project: a block that names standards.md, not the
+#     Rust default (`cargo fmt` cannot pass in a Python repo)
+os.rename(STANDARDS, STANDARDS + ".off")
+r = red("nomatrix", {"tests/shim.py": SHIM,
+                     "tests/test_sub.py": "from tests.shim import sub\n\n\ndef test_sub():\n    assert sub(3, 1) == 2\n"},
+        [("tests/test_sub.py::test_sub", "FAIL")])
+os.rename(STANDARDS + ".off", STANDARDS)
+assert r.returncode == 2 and "standards.md" in r.stderr and "cargo fmt" not in r.stderr, r.stderr
+ok("the matrix is found in the story's sprint dir from a worker's worktree; with none at all, a non-cargo repo blocks on that, not on cargo")
 
 # 5) an earlier task's test listed as PASS is context, not a new passing test (Python `def`)
 r = red("context", {"tests/shim.py": SHIM,

@@ -19,6 +19,9 @@ pub const DEFAULT_EXCLUDES: &[&str] = &[
     // false HIGH findings). The plugin's own state and transcripts hold no source either.
     "/.claude/worktrees/",
     "/.agentic/",
+    // .aladdin/ is the run-data dir; `aloop task-worktree add` puts task checkouts in
+    // .aladdin/worktrees/ (live e2e run 36: a merged task's checkout made 4 false HIGHs)
+    "/.aladdin/",
     "/.transcripts/",
 ];
 
@@ -88,6 +91,7 @@ mod tests {
         for d in [
             ".claude/worktrees/agent-a1b2/src",
             ".agentic/x",
+            ".aladdin/worktrees/S1-01-T1/src",
             ".transcripts",
         ] {
             std::fs::create_dir_all(root.join(d)).unwrap();

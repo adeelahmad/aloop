@@ -98,19 +98,16 @@ assert json.load(open(os.path.join(rd, "summary.json")))["host"] == "claude" and
 ok("run-summary --host records the host, names it in the reproduce command, and never prints $0.00 for an unmeasured cost")
 
 # 5b) the Python intent seeds a Python package (no cargo) and needs python3 + pytest, not cargo
-for name in ("python3", "pytest"):
-    p = os.path.join(STUBS, name)
-    if not os.path.exists(p):
-        os.symlink(shutil.which("python3"), p) if name == "python3" else open(p, "w").write("#!/bin/sh\nexit 0\n")
-        os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC)
+py = os.path.join(STUBS, "python3")      # the real python3, except `-m pytest` answers $HAS_PYTEST
+open(py, "w").write('#!/bin/sh\n[ "$1 $2" = "-m pytest" ] && exit "${HAS_PYTEST:-0}"\nexec %s "$@"\n' % shutil.which("python3"))
+os.chmod(py, 0o755)
 r, d = run("--intent", "slugify")
 assert r.returncode == 0, (r.stdout, r.stderr)
 repo = os.path.join(d, "repo")
 assert os.path.isfile(os.path.join(repo, "slugify", "__init__.py")) and not os.path.exists(os.path.join(repo, "Cargo.toml")), os.listdir(repo)
-os.remove(os.path.join(STUBS, "pytest"))
-r, d = run("--intent", "slugify")
+r, d = run("--intent", "slugify", env=dict(ENV, HAS_PYTEST="1"))
 assert r.returncode == 2 and "pytest" in r.stdout, r.stdout
-ok("--intent slugify: a Python package is seeded with no cargo, and the run needs pytest")
+ok("--intent slugify: a Python package is seeded with no cargo, and the run needs python3 with pytest")
 
 # 6) a run started from inside a Claude Code session does not inherit that session: live runs 32-34
 #    reported the parent's session id and recalled the parent's team memory (memory_recall of this

@@ -38,7 +38,7 @@ done
 case "$HOST" in claude|codex|opencode) ;; *) echo "unknown host: $HOST (claude|codex|opencode)"; exit 2 ;; esac
 command -v "$HOST" >/dev/null || { echo "$HOST CLI not found"; exit 2; }
 case "$FIXTURE" in
-  slugify) command -v python3 >/dev/null && command -v pytest >/dev/null || { echo "python3 and pytest needed for INTENT=slugify"; exit 2; } ;;
+  slugify) python3 -m pytest --version >/dev/null 2>&1 || { echo "python3 with pytest needed for INTENT=slugify"; exit 2; } ;;
   *) command -v cargo >/dev/null || { echo "cargo not found"; exit 2; } ;;
 esac
 PLUGIN="$(cd "$(dirname "$0")/../../plugin" && pwd)"
@@ -63,7 +63,7 @@ case "$FIXTURE" in
   *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify)"; exit 2 ;;
 esac
 if [ "$FIXTURE" = slugify ]; then
-  SRC=slugify TEST_RE='def test_' TEST_CMD='pytest -q' SUPPRESS_RE='pytest\.mark\.(skip|xfail)|pytest\.skip\('
+  SRC=slugify TEST_RE='def test_' TEST_CMD='python3 -m pytest -q'   # bare pytest leaves the repo root off sys.path (run 36) SUPPRESS_RE='pytest\.mark\.(skip|xfail)|pytest\.skip\('
   mkdir -p slugify && printf '"""slugify."""\n' > slugify/__init__.py
   printf '__pycache__/\n.pytest_cache/\n' > .gitignore
 else
