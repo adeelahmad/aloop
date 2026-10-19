@@ -110,7 +110,12 @@ assert r.returncode == 2 and "pytest" in r.stdout, r.stdout
 ok("--intent slugify: a Python package is seeded with no cargo, and the run needs python3 with pytest")
 
 # 5c) the Go intent seeds a Go module (no cargo) and needs go, not cargo
-r, d = run("--intent", "roman", env=dict(ENV, PATH=STUBS + ":/usr/bin:/bin"))
+nogo = os.path.join(T, "nogo"); os.makedirs(nogo)   # /usr/bin and /bin without go (CI runners ship one)
+for b in ("/usr/bin", "/bin"):
+    for f in os.listdir(b):
+        if f not in ("go", "gofmt") and not os.path.lexists(os.path.join(nogo, f)):
+            os.symlink(os.path.join(b, f), os.path.join(nogo, f))
+r, d = run("--intent", "roman", env=dict(ENV, PATH=STUBS + ":" + nogo))
 assert r.returncode == 2 and "go needed" in r.stdout, r.stdout
 gostub = os.path.join(STUBS, "go")
 open(gostub, "w").write("#!/bin/sh\nexit 0\n"); os.chmod(gostub, 0o755)
