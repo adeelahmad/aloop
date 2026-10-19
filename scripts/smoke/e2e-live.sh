@@ -63,7 +63,8 @@ case "$FIXTURE" in
   *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify)"; exit 2 ;;
 esac
 if [ "$FIXTURE" = slugify ]; then
-  SRC=slugify TEST_RE='def test_' TEST_CMD='python3 -m pytest -q'   # bare pytest leaves the repo root off sys.path (run 36) SUPPRESS_RE='pytest\.mark\.(skip|xfail)|pytest\.skip\('
+  # python3 -m pytest: a bare `pytest` leaves the repo root off sys.path (run 36)
+  SRC=slugify TEST_RE='def test_' TEST_CMD='python3 -m pytest -q' SUPPRESS_RE='pytest\.mark\.(skip|xfail)|pytest\.skip\('
   mkdir -p slugify && printf '"""slugify."""\n' > slugify/__init__.py
   printf '__pycache__/\n.pytest_cache/\n' > .gitignore
 else

@@ -25,6 +25,16 @@ dangling="$(awk '
   insec && /^[[:space:]]*[-*][[:space:]]/ {print}
 ' "$sf" | grep -vE 'CLAUDE\.md|R[0-9]+|rules/|docs/|\.md|\.rs|\.toml' || true)"
 
+# The gate matrix must parse: GREEN, RED and FINAL run exactly the fenced lines under a
+# "## Gate matrix" heading. One they cannot read sends every worker gate to a fallback (live
+# run 37: RED blocked 3x with "no gate matrix found" until the standards role was re-run).
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_matrix.sh"
+if [ -z "$(standards_matrix_lines "$sf")" ]; then
+  echo "BLOCK[$GATE_NAME]: $sf has no gate matrix the gates can run. Write a '## Gate matrix' heading followed by ONE fenced block (\`\`\`) holding the gated shell commands, one per line (e.g. the test, fmt and lint commands); the GREEN, RED and FINAL gates run exactly those lines. Explanations go after the block, outside it." >&2
+  exit 2
+fi
+
 if [ -n "$dangling" ]; then
   echo "BLOCK[$GATE_NAME]: rule bullet(s) cite no source:" >&2
   echo "$dangling" >&2

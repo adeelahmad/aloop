@@ -442,15 +442,8 @@ standards_file() {
   done
   return 0
 }
-standards_matrix_lines() {
-  # Fenced command lines under a "Gate matrix" / "Cross-cutting gates" heading.
-  awk '
-    /^#+.*([Gg]ate matrix|[Cc]ross-cutting gates)/ {insec=1; next}
-    insec && /^#+[[:space:]]/                        {insec=0}
-    insec && /^```/                                  {infence=!infence; next}
-    insec && infence && NF                           {print}
-  ' "$1"
-}
+# shellcheck source=/dev/null
+. "$GATELIB_DIR/_matrix.sh"                      # standards_matrix_lines
 
 # Run the gate matrix declared in standards.md (standards-bind-gates). Falls back
 # to a default Rust matrix with a WARN if standards.md / its matrix is not found.

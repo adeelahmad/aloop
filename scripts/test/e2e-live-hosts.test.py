@@ -129,4 +129,14 @@ for k in PARENT:
 assert "\nE2E_DIR=" in "\n" + child
 ok("the supervisor CLI runs without the parent session's id, memory store or messaging socket")
 
+# 7) every intent's post-run checks run to the end (live run 37: the slugify branch never set
+#    SUPPRESS_RE, so the checks died on an unbound variable after a successful session)
+for intent in ("semver", "wordfreq", "slugify"):
+    d = tempfile.mkdtemp(prefix="run-", dir=T)
+    r = subprocess.run([SH, "--yes", "--intent", intent], cwd=T, capture_output=True, text=True,
+                       env=dict(ENV, E2E_DIR=d, PATH=spy + ":" + ENV["PATH"], TIMEOUT="30"))
+    out = r.stdout + r.stderr
+    assert "unbound variable" not in out and "no suppressed tests on main" in out and "every merged commit traces" in out, (intent, out[-2000:])
+ok("the post-run checks of every intent (semver, wordfreq, slugify) run to the end")
+
 print("\n%d checks passed" % PASS[0])

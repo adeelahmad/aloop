@@ -43,6 +43,7 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 34 | semver | v0.12.0 + #55 (2ceeada) | 12/12 | 10m23s | $0.74 | 2 | 1 | 1 | `make e2e-live YES=1` |
 | run 35 | wordfreq, clean env | v0.12.0 + #56 (cc40637) | 13/13 | 12m59s | $0.91 | 2 | 0 | 2 | `make e2e-live YES=1 INTENT=wordfreq` |
 | run 36 | slugify (Python), first run | v0.12.0 + #60 (e490d65) | 11/12 | 11m37s | $0.83 | 5 | 0 | 15 | `make e2e-live YES=1 INTENT=slugify` |
+| run 37 | slugify (Python), on the run-36 fixes | v0.12.0 + #61 (d830c71) | 12/12 | 9m42s | $0.69 | 1 | 2 | 11 | `make e2e-live YES=1 INTENT=slugify` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
