@@ -9,6 +9,7 @@ spending tokens; `run-summary --host` records the host and the reproduce command
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -96,6 +97,18 @@ r = subprocess.run([os.path.join(BIN, "run-summary"), rd, "--intent", "semver"],
 assert json.load(open(os.path.join(rd, "summary.json")))["host"] == "claude" and "HOST=" not in r.stdout
 ok("run-summary --host records the host, names it in the reproduce command, and never prints $0.00 for an unmeasured cost")
 
+# 5b) the Python intent seeds a Python package (no cargo) and needs python3 + pytest, not cargo
+py = os.path.join(STUBS, "python3")      # the real python3, except `-m pytest` answers $HAS_PYTEST
+open(py, "w").write('#!/bin/sh\n[ "$1 $2" = "-m pytest" ] && exit "${HAS_PYTEST:-0}"\nexec %s "$@"\n' % shutil.which("python3"))
+os.chmod(py, 0o755)
+r, d = run("--intent", "slugify")
+assert r.returncode == 0, (r.stdout, r.stderr)
+repo = os.path.join(d, "repo")
+assert os.path.isfile(os.path.join(repo, "slugify", "__init__.py")) and not os.path.exists(os.path.join(repo, "Cargo.toml")), os.listdir(repo)
+r, d = run("--intent", "slugify", env=dict(ENV, HAS_PYTEST="1"))
+assert r.returncode == 2 and "pytest" in r.stdout, r.stdout
+ok("--intent slugify: a Python package is seeded with no cargo, and the run needs python3 with pytest")
+
 # 6) a run started from inside a Claude Code session does not inherit that session: live runs 32-34
 #    reported the parent's session id and recalled the parent's team memory (memory_recall of this
 #    repo's own agent notes), so the measured supervisor was not a clean one.
@@ -115,5 +128,15 @@ for k in PARENT:
     assert ("\n%s=" % k) not in "\n" + child, (k, child)
 assert "\nE2E_DIR=" in "\n" + child
 ok("the supervisor CLI runs without the parent session's id, memory store or messaging socket")
+
+# 7) every intent's post-run checks run to the end (live run 37: the slugify branch never set
+#    SUPPRESS_RE, so the checks died on an unbound variable after a successful session)
+for intent in ("semver", "wordfreq", "slugify"):
+    d = tempfile.mkdtemp(prefix="run-", dir=T)
+    r = subprocess.run([SH, "--yes", "--intent", intent], cwd=T, capture_output=True, text=True,
+                       env=dict(ENV, E2E_DIR=d, PATH=spy + ":" + ENV["PATH"], TIMEOUT="30"))
+    out = r.stdout + r.stderr
+    assert "unbound variable" not in out and "no suppressed tests on main" in out and "every merged commit traces" in out, (intent, out[-2000:])
+ok("the post-run checks of every intent (semver, wordfreq, slugify) run to the end")
 
 print("\n%d checks passed" % PASS[0])

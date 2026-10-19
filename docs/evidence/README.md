@@ -11,7 +11,7 @@ command.
 
 **Reproduce:** install the plugin, then run the command in the last column (spends about a
 dollar, 11–22 minutes). The run leaves `summary.json`, `summary.md` and a ready-to-paste row in
-its run dir; add the row here. Intents: `semver` (one story) and `wordfreq` (two dependent
+its run dir; add the row here. Intents: `semver` (one story), `slugify` (one story, Python) and `wordfreq` (two dependent
 stories). `HOST=codex` / `HOST=opencode` run the loop on those hosts (`aloop install <host>` into the
 run repo, then `codex exec --json` / `opencode run --format json`); their CLIs print no cost line, so
 the cost cell reads — and the intent cell names the host. What each run found and fixed is in ROADMAP M0.8.
@@ -42,6 +42,8 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 33 | wordfreq | v0.12.0 + #54 (002e4ff) | 13/13 | 12m20s | $0.84 | 2 | 0 | 5 | `make e2e-live YES=1 INTENT=wordfreq` |
 | run 34 | semver | v0.12.0 + #55 (2ceeada) | 12/12 | 10m23s | $0.74 | 2 | 1 | 1 | `make e2e-live YES=1` |
 | run 35 | wordfreq, clean env | v0.12.0 + #56 (cc40637) | 13/13 | 12m59s | $0.91 | 2 | 0 | 2 | `make e2e-live YES=1 INTENT=wordfreq` |
+| run 36 | slugify (Python), first run | v0.12.0 + #60 (e490d65) | 11/12 | 11m37s | $0.83 | 5 | 0 | 15 | `make e2e-live YES=1 INTENT=slugify` |
+| run 37 | slugify (Python), on the run-36 fixes | v0.12.0 + #61 (d830c71) | 12/12 | 9m42s | $0.69 | 1 | 2 | 11 | `make e2e-live YES=1 INTENT=slugify` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads

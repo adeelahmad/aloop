@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # FINAL GATE (sprint sign-off): full standards matrix green, zero suppressions,
-# every plan-ready.md fully [x]. (Target: Rust; matrix from standards.md.)
+# every plan-ready.md fully [x]. (Rust, Python, Go, JS; matrix from standards.md.)
 GATE_NAME="gate-final"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${CLAUDE_PLUGIN_ROOT:=$(cd "$HERE/.." && pwd)}"
@@ -43,7 +43,7 @@ fi
 if [ -n "$sprint_dir" ]; then
   while IFS= read -r ref; do
     path="${ref%%::*}"; fn="${ref##*::}"
-    grep -qE "fn[[:space:]]+${fn}[[:space:]]*\(" "$root/$path" 2>/dev/null \
+    grep -qE "(fn|def|func)[[:space:]]+${fn}[[:space:]]*[(<]" "$root/$path" 2>/dev/null \
       || fail "planned test \`$ref\` is not on main (in its story's plan.md): write it, or have the planner re-plan the story without it"
   done < <(find "$sprint_dir" -name plan.md -path '*/s[0-9]*' -exec grep -hoE '^[[:space:]]*- `[^`:]+(::[A-Za-z_][A-Za-z0-9_]*)+`' {} + 2>/dev/null \
            | sed -E 's/^[^`]*`//; s/`$//' | sort -u)

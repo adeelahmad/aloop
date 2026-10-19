@@ -370,6 +370,12 @@ assert_no_suppression() {
       | grep -v '/target/' >/dev/null 2>&1; then
     fail "test-suppression pattern present (no #[ignore]/.skip/xit/cfg(not(test)))"
   fi
+  # Python, Go, JS/TS: the same rule in each test framework's own words
+  if grep -rEn '@pytest\.mark\.(skip|skipif|xfail)|pytest\.(skip|xfail)\(|@unittest\.(skip|expectedFailure)|(^|[^A-Za-z_])t\.Skip(Now|f)?\(|\.skip\(|(^|[^A-Za-z])x(it|describe|test)\(' \
+      --include='*.py' --include='*.go' --include='*.js' --include='*.jsx' --include='*.ts' --include='*.tsx' \
+      --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=.git "$root" 2>/dev/null >/dev/null; then
+    fail "test-suppression pattern present (no @pytest.mark.skip/@pytest.mark.xfail/pytest.skip/@unittest.skip/t.Skip/.skip/xit/xdescribe)"
+  fi
 }
 
 # Worktree-isolation invariant. A writing worker (red/scaffolder/green) MUST run in a
@@ -415,20 +421,29 @@ run_format_checks() { run_standards_matrix "$FORMAT_CHECK_RE"; }
 # (empty when there is none). RED runs it in a non-cargo repo and requires a failure.
 TEST_RUNNER_RE='(^|[[:space:]/])(pytest|py\.test|go test|npm (run )?test|yarn test|pnpm test|jest|vitest|mvn test|gradle test|dotnet test|rspec|mix test|bun test)([[:space:]]|$)'
 standards_test_command() {
-  local root sf; root="$(repo_dir)"; sf="${STANDARDS_FILE:-}"
-  [ -n "$sf" ] || sf="$(find "$root" -maxdepth 6 -name standards.md 2>/dev/null | head -1)"
-  [ -n "$sf" ] && [ -f "$sf" ] || return 0
+  local sf; sf="$(standards_file)"
+  [ -n "$sf" ] || return 0
   standards_matrix_lines "$sf" | grep -E "$TEST_RUNNER_RE" | head -1
 }
-standards_matrix_lines() {
-  # Fenced command lines under a "Gate matrix" / "Cross-cutting gates" heading.
-  awk '
-    /^#+.*([Gg]ate matrix|[Cc]ross-cutting gates)/ {insec=1; next}
-    insec && /^#+[[:space:]]/                        {insec=0}
-    insec && /^```/                                  {infence=!infence; next}
-    insec && infence && NF                           {print}
-  ' "$1"
+# The standards.md that binds this task: STANDARDS_FILE, else the story's sprint (STORY_DIR is the
+# main tree's docs/agents/sprintN/sN-NN-<slug>/ or the sprint dir itself), else one in this tree,
+# else one in the main tree. A worker's worktree has no docs/agents/ (git-ignored), so looking
+# only in this tree found nothing and the gate fell back to the Rust matrix (live run 36:
+# a Python RED blocked on `cargo fmt`).
+standards_file() {
+  local c d
+  for c in "${STANDARDS_FILE:-}" ${STORY_DIR:+"$STORY_DIR/standards.md" "$(dirname "$STORY_DIR")/standards.md"}; do
+    [ -n "$c" ] && [ -f "$c" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  for d in "$(repo_dir)" "${AGENTIC_PROJECT:-}"; do
+    [ -n "$d" ] || continue
+    c="$(find "$d" -maxdepth 6 -name standards.md -not -path '*/worktrees/*' 2>/dev/null | sort | tail -1)"
+    [ -n "$c" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  return 0
 }
+# shellcheck source=/dev/null
+. "$GATELIB_DIR/_matrix.sh"                      # standards_matrix_lines
 
 # Run the gate matrix declared in standards.md (standards-bind-gates). Falls back
 # to a default Rust matrix with a WARN if standards.md / its matrix is not found.
@@ -437,10 +452,7 @@ run_standards_matrix() {
   [ "${GATE_RUN_MATRIX:-1}" = "1" ] || { note "matrix skipped (GATE_RUN_MATRIX=0)"; return 0; }
   local only="${1:-}"
   local root; root="$(repo_dir)"
-  local sf="${STANDARDS_FILE:-}"
-  if [ -z "$sf" ]; then
-    sf="$(find "$root" -maxdepth 6 -name standards.md 2>/dev/null | head -1)"
-  fi
+  local sf; sf="$(standards_file)"
 
   local -a cmds=()
   if [ -n "$sf" ] && [ -f "$sf" ]; then
@@ -450,7 +462,9 @@ run_standards_matrix() {
     while IFS= read -r line; do cmds+=("$line"); done < <(standards_matrix_lines "$sf")
   fi
 
-  if [ "${#cmds[@]}" -eq 0 ]; then
+  if [ "${#cmds[@]}" -eq 0 ] && ! is_cargo_repo; then
+    fail "no gate matrix found (standards.md under the story's sprint, this tree or the main tree) and this is not a cargo project, so there is no default to run: the standards role writes docs/agents/sprintN/standards.md with a fenced '## Gate matrix' block"
+  elif [ "${#cmds[@]}" -eq 0 ]; then
     warn "no matrix found in standards.md; using DEFAULT Rust matrix (weaker: not standards-bound)"
     cmds=(
       "cargo fmt --all -- --check"

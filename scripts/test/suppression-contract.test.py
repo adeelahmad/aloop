@@ -24,13 +24,15 @@ def ok(name):
 lib = open(os.path.join(P, "bin", "_gatelib.sh")).read()
 fn = lib[lib.index("assert_no_suppression() {"):]
 fn = fn[:fn.index("\n}\n")]
-listed = re.search(r'fail "test-suppression pattern present \(no (.*)\)"', fn).group(1)
-patterns = [p.strip() for p in listed.split("/")]
-assert patterns == ["#[ignore]", ".skip", "xit", "cfg(not(test))"], patterns
+listed = re.findall(r'fail "test-suppression pattern present \(no (.*)\)"', fn)
+patterns = [[p.strip() for p in one.split("/")] for one in listed]
+assert patterns == [["#[ignore]", ".skip", "xit", "cfg(not(test))"],
+                    ["@pytest.mark.skip", "@pytest.mark.xfail", "pytest.skip", "@unittest.skip", "t.Skip", ".skip", "xit", "xdescribe"]], patterns
 
 persona = open(os.path.join(P, "agents", "final-gate.md")).read()
 mandate = persona[persona.index("## Mandate"):persona.index("## Tools")]
-for p in ("#[ignore]", ".skip(", "xit(", "#[cfg(not(test))]"):
+for p in ("#[ignore]", ".skip(", "xit(", "#[cfg(not(test))]", "@pytest.mark.skip", "@pytest.mark.xfail", "pytest.skip(",
+          "@unittest.skip", "t.Skip(", "xdescribe("):
     assert "`%s`" % p in mandate, (p, mandate)
 assert "selfcheck final-gate" in mandate, mandate
 ok("final-gate persona names exactly the gate's suppression patterns and defers to `selfcheck final-gate`")

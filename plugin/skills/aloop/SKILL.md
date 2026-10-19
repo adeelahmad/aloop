@@ -200,8 +200,8 @@ you. Never `ScheduleWakeup` (blocked; run 32 idled 12m on one).
   hook (needs a Rust toolchain for the one-time build) and always on PATH. Absent →
   planning gates fall back to grep; execution is blocked until they're built.
 - `python3` — the time-box hook (`budget`) and transcript capture use it.
-- The target repo's toolchain for the standards matrix (default target: Rust —
-  `cargo fmt/clippy/test`); retarget by editing `standards.md` + the gates.
+- The target repo's toolchain for the standards matrix (default: Rust, `cargo`). Another
+  language runs its matrix's test command (pytest, `go test`, npm test) for RED too.
 A gate NEVER hard-fails on a missing backend — it WARNs and falls back. Never a silent pass.
 
 ## Step 0 — retrospective + memory (every session, human present)
@@ -559,8 +559,8 @@ defaults.md; default 4M / 6M, summed over every worker attempt's charge):
   `path::fn`, against **minimal `mod common` shims** (each shim carries the marker
   `// agentic:shim`) so each test **FAILS BY ASSERTION** — not by a missing symbol or
   compile error. RED is not vacuous.
-- No production code beyond the shims. **Your RED mandate names `tests/common/mod.rs` as
-  the shims' home and never a `src/` path**: a mandate that says "shim in `src/lib.rs`"
+- No production code beyond the shims. **Your RED mandate names `tests/common/mod.rs` (Python:
+  a `tests/` helper; Go: a `_test.go` file) as the shims' home, never a `src/` path**: a mandate that says "shim in `src/lib.rs`"
   sends the worker straight into `gate-red-verify`'s non-test-path block (live runs 14–18,
   one block each).
 - SubagentStop → `gate-red-verify`. It asserts: every new test is FAIL (a new test
