@@ -426,7 +426,10 @@ run_standards_matrix() {
   local -a cmds=()
   if [ -n "$sf" ] && [ -f "$sf" ]; then
     # Extract fenced command lines under a "Gate matrix" / "Cross-cutting gates" heading.
-    mapfile -t cmds < <(awk '
+    # a read loop, not mapfile: macOS /bin/bash is 3.2, where mapfile does not exist and the
+    # matrix came back empty (scripts/test/bash-portable.test.py)
+    local line
+    while IFS= read -r line; do cmds+=("$line"); done < <(awk '
       /^#+.*([Gg]ate matrix|[Cc]ross-cutting gates)/ {insec=1; next}
       insec && /^#+[[:space:]]/                        {insec=0}
       insec && /^```/                                  {infence=!infence; next}
