@@ -41,7 +41,7 @@ STAMP_VALUE="$VERSION+${SRC_SUM:-0}"
 mkdir -p "$TOOLS_BIN" 2>/dev/null || true
 
 # First REAL binary for a tool: the plugin's data dir, the usual install dirs, then PATH
-# — skipping this bin/ dir and any other aloop plugin bin/ (it holds ensure-tools): their
+# — skipping a stale own build, this bin/ dir and any other aloop plugin bin/ (it holds ensure-tools): their
 # md-db / ctx-symbols are only shims. Another checkout's shim ahead on PATH resolved back
 # here and `make conformance` hung (found on a Mac release run).
 find_tool() {
@@ -49,6 +49,9 @@ find_tool() {
   local IFS=:
   for d in "$TOOLS_BIN" "$HOME/.local/bin" "$HOME/.cargo/bin" $PATH; do
     [ -n "$d" ] || continue
+    # our own build for an older version or sources is no answer (live runs 38, 40: a 0.11.0
+    # ctx-symbols ahead of the session's current one on PATH reported false HIGHs)
+    [ "$d" = "$TOOLS_BIN" ] && own_stale && continue
     [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$(cd "$HERE" && pwd -P)" ] && continue
     [ -x "$d/ensure-tools" ] && continue
     [ -x "$d/$t" ] && [ ! -d "$d/$t" ] && { echo "$d/$t"; return 0; }
