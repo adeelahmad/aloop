@@ -72,6 +72,15 @@ GUARD = "# aloop run data (transcripts, budgets, ledger, logs, state) — never 
 WT_GUARD = "# aloop worktree markers — never committed\n*\n"
 
 
+def under(path, root):
+    """True when path is root or inside it, compared after resolving symlinks: on macOS a temp
+    dir is /var/... but its realpath (what `budget contract` records) is /private/var/..."""
+    if not path or not root:
+        return False
+    p, r = os.path.realpath(path), os.path.realpath(root).rstrip("/")
+    return p == r or p.startswith(r + "/")
+
+
 def home_name(root):
     if any(os.path.isdir(os.path.join(root, NEW_HOME, d)) for d in RUN_DIRS):
         return NEW_HOME

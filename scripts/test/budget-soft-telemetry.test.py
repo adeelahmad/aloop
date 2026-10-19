@@ -11,7 +11,12 @@ import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
 BIN = os.path.join(ROOT, "bin")
-T = tempfile.mkdtemp(prefix="agentic-soft-")
+# T is reached through a symlink, as every macOS temp dir is (/var -> /private/var): `stats
+# sprint-close` compared the recorded realpath STORY_DIR with the unresolved sprint dir and
+# counted 0 attempts (found on a Mac release run; Linux CI never saw it).
+_real = tempfile.mkdtemp(prefix="agentic-soft-")
+T = _real + "-link"
+os.symlink(_real, T)
 ENV = dict(os.environ, HOME=os.path.join(T, "home"))
 ENV.pop("AGENTIC_HOST", None)
 PASS = [0]

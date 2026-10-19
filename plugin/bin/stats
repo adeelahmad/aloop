@@ -206,7 +206,7 @@ def sprint_facts(cwd, sdir, since, until):
             s = json.load(open(p))
         except (OSError, ValueError):
             continue
-        if not (s.get("story_dir") or "").startswith(sdir):
+        if not _paths.under(s.get("story_dir"), sdir):
             continue
         f["rows"].append(s)
         f["attempts"][s["role"]] = f["attempts"].get(s["role"], 0) + 1
@@ -226,7 +226,7 @@ def sprint_facts(cwd, sdir, since, until):
     for g in read_jsonl(os.path.join(_paths.home(cwd, "logs"), "gates.jsonl")):
         if g.get("selfcheck"):
             continue
-        mine = (g.get("story_dir") or "").startswith(sdir) or (not g.get("story_dir") and since < g.get("ts", "") <= until)
+        mine = _paths.under(g.get("story_dir"), sdir) or (not g.get("story_dir") and since < g.get("ts", "") <= until)
         if not mine:
             continue
         bucket = "gate_pass" if g.get("exit") == 0 else "gate_block"
