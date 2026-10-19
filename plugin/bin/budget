@@ -1044,6 +1044,25 @@ def replans(cwd, task):
     return 3 if n >= cap else 0
 
 
+def init_header(story):
+    """The story's init.md starts with its `type: init` frontmatter, which the comms gates check:
+    create the file with it, or put it on top of a file that has none (live run 38: the supervisor
+    began the sprint dir's init.md with a dispatch block, and the reviewer was blocked 7 times).
+    A file that has the header is never touched: init.md is append-only."""
+    p = os.path.join(story, "init.md")
+    body = open(p).read() if os.path.isfile(p) else ""
+    fm = re.match(r"---[^\n]*\n(.*?)\n---", body, re.S)
+    if fm and re.search(r"(?im)^type:\s*init\s*$", fm.group(1)):
+        return
+    name = os.path.basename(story.rstrip(os.sep))
+    m = re.match(r"(?i)s(\d+)-(\d+)", name) or re.match(r"(?i)sprint(\d+)$", name)
+    sid = ("S%s-%s" % m.groups() if m and len(m.groups()) == 2 else "S%s" % m.group(1)) if m else name
+    head = "---\ntype: init\nstory: %s\n---\n" % sid
+    with open(p + ".tmp", "w") as f:
+        f.write(head + ("\n" + body if body else ""))
+    os.replace(p + ".tmp", p)
+
+
 def write_contract(cwd, task_id, opts):
     """`budget contract`: the supervisor's per-task contract, written by the harness that owns
     every key in it (live run 26: 9 hand-written heredocs a run, re-read on every later turn)."""
@@ -1081,6 +1100,7 @@ def write_contract(cwd, task_id, opts):
     with open(path + ".tmp", "w") as f:
         f.write("".join('%s="%s"\n' % (k, v) if " " in v else "%s=%s\n" % (k, v) for k, v in lines))
     os.replace(path + ".tmp", path)
+    init_header(story)
     print("%s: %s attempt %s, budget %d/%d tokens, %d/%d min (from %s)" % (
         os.path.relpath(path, root), role, attempt, b["TOKENS_SOFT"], b["TOKENS_HARD"],
         b["TIME_SOFT_MIN"], b["TIME_HARD_MIN"], src))
