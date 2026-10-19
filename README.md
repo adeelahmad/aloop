@@ -197,7 +197,7 @@ structural, not luck:
 These mechanisms are codebase-agnostic — greenfield is simply what's measured here.
 
 Live runs: `make smoke-live YES=1` (hook wiring, ~$0.004) and `make e2e-live YES=1` (the whole
-loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci` — Rust fmt/clippy/tests, shellcheck, 47 Python/Node suites,
+loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci` — Rust fmt/clippy/tests, shellcheck, 48 Python/Node suites,
 the gate conformance fixtures (`make conformance`), eval-suite validation. Every ROADMAP
 requirement is tracked with its test in [docs/TRACKING.md](docs/TRACKING.md).
 

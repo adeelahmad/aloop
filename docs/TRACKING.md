@@ -55,5 +55,6 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.10 | The supervisor's playbook draws the enforced layout (sprint under `docs/agents/`) and stays within a byte budget | IMPLEMENTED_TESTED | `scripts/test/skill-layout.test.py` |
 | 7 | The final-gate persona's suppression check is the gate's (`assert_no_suppression`), never its own list | IMPLEMENTED_TESTED | `scripts/test/suppression-contract.test.py` |
 | 4.11 | The north-star run reproducible on every host (`e2e-live.sh --host codex|opencode`: host install + headless CLI, same checks) | IMPLEMENTED_TESTED | `scripts/test/e2e-live-hosts.test.py` (measured Codex/OpenCode rows still pending: no CLIs here) |
+| M0.6 | Gates behave the same on stock macOS bash 3.2 (no bash-4+ construct; the standards.md matrix is the one that runs) | IMPLEMENTED_TESTED | `scripts/test/bash-portable.test.py` |
 | 7 | The sprint and every STORY_DIR live in `docs/agents/sprintN/`, never in the git-ignored run-data dir (`gate-stage2-complete`, `gate-dispatch`) | IMPLEMENTED_TESTED | `scripts/test/planner-stuck.test.py`, `scripts/test/dispatch.test.py` |
 | 4.11 | The supervisor's playbook keeps on-demand sections in `skills/aloop/reference.md`, installed beside it on OpenCode | IMPLEMENTED_TESTED | `scripts/test/aladdin-cli.test.py` |

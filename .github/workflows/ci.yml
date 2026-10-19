@@ -91,6 +91,8 @@ jobs:
           node-version: "22"
       - name: Host tests (budget, events, Codex hooks, OpenCode plugin)
         run: make test-hosts
+        env:
+          BASH32: /bin/bash   # stock macOS bash 3.2: bash-portable.test.py runs the gate matrix on it
       - name: Conformance fixtures (ROADMAP §6)
         run: make conformance
 
