@@ -3,12 +3,13 @@
 # REAL host session with the plugin, the human's only input being approval (given up front
 # here). Spends real tokens (dollars, not cents), so it needs --yes; CI does not run it.
 #
-#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq|slugify|roman|camel] [--host claude|codex|opencode]
+#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq|slugify|roman|camel|extend] [--host claude|codex|opencode]
 #                                   [--model M] [--worker-model M] [--dry-run]
 #   (or: make e2e-live YES=1 [INTENT=wordfreq] [HOST=opencode])
 #
 # Intents: semver (one story) · wordfreq (two dependent stories: counting, then top-N ranking) ·
-# slugify (Python, pytest) · roman (Go, go test) · camel (JS, node --test).
+# slugify (Python, pytest) · roman (Go, go test) · camel (JS, node --test) ·
+# extend (brownfield: a working Rust crate with its own tests gets a new function).
 # Hosts (ROADMAP §4.11, M8: measured runs on every host):
 #   claude    `claude -p --plugin-dir` (the reference; the plugin needs no install)
 #   opencode  `aloop install opencode` into the run repo, then `opencode run --format json`
@@ -69,7 +70,10 @@ case "$FIXTURE" in
   camel)     # a JS intent: RED runs the matrix's `npm test` (node --test) and blocks a load failure
     CRATE=camel KEYWORD=camel
     INTENT="Plan and build a small JavaScript ES module src/camel.js exporting camelCase(text), which splits the text into words on any run of characters that are not ASCII letters or digits, lowercases every word, then capitalises the first letter of each word after the first and joins them (\"hello world\" -> \"helloWorld\", \"  Foo-BAR_baz \" -> \"fooBarBaz\", \"\" -> \"\"). Tests with node's built-in test runner (npm test runs node --test), in src/*.test.js files. One story, one sprint, TDD." ;;
-  *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify|roman|camel)"; exit 2 ;;
+  extend)    # brownfield: the run changes a crate that already works and has tests of its own
+    CRATE=semver_lite KEYWORD=compare
+    INTENT="This repo is an existing Rust library, semver_lite, whose parse(s) -> Result<(u64, u64, u64), String> already works and is tested in tests/parse.rs. Add compare(a, b) -> Result<std::cmp::Ordering, String> that parses both versions with parse and orders them by major, then minor, then patch, returning parse's error for either malformed input. Reuse parse; do not change it or its tests. One story, one sprint, TDD." ;;
+  *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify|roman|camel|extend)"; exit 2 ;;
 esac
 if [ "$FIXTURE" = camel ]; then
   SRC=src TEST_RE='(^|[^A-Za-z.])(test|it)\(' TEST_CMD='npm test --silent' SUPPRESS_RE='\.(skip|todo)\(|(^|[^A-Za-z])x(it|describe|test)\('
@@ -86,6 +90,49 @@ elif [ "$FIXTURE" = slugify ]; then
   SRC=slugify TEST_RE='def test_' TEST_CMD='python3 -m pytest -q' SUPPRESS_RE='pytest\.mark\.(skip|xfail)|pytest\.skip\('
   mkdir -p slugify && printf '"""slugify."""\n' > slugify/__init__.py
   printf '__pycache__/\n.pytest_cache/\n' > .gitignore
+elif [ "$FIXTURE" = extend ]; then
+  SRC=src TEST_RE='#\[test\]' TEST_CMD='cargo test -q' SUPPRESS_RE='#\[ignore\]|cfg\(not\(test\)\)'
+  # Cargo.toml by hand (no `cargo init`): the seed is a finished crate, written exactly
+  printf '[package]\nname = "semver_lite"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n' > Cargo.toml
+  mkdir -p src tests
+  cat > src/lib.rs <<'RS'
+//! semver_lite: parse "MAJOR.MINOR.PATCH".
+
+/// Parses "MAJOR.MINOR.PATCH" into its three numbers.
+pub fn parse(s: &str) -> Result<(u64, u64, u64), String> {
+    let parts: Vec<&str> = s.split('.').collect();
+    if parts.len() != 3 {
+        return Err(format!("expected MAJOR.MINOR.PATCH, got {s:?}"));
+    }
+    let num = |p: &str| -> Result<u64, String> {
+        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(format!("not a number: {p:?}"));
+        }
+        p.parse().map_err(|e| format!("{p:?}: {e}"))
+    };
+    Ok((num(parts[0])?, num(parts[1])?, num(parts[2])?))
+}
+RS
+  cat > tests/parse.rs <<'RS'
+use semver_lite::parse;
+
+#[test]
+fn parses_a_version() {
+    assert_eq!(parse("1.2.3"), Ok((1, 2, 3)));
+}
+
+#[test]
+fn rejects_two_parts() {
+    assert!(parse("1.2").is_err());
+}
+
+#[test]
+fn rejects_a_non_number() {
+    assert!(parse("1.x.3").is_err());
+}
+RS
+  printf '/target\n' > .gitignore
+  cargo generate-lockfile -q 2>/dev/null || true
 else
   SRC=src TEST_RE='#\[test\]' TEST_CMD='cargo test -q' SUPPRESS_RE='#\[ignore\]|cfg\(not\(test\)\)'
   cargo init -q --lib --name "$CRATE" . 2>/dev/null
@@ -148,6 +195,9 @@ check "work is merged into main ($SRC/ changed since init)" '[ -n "$(git diff --
 check "main has a test that exercises the library ($KEYWORD)" 'grep -rqsE "$TEST_RE" tests "$SRC" && grep -rqsiE "$KEYWORD" tests "$SRC"'
 check "main's tests pass" '$TEST_CMD >/dev/null 2>&1'
 check "no suppressed tests on main" '! grep -rqsE "$SUPPRESS_RE" "$SRC" tests'
+# Brownfield: the change kept what was already there (the seed's own tests, unweakened, still pass)
+[ "$FIXTURE" = extend ] && check "the seed's own tests are still on main" \
+  '[ "$(grep -cE "fn (parses_a_version|rejects_two_parts|rejects_a_non_number)\(\)" tests/parse.rs 2>/dev/null)" = 3 ] && cargo test -q --test parse >/dev/null 2>&1'
 check "SubagentStop gates ran on the host (not only workers' self-checks)" \
   'grep -q "\"selfcheck\":false" .aladdin/logs/gates.jsonl 2>/dev/null'
 check "final gate passed" 'grep -q "\"gate\":\"gate-final\".*\"exit\":0" .aladdin/logs/gates.jsonl 2>/dev/null'
