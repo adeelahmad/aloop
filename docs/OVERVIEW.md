@@ -126,7 +126,10 @@ The model can ignore a skill; it cannot ignore an exit code.
 - Suppression detection is syntactic; a weakened assertion is caught only indirectly
   (RED invariant + diff scope).
 - Without `ctx-symbols` / `md-db` the planning gates degrade to grep (WARN, never silent).
-- The default standards matrix targets Rust; other stacks need `standards.md` and gate edits.
+- With no `standards.md` matrix the default targets Rust. Python, Go and JS run from the matrix the
+  standards role writes, and RED is checked by the declared runner (pytest, `go test`, `node --test`/npm);
+  live runs 37–41 measured each (`docs/evidence/README.md`). Other stacks run their matrix, but RED
+  only checks the exit code.
 - `refs` / `callers` / `callees` need a configured LSP server; without one they say so (exit 4).
 - Hosts do not report the model's context window; `AGENTIC_CONTEXT_WINDOW` is the human's number.
 - `AGENTIC_*` settings keys stay canonical; `ALADDIN_*` is an alias (`AGENTIC_` wins when both
