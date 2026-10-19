@@ -348,6 +348,10 @@ task (reused across the chain, removed on merge/abandon) is a sanctioned equival
 for a non-git VCS the bundled `bin/worktree-create`/`-remove` scripts can be wired into
 your user `settings.json`. Either way `assert_worktree_isolation` enforces a real linked
 worktree.
+**One task, one worktree.** RED dispatches with `isolation: "worktree"`; once it verifies, run
+`aloop task-worktree add <TASK_ID> <RED's worktree-agent-<id> branch>`. SCAFFOLD and GREEN
+then dispatch with no `isolation`, the mandate naming that path (first command
+`aloop bind <path>`); merge `agentic/<TASK_ID>` (runs 31-33 rediscovered this each time).
 
 ## The data plane (on-disk layout — the glue)
 
@@ -593,7 +597,7 @@ before GREEN).
   the sprint integration branch with `aloop task-worktree merge <TASK_ID> <branch>` (a
   `--no-ff` merge that also records the lineage: `worktree.merged` + one `commit.created` per
   commit, so `events trace <sha>` finds the task; a raw `git merge` leaves the commits
-  untraceable). On Claude Code the branch is `worktree-agent-<id>`. Never copy files out of a
+  untraceable). Never copy files out of a
   worktree: what you merge must be the commits the gate verified. Workers commit their own
   work; the gate blocks uncommitted work.
 

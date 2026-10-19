@@ -5,6 +5,8 @@
    supervisor put the whole sprint in `.aladdin/sprint1/` (the gates now refuse it, #41).
 2) SKILL.md is re-read on every supervisor call; #43 moved rare-path sections to
    reference.md (58k -> 49k chars). A byte budget keeps it from growing back unnoticed.
+3) Part B says how one task's RED, SCAFFOLD and GREEN share a worktree on Claude Code: live
+   runs 31-33 each spent supervisor turns rediscovering it (task-worktree --help, inspect, add).
     python3 scripts/test/skill-layout.test.py
 """
 import os
@@ -38,6 +40,11 @@ ok("the data-plane tree draws sprintN/ under docs/agents/ only")
 run_data = [l for l in lines if l.startswith("<project>/.aladdin/")]
 assert run_data and re.search(r"never a sprint|run data only", run_data[0]), run_data
 ok("the run-data dir is drawn as run data only, never a sprint")
+
+part_b = SKILL[SKILL.index("# PART B"):]
+assert re.search(r"aloop task-worktree add <TASK_ID> <RED's", part_b), "Part B must name the RED -> SCAFFOLD/GREEN worktree handoff"
+assert re.search(r"no `isolation`", part_b) and "aloop bind <path>" in part_b, "SCAFFOLD/GREEN must bind to the task worktree"
+ok("Part B gives the chain handoff: task-worktree add on RED's branch, later stages bind to it")
 
 n = len(SKILL.encode())
 assert n <= BUDGET, "SKILL.md is %d bytes (budget %d): move rare-path material to reference.md" % (n, BUDGET)
