@@ -16,7 +16,7 @@ pub const DEFAULT_EXCLUDES: &[&str] = &[
     "/.next/",
 ];
 
-const SUPPORTED_EXTS: &[&str] = &["rs", "py", "js", "ts", "tsx", "go"];
+const SUPPORTED_EXTS: &[&str] = &["rs", "py", "js", "ts", "tsx", "go", "c", "h"];
 
 /// Walk `root` and return every supported source file, skipping default-excluded dirs.
 pub fn collect_source_files(root: &Path) -> Result<Vec<PathBuf>> {

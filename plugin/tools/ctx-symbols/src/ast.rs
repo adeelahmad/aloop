@@ -28,6 +28,8 @@ impl AstParser {
             ),
             ("tsx".to_string(), tree_sitter_typescript::language_tsx()),
             ("go".to_string(), tree_sitter_go::language()),
+            ("c".to_string(), tree_sitter_c::language()),
+            ("h".to_string(), tree_sitter_c::language()),
         ];
 
         Ok(Self { parser, languages })
@@ -87,7 +89,7 @@ impl AstParser {
             "rs" => "[(line_comment) (block_comment)] @comment",
             "py" => "(comment) @comment",
             "js" | "ts" | "tsx" => "(comment) @comment",
-            "go" => "(comment) @comment",
+            "go" | "c" | "h" => "(comment) @comment",
             _ => return Ok(source.to_string()),
         };
 
@@ -315,6 +317,15 @@ impl AstParser {
                 r#"(const_declaration (const_spec name: (identifier) @name)) @item"#,
                 r#"(var_declaration (var_spec name: (identifier) @name)) @item"#,
             ],
+            // C: only a function DEFINITION (`function_definition` = declarator + compound
+            // body). A prototype is a `declaration` and a call is a `call_expression`, so
+            // neither matches. The declarator nests under one `pointer_declarator` per `*`
+            // in the return type (`void *f(...)`, `char **f(...)`).
+            "c" | "h" => &[
+                r#"(function_definition declarator: (function_declarator declarator: (identifier) @name)) @item"#,
+                r#"(function_definition declarator: (pointer_declarator declarator: (function_declarator declarator: (identifier) @name))) @item"#,
+                r#"(function_definition declarator: (pointer_declarator declarator: (pointer_declarator declarator: (function_declarator declarator: (identifier) @name)))) @item"#,
+            ],
             _ => &[],
         }
     }
@@ -454,7 +465,7 @@ mod tests {
     #[test]
     fn get_language_returns_some_for_supported() {
         let parser = AstParser::new().unwrap();
-        for ext in ["rs", "py", "js", "ts", "tsx", "go"] {
+        for ext in ["rs", "py", "js", "ts", "tsx", "go", "c", "h"] {
             assert!(parser.get_language(ext).is_some(), "ext={ext}");
         }
         assert!(parser.get_language("rb").is_none());
