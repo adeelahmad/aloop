@@ -82,6 +82,12 @@ echo "host: $HOST · supervisor model: ${SUP_MODEL:-<session model>} · worker m
 STDIN_PROMPT=''; [ "$HOST" = claude ] && STDIN_PROMPT=1
 if [ -n "$DRY" ]; then echo "cmd: ${CMD[*]}"; [ -n "$STDIN_PROMPT" ] && echo "prompt: stdin"; echo "run dir: $T"; exit 0; fi
 
+# A run started from inside a Claude Code session must not inherit it: live runs 32-34 reported
+# the parent's session id and recalled the parent's team memory, so the measured supervisor was
+# not a clean one. Drop the session binding, memory store and messaging socket (auth is untouched).
+unset CLAUDE_CODE_SESSION_ID CLAUDE_CODE_REMOTE_SESSION_ID CLAUDE_CODE_REMOTE_SDK_URL \
+      CLAUDE_COWORK_MEMORY_PATH_OVERRIDE CLAUDE_MEMORY_STORES \
+      CLAUDE_CODE_MESSAGING_SOCKET CLAUDE_CODE_MESSAGING_TOKEN
 start=$(date +%s)
 if [ -n "$STDIN_PROMPT" ]; then
   timeout "$TIMEOUT" "${CMD[@]}" <<<"$PROMPT" > "$T/out.jsonl" 2> "$T/err.log"
