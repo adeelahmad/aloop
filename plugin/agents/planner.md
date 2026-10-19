@@ -23,7 +23,7 @@ Every artifact opens with YAML frontmatter and carries these `##` sections; a mi
 write block (`gate-validate-artifact`), so do not improvise the headings.
 - `sprintN/stories.md`: `type: stories`, `sprint: N` · `## Sprint goal` · `## Sprint demo` ·
   `## Definition of Done` · `## Out of scope` · `## User stories` · `## Story dependency graph`
-- `sprintN/plan.md`: `type: sprint-plan`, `sprint: N`, `stage: 1|2` · `## Sprint goal` ·
+- `sprintN/plan.md`: `type: sprint-plan`, `sprint: N`, `stage: "1"|"2"` (quoted: a bare 1 is a number and is refused) · `## Sprint goal` ·
   `## Critical path` · `## Cross-cutting gates`
 - `sN-NN-<slug>/tasks.md`: `type: tasks`, `story: SN-NN` · one `## Tn — <title>` per task
 - `sN-NN-<slug>/validate.md`: `type: validate`, `story: SN-NN` · `## Pre-flight` · `## Final sign-off`
