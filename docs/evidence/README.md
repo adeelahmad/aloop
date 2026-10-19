@@ -49,6 +49,7 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 40 | roman (Go), on the GREEN scope fix | v0.12.0 + #62 (5694903) | 12/12 | 13m03s | $0.75 | 1 | 0 | 5 | `make e2e-live YES=1 INTENT=roman` |
 | run 41 | camel (JS), first run | v0.12.0 + #63 (3752458) | 12/12 | 6m45s | $0.56 | 1 | 0 | 2 | `make e2e-live YES=1 INTENT=camel` |
 | run 42 | extend (brownfield Rust), first run | v0.12.0 + #66 (859661d) | 13/13 | 7m11s | $0.67 | 2 | 4 | 2 | `make e2e-live YES=1 INTENT=extend` |
+| run 43 | modify (brownfield Rust), first run | v0.12.0 + #67 (f16433d) | 13/13 | 9m10s | $0.67 | 1 | 0 | 6 | `make e2e-live YES=1 INTENT=modify` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
@@ -68,3 +69,6 @@ task worktree on every dispatch. 2 of its 4 blocks were self-check catches.
 Run 42 is the first change to existing code: the seed crate's `parse` and its three tests were
 left as they were (the merge adds 10 lines to `src/lib.rs` and a new `tests/compare.rs`), and the
 seed's tests still pass on main (the extra 13th check).
+Run 43 changed an existing, tested function for the first time: `parse` gained 3 lines (trim, then
+strip a leading `v`/`V`), its signature and seed tests were kept, and 6 of 6 blocks were the
+workers' own self-checks (2 of them RED's `cargo fmt` on its new tests).
