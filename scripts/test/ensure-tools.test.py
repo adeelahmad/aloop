@@ -60,5 +60,26 @@ ok("a source change without a version bump rebuilds")
 assert sync() == 4
 ok("and is then current again")
 
+# Another aloop checkout's bin/ ahead on PATH (an older install, ~/work/agentic-agile/plugin/bin)
+# holds only SHIMS of the same names: resolving to one made the gate exec a shim whose own
+# ensure-tools resolved back here, and `make conformance` hung (found on a Mac release run).
+other = os.path.join(T, "other", "plugin", "bin")
+os.makedirs(other)
+for name in ("ensure-tools", "ctx-symbols", "md-db"):
+    shutil.copy(os.path.join(PLUGIN, "bin", name), other)
+envo = dict(ENV, CLAUDE_PLUGIN_DATA=os.path.join(T, "data-empty"), PATH=other + ":" + ENV["PATH"])
+r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envo,
+                   capture_output=True, text=True, timeout=20)
+assert other not in r.stdout, ("resolved to another checkout's shim", r.stdout)
+real = os.path.join(T, "realbin")
+os.makedirs(real)
+open(os.path.join(real, "ctx-symbols"), "w").write("#!/bin/sh\n")
+os.chmod(os.path.join(real, "ctx-symbols"), 0o755)
+envo["PATH"] = other + ":" + real + ":" + ENV["PATH"]
+r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envo,
+                   capture_output=True, text=True, timeout=20)
+assert r.returncode == 0 and r.stdout.strip() == os.path.join(real, "ctx-symbols"), r
+ok("--resolve skips another plugin checkout's shims on PATH and finds the real binary behind them")
+
 shutil.rmtree(T, ignore_errors=True)
 print("\n%d checks passed" % n)

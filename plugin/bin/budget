@@ -877,7 +877,7 @@ def sprint_charge(cwd, sdir):
     """Sum of every metered attempt's charge in this sprint (workers by story dir)."""
     total = 0
     for _, s in all_states(cwd):
-        if (s.get("story_dir") or "").startswith(sdir.rstrip("/") + "/"):
+        if _paths.under(s.get("story_dir"), sdir) and os.path.realpath(s["story_dir"]) != os.path.realpath(sdir):
             total += s.get("tokens") or 0
     return total
 
