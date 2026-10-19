@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""RED must fail by assertion on any language, not only Rust. Before this, gate-red-verify ran
+"""The gates hold on any language, not only Rust. RED must fail by assertion. Before this, gate-red-verify ran
 tests only in a cargo repo; in a Python repo a RED whose tests already passed was accepted with
 a warning, so the loop's first guarantee (the test exercises something) was not checked.
 
@@ -7,7 +7,9 @@ The test runner is the one the project's own standards.md gate matrix declares. 
 codes tell an assertion failure (1) from a collection error such as a missing import (2) and
 from no tests at all (5); the fixture's `pytest` is a small stand-in with those exit codes, so
 the test needs no pytest install.
-    python3 scripts/test/red-any-language.test.py
+GREEN and the final gate refuse a skipped test in Python, Go and JS as they do `#[ignore]` in
+Rust, and the final gate finds a planned `def test_x` / `func TestX` on main.
+    python3 scripts/test/any-language.test.py
 """
 import atexit
 import os
@@ -137,7 +139,39 @@ r = red("context", {"tests/shim.py": SHIM,
 assert r.returncode == 0, r.stderr
 ok("a PASS row for a test already on the base (Python `def`) is accepted as context")
 
-# 6) Go: the same rule through `go test`, whose exit code is 1 for both a build failure and a
+# 6) suppressions in Python, Go and JS are refused like #[ignore]; the final gate finds a planned
+#    Python test on main by its `def`
+def final(files, plan_refs):
+    for p_, text in files.items():
+        write(os.path.join(MAIN, p_), text)
+    write(os.path.join(STORY, "plan.md"), "---\ntype: plan\nstory: S1-01\n---\n# plan\n\n## T1 tests\n\n"
+          + "".join("- `%s`\n  - planned.\n" % ref for ref in plan_refs))
+    env = dict(ENV, REPO_DIR=MAIN, STORY_DIR=STORY, AGENTIC_SELFCHECK="1",
+               STANDARDS_FILE=os.path.join(T, "std-none.md"))
+    return subprocess.run([os.path.join(BIN, "gate-final")], cwd=MAIN, env=env, capture_output=True, text=True, input="")
+
+
+write(os.path.join(T, "std-none.md"), "# standards\n\n## Gate matrix\n\n```\ntrue\n```\n")
+r = final({}, ["tests/test_add.py::test_add"])
+assert r.returncode == 0, r.stderr
+r = final({}, ["tests/test_add.py::test_add", "tests/test_add.py::test_dropped"])
+assert r.returncode == 2 and "test_dropped" in r.stderr, r.stderr
+ok("final gate: a planned Python test is found on main by its `def`; a dropped one blocks")
+for name, text in (("tests/test_skip.py", "import pytest\n\n\n@pytest.mark.skip(reason='later')\ndef test_x():\n    assert False\n"),
+                   ("tests/test_xfail.py", "import pytest\n\n\n@pytest.mark.xfail\ndef test_x():\n    assert False\n"),
+                   ("tests/test_inline.py", "import pytest\n\n\ndef test_x():\n    pytest.skip('later')\n"),
+                   ("tests/test_ut.py", "import unittest\n\n\n@unittest.skip('later')\ndef test_x():\n    assert False\n"),
+                   ("calc_test.go", "package calc\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) { t.Skip(\"later\") }\n"),
+                   ("web/a.test.js", "describe.skip('a', () => {});\n"),
+                   ("web/b.test.ts", "xdescribe('b', () => {});\n")):
+    r = final({name: text}, ["tests/test_add.py::test_add"])
+    assert r.returncode == 2 and "test-suppression" in r.stderr, (name, r.stderr)
+    os.remove(os.path.join(MAIN, name))
+r = final({"tests/test_ok.py": "def test_skip_words():\n    assert 'skip'\n"}, ["tests/test_add.py::test_add"])
+assert r.returncode == 0, r.stderr
+ok("final gate: pytest/unittest skip and xfail, Go t.Skip and JS .skip/xdescribe are suppressions; a test named skip is not")
+
+# 7) Go: the same rule through `go test`, whose exit code is 1 for both a build failure and a
 #    failed assertion; the build failure is told apart by its "[build failed]" line
 GO = shutil.which("go")
 if GO:

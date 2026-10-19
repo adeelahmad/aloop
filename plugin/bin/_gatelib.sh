@@ -370,6 +370,12 @@ assert_no_suppression() {
       | grep -v '/target/' >/dev/null 2>&1; then
     fail "test-suppression pattern present (no #[ignore]/.skip/xit/cfg(not(test)))"
   fi
+  # Python, Go, JS/TS: the same rule in each test framework's own words
+  if grep -rEn '@pytest\.mark\.(skip|skipif|xfail)|pytest\.(skip|xfail)\(|@unittest\.(skip|expectedFailure)|(^|[^A-Za-z_])t\.Skip(Now|f)?\(|\.skip\(|(^|[^A-Za-z])x(it|describe|test)\(' \
+      --include='*.py' --include='*.go' --include='*.js' --include='*.jsx' --include='*.ts' --include='*.tsx' \
+      --exclude-dir=node_modules --exclude-dir=.venv --exclude-dir=venv --exclude-dir=.git "$root" 2>/dev/null >/dev/null; then
+    fail "test-suppression pattern present (no @pytest.mark.skip/@pytest.mark.xfail/pytest.skip/@unittest.skip/t.Skip/.skip/xit/xdescribe)"
+  fi
 }
 
 # Worktree-isolation invariant. A writing worker (red/scaffolder/green) MUST run in a

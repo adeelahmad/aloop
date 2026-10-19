@@ -37,7 +37,10 @@ while [ $# -gt 0 ]; do
 done
 case "$HOST" in claude|codex|opencode) ;; *) echo "unknown host: $HOST (claude|codex|opencode)"; exit 2 ;; esac
 command -v "$HOST" >/dev/null || { echo "$HOST CLI not found"; exit 2; }
-command -v cargo >/dev/null || { echo "cargo not found"; exit 2; }
+case "$FIXTURE" in
+  slugify) command -v python3 >/dev/null && command -v pytest >/dev/null || { echo "python3 and pytest needed for INTENT=slugify"; exit 2; } ;;
+  *) command -v cargo >/dev/null || { echo "cargo not found"; exit 2; } ;;
+esac
 PLUGIN="$(cd "$(dirname "$0")/../../plugin" && pwd)"
 # The host's own ids for the routes; empty (Codex) means the session's model: pass no --model.
 [ -n "$SUP_MODEL" ] || SUP_MODEL="$("$PLUGIN/bin/models" routes --host "$HOST" | sed -n 's/.*strong=\([^ ]*\).*/\1/p')"
@@ -54,13 +57,23 @@ case "$FIXTURE" in
   wordfreq)
     CRATE=wordfreq KEYWORD=count
     INTENT="Plan and build a small Rust library that (1) counts word frequencies in a text, case-insensitively, where a word is a maximal run of alphanumeric characters, and (2) returns the top N words ordered by count descending, ties alphabetically. Two stories, the second depending on the first; one sprint, TDD." ;;
-  *) echo "unknown intent: $FIXTURE (semver|wordfreq)"; exit 2 ;;
+  slugify)   # a Python intent: the gates hold beyond Rust (RED runs the matrix's pytest)
+    CRATE=slugify KEYWORD=slugify
+    INTENT="Plan and build a small Python package \"slugify\" with one function slugify(text) that lowercases the text, replaces every run of characters that are not ASCII letters or digits with a single hyphen, and strips leading and trailing hyphens. Tests with pytest. One story, one sprint, TDD." ;;
+  *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify)"; exit 2 ;;
 esac
-cargo init -q --lib --name "$CRATE" . 2>/dev/null
-printf '//! %s\n' "$CRATE" > src/lib.rs          # no template test: the run must write its own
-# The lockfile is part of the seed: left untracked, the supervisor commits it on main itself
-# (run 16: "Track Cargo.lock"), a commit no task owns and `events trace` cannot explain.
-cargo generate-lockfile -q 2>/dev/null || true
+if [ "$FIXTURE" = slugify ]; then
+  SRC=slugify TEST_RE='def test_' TEST_CMD='pytest -q' SUPPRESS_RE='pytest\.mark\.(skip|xfail)|pytest\.skip\('
+  mkdir -p slugify && printf '"""slugify."""\n' > slugify/__init__.py
+  printf '__pycache__/\n.pytest_cache/\n' > .gitignore
+else
+  SRC=src TEST_RE='#\[test\]' TEST_CMD='cargo test -q' SUPPRESS_RE='#\[ignore\]|cfg\(not\(test\)\)'
+  cargo init -q --lib --name "$CRATE" . 2>/dev/null
+  printf '//! %s\n' "$CRATE" > src/lib.rs          # no template test: the run must write its own
+  # The lockfile is part of the seed: left untracked, the supervisor commits it on main itself
+  # (run 16: "Track Cargo.lock"), a commit no task owns and `events trace` cannot explain.
+  cargo generate-lockfile -q 2>/dev/null || true
+fi
 git add -A && git commit -qm init
 "$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="${WORKER_MODEL:-economical}" MODEL_WORKER="${WORKER_MODEL:-economical}" GITIGNORE=yes >/dev/null
 # Codex and OpenCode load the agents, skills and hooks from the project: render them in.
@@ -111,10 +124,10 @@ check "planning artifacts are schema-valid" \
   '[ -n "$story" ] && find docs/agents/sprint1 -name "*.md" \( -name stories.md -o -name tasks.md -o -name validate.md -o -name plan.md \) | "$PLUGIN/bin/md-db" validate --stdin-list --schema "$PLUGIN/schemas/planning-artifacts.kdl" >/dev/null 2>&1'
 check "RED and GREEN gates both passed at least once" \
   'grep -q "\"gate\":\"gate-red-verify\".*\"exit\":0" .aladdin/logs/gates.jsonl 2>/dev/null && grep -q "\"gate\":\"gate-green-verify\".*\"exit\":0" .aladdin/logs/gates.jsonl'
-check "work is merged into main (src/ changed since init)" '[ -n "$(git diff --name-only HEAD~1 -- src 2>/dev/null; git log --oneline main | sed -n 3p)" ]'
-check "main has a test that exercises the library ($KEYWORD)" 'grep -rqsE "#\[test\]" tests src && grep -rqsiE "$KEYWORD" tests src'
-check "main's tests pass" 'cargo test -q >/dev/null 2>&1'
-check "no suppressed tests on main" '! grep -rqsE "#\[ignore\]|cfg\(not\(test\)\)" src tests'
+check "work is merged into main ($SRC/ changed since init)" '[ -n "$(git diff --name-only HEAD~1 -- "$SRC" 2>/dev/null; git log --oneline main | sed -n 3p)" ]'
+check "main has a test that exercises the library ($KEYWORD)" 'grep -rqsE "$TEST_RE" tests "$SRC" && grep -rqsiE "$KEYWORD" tests "$SRC"'
+check "main's tests pass" '$TEST_CMD >/dev/null 2>&1'
+check "no suppressed tests on main" '! grep -rqsE "$SUPPRESS_RE" "$SRC" tests'
 check "SubagentStop gates ran on the host (not only workers' self-checks)" \
   'grep -q "\"selfcheck\":false" .aladdin/logs/gates.jsonl 2>/dev/null'
 check "final gate passed" 'grep -q "\"gate\":\"gate-final\".*\"exit\":0" .aladdin/logs/gates.jsonl 2>/dev/null'
