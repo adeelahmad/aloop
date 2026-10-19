@@ -21,7 +21,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$HERE/_paths.sh"
 
 cmd="${1:-}"; task="${2:-}"
-case "$task" in ""|*/*|.*) [ "$cmd" = "-h" ] || [ "$cmd" = "--help" ] || { echo "task-worktree: need a TASK_ID like S1-02-T3" >&2; exit 64; } ;; esac
+# `<cmd> --help` is a request for usage, never a TASK_ID (live e2e run 32 made an agentic/--help)
+case "$task" in -h|--help) cmd=--help ;; esac
+case "$task" in ""|*/*|.*|-*) [ "$cmd" = "-h" ] || [ "$cmd" = "--help" ] || { echo "task-worktree: need a TASK_ID like S1-02-T3" >&2; exit 64; } ;; esac
 wt="$AGENTIC_HOME/worktrees/$task"
 case "$cmd" in
   add)

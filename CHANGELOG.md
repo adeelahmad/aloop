@@ -53,6 +53,8 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 - `make conformance` now covers ROADMAP §6.1 and §6.10–6.20 (except 6.15) by running the focused test of the tool that holds each item. Before this, its report said those items "do not exist yet", though they shipped in v0.12.0. It now reports 74 checks across 19 of the 20 items. §6.15 (re-decomposition) stays explicit: it is measured by live runs. CI's rust job sets up Node 22 for the OpenCode test.
 
 ### Fixed
+- `gate-supervisor-scope` now also matches `ScheduleWakeup` and blocks it for the supervisor while a sprint is live: a dispatched agent's result arrives on its own notification. Reason: live run 32 set a 1200s wakeup while the planner ran in the background and the headless session idled 12 minutes after the final gate.
+- `task-worktree <cmd> --help` prints usage instead of creating a worktree named `--help`, and a TASK_ID starting with `-` is refused (exit 64). Reason: live run 32.
 - `gate-scaffold-verify` no longer demands a `SUB-AGENT-TODO` panic for a listed symbol that already existed at `BASE_REF`, in a file the scaffolder left unchanged: it implements nothing. A changed file with no stub is still rejected. Reason: live run 31 (semver), T2's tests called only T1's finished `parse`, the scaffolder listed it, and the gate blocked it 4 times (stuck release, a second dispatch). Test: two conformance cases (§6.3).
 - SKILL.md's data-plane tree drew `sprintN/` under `.aladdin/` (the run-data dir); it is now under
   `docs/agents/`, and `.aladdin/` is drawn as run data only (live run 24's haiku supervisor put the

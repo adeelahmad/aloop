@@ -181,7 +181,8 @@ artifacts under `docs/agents/sprintN/`.
 Dispatch the planning roles in the **foreground** (`run_in_background: false`); intake
 and standards may go together as two Agent calls in ONE message. Never poll for their files
 with `sleep` loops: a foreground call returns when the agent is done (live run 29: 5 polling
-turns).
+turns). If the host moves a long call to the background, end the turn: its notification wakes
+you. Never `ScheduleWakeup` (blocked; run 32 idled 12m on one).
 
 ## Prerequisites
 - A POSIX shell + git with worktrees. The gates and `bin/transcripts` are bash.
