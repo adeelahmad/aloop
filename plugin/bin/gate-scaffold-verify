@@ -71,6 +71,15 @@ for sym in $symbols; do
     file="$(grep -rlE "\\b(fn|struct|enum|trait|type|const|static|mod)\\s+$sym\\b" --include='*.rs' "$root" 2>/dev/null | grep -v '/target/' | head -1)"
   fi
   [ -z "$file" ] && fail "scaffolded symbol \`$sym\` not found on disk"
+  # A symbol an earlier task already implemented on main, in a file this scaffold left unchanged
+  # since BASE_REF, implements nothing here (live e2e run 31: T2's tests called T1's `parse`).
+  rel="${file#"$root"/}"
+  if [ -n "${BASE_REF:-}" ] && git -C "$root" cat-file -e "$BASE_REF:$rel" 2>/dev/null \
+     && git -C "$root" diff --quiet "$BASE_REF" -- "$rel" 2>/dev/null \
+     && git -C "$root" show "$BASE_REF:$rel" 2>/dev/null | grep -qE "\\b(fn|struct|enum|trait|type|const|static|mod)\\s+$sym\\b"; then
+    note "\`$sym\` already existed at BASE_REF in $rel, unchanged: nothing to stub"
+    continue
+  fi
   grep -q 'SUB-AGENT-TODO' "$file" \
     || fail "\`$sym\` in $file has no SUB-AGENT-TODO panic — scaffolder implemented a body (forbidden)"
 done

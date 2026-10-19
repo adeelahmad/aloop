@@ -188,6 +188,18 @@ write(os.path.join(wt, ".aladdin", "scaffold-symbols"), "create fn mycrate::nosu
 case(3, "SCAFFOLD naming an undefined symbol is still rejected, with the file's shape in the block",
      "gate-scaffold-verify", wt, 2, "one production symbol per line")
 write(os.path.join(wt, ".aladdin", "scaffold-symbols"), "sub\n")
+# A later task whose tests call only symbols an earlier task already implemented on main (live e2e
+# run 31: T2's tests called T1's `parse`; the scaffolder listed it, the gate demanded a TODO panic
+# in a body the scaffolder had not touched, and it hit the stuck release). A symbol that already
+# existed at BASE_REF, in a file the scaffolder left unchanged, implements nothing.
+wt = worktree("scaffolder")
+report("scaffolder", [("src/lib.rs::add", "EXISTS")])
+case(3, "SCAFFOLD listing a symbol already on main, in an unchanged file, is accepted", "gate-scaffold-verify", wt, 0,
+     "1 symbol(s) unique", extra={"SCAFFOLD_SYMBOLS": "add"})
+write(os.path.join(wt, "src", "lib.rs"), LIB.replace("a + b", "a + b + 0"))
+commit(wt, "scaffold edits an existing body")
+case(3, "SCAFFOLD that changes an existing symbol's file with no TODO stub is still rejected",
+     "gate-scaffold-verify", wt, 2, "SUB-AGENT-TODO", extra={"SCAFFOLD_SYMBOLS": "add"})
 
 # §6.4 RED cannot write production code
 wt = red_ok()
