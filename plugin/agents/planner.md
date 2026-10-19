@@ -129,6 +129,7 @@ the first write passes (live runs 12–14 hit each of these):
 - `symbol` names something that EXISTS in the tree now; a function this sprint will add is a
   `planned_symbol` — `create` for a new file (the path must not exist yet), `extend` for a new
   symbol in an existing file (`"operation": "extend", "path": "src/lib.rs", "planned_symbol": "count_words"`);
+  a `create` of a test file may omit it when the task's `tests` name that path (the first `fn` is used);
 - `modify|refactor|replace|delete` need a `symbol` that exists (or `planned_symbol` for `extend`).
 Prefer the whole plan in targets.json: add `story` and `tasks` (`id` T1…, `title`, `summary`,
 optional `budget`, `tests` [{path, fn, assert}], optional `validate` [{run, expect}]) and run
