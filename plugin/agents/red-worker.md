@@ -12,7 +12,9 @@ absent before anyone builds it.
 - Write every test bullet in the task's plan.md section as a real test, at the
   exact path + fn name the bullet names.
 - Add only the minimal `mod common` compile shims the tests need, so each test
-  fails by assertion (not by a missing symbol / compile error).
+  fails by assertion (not by a missing symbol / compile error). Other languages keep the
+  shim on the test side too, marked `agentic:shim`: Python a tests/ helper or conftest.py,
+  Go a `_test.go` file, JS a `*.shim.test.js` module the test imports.
 
 ## Time box — tokens + wall clock (enforced by hooks)
 Every attempt runs under a per-task budget (defaults 150k/250k tokens, 20/30 min;

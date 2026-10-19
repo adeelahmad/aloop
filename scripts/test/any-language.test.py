@@ -259,4 +259,43 @@ if GO:
 else:
     print("skip - go not on PATH")
 
+# 8) JS: `node --test` (and npm test over it) exits 1 for a failed assertion and for a test file
+#    that cannot load what it imports; the load failure is told apart by node's own error text
+NODE = shutil.which("node")
+if NODE:
+    J = os.path.join(T, "jsrepo")
+    os.makedirs(J)
+    for c in (("git", "init", "-q", "-b", "main"), ("git", "config", "user.email", "ada@x.io"), ("git", "config", "user.name", "Ada")):
+        sh(*c, cwd=J)
+    write(os.path.join(J, "package.json"), '{"name": "calc", "type": "module", "scripts": {"test": "node --test"}}\n')
+    write(os.path.join(J, "src", "calc.js"), "export function add(a, b) { return a + b }\n")
+    write(os.path.join(J, ".gitignore"), ".aladdin/\n")
+    write(os.path.join(J, "standards.md"), "# standards\n\n## Gate matrix\n\n```\nnode --test\n```\n")
+    sh("git", "add", "-A", cwd=J)
+    sh("git", "commit", "-qm", "init", cwd=J)
+    TEST = "import { test } from 'node:test'\nimport assert from 'node:assert/strict'\nimport { %s } from '%s'\n\ntest('sub', () => assert.equal(sub(3, 1), 2))\n"
+    for name, files, want in (
+            ("js-import", {"src/sub.test.js": TEST % ("sub", "./calc.js")}, 2),
+            ("js-missing", {"src/sub.test.js": TEST % ("sub", "./sub.js")}, 2),
+            ("js-assert", {"src/sub.shim.test.js": "export function sub() { return 0 } // agentic:shim\n",
+                           "src/sub.test.js": TEST % ("sub", "./sub.shim.test.js")}, 0)):
+        wt = os.path.join(T, name)
+        sh("git", "worktree", "add", "-q", "-b", "agentic/" + name, wt, cwd=J)
+        write(os.path.join(wt, ".aladdin", "task.env"),
+              "TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=%s\nBASE_REF=main\n" % STORY)
+        for p_, text in files.items():
+            write(os.path.join(wt, p_), text)
+        sh("git", "add", "-A", cwd=wt)
+        sh("git", "commit", "-qm", name, cwd=wt)
+        write(os.path.join(STORY, "output.md"),
+              "---\ntype: output\n---\n# output\n\n## S1-01-T1 · attempt 1 · red-worker · 2026-10-19T00:01:00Z\n"
+              "### Summary\nwork\n### Result\n| Check | Status |\n|---|---|\n| src/sub.test.js::sub | FAIL |\nregressed=0\n### Next\nnext\n")
+        r = subprocess.run([os.path.join(BIN, "gate-red-verify")], cwd=wt, input="", capture_output=True, text=True,
+                           env=dict(ENV, REPO_DIR=wt, STANDARDS_FILE=os.path.join(J, "standards.md")))
+        assert r.returncode == want, (name, r.stderr)
+        assert want == 0 or "do NOT load" in r.stderr, (name, r.stderr)
+    ok("JS RED: a test that cannot import what it tests is rejected (shim it in a test file), a failed assertion is accepted")
+else:
+    print("skip - node not on PATH")
+
 print("\n%d checks passed" % n[0])
