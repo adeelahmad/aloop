@@ -51,7 +51,7 @@ find_tool() {
     [ -n "$d" ] || continue
     # our own build for an older version or sources is no answer (live runs 38, 40: a 0.11.0
     # ctx-symbols ahead of the session's current one on PATH reported false HIGHs)
-    [ "$d" = "$TOOLS_BIN" ] && own_stale && continue
+    [ "$d" = "$TOOLS_BIN" ] && own_outdated && continue
     [ "$(cd "$d" 2>/dev/null && pwd -P)" = "$(cd "$HERE" && pwd -P)" ] && continue
     [ -x "$d/ensure-tools" ] && continue
     [ -x "$d/$t" ] && [ ! -d "$d/$t" ] && { echo "$d/$t"; return 0; }
@@ -66,6 +66,15 @@ have_all() { find_tool md-db >/dev/null && find_tool ctx-symbols >/dev/null; }
 own_stale() {
   [ -x "$TOOLS_BIN/md-db" ] || [ -x "$TOOLS_BIN/ctx-symbols" ] || return 1
   [ "$(cat "$STAMP" 2>/dev/null)" != "$STAMP_VALUE" ]
+}
+
+# Stale for resolving: a stamped build of another version, or (only where the tool sources are here to tell) other
+# sources. An installed plugin copy (aloop install opencode|codex) has no tools/ and trusts its version.
+own_outdated() {
+  [ -f "$STAMP" ] || return 1                   # no stamp: placed there by hand (or a test), not ours to judge
+  own_stale || return 1
+  [ -d "$ROOT/tools" ] && return 0
+  [ "$(cut -d+ -f1 "$STAMP" 2>/dev/null)" != "$VERSION" ]
 }
 
 build_running() {
