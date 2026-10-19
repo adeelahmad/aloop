@@ -261,6 +261,51 @@ mod tests {
         assert_eq!(locs.len(), 2);
     }
 
+    // C: only a function DEFINITION (declarator + compound body) counts — a prototype
+    // (`...;`) or a call site never does. Reproduces the darwin-vm DART scaffold block
+    // where every C stub read as "defined 0 times".
+    const C_DEF: &str = "#include <stdint.h>\n\
+void *c_new(uint32_t n)\n{\n    (void)n;\n    return 0; /* SUB-AGENT-TODO */\n}\n\
+uint32_t c_read32(void *s, uint32_t off)\n{\n    (void)s; (void)off;\n    return 0;\n}\n";
+
+    #[test]
+    fn c_single_definition_counts_one() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "core.c", C_DEF);
+        write(
+            dir.path(),
+            "core.h",
+            "void *c_new(uint32_t n);\nuint32_t c_read32(void *s, uint32_t off);\n",
+        );
+        write(
+            dir.path(),
+            "use.c",
+            "#include \"core.h\"\nint main(void) { c_read32(c_new(1), 0); return 0; }\n",
+        );
+        assert_eq!(count_symbol(dir.path(), "c_new").unwrap().len(), 1);
+        assert_eq!(count_symbol(dir.path(), "c_read32").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn c_two_definitions_count_two() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "a.c", C_DEF);
+        write(dir.path(), "b.c", C_DEF);
+        assert_eq!(count_symbol(dir.path(), "c_new").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn c_prototype_only_counts_zero() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "core.h", "void *c_new(uint32_t n);\n");
+        write(
+            dir.path(),
+            "core.c",
+            "int f(void) { c_new(1); return 0; }\n",
+        );
+        assert_eq!(count_symbol(dir.path(), "c_new").unwrap().len(), 0);
+    }
+
     #[test]
     fn detect_duplicate_definition_is_high() {
         let dir = tempfile::tempdir().unwrap();
