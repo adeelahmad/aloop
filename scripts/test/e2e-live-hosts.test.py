@@ -157,6 +157,12 @@ assert "pub fn parse(" in open(os.path.join(d, "repo", "src", "lib.rs")).read()
 assert open(os.path.join(d, "repo", "tests", "parse.rs")).read() == seed
 ok("--intent extend|modify: a working crate with its own passing tests is seeded and committed before the run")
 
+# 5f) the application intent seeds a binary next to the library: its tests run the binary
+r, d = run("--intent", "cli")
+assert r.returncode == 0, (r.stdout, r.stderr)
+assert open(os.path.join(d, "repo", "src", "main.rs")).read().strip() == "fn main() {}"
+ok("--intent cli: a stub binary (src/main.rs) is seeded for an application intent")
+
 # 6) a run started from inside a Claude Code session does not inherit that session: live runs 32-34
 #    reported the parent's session id and recalled the parent's team memory (memory_recall of this
 #    repo's own agent notes), so the measured supervisor was not a clean one.
@@ -179,13 +185,14 @@ ok("the supervisor CLI runs without the parent session's id, memory store or mes
 
 # 7) every intent's post-run checks run to the end (live run 37: the slugify branch never set
 #    SUPPRESS_RE, so the checks died on an unbound variable after a successful session)
-for intent in ("semver", "wordfreq", "slugify", "roman", "camel", "extend", "modify"):
+for intent in ("semver", "wordfreq", "slugify", "roman", "camel", "extend", "modify", "cli"):
     d = tempfile.mkdtemp(prefix="run-", dir=T)
     r = subprocess.run([SH, "--yes", "--intent", intent], cwd=T, capture_output=True, text=True,
                        env=dict(ENV, E2E_DIR=d, PATH=spy + ":" + ENV["PATH"], TIMEOUT="30"))
     out = r.stdout + r.stderr
     assert "unbound variable" not in out and "no suppressed tests on main" in out and "every merged commit traces" in out, (intent, out[-2000:])
+    assert intent != "cli" or "the minwc binary counts stdin" in out, out[-2000:]
     assert intent not in ("extend", "modify") or "the seed's own tests are still on main" in out, out[-2000:]
-ok("the post-run checks of every intent (semver, wordfreq, slugify, roman, camel, extend, modify) run to the end")
+ok("the post-run checks of every intent (semver, wordfreq, slugify, roman, camel, extend, modify, cli) run to the end")
 
 print("\n%d checks passed" % PASS[0])
