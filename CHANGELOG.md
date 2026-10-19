@@ -55,6 +55,7 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ### Fixed
 - `gate-supervisor-scope` fails closed when `date` prints a non-number. Before this fix, bash 3.2 (the default `/bin/bash` on macOS) treated the bad lock-age check as "stale" and allowed the write. The new macOS CI job caught it.
+- `e2e-live.sh` runs on a Mac: it used GNU `timeout`, which macOS lacks, so the supervisor CLI never started. It now falls back to `gtimeout`, then to a perl alarm. The new macOS CI job caught it.
 - `stats sprint-close` and the sprint charge compare story dirs by realpath, so a project reached through a symlink (every macOS temp dir: `/var` → `/private/var`) no longer counts 0 attempts, and `sprint1` no longer matches `sprint10`. Reason: `budget-soft-telemetry.test.py` failed on a Mac release run.
 - `ensure-tools --resolve` skips any aloop plugin `bin/` on PATH, not only its own: another checkout's `ctx-symbols` shim ahead on PATH made `make conformance` hang. Reason: Mac release run.
 - `e2e-live.sh` runs the supervisor CLI without the parent Claude Code session's id, SDK URL, memory store and messaging socket. Reason: live runs 32-34, started from an agent session, reported that session's id and recalled its team memory, so the measured supervisor was not a clean one.
