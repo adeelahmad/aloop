@@ -3,14 +3,15 @@
 # REAL host session with the plugin, the human's only input being approval (given up front
 # here). Spends real tokens (dollars, not cents), so it needs --yes; CI does not run it.
 #
-#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq|slugify|roman|camel|extend|modify] [--host claude|codex|opencode]
+#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq|slugify|roman|camel|extend|modify|cli] [--host claude|codex|opencode]
 #                                   [--model M] [--worker-model M] [--dry-run]
 #   (or: make e2e-live YES=1 [INTENT=wordfreq] [HOST=opencode])
 #
 # Intents: semver (one story) · wordfreq (two dependent stories: counting, then top-N ranking) ·
 # slugify (Python, pytest) · roman (Go, go test) · camel (JS, node --test) ·
 # extend (brownfield: a working Rust crate with its own tests gets a new function) ·
-# modify (brownfield: the same crate's existing parse changes behaviour).
+# modify (brownfield: the same crate's existing parse changes behaviour) ·
+# cli (a Rust binary, tested by running it).
 # Hosts (ROADMAP §4.11, M8: measured runs on every host):
 #   claude    `claude -p --plugin-dir` (the reference; the plugin needs no install)
 #   opencode  `aloop install opencode` into the run repo, then `opencode run --format json`
@@ -77,7 +78,10 @@ case "$FIXTURE" in
   modify)    # brownfield: the run changes a function that already exists, works and is tested
     CRATE=semver_lite KEYWORD=parse
     INTENT="This repo is an existing Rust library, semver_lite, whose parse(s) -> Result<(u64, u64, u64), String> already works and is tested in tests/parse.rs. Change parse so it also accepts an optional leading \"v\" or \"V\" (\"v1.2.3\" parses as (1, 2, 3)) and ignores leading and trailing whitespace; everything it rejects today it still rejects (\"vv1.2.3\", \"v\", \"1.2\"). Keep its signature and its existing tests. One story, one sprint, TDD." ;;
-  *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify|roman|camel|extend|modify)"; exit 2 ;;
+  cli)       # an application, not a library: a binary whose tests run it as a process
+    CRATE=minwc KEYWORD=minwc
+    INTENT="Plan and build a small Rust command-line tool, minwc, that reads text from stdin and prints counts like wc: with no flags it prints \"<lines> <words> <bytes>\"; -l, -w and -c print only that count; an unknown flag prints a usage line to stderr and exits with status 2. Keep the counting in the library (src/lib.rs) and the argument handling in src/main.rs. Test the binary end to end by running it (env!(\"CARGO_BIN_EXE_minwc\")) from tests/. One sprint, TDD." ;;
+  *) echo "unknown intent: $FIXTURE (semver|wordfreq|slugify|roman|camel|extend|modify|cli)"; exit 2 ;;
 esac
 if [ "$FIXTURE" = camel ]; then
   SRC=src TEST_RE='(^|[^A-Za-z.])(test|it)\(' TEST_CMD='npm test --silent' SUPPRESS_RE='\.(skip|todo)\(|(^|[^A-Za-z])x(it|describe|test)\('
@@ -141,6 +145,8 @@ else
   SRC=src TEST_RE='#\[test\]' TEST_CMD='cargo test -q' SUPPRESS_RE='#\[ignore\]|cfg\(not\(test\)\)'
   cargo init -q --lib --name "$CRATE" . 2>/dev/null
   printf '//! %s\n' "$CRATE" > src/lib.rs          # no template test: the run must write its own
+  # cli: a binary next to the library (a stub main; the run writes the argument handling)
+  if [ "$FIXTURE" = cli ]; then mkdir -p src && printf 'fn main() {}\n' > src/main.rs; fi
   # The lockfile is part of the seed: left untracked, the supervisor commits it on main itself
   # (run 16: "Track Cargo.lock"), a commit no task owns and `events trace` cannot explain.
   cargo generate-lockfile -q 2>/dev/null || true
@@ -200,6 +206,9 @@ check "main has a test that exercises the library ($KEYWORD)" 'grep -rqsE "$TEST
 check "main's tests pass" '$TEST_CMD >/dev/null 2>&1'
 check "no suppressed tests on main" '! grep -rqsE "$SUPPRESS_RE" "$SRC" tests'
 # Brownfield: the change kept what was already there (the seed's own tests, unweakened, still pass)
+# An application: the merged binary does what the intent says when it is run
+[ "$FIXTURE" = cli ] && check "the minwc binary counts stdin (-w) and exits 2 on a bad flag" \
+  '[ "$(printf "a b\nc\n" | cargo run -q -- -w 2>/dev/null | tr -d " ")" = 3 ] && { cargo run -q -- --nope </dev/null >/dev/null 2>&1; [ $? -eq 2 ]; }'
 case "$FIXTURE" in extend|modify) check "the seed's own tests are still on main" \
   '[ "$(grep -cE "fn (parses_a_version|rejects_two_parts|rejects_a_non_number)\(\)" tests/parse.rs 2>/dev/null)" = 3 ] && cargo test -q --test parse >/dev/null 2>&1' ;; esac
 check "SubagentStop gates ran on the host (not only workers' self-checks)" \
