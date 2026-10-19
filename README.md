@@ -294,6 +294,8 @@ make publish        # pushes branch + tags
 - **shellcheck** — lints every gate script (`plugin/bin/*`), errors fail the build.
 - **hosts** — byte-compiles the Python hooks, then Codex hooks emulation + the OpenCode
   plugin end-to-end (no network, no tokens).
+- **macos** — the same host tests and the conformance fixtures on macOS, where temp dirs sit
+  behind a symlink and the userland is BSD.
 - **plugin** — JSON sanity on the manifest + marketplace, eval-suite validation, version
   lockstep, then `claude plugin validate ./plugin --strict`.
 
