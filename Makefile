@@ -124,6 +124,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/ensure-tools.test.py
 	python3 scripts/test/fail-closed.test.py
 	python3 scripts/test/bash-portable.test.py
+	python3 scripts/test/red-any-language.test.py
 	python3 scripts/test/intent-trigger.test.py
 	python3 scripts/test/evidence.test.py
 	python3 scripts/test/e2e-live-hosts.test.py

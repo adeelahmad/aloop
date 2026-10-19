@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # RED gate: every NEW test fails BY ASSERTION (not compile error), none regressed,
-# diff touches only test + shim files, output.md validates. (Target: Rust.)
+# diff touches only test + shim files, output.md validates. Rust runs cargo; any other language
+# runs the test command its standards.md gate matrix declares (pytest, go test, npm test, ...).
 GATE_NAME="gate-red-verify"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${CLAUDE_PLUGIN_ROOT:=$(cd "$HERE/.." && pwd)}"
@@ -24,7 +25,7 @@ if [ -n "$test_rows" ]; then
   while IFS= read -r row; do
     fn="$(printf '%s\n' "$row" | grep -oE '::[A-Za-z_][A-Za-z0-9_]*' | tail -1 | cut -c3-)"
     if [ -n "$fn" ] && [ -n "${BASE_REF:-}" ] \
-       && git -C "$(repo_dir)" grep -qE "fn[[:space:]]+${fn}[[:space:]]*\(" "$BASE_REF" -- 2>/dev/null; then
+       && git -C "$(repo_dir)" grep -qE "(fn|def|func)[[:space:]]+${fn}[[:space:]]*[(<]" "$BASE_REF" -- 2>/dev/null; then
       continue
     fi
     fail "a NEW test PASSED in RED (test exercises nothing) — latest output.md block has a PASS row: ${fn:-$row}"
@@ -39,7 +40,8 @@ if printf '%s\n' "$block" | grep -qiE 'regressed=[1-9]'; then
 fi
 
 # 3) Diff scope: only test files + shim module.
-: "${TEST_GLOBS:=*/tests/*.rs tests/*.rs */tests/common/*.rs tests/common/*.rs **/tests/**}"
+# Rust's tests/ and tests/common/, any tests/ dir, and the Python/Go/JS test-file conventions.
+: "${TEST_GLOBS:=*/tests/*.rs tests/*.rs */tests/common/*.rs tests/common/*.rs **/tests/** tests/* test_*.py */test_*.py *_test.py conftest.py */conftest.py *_test.go */__tests__/* __tests__/* *.test.[jt]s *.test.[jt]sx *.spec.[jt]s *.spec.[jt]sx}"
 while IFS= read -r p; do
   [ -z "$p" ] && continue
   path_matches_any "$p" "$TEST_GLOBS" \
@@ -79,8 +81,28 @@ if [ "${GATE_RUN_TESTS:-auto}" != "0" ] && is_cargo_repo; then
     fail "RED tests PASS with no production code — they exercise nothing"
   fi
   note "RED verified: compiles, fails by assertion"
+elif [ "${GATE_RUN_TESTS:-auto}" != "0" ] && tc="$(standards_test_command)" && [ -n "$tc" ]; then
+  # Not a cargo repo: run the test command the project's own gate matrix declares.
+  root="$(repo_dir)"; _out="$(mktemp)"
+  note "running tests (must fail by assertion): $tc"
+  ( cd "$root" && eval "$tc" ) >"$_out" 2>&1; rc=$?
+  tail -15 "$_out" >&2
+  _build_failed=""; grep -qE '\[(build|setup) failed\]' "$_out" && _build_failed=1; rm -f "$_out"
+  [ "$rc" -ne 0 ] || fail "RED tests PASS with no production code — they exercise nothing ($tc exited 0)"
+  case "$tc" in
+    *pytest*)   # pytest: 1 tests failed · 2 collection error (an import) · 3/4 internal/usage · 5 none collected
+      case "$rc" in
+        1) ;;
+        5) fail "RED's test command collected no tests ($tc exited 5): write the tests under tests/ as test_*.py" ;;
+        *) fail "RED tests do NOT collect ($tc exited $rc: an import or collection error, not an assertion). Each missing name gets a shim the tests import from the test side (tests/conftest.py or a tests/ helper module, marked # agentic:shim); the source tree is SCAFFOLD's and GREEN's." ;;
+      esac ;;
+    *"go test"*)
+      [ -z "$_build_failed" ] \
+        || fail "RED tests do NOT compile ($tc: build failed): add each missing name as a shim in a _test.go file (marked // agentic:shim); the source tree is SCAFFOLD's and GREEN's." ;;
+  esac
+  note "RED verified: $tc fails (exit $rc)"
 else
-  warn "cargo run skipped; fail-by-assertion not dynamically verified"
+  warn "no cargo project and no test command in the standards.md gate matrix; fail-by-assertion not dynamically verified"
 fi
 
 exit 0

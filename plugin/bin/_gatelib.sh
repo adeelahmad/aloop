@@ -161,7 +161,7 @@ _task_env_kv() {
     line="${line#export }"
     case "$line" in ''|'#'*) continue ;; *=*) ;; *) continue ;; esac
     k="${line%%=*}"; v="${line#*=}"
-    case " $TASK_ENV_KEYS " in *" $k "*) ;; BUDGET_*) case "$k" in *[!A-Z_]*) continue ;; esac ;; *) continue ;; esac
+    case " $TASK_ENV_KEYS " in *" $k "*) ;; BUDGET_*) case "$k" in *[![:upper:]_]*) continue ;; esac ;; *) continue ;; esac
     case "$v" in \"*\") v="${v#\"}"; v="${v%\"}" ;; \'*\') v="${v#\'}"; v="${v%\'}" ;; esac
     printf '%s\t%s\n' "$k" "$v"
   done < "$1"
@@ -411,6 +411,25 @@ $(printf '    %s\n' $dirty)"
 FORMAT_CHECK_RE='(^|[[:space:]/])(cargo fmt|rustfmt|gofmt|prettier|black|ruff format)([[:space:]]|$)'
 run_format_checks() { run_standards_matrix "$FORMAT_CHECK_RE"; }
 
+# The test command in the standards.md gate matrix: its first line naming a known test runner
+# (empty when there is none). RED runs it in a non-cargo repo and requires a failure.
+TEST_RUNNER_RE='(^|[[:space:]/])(pytest|py\.test|go test|npm (run )?test|yarn test|pnpm test|jest|vitest|mvn test|gradle test|dotnet test|rspec|mix test|bun test)([[:space:]]|$)'
+standards_test_command() {
+  local root sf; root="$(repo_dir)"; sf="${STANDARDS_FILE:-}"
+  [ -n "$sf" ] || sf="$(find "$root" -maxdepth 6 -name standards.md 2>/dev/null | head -1)"
+  [ -n "$sf" ] && [ -f "$sf" ] || return 0
+  standards_matrix_lines "$sf" | grep -E "$TEST_RUNNER_RE" | head -1
+}
+standards_matrix_lines() {
+  # Fenced command lines under a "Gate matrix" / "Cross-cutting gates" heading.
+  awk '
+    /^#+.*([Gg]ate matrix|[Cc]ross-cutting gates)/ {insec=1; next}
+    insec && /^#+[[:space:]]/                        {insec=0}
+    insec && /^```/                                  {infence=!infence; next}
+    insec && infence && NF                           {print}
+  ' "$1"
+}
+
 # Run the gate matrix declared in standards.md (standards-bind-gates). Falls back
 # to a default Rust matrix with a WARN if standards.md / its matrix is not found.
 # Optional $1: an ERE; only the matrix commands matching it run (e.g. just the format check).
@@ -425,16 +444,10 @@ run_standards_matrix() {
 
   local -a cmds=()
   if [ -n "$sf" ] && [ -f "$sf" ]; then
-    # Extract fenced command lines under a "Gate matrix" / "Cross-cutting gates" heading.
     # a read loop, not mapfile: macOS /bin/bash is 3.2, where mapfile does not exist and the
     # matrix came back empty (scripts/test/bash-portable.test.py)
     local line
-    while IFS= read -r line; do cmds+=("$line"); done < <(awk '
-      /^#+.*([Gg]ate matrix|[Cc]ross-cutting gates)/ {insec=1; next}
-      insec && /^#+[[:space:]]/                        {insec=0}
-      insec && /^```/                                  {infence=!infence; next}
-      insec && infence && NF                           {print}
-    ' "$sf")
+    while IFS= read -r line; do cmds+=("$line"); done < <(standards_matrix_lines "$sf")
   fi
 
   if [ "${#cmds[@]}" -eq 0 ]; then
