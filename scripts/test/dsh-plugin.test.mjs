@@ -4,6 +4,7 @@
 // dsh-runtime.test.mjs runs the same plugin on dsh itself; this one covers what a scripted model
 // cannot reach cheaply: the budget limits, the STUCK release, the cancel, the fallbacks.
 import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -113,6 +114,41 @@ assert.ok(denied(await pre(h, root, "write", { file_path: join(story, "tasks.md"
 ok("arguments the model adds (agent_type, a nested file_path) never reach a gate as hook fields")
 assert.ok(denied(await pre(h, root, "bash", { command: 'git commit -m "x\n\nCo-Authored-By: Claude <noreply@anthropic.com>"' }), /co-author/i))
 ok("gate-commit-author blocks a Claude trailer")
+
+// the door rule (M9.30): `mission doors hook` runs last on every tool that can cross a door
+assert.ok(denied(await pre(h, root, "bash", { command: "gh pr merge 12 --squash" }), /ASK\[door\] push-default-branch/))
+assert.ok(denied(await pre(h, root, "bash", { command: "git push origin main" }), /ASK\[door\] push-default-branch/))
+assert.ok(allowed(await pre(h, root, "bash", { command: "git push origin s1-01-x" })))
+ok("a one-way door (a merge, a push to the default branch) stops at ASK[door]; a push to a branch is two-way")
+assert.ok(denied(await pre(h, root, "bash", { command: "aloop mission doors authorize push-default-branch --by me --reason r" }), /BLOCK\[door\] forge-human-record/))
+ok("an agent authorizing a door itself hits a wall (BLOCK[door] forge-human-record)")
+const pushFiles = { owner: "o", repo: "r", branch: "main", files: [{ path: "a.txt", content: "x" }], message: "m" }
+assert.ok(denied(await pre(h, root, "mcp__github__push_files", pushFiles), /ASK\[door\] push-default-branch/))
+assert.ok(denied(await pre(h, root, "mcp__github__push_files", JSON.stringify(pushFiles)), /ASK\[door\] push-default-branch/))
+assert.ok(denied(await pre(h, root, "mcp__github__push_files", { ...pushFiles, arguments: JSON.stringify({ ...pushFiles, branch: "x" }) }), /ASK\[door\] push-default-branch/))
+assert.ok(allowed(await pre(h, root, "mcp__github__push_files", { ...pushFiles, branch: "s1-01-x" })))
+ok("an MCP tool's arguments reach the door gate as its input: push_files to the default branch is asked (a nested `arguments` key hides nothing), to a branch not")
+// a once-door's digest is the MCP tool's own arguments wherever the agent runs, the digest any host prints
+// for them: the human's `--once` opens the action the ASK named, from any directory
+const share = { fileId: "f1", role: "reader", type: "anyone" }
+const digestOf = (d) => (JSON.stringify(d).match(/--once ([0-9a-f]{64})/) || [])[1]
+const shareHere = digestOf(await pre(h, root, "mcp__Google_Drive__share_file", share))
+mkdirSync(join(T, "elsewhere"), { recursive: true }); h.wd.set("root", join(T, "elsewhere"))
+const shareThere = digestOf(await pre(h, root, "mcp__Google_Drive__share_file", share))
+h.wd.delete("root")
+const want = createHash("sha256").update("mcp__Google_Drive__share_file\0" + JSON.stringify(share)).digest("hex")
+assert.ok(shareHere === want && shareThere === want, `${shareHere} ${shareThere} ${want}`)
+ok("an MCP tool's once digest is its own arguments, the same from any directory")
+// a live run: a question to the human must name a one-way door the gate stopped ([door:<id>])
+process.env.AGENTIC_AUTONOMY_MODE = "autonomous"
+const asking = (text, extra = {}) => ({ questions: [{ id: "q1", question: text, header: "Merge", multi_select: false,
+  options: [{ label: "Wait (Recommended)", description: "keep the draft" }, { label: "Merge" }] }], ...extra })
+assert.ok(denied(await pre(h, root, "ask_user_question", asking("Which name do you prefer?")), /two-way question/))
+assert.ok(denied(await pre(h, root, "ask_user_question", asking("Which name?", { note: "[door:push-default-branch]" })), /two-way question/))
+assert.ok(allowed(await pre(h, root, "ask_user_question", asking("[door:push-default-branch] Merge PR 12 into main?"))))
+delete process.env.AGENTIC_AUTONOMY_MODE
+assert.ok(allowed(await pre(h, root, "ask_user_question", asking("Which name do you prefer?"))))
+ok("ask_user_question is the question tool: in a live run an untagged one is denied (a tag only in an undeclared field counts for nothing); a door the gate stopped may be asked")
 
 // PostToolUse: gate-validate-artifact's block becomes the call's result
 writeFileSync(join(story, "init.md"), "no frontmatter\n")
@@ -304,6 +340,61 @@ assert.ok(denied(await pre(broken, agentOf("root2"), "bash", { command: "ls" }),
 assert.ok(denied(await pre(broken, agentOf("root2"), "subagent", { ...red, cwd: wt }), /could not resolve red-worker's model/))
 await assert.rejects(request(broken, childOf("bchild", "red-worker", { parentSession: "root2" }), profiled), /no model for red-worker/)
 ok("a role whose project's model cannot be resolved is neither dispatched nor run on the profile's model (fail closed)")
+
+// the door gate runs last (it records a crossing, using up a once-authorization), never for a
+// read-only tool, and fails closed: a hang, a kill, a crash or an exit but 0/2 denies
+const FD = join(T, "fake-doors")
+mkdirSync(join(FD, "bin"), { recursive: true })
+const CALLS = join(FD, "calls.log"), MODE = join(FD, "mode")
+for (const g of ["host-adapter", "gate-supervisor-scope", "gate-mission-scope", "gate-commit-author", "gate-dispatch", "budget"]) {
+  writeFileSync(join(FD, "bin", g), `#!/bin/sh\necho ${g} >> "${CALLS}"\n[ "$(cat "${MODE}")" = "budget-deny" ] && [ ${g} = budget ] && { echo "budget says no" >&2; exit 2; }\nexit 0\n`)
+  chmodSync(join(FD, "bin", g), 0o755)
+}
+writeFileSync(join(FD, "bin", "mission"), `#!/bin/sh
+echo "mission $*" >> "${CALLS}"
+case "$(cat "${MODE}")" in
+  hang) exec sleep 30 ;;
+  crash) echo "Traceback: boom" >&2; exit 1 ;;
+  kill) kill -9 $$ ;;
+  odd) exit 3 ;;
+  block) echo "BLOCK[doors]: the door gate could not decide" >&2; exit 2 ;;
+  deny) echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"doors: ASK[door] x"}}' ;;
+esac
+exit 0
+`)
+chmodSync(join(FD, "bin", "mission"), 0o755)
+const fd = host({ root: FD, doorsTimeoutMs: 500 })
+plugin.apply(fd.ctx, fd.config)
+const fdRoot = agentOf("root8")
+const doorsRun = async (mode, name = "bash", args = { command: "ls" }) => {
+  writeFileSync(MODE, mode); writeFileSync(CALLS, "")
+  const d = await pre(fd, fdRoot, name, args)
+  return { d, calls: readFileSync(CALLS, "utf8").trim().split("\n") }
+}
+let r = await doorsRun("ok")
+assert.ok(allowed(r.d) && r.calls.at(-1) === "mission doors hook" && r.calls.at(-2) === "budget", r.calls.join(","))
+r = await doorsRun("ok", "mcp__github__push_files", pushFiles)
+assert.ok(allowed(r.d) && r.calls.at(-1) === "mission doors hook", r.calls.join(","))
+ok("the door gate runs on every tool that can cross a door, last (after budget)")
+r = await doorsRun("budget-deny")
+assert.ok(denied(r.d, /budget says no/) && !r.calls.includes("mission doors hook"), r.calls.join(","))
+ok("a call another gate refused never reaches the door gate (no crossing recorded for it)")
+for (const [name, args] of [["read", { file_path: "README.md" }], ["glob", { pattern: "*" }], ["grep", { pattern: "x" }], ["read_image", { file_path: "a.png" }], ["todo_write", { todos: [] }], ["web_fetch", { url: "https://x.io" }], ["web_search", { query: "x" }]]) {
+  r = await doorsRun("hang", name, args)
+  assert.ok(allowed(r.d) && !r.calls.includes("mission doors hook"), `${name}: ${r.calls.join(",")}`)
+}
+ok("a read-only tool (read, glob, grep, todo, web) skips the door gate's spawn")
+const t0 = Date.now()
+r = await doorsRun("hang")
+assert.ok(denied(r.d, /door gate.*did not answer.*fail closed/) && Date.now() - t0 < 10000, JSON.stringify(r.d))
+for (const [mode, re] of [["crash", /door gate.*exited 1.*boom.*fail closed/], ["kill", /door gate.*(SIGKILL|killed).*fail closed/], ["odd", /door gate.*exited 3.*fail closed/],
+  ["block", /BLOCK\[doors\]: the door gate could not decide/], ["deny", /doors: ASK\[door\] x/]]) {
+  r = await doorsRun(mode)
+  assert.ok(denied(r.d, re), `${mode}: ${JSON.stringify(r.d)}`)
+}
+rmSync(join(FD, "bin", "mission"))
+assert.ok(denied((await doorsRun("ok")).d, /door gate.*could not run.*fail closed/))
+ok("the door gate fails closed: a hang (timeout), a crash, a kill, an odd exit or a missing gate denies; its own block or deny is the reason")
 
 // a gate runs the worker's code, so it gets the worker shell's environment: dsh's credential scrub,
 // aloop's own settings kept, and the plugin root the gates read their schemas from

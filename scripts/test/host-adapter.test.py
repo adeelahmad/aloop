@@ -68,6 +68,18 @@ assert [d["dsh"]["models"][g]["model"] for g in ("planning", "worker")] == ["dee
 assert run(H, "describe", "--host", "vim").returncode == 64
 ok("host describe: capabilities, dispatch vocabulary, boundary, isolation, gates and models per host")
 
+# the door rule on every host (M9.31): each tool policy names the door gate, and each host names the tool a
+# role asks the human with (the door gate holds a question to a one-way door the gate stopped)
+for h in d:
+    assert "mission doors hook" in d[h]["tool_policy"], (h, d[h]["tool_policy"])
+assert {h: d[h]["question"].split(" ")[0] for h in d} == {"claude": "AskUserQuestion", "codex": "request_user_input",
+                                                         "opencode": "question", "dsh": "ask_user_question"}, d
+assert "Plan mode" in d["codex"]["question"] and "not mounted" in d["dsh"]["question"], d
+assert all(_host.ADAPTERS[h].QUESTION == d[h]["question"] for h in d)
+r = run(H, "describe", "--host", "codex")
+assert "question" in r.stdout and "mission doors hook" in r.stdout, r.stdout
+ok("host describe: every tool policy names the door gate; each host names its ask-the-human tool")
+
 # 3) what a host cannot do is Unsupported, never faked
 for h in ("claude", "codex", "opencode"):
     assert "unsupported" in d[h]["send"], (h, d[h]["send"])            # no live messaging to a running worker

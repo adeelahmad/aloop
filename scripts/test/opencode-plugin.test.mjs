@@ -1,7 +1,7 @@
 // End-to-end test of the OpenCode plugin against a mock OpenCode client.
 // Runs the REAL generated plugin (aloop install opencode) and the REAL bin/ scripts in a
 // throw-away git repo. No OpenCode, no network, no tokens.   node scripts/test/opencode-plugin.test.mjs
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -21,6 +21,7 @@ process.env.HOME = join(T, "home")
 process.env.AGENTIC_NO_AUTOINSTALL = "1"
 process.env.CLAUDE_PLUGIN_DATA = join(T, "pdata")
 process.env.AGENTIC_NO_AUTOINSTALL = "1"  // no background cargo build into the temp dir
+delete process.env.AGENTIC_AUTONOMY_MODE  // a live run is armed on its own plugin instance below
 mkdirSync(join(process.env.CLAUDE_PLUGIN_DATA, "bin"), { recursive: true })
 for (const t of ["md-db", "ctx-symbols"]) {
   const f = join(process.env.CLAUDE_PLUGIN_DATA, "bin", t)
@@ -45,6 +46,9 @@ const client = {
     abort: async (a) => { calls.abort.push(a); return { data: true } },
   },
   tui: { showToast: async (a) => { calls.toast.push(a) } },
+  // the MCP servers OpenCode runs (their names as configured; a tool is <server>_<tool>, sanitized)
+  mcp: { status: async () => ({ data: { github: { status: "connected" }, "Google Drive": { status: "connected" },
+    notion: { status: "connected" }, drive: { status: "failed", error: "x" }, "drive_x": { status: "connected" } } }) },
 }
 const { AgenticAgile } = await import(pathToFileURL(pluginFile).href)
 process.env.AGENTIC_STUCK_BLOCKS = "99"      // the plugin captures its env at load; the stuck release is tested on a second instance
@@ -52,17 +56,28 @@ const hooks = await AgenticAgile({ client, directory: T, worktree: T, project: {
 let pass = 0
 const ok = (name) => { pass++; console.log("ok -", name) }
 const throws = async (fn, re, name) => { await assert.rejects(fn, re); ok(name) }
+const CORE = "Core principles (every aloop agent):"     // the core block's head (mission principles show --core)
+const count = (s, x) => s.split(x).length - 1
+const systemOf = async (h, sessionID) => {
+  const out = { system: [] }
+  await h["experimental.chat.system.transform"]({ sessionID, model: {} }, out)
+  return out.system.join("\n")
+}
 
 // SessionStart: NEXT.md reaches the root session's system prompt
 await hooks.event({ event: { type: "session.created", properties: { info: { id: "root" } } } })
 const sys = { system: [] }
 await hooks["experimental.chat.system.transform"]({ sessionID: "root", model: {} }, sys)
 assert.ok(sys.system.join("\n").includes("NEXT-MARKER")); ok("SessionStart handoff injected into system prompt")
+assert.equal(count(sys.system.join("\n"), CORE), 1, sys.system.join("\n")); ok("the root gets the core principles exactly once")
+// a resumed root session (no session.created in this process, so no SessionStart context) still carries them
+assert.equal(count(await systemOf(hooks, "resumed"), CORE), 1); ok("a resumed root session gets the core principles once")
 
-// shell.env puts bin/ on PATH
+// shell.env puts bin/ on PATH and marks the shell as an agent's (`mission doors authorize` refuses it)
 const envOut = { env: { PATH: "/usr/bin" } }
 await hooks["shell.env"]({ cwd: T }, envOut)
 assert.ok(envOut.env.PATH.startsWith(BIN)); ok("shell.env prepends plugin bin/")
+assert.equal(envOut.env.ALOOP_AGENT_SHELL, "1"); ok("shell.env exports ALOOP_AGENT_SHELL=1 into the agent's shell")
 
 // UserPromptSubmit capture
 await hooks["chat.message"]({ sessionID: "root" }, { message: {}, parts: [{ type: "text", text: "build X" }] })
@@ -97,9 +112,25 @@ await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root
   /never writes a block in it/, "gate-supervisor-scope refuses the supervisor's append to an agent's output.md (bash)")
 
 
+// the door rule (M9.30, M9.31): mission doors hook is a PreToolUse gate on OpenCode too
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "d1" }, { args: { command: "git push --force origin main" } }),
+  /ASK\[door\] push-default-branch/, "doors: a force-push to the default branch stops at ASK[door]")
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "d2" },
+  { args: { command: "aloop mission doors authorize push-default-branch --by x --reason r" } }),
+  /BLOCK\[door\] forge-human-record/, "doors: an agent authorizing a door is a wall (forge-human-record)")
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "d3" }, { args: { command: "git reset --hard" } }),
+  /ASK\[door\] discard-local-work/, "doors: discarding work in the main checkout stops at ASK[door]")
+await hooks["tool.execute.before"]({ tool: "question", sessionID: "root", callID: "d4" },
+  { args: { questions: [{ question: "Which name?", header: "Name", options: [{ label: "a", description: "a" }] }] } })
+ok("doors: outside a live run a question is asked")
+
 // worker isolation: must bind first, then commands/edits are confined to its worktree
 await hooks.event({ event: { type: "session.created", properties: { info: { id: "child", parentID: "root" } } } })
 await hooks["chat.message"]({ sessionID: "child", agent: "red-worker" }, { message: {}, parts: [{ type: "text", text: "task" }] })
+// SubagentStart: the sub-agent carries the core principles too (once), never the root's handoff
+const childSys = await systemOf(hooks, "child")
+assert.ok(count(childSys, CORE) === 1 && !childSys.includes("NEXT-MARKER"), childSys); ok("a sub-agent's system prompt gets the core principles once")
+assert.equal(count(await systemOf(hooks, "root"), CORE), 1); ok("the root still gets them exactly once")
 await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "4" }, { args: { command: "ls" } }),
   /bind your worktree first/, "unbound worker is refused")
 const wt = sh(join(BIN, "task-worktree"), ["add", "S1-01-T1"]).trim()
@@ -119,6 +150,13 @@ assert.equal(writeArgs.filePath, join(wt, "tests/a.rs")); ok("bound worker's rel
 const patchArgs = { patchText: `*** Begin Patch\n*** Add File: ${join(T, "src/lib.rs")}\n+x\n*** End Patch` }
 await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "child", callID: "8" }, { args: patchArgs })
 assert.ok(patchArgs.patchText.includes(`*** Add File: ${join(wt, "src/lib.rs")}`)); ok("patch paths rewritten into the worktree")
+const looseArgs = { patchText: `*** Begin Patch\n  *** Add File:${join(T, "src/b.rs")}\n+x\n*** End Patch` }
+await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "child", callID: "8b" }, { args: looseArgs })
+assert.ok(looseArgs.patchText.includes(join(wt, "src/b.rs")), looseArgs.patchText); ok("a loosely spaced patch header is rewritten too")
+// the door gate reads a bound worker's command where it runs (tool_input.workdir, its worktree): a reset
+// there is two-way, the same reset in the main checkout (above) is not
+await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "d5" }, { args: { command: "git reset --hard" } })
+ok("doors: a bound worker's reset in its own worktree is two-way")
 
 // token ledger + time box: usage recorded per assistant message; soft token telemetry then hard stop
 const usage = (id, input, output) => ({ type: "message.updated", properties: { info: {
@@ -261,5 +299,89 @@ writeFileSync(join(T, ".aladdin/state/pending-close"), "Sprint 1 closed. Tokens 
 await hooks.event({ event: { type: "session.idle", properties: { sessionID: "root" } } })
 assert.ok(calls.toast.length === 1 && /Sprint 1 closed/.test(calls.prompt.at(-1).body.parts[0].text)); ok("sprint close announced on idle")
 assert.ok(existsSync(join(T, ".aladdin/ledger/root.jsonl"))); ok("token ledger written for the session")
+
+// a live run (an autonomous run, read at plugin load): a two-way question is decided, not asked; a
+// question at a door the gate stopped in this session (the force-push above) is asked
+process.env.AGENTIC_AUTONOMY_MODE = "autonomous"
+const live = await AgenticAgile({ client, directory: T, worktree: T, project: {}, $: null })
+delete process.env.AGENTIC_AUTONOMY_MODE
+const ask = (text) => ({ args: { questions: [{ question: text, header: "Q", options: [{ label: "yes", description: "recommended" }] }] } })
+await throws(() => live["tool.execute.before"]({ tool: "question", sessionID: "root", callID: "q1" }, ask("Which name should the module get?")),
+  /two-way question/, "doors: in a live run an untagged question is refused")
+await live["tool.execute.before"]({ tool: "question", sessionID: "root", callID: "q2" },
+  ask("[door:push-default-branch] Push the fix to main? Recommended: no, a draft PR."))
+ok("doors: in a live run a question at a door the gate stopped is asked")
+
+// the door gate runs LAST (it records door.crossed, which uses up a once-grant) and fails closed. A stub
+// plugin root: each gate logs its call and does what S/mode.<gate> says (default: admit)
+const S = mkdtempSync(join(tmpdir(), "agentic-oc-stub-"))
+process.on("exit", () => rmSync(S, { recursive: true, force: true }))
+mkdirSync(join(S, "plugin/bin"), { recursive: true })
+for (const g of ["host-adapter", "gate-tooling", "gate-supervisor-scope", "gate-mission-scope", "gate-commit-author", "budget", "mission"]) {
+  writeFileSync(join(S, "plugin/bin", g), `#!/bin/sh
+S="$(dirname "$0")/../.."
+cat > "$S/stdin.$(basename "$0")"
+echo "$(basename "$0") $*" >> "$S/calls"
+case "$(cat "$S/mode.$(basename "$0")" 2>/dev/null)" in
+  hang) exec sleep 30 ;;
+  crash) kill -KILL $$ ;;
+  exit1) exit 1 ;;
+  deny) echo "BLOCK[stub] no" >&2; exit 2 ;;
+esac
+exit 0
+`)
+  chmodSync(join(S, "plugin/bin", g), 0o755)
+}
+writeFileSync(join(S, "aloop.mjs"), readFileSync(join(ROOT, "hosts/opencode/aloop.js"), "utf8").replaceAll("__AGENTIC_ROOT__", join(S, "plugin")))
+process.env.ALOOP_DOORS_TIMEOUT_MS = "500"
+const stub = await (await import(pathToFileURL(join(S, "aloop.mjs")).href)).AgenticAgile({ client, directory: T, worktree: T, project: {}, $: null })
+delete process.env.ALOOP_DOORS_TIMEOUT_MS
+const mode = (g, m) => writeFileSync(join(S, "mode." + g), m)
+const gated = async (tool, args) => {
+  writeFileSync(join(S, "calls"), "")
+  let err = null
+  try { await stub["tool.execute.before"]({ tool, sessionID: "root", callID: "s" }, { args }) } catch (e) { err = e }
+  return { err, calls: readFileSync(join(S, "calls"), "utf8").split("\n").filter(Boolean) }
+}
+let g = await gated("bash", { command: "ls" })
+assert.ok(!g.err && g.calls.at(-1) === "mission doors hook" && g.calls.at(-2) === "budget hook pre", g.calls.join(" | "))
+ok("doors: the door gate runs last, after budget")
+for (const tool of ["read", "codesearch"]) {
+  g = await gated(tool, { filePath: join(T, "README.md"), query: "x" })
+  assert.ok(!g.err && g.calls.length && !g.calls.some((c) => c.startsWith("mission")), `${tool}: ${g.calls.join(" | ")}`)
+}
+ok("doors: a read-only tool (read, codesearch) never spawns the door gate")
+for (const [tool, want] of [["github_create_pull_request", "mcp__github__create_pull_request"],
+  ["Google_Drive_share_file", "mcp__Google_Drive__share_file"], ["notion_search_slack_posts", "mcp__notion__search_slack_posts"],
+  ["drive_get_share", "mcp__drive__get_share"], ["drive_x_send", "mcp__drive_x__send"], ["lsp_hover", "lsp_hover"], ["bash", "Bash"]]) {
+  await gated(tool, { command: "ls" })
+  const sent = JSON.parse(readFileSync(join(S, "stdin.mission"), "utf8"))
+  assert.equal(sent.tool_name, want, tool)
+}
+ok("doors: an MCP tool reaches the gates as mcp__<server>__<tool> (OpenCode's servers, the longest first), so a word inside its name is no door")
+mode("budget", "deny")
+g = await gated("bash", { command: "ls" })
+assert.ok(/BLOCK\[stub\]/.test(g.err?.message) && !g.calls.some((c) => c.startsWith("mission")), g.calls.join(" | "))
+ok("doors: a call another gate denied never reaches the door gate")
+mode("budget", "")
+for (const [m, what] of [["hang", "hangs (past its timeout)"], ["crash", "is killed by a signal"], ["exit1", "exits 1"]]) {
+  mode("mission", m)
+  const t0 = Date.now()
+  g = await gated("bash", { command: "ls" })
+  assert.ok(/door gate/.test(g.err?.message) && Date.now() - t0 < 10000, `${m}: ${g.err?.message}`)
+  ok(`doors: a door gate that ${what} denies the call (fails closed)`)
+}
+rmSync(join(S, "plugin/bin/mission"))
+g = await gated("bash", { command: "ls" })
+assert.ok(/door gate/.test(g.err?.message), g.err?.message); ok("doors: a door gate that cannot start denies the call (fails closed)")
+
+// end to end, last (a red run may record an authorization): the agent's shell, marked only by shell.env,
+// cannot authorize a door
+const agentEnv = { ...process.env, ALOOP_AGENT_SHELL: envOut.env.ALOOP_AGENT_SHELL, AGENTIC_HOST: envOut.env.AGENTIC_HOST }
+for (const k of ["CLAUDECODE", "DSH_SHELL", "CODEX_THREAD_ID"]) delete agentEnv[k]
+const a = spawnSync(join(BIN, "aloop"), ["mission", "doors", "authorize", "publish-release", "--by", "x", "--reason", "r"],
+  { cwd: T, env: agentEnv, encoding: "utf8" })
+assert.ok(a.status === 2 && /agent session/.test(a.stderr), a.stderr)
+ok("doors: `mission doors authorize` refuses the agent's OpenCode shell")
 
 console.log(`\n${pass} checks passed`)

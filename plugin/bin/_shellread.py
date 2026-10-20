@@ -64,6 +64,12 @@ class Word:
         return parts
 
 
+class Mark(str):
+    """The mark that closes a subshell (")") or a compound ("cwd-"), with the list operator after it
+    (`(a) && b`: "&&"; None at the line's end, or when the compound's own redirect carries it)."""
+    end = None
+
+
 class Cmd:
     def __init__(self):
         self.assigns, self.words, self.redirs, self.subs = [], [], [], []
@@ -425,9 +431,10 @@ class Lexer:
                 return
             rest = inner[m.end():]
             op = re.match(r":?[-=]", rest)
-            if not rest:
-                w.add(("var", m.group(), None))
-            elif op:
+            if not rest or re.fullmatch(r":?\?[^$`]*", rest):
+                w.add(("var", m.group(), None))           # ${x:?msg}: $x, or the shell stops
+            elif op or re.match(r":?\?", rest):
+                op = op or re.match(r":?\?", rest)
                 sub = Lexer(rest[op.end():])
                 dw = sub.word(stop="")
                 w.add(("var", m.group(), dw.parts))
@@ -727,7 +734,7 @@ def read(src):
             if mode == "pattern":
                 if t == "esac":
                     flush()
-                    out.append("cwd-")
+                    out.append(Mark("cwd-"))
                     closing = True
                     cases -= 1
                     mode = None
@@ -745,7 +752,7 @@ def read(src):
                 continue
             if start and t in ("fi", "done", "}"):
                 flush()
-                out.append("cwd-")
+                out.append(Mark("cwd-"))
                 closing = True
                 continue
             if start and t in ("elif", "else"):           # the branch before it ends; the next starts afresh
@@ -770,7 +777,7 @@ def read(src):
                 continue
             if start and t == "esac" and cases:
                 flush()
-                out.append("cwd-")
+                out.append(Mark("cwd-"))
                 closing = True
                 cases -= 1
                 continue
@@ -816,8 +823,10 @@ def read(src):
                     continue
                 cur.end = v
                 flush()
-                out.append(")")
+                out.append(Mark(")"))
                 continue
+            if cur.empty() and out and isinstance(out[-1], Mark) and out[-1].end is None:
+                out[-1].end = v                           # `( … ) && b`, `fi; b`: what follows the compound
             cur.end = v
             if v in ("|", "|&"):                           # a pipeline element runs in a subshell
                 cur.pipe = True

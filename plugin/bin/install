@@ -33,6 +33,7 @@ dsh:      $DSH_HOME/profiles/aloop/ (DSH_HOME defaults to ~/.dsh): the `aloop` p
           skills go to <DIR>/.dsh/skills (or $DSH_HOME/skills with --global). + ~/.local/bin/aloop.
           Run: dsh --profile aloop
 """
+import importlib.util
 import json
 import os
 import re
@@ -343,8 +344,16 @@ def dsh_patch(st, owner):
            "      name: '@deepseek-ai/dsh-agent-preset'",
            "      config: {id: aloop-supervisor, name: aloop supervisor, description: %s, plugins: []}" % yq(
                "Drives the aloop loop and dispatches the aloop roles.")]
+    # the core principles block, as `mission principles show --core` prints it: a child gets no SessionStart
+    # context, so it closes each role's persona, the same text every render (a cacheable prompt prefix)
+    spec = importlib.util.spec_from_file_location("aloop_principles", os.path.join(ROOT, "mission", "principles.py"))
+    principles = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(principles)
+    core = principles.render_core()
+    if "{{" in core:
+        raise ValueError("mission/principles.md's core block contains '{{', which dsh's persona prefix would interpolate")
     for name, desc, body in roles:
-        prefix = "You are aloop's `%s` role.\n\n%s" % (name, host_body(body, "dsh"))
+        prefix = "You are aloop's `%s` role.\n\n%s\n%s" % (name, host_body(body, "dsh"), core)
         if "{{" in prefix:          # dsh-persona interpolates {{var}} strictly: an unknown var fails the role
             raise ValueError("agents/%s.md contains '{{', which dsh's persona prefix would interpolate" % name)
         out += ["    - id: preset-aloop-%s" % name,

@@ -88,6 +88,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.28 | The mission loop drives the goal commands and reads goals by their records | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.29 | A hard-lined goal stops being the active goal | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py`, `scripts/test/mission-tick.test.py` |
 | M9.30 | Core agent principles; one-way / two-way door rule enforced by a gate | IMPLEMENTED_TESTED | `scripts/test/mission-doors.test.py` |
+| M9.31 | The door rule on every host and role (Codex, OpenCode, dsh, dispatched roles) | IMPLEMENTED_TESTED | `scripts/test/mission-doors.test.py`, `scripts/test/opencode-plugin.test.mjs`, `scripts/test/dsh-plugin.test.mjs`, `scripts/test/codex-hooks.test.py` |
 | M9.40 | Artifact provenance in the mission loop | NOT_IMPLEMENTED | §4.12 |
 | M9.41 | Concurrent mission role runs are serialized | NOT_IMPLEMENTED | §4.12 |
 | M9.42 | Shared mission role dirs and judge run records | IMPLEMENTED_TESTED | `scripts/test/mission-roles.test.py` |

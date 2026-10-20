@@ -7,6 +7,7 @@ project it serves, and only that project re-renders or removes it (no network, n
 import importlib.machinery
 import importlib.util
 import atexit
+import json
 import os
 import re
 import shutil
@@ -55,6 +56,21 @@ assert "# aloop-project: %s\n" % A in profile() and 'subagent: "deepseek-flash"'
 assert 'project: "%s"' % A in profile()                      # the plugin warns a session in another project
 assert "dsh" in run(os.path.join(BIN, "install"), "status", cwd=A)
 ok("the profile records the project it was rendered for, with that project's models")
+
+core = subprocess.run([os.path.join(BIN, "mission"), "principles", "show", "--core"], cwd=A, env=ENV, capture_output=True,
+                      text=True, check=True).stdout
+head = core.split("\n")[0]
+personas = dict(re.findall(r"^    - id: preset-aloop-([\w-]+)\n(?:      .*\n)*?            config: \{prefix: (\".*\")\}$", profile(), re.M))
+roles = [os.path.basename(f)[:-3] for f in os.listdir(os.path.join(ROOT, "plugin", "agents")) if f.endswith(".md")]
+assert head.startswith("Core principles") and sorted(personas) == sorted(roles), (head, sorted(personas), sorted(roles))
+for role, quoted in personas.items():
+    prefix = json.loads(quoted)
+    assert prefix.count(head) == 1 and prefix.endswith(core) and "{{" not in prefix, (role, prefix[-900:])
+    assert prefix.index("You are aloop's `%s` role." % role) == 0 and prefix.index("## On DeepSeek Harness") < prefix.index(head), role
+before = profile()
+run(os.path.join(BIN, "aloop"), "install", "dsh", "--project", A, cwd=A)
+assert profile() == before, "a re-render changed the profile (the persona prefixes must stay cache-stable)"
+ok("every role's persona carries the core principles block once, after its body, exactly as `mission principles show --core` prints it")
 
 before = profile()
 run(os.path.join(BIN, "aloop-init"), "--apply", "MODEL_WORKER=strongest", cwd=B)

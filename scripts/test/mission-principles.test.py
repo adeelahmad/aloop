@@ -217,11 +217,49 @@ r = subprocess.run([SS], input=json.dumps({"cwd": bare, "source": "startup"}), e
 assert r.returncode == 0 and r.stdout == "", r.stdout                                       # not an aloop project
 ok("core principles: the door rule first, single-sourced, apart from the goal blocks, checked, injected at session start")
 
+# 9) a dispatched role gets the same core block (M9.31): `principles hook` is the SubagentStart hook on Claude
+#    Code and Codex (both read hooks.json). Inside an aloop project it prints the block as additionalContext;
+#    outside one, or on any error, it prints nothing and exits 0 (it never blocks a dispatch)
+
+
+def hook(stdin, *extra, cwd=T):
+    return subprocess.run([MI, "principles", "hook"] + list(extra), cwd=cwd, env=ENV, input=stdin,
+                          capture_output=True, text=True)
+
+
+start = {"hook_event_name": "SubagentStart", "session_id": "s1", "agent_id": "a1", "agent_type": "aloop:red-worker"}
+r = hook(json.dumps(dict(start, cwd=proj)))
+assert r.returncode == 0 and r.stderr == "", r.stderr
+assert json.loads(r.stdout) == {"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": core}}, r.stdout
+assert len(r.stdout.splitlines()) == 1, r.stdout                                 # one JSON object, nothing else
+r = hook(json.dumps(dict(start, cwd=os.path.join(proj, "docs"))))                # a subdirectory is the same project
+assert r.returncode == 0 and json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] == core, r.stdout
+r = hook(json.dumps(dict(start, cwd=bare)))
+assert r.returncode == 0 and r.stdout == "", r.stdout                             # not an aloop project
+for junk in ("not json", "[1, 2]", '{"cwd": 7}', json.dumps({"cwd": os.path.join(T, "gone")}), "\x00\xff"):
+    r = hook(junk, cwd=bare)
+    assert r.returncode == 0 and r.stdout == "" and "Traceback" not in r.stderr, (junk, r.stdout, r.stderr)
+r = hook("", cwd=proj)                                                            # no payload cwd: the hook's own
+assert r.returncode == 0 and json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] == core, r.stdout
+check_variant(cases[0][0])                                                        # an invalid principles.md
+r = hook(json.dumps(dict(start, cwd=proj)), "--file", draft)
+assert r.returncode == 0 and r.stdout == "" and "principles" in r.stderr and "Traceback" not in r.stderr, r.stderr
+r = hook(json.dumps(dict(start, cwd=proj)), "--file", os.path.join(T, "missing.md"))
+assert r.returncode == 0 and r.stdout == "", r.stdout
+check_variant(text.replace(ev, "- evidence: Claim only what a test or a source shows."))
+r = hook(json.dumps(dict(start, cwd=proj)), "--file", draft)                      # --file: a draft's block, as show
+assert r.returncode == 0 and json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] == \
+    run(MI, "principles", "show", "--core", "--file", draft).stdout != core, r.stdout
+assert not os.path.exists(os.path.join(proj, ".aladdin")) and not os.path.exists(os.path.join(proj, ".agentic"))
+ok("principles hook: the core block as SubagentStart additionalContext in an aloop project; silent and exit 0 otherwise")
+
 # 7) the area is discovered (no shared list edited) and `mission principles --help` is its docstring
 assert "principles" in run(MI, "--list").stdout.split()
 r = run(MI, "principles", "--help")
 assert r.returncode == 0 and "two variants" in r.stdout, r.stdout
-assert run(MI, "principles", "nope").returncode == 64
+assert "mission principles hook" in r.stdout and "SubagentStart" in r.stdout, r.stdout
+r = run(MI, "principles", "nope")
+assert r.returncode == 64 and "hook" in r.stderr, r.stderr
 shutil.rmtree(T, ignore_errors=True)
 ok("discovered as an area; --help is the module docstring; an unknown subcommand is a usage error")
 
