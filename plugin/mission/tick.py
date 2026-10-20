@@ -48,10 +48,11 @@ needs a baseline.measured record for its content, a veto binds the content, a re
 applies after the mission's veto_window_h from its measurement, a version once confirmed is
 archived and only the human's restore brings it back, and a proposal is measurable only when
 `baseline measure` would accept it); a state report only with its state.assessed record; journeys
-as their records say (a retirement is a record); ethics.reviewed / ethics.blocked events {subject,
-sha256, tier}, and a committed review of tier hard, so a checkout without the run log fails closed
-(the most severe verdict for a content wins, and a goal stays hard for good, so a hard line is
-never re-reviewed or edited away; a consent names every gray review it answers); the eval's
+as their records say (a retirement is a record); `mission ethics`'s verdict on the mission and
+each goal (none → ETHICS_REVIEW, pending → ASK_CONSENT, hard or broken → BLOCKED, or a goal
+re-derived; one rule with the gate: a hard line follows its words to any goal, a review edited
+after it was recorded is broken), and a committed review of tier hard, so a checkout without the
+run log fails closed; the eval's
 `goal_met`; Aladdin's intent, plan and sprint events and .aladdin/state/sprints.json; the
 sprint lock; and the token ledger (<run data>/ledger/). A goal's sprints are planned from its intents (intent.received
 goal_id → plan.created intent_id), else since the loop handed out its SPRINT. A stamp kept to
@@ -80,6 +81,7 @@ import _events  # noqa: E402
 import _mission as M  # noqa: E402
 import _paths  # noqa: E402
 import baseline as B  # noqa: E402
+import ethics as E  # noqa: E402
 import journeys as J  # noqa: E402
 
 NO_ARGS = True            # `mission tick` with no arguments runs (plugin/bin/mission run_area)
@@ -95,7 +97,6 @@ ROLES = {
 }
 EXIT = {"role": 0, "supervisor": 0, "human": 3, "none": 4}
 OPEN = ("derived", "approved", "active")
-SEVERITY = {"clear": 0, "gray": 1, "hard": 2}
 MAX_HANDOUTS = 3          # the same action in a row without a result, then BLOCKED (a retry is not progress)
 MAX_GOALS = 3             # goals in a row that were blocked or retired or crossed a hard line
 STALL = 12 * 3600 * 1000  # a planned sprint with no event, close or lock refresh for this long has stalled
@@ -279,7 +280,7 @@ def facts(cwd, now):
             e["data"] = {}
     f["events"], f["cwd"] = evs, cwd
     f["ticks"] = [e for e in evs if e.get("event") == "mission.tick"]
-    f["ethics"], f["hard_refs"], f["reviews"], f["consents"] = {}, set(), {}, {}
+    f["ethics"], f["hard_refs"], f["verdicts"] = {}, set(), {}
     f["intents"], f["plans"], f["approved_plans"], f["activity"] = {}, [], set(), {}
     planned, closed, resets, newest = {}, {}, [0], {}
     # human decisions come from the committed ledger (a fresh checkout keeps them), and count only as
@@ -295,15 +296,14 @@ def facts(cwd, now):
         sub = tuple(x if isinstance(x, str) else None for x in (d.get("subject"), d.get("sha256")))
         if name in M.APPROVAL_EVENTS and r.get("role") == "human" and str(d.get("by") or "").strip():
             newest[(name, sub[0])] = sub[1]
-            if name == "ethics.consent":
-                f["consents"].setdefault(sub, []).append(d)
             if name == "mission.approved":
                 resets.append(ms_end(r["ts"]) or 0)
     f["approvals"] = {(name, ref, sha) for (name, ref), sha in newest.items()}
     f["ledger_head"] = raw[-1]["hash"] if raw else ""
     # a state report counts only with the state.assessed record of its content (mission assess)
     f["kinds"]["state"] = [a for a in f["kinds"]["state"] if assessed.get(a["ref"]) == a["sha"]]
-    # fail closed: a committed hard review holds on a checkout without the run log (ROADMAP M9.24)
+    # fail closed: a committed hard review holds on a checkout without the run log (ROADMAP M9.24);
+    # every other ethics fact is `mission ethics`'s verdict (ethics_of)
     for a in f["kinds"].get("ethics", []):
         s = a["doc"].get("subject")
         if a["doc"].get("tier") == "hard" and a["status"] == "recorded" and isinstance(s, dict) \
@@ -313,16 +313,7 @@ def facts(cwd, now):
                 f["ethics"][(s["ref"], s["sha256"])] = "hard"
     for e in evs:
         name, d = e.get("event"), e["data"]
-        sub = tuple(x if isinstance(x, str) else None for x in (d.get("subject"), d.get("sha256")))
         ts = ms_end(e.get("ts"))
-        if name in ("ethics.reviewed", "ethics.blocked"):
-            t = "hard" if name == "ethics.blocked" else (d.get("tier") if d.get("tier") in SEVERITY else "gray")
-            if t == "hard" and sub[0]:
-                f["hard_refs"].add(sub[0])
-            if name == "ethics.reviewed":
-                f["reviews"].setdefault(sub, []).append(dict(d, tier=t))
-            if sub not in f["ethics"] or SEVERITY[t] > SEVERITY[f["ethics"][sub]]:
-                f["ethics"][sub] = t
         if name == "intent.received" and isinstance(d.get("goal_id"), str) and isinstance(d.get("intent_id"), str):
             f["intents"].setdefault(d["goal_id"], []).append(d["intent_id"])
         if name == "mission.tick" and d.get("grant") == "GOALS":    # only lifting that block clears the count
@@ -361,41 +352,35 @@ def facts(cwd, now):
     progress["planned"], progress["closed"] = sorted(planned), sorted(closed)
     progress["decisions"] = sorted(map(str, f["approvals"] | set(f["ethics"].items())))
     progress["ledger"] = f["ledger_head"]
-    progress["reviews"] = sorted(str((k, r.get("ethics_id"), r.get("review_sha256"), r["tier"]))
-                                 for k, v in f["reviews"].items() for r in v)
     progress["intents"] = sorted(map(str, f["intents"].items()))
     progress["approved_plans"], progress["lock"] = sorted(f["approved_plans"]), f["lock"]
     progress["reset_at"], progress["budget"] = f["reset_at"], f["budget"]
-    f["fingerprint"] = hashlib.sha256(json.dumps(progress, sort_keys=True).encode()).hexdigest()[:16]
+    f["progress"] = progress      # fingerprint() adds the ethics verdicts the rules asked for
     return f
 
 
-def tier(f, a, sticky=False):
-    """The most severe ethics verdict for this content. sticky: a hard verdict on any content of
-    this file holds (a goal edited in place stays hard; a new goal is a new id)."""
-    if sticky and a["ref"] in f["hard_refs"]:
-        return "hard"
-    return f["ethics"].get((a["ref"], a["sha"]))
+def fingerprint(f):
+    """An audit fingerprint of what the rules read (recorded with each tick)."""
+    progress = dict(f["progress"], verdicts=sorted(map(str, f["verdicts"].items())))
+    return hashlib.sha256(json.dumps(progress, sort_keys=True).encode()).hexdigest()[:16]
+
+
+def ethics_of(f, kind, a):
+    """(state, problems): `mission ethics`'s verdict on this content (none, broken, pending, hard,
+    ok, unresolved), one rule for the loop and the gate. A committed hard review holds whatever
+    the run log says (fail closed), for this content, and for a goal for good."""
+    key = (a["ref"], a["sha"])
+    if key not in f["verdicts"]:
+        _, probs, facts = E.verdict(f["cwd"], kind, "" if kind == "mission" else a["id"])
+        st = facts.get("state") or "unresolved"
+        if f["ethics"].get(key) == "hard" or (kind == "goal" and a["ref"] in f["hard_refs"]):
+            st, probs = "hard", probs if st == "hard" else ["a recorded review of %s found a hard line" % a["ref"]]
+        f["verdicts"][key] = (st, probs)
+    return f["verdicts"][key]
 
 
 def has(f, event, a):
     return (event, a["ref"], a["sha"]) in f["approvals"]
-
-
-def consented(f, a):
-    """A human consent covers this content and, when the reviews carry ids (mission ethics), names
-    every gray review of it exactly, as last recorded: a new or re-recorded review needs its own."""
-    key = (a["ref"], a["sha"])
-    if not has(f, "ethics.consent", a):
-        return False
-    grays = {}
-    for r in f["reviews"].get(key, []):
-        if r.get("ethics_id"):
-            grays.pop(r["ethics_id"], None)
-            grays[r["ethics_id"]] = r
-    cs = f["consents"].get(key, [])
-    return all(any(c.get("review") == i and c.get("review_sha256") == r.get("review_sha256") for c in cs)
-               for i, r in grays.items() if r["tier"] == "gray")
 
 
 def goal_met(f, e):
@@ -446,10 +431,10 @@ def failed_goals(f):
     for g in reversed(f["kinds"]["goal"]):
         if g["ms"] <= f["reset_at"]:
             break
-        t = tier(f, g, sticky=True)
-        if t != "hard" and g["status"] not in ("blocked", "retired"):
+        hard = ethics_of(f, "goal", g)[0] == "hard"
+        if not hard and g["status"] not in ("blocked", "retired"):
             break
-        out.append((g, "crosses a hard line" if t == "hard" else "was %s" % g["status"]))
+        out.append((g, "crosses a hard line" if hard else "was %s" % g["status"]))
     return out
 
 
@@ -487,15 +472,19 @@ def rules(f):
         return act("STOP_BUDGET", "%s: the loop stops; the human raises the cap (edit mission.json, "
                                   "`aloop mission approve`)" % f["budget"]["exhausted"], f["mission_ref"])
     m = {"ref": f["mission_ref"], "sha": f["check"][2].get("sha256")}
-    t = tier(f, m)
-    if t is None:
+    t, why = ethics_of(f, "mission", m)
+    if t == "none":
         return act("ETHICS_REVIEW", "the mission has no ethics review for its current content", m["ref"])
     if t == "hard":
         return act("BLOCKED", "the mission crosses a hard line (illegal, deceptive or harmful): no consent unlocks "
                               "it; the human changes the mission", m["ref"])
-    if t == "gray" and not consented(f, m):
+    if t == "pending":
         return act("ASK_CONSENT", "the mission is in an ethical gray area: the human consents to this content and "
-                                  "its latest review, with a reason, or changes it", m["ref"])
+                                  "each of its gray reviews, with a reason (aloop mission ethics consent --subject "
+                                  "mission --by NAME --reason TEXT), or changes it", m["ref"])
+    if t != "ok":
+        return act("BLOCKED", "the mission's ethics review fails its check (%s): the human restores it (git), or "
+                              "changes the mission" % (why[0] if why else t), m["ref"])
     if not f["kinds"]["research"]:
         return act("RESEARCH", "no research yet: the market and product landscape comes first (sourced claims)")
     frozen = J.pins(f["cwd"])[0]
@@ -656,18 +645,22 @@ def baseline_rule(f, mode, now):
 
 
 def goal_rule(f, g, mode, now, cad):
-    t = tier(f, g, sticky=True)
+    t, why = ethics_of(f, "goal", g)
     running = [n for n in goal_sprints(f, g) if n not in f["closed"]]
-    if t is None:
+    if t == "none":
         return act("ETHICS_REVIEW", "goal %s has no ethics review for its content" % g["id"], g["ref"])
     if t == "hard":
         if running:
             return act("BLOCKED", "goal %s crossed a hard line while sprint %d runs its intents: the human stops the "
                                   "sprint; no new goal starts until it closes" % (g["id"], running[-1]), g["ref"])
         return None                              # the cycle re-derives (and counts it)
-    if t == "gray" and not consented(f, g):
-        return act("ASK_CONSENT", "goal %s is in an ethical gray area: the human consents for this goal only, or the "
-                                  "planner derives another" % g["id"], g["ref"])
+    if t == "pending":
+        return act("ASK_CONSENT", "goal %s is in an ethical gray area: the human consents for this goal only (aloop "
+                                  "mission ethics consent --subject %s --by NAME --reason TEXT), or the planner "
+                                  "derives another" % (g["id"], g["id"]), g["ref"])
+    if t != "ok":
+        return act("BLOCKED", "goal %s's ethics review fails its check (%s): the human restores it (git), or the "
+                              "planner derives another goal" % (g["id"], why[0] if why else t), g["ref"])
     if mode == "spoon-fed" and not has(f, "goal.approved", g):
         if running:
             return act("BLOCKED", "spoon-fed: sprint %d runs goal %s, which the human never picked (no goal.approved "
@@ -794,7 +787,7 @@ def decide(cwd, now=None):
             sha = a["sha"][:12]
     d["key"] = " ".join(x for x in (d["action"], bind or (d["subject"] + "@" + sha if d["subject"] and sha else
                                                           d["subject"] or sha)) if x)
-    d.update(who=who, roles=roles, facts=f["fingerprint"], budget=f["budget"], mission_id=f["mission"].get("mission_id"))
+    d.update(who=who, roles=roles, facts=fingerprint(f), budget=f["budget"], mission_id=f["mission"].get("mission_id"))
     d["handout"] = handouts(f, d["key"]) + 1 if who in ("role", "supervisor") else 0
     if d["handout"] > MAX_HANDOUTS:
         d.update(action="BLOCKED", who="human", roles=[], key="BLOCKED " + d["key"], next_check=None, grant=d["key"],

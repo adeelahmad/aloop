@@ -1,0 +1,70 @@
+{
+ "title": "research — the Market Researcher's sourced report (ROADMAP §4.12, M9.1): docs/agents/mission/research/<rsr_id>.json",
+ "type": "object",
+ "required": ["research_id", "title", "question", "role", "mission_id", "sources", "claims", "status", "created_at", "sha256"],
+ "additionalProperties": false,
+ "properties": {
+  "research_id": {"type": "string", "pattern": "^rsr_"},
+  "title": {"type": "string", "minLength": 1},
+  "question": {"type": "string", "minLength": 1},
+  "role": {"enum": ["market-researcher", "product-tester"]},
+  "mission_id": {"type": ["string", "null"], "pattern": "^msn_[0-9a-f]{20}$"},
+  "sources": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["source_id", "url", "title", "retrieved_at", "media_type", "bytes", "sha256", "snapshot", "via"],
+    "additionalProperties": false,
+    "properties": {
+     "source_id": {"type": "string", "pattern": "^s[1-9][0-9]*$"},
+     "url": {"type": "string", "pattern": "(?i)^https?://\\S+$"},
+     "title": {"type": "string", "minLength": 1},
+     "retrieved_at": {"type": "string", "minLength": 1},
+     "media_type": {"type": "string", "minLength": 1},
+     "bytes": {"type": "integer", "minimum": 1, "maximum": 5242880},
+     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+     "snapshot": {"type": "string", "pattern": "^research/snapshots/[0-9a-f]{64}$"},
+     "via": {"enum": ["fetch", "file"]},
+     "final_url": {"type": "string", "pattern": "(?i)^https?://\\S+$"},
+     "file": {"type": "string", "minLength": 1}
+    }
+   }
+  },
+  "claims": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["claim_id", "text", "kind"],
+    "additionalProperties": false,
+    "properties": {
+     "claim_id": {"type": "string", "pattern": "^c[1-9][0-9]*$"},
+     "text": {"type": "string", "minLength": 1},
+     "kind": {"enum": ["rival", "feature", "benchmark", "user-need", "paper", "practice", "other"]},
+     "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "object",
+       "required": ["source", "quote"],
+       "additionalProperties": false,
+       "properties": {
+        "source": {"type": "string", "pattern": "^s[1-9][0-9]*$"},
+        "quote": {"type": "string", "minLength": 1}
+       }
+      }
+     },
+     "from_claims": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^c[1-9][0-9]*$"}}
+    }
+   }
+  },
+  "status": {"enum": ["recorded", "retired"]},
+  "created_at": {"type": "string", "minLength": 1},
+  "retired": {
+   "type": "object",
+   "required": ["reason", "at"],
+   "additionalProperties": false,
+   "properties": {"reason": {"type": "string", "minLength": 1}, "at": {"type": "string", "minLength": 1}}
+  },
+  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+ }
+}

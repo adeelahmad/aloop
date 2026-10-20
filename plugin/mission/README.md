@@ -160,7 +160,7 @@ loop to move on records them:
 | Fact | Recorded as |
 |---|---|
 | a human approval | a ledger row from `approve(...)` (role human, `--by`) with the subject's project-relative path (`rel`) and `digest` of its content: `mission.approved`, `goal.approved` (spoon-fed pick), `ethics.consent` (gray; mission or goal; it names the review: `review`, `review_sha256`). The subject's newest approval decides |
-| an ethics verdict | `ethics.reviewed` {subject, sha256, tier: clear · gray · hard, ethics_id, review_sha256}; `ethics.blocked` {subject, sha256} is a hard line. The most severe verdict for a content wins; a goal stays hard |
+| an ethics verdict | `ethics.verdict(cwd, kind, id)`'s state (none · broken · pending · hard · ok), the gate's own rule over `ethics.reviewed` / `ethics.blocked` and the sealed reviews; a committed review of tier hard also holds without the run log (fail closed) |
 | the baseline | as `baseline.py` decides it: `current` (the newest `baseline.confirmed` row), `measured_ok`, `vetoed`, `evaluate`; a replacement applies after the mission's `veto_window_h` from its `baseline.measured` row |
 | journeys defined | a journey that `journeys.lifecycle` does not call retired |
 | a state report or eval | its `baseline_id` (another than the current one: re-assess, re-evaluate) and the eval's boolean `goal_met` |
