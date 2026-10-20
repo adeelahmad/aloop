@@ -46,7 +46,9 @@ Usage:
   mission goal show GOAL_ID [--json]
         the goal, its check, and the principles block it carries
 """
+import contextlib
 import glob
+import io
 import json
 import os
 import re
@@ -515,14 +517,25 @@ def cmd_intents(cwd, gid):
     return 0
 
 
-def cmd_next(cwd, gid):
+def next_intent(cwd, gid):
+    """What `goal next` does, with nothing handed out or recorded (ROADMAP M9.53): the whole rule
+    `mission tick` asks before SPRINT. A dict: rc 0 and the intent's path, 1 with `note` when there is
+    none to hand out, or 2/3 with why it refuses (`goal check`, a goal.met record, a status other than
+    active, or the next intent's own `intent check`, whose output is `detail`). The check runs in
+    process, without its event, so `tick --peek` and `due` emit no `intent.normalized`."""
+    out = {"rc": 0, "path": None, "blocks": [], "asks": [], "note": "", "detail": "", "mode": None}
     rc, blocks, asks, facts = check(cwd, gid)
     if rc:
-        report(blocks, asks)
-        return rc
-    if facts["status"] not in ("active",):
-        report(["%s is %s: hand it off first (aloop mission goal intents %s)" % (gid, facts["status"], gid)], [])
-        return 2
+        return dict(out, rc=rc, blocks=blocks, asks=asks)
+    out["mode"] = facts["autonomy"]
+    if any(r["data"].get("sha256") == facts["sha256"] for r in M.records(cwd, "goal.met", facts["path"])):
+        return dict(out, rc=2, blocks=["goal %s is met (its goal.met record): it hands out no more intents" % gid])
+    if facts["status"] in ("derived", "approved"):
+        return dict(out, rc=2, blocks=["%s is %s: hand it off first (aloop mission goal intents %s)"
+                                       % (gid, facts["status"], gid)])
+    if facts["status"] != "active":
+        return dict(out, rc=2, blocks=["%s is %s, which no ledger record says: only an active goal hands out its "
+                                       "intents (the human sets the status back)" % (gid, facts["status"])])
     g, _ = M.load(M.path_of(cwd, "goal", gid))
     have = goal_intents(cwd, gid)
     planned = {e["data"].get("intent_id") for e in _events.read(cwd)
@@ -535,74 +548,118 @@ def cmd_next(cwd, gid):
     first = {iid for _, iid in queue}
     queue += [(os.path.join(_paths.docs(cwd), "intents", "%s.json" % iid), iid)
               for iid in goal_intent_ids(cwd, gid) if iid not in first]
+    tool = intent_tool()
     for p, iid in queue:
         if iid in planned:
             continue
-        if os.path.isfile(p):
-            others = [os.path.getmtime(x) for x in glob.glob(os.path.join(os.path.dirname(p), "int_*.json"))
-                      if x != p]
-            t = max(others + [time.time()]) + 0.01
-            os.utime(p, (t, t))     # gate-intake re-checks the newest intent file: the one handed off
-        r = subprocess.run([os.path.join(BIN, "intent"), "check", p, "--mode", facts["autonomy"]], cwd=cwd,
-                           capture_output=True, text=True)
-        sys.stderr.write(r.stderr)
-        if r.returncode:
-            print("[goal] %s's next intent %s does not pass `intent check` (%s): the planner fixes it"
-                  % (gid, iid, M.rel(cwd, p)), file=sys.stderr)
-            return r.returncode
-        print(p)
-        return 0
-    print("[goal] every intent of %s has a plan; when its sprints close, evaluate: `mission goal close` if it is "
-          "met, else `mission goal retire`" % gid, file=sys.stderr)
-    return 1
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                rc, _ = tool.verdict(cwd, p, facts["autonomy"])
+        except (Exception, SystemExit) as e:     # a contract of the wrong shape: the check names it, never "all planned"
+            rc = 2
+            err.write("BLOCK[intent]: `intent check` fails on it: %s: %s\n" % (type(e).__name__, e))
+        if not rc:
+            return dict(out, path=p, detail=err.getvalue())
+        rc = 3 if rc == 3 else 2
+        first_line = next((x.strip() for x in err.getvalue().splitlines() if x.strip()), "")
+        return dict(out, rc=rc, path=p, detail=err.getvalue(),
+                    note="%s's next intent %s does not pass `intent check` (%s): %s%s"
+                    % (gid, iid, M.rel(cwd, p), "the human answers it" if rc == 3 else "the planner fixes it",
+                       ": " + first_line if first_line else ""))
+    if not queue:
+        return dict(out, rc=1, note="no intent of %s is recorded (no intent.received names it): `mission goal "
+                                    "intents %s` hands them out" % (gid, gid))
+    return dict(out, rc=1, note="every intent of %s has a plan; when its sprints close, evaluate: `mission goal "
+                                "close` if it is met, else `mission goal retire`" % gid)
 
 
-def cmd_close(cwd, gid, eid):
-    gpath = M.path_of(cwd, "goal", gid)
-    g, _ = M.load(gpath)
-    if not isinstance(g, dict):
-        report(["no goal %s" % gid], [])
-        return 2
+def cmd_next(cwd, gid):
+    n = next_intent(cwd, gid)
+    if n["rc"]:
+        sys.stderr.write(n["detail"])
+        report(n["blocks"], n["asks"])
+        if n["note"]:
+            print("[goal] %s" % n["note"], file=sys.stderr)
+        return n["rc"]
+    p = n["path"]
+    rc = intent_tool().cmd_check(cwd, p, n["mode"])      # intake's own check, now with its intent.normalized
+    if rc:
+        return rc
+    others = [os.path.getmtime(x) for x in glob.glob(os.path.join(os.path.dirname(p), "int_*.json")) if x != p]
+    t = max(others + [time.time()]) + 0.01
+    os.utime(p, (t, t))     # gate-intake re-checks the newest intent file: the one handed off
+    print(p)
+    return 0
+
+
+def close_problems(cwd, g, eid):
+    """(eval doc, eval.completed record, why goal g does not close on eval eid yet) (ROADMAP M9.53): the
+    whole rule `mission tick` asks before it hands out the close. The goal is the content `derive`
+    recorded, not retired, active (or set met with no record, which the close repairs), and eid is a
+    recorded eval of it, recorded after the goal was derived, that finds it met."""
+    gid = g.get("goal_id")
+    gpath = M.path_of(cwd, "goal", str(gid))
     try:
         bad = list(M.problems(g, "goal", gpath))
     except ValueError as e:
         bad = ["goal %s cannot be hashed (%s)" % (gid, e)]
     bad = bad or derived_problems(cwd, g)
     if bad:
-        report(bad, [])
-        return 2
-    if M.ledger_block(cwd, "goal"):
-        return 2
-    if M.records(cwd, "goal.met", M.rel(cwd, gpath)):     # the record decides, never the status field
-        print("[goal] %s is already met" % gid, file=sys.stderr)
-        return 0
+        return None, None, bad
     if EV.retirement(cwd, g):
-        report(["goal %s was retired: a retired goal never closes (derive another)" % gid], [])
-        return 2
-    if g["status"] != "active":
-        report(["goal %s is %s: only an active goal closes (handed off with `mission goal intents`)"
-                % (gid, g["status"])], [])
-        return 2
+        return None, None, ["goal %s was retired: a retired goal never closes (derive another)" % gid]
+    if g["status"] not in ("active", "met"):
+        return None, None, ["goal %s is %s: only an active goal closes (handed off with `mission goal intents`)"
+                            % (gid, g["status"])]
     doc, ev, bad = eval_record(cwd, eid)
+    if bad:
+        return doc, ev, bad
+    if doc.get("goal_id") != gid:
+        return doc, ev, ["eval %s is not an evaluation of goal %s (it evaluates %s): evaluate while the goal is "
+                         "active" % (eid, gid, doc.get("goal_id") or "the whole mission")]
+    born, seen = ledger_index(cwd, derived(cwd, gid)["event_id"]), ledger_index(cwd, ev.get("event_id"))
+    if born < 0 or seen <= born:
+        return doc, ev, ["eval %s was recorded before goal %s was derived: it says nothing about the goal's work"
+                         % (eid, gid)]
+    if not doc["goal_met"]:
+        still = [x.get("gap_id") for x in doc["gaps"] if isinstance(x, dict)]
+        return doc, ev, ["goal %s is not met in eval %s; still open: %s" % (gid, eid, ", ".join(map(str, still)))]
+    return doc, ev, []
+
+
+def cmd_close(cwd, gid, eid):
+    gpath = M.path_of(cwd, "goal", gid)
+    g, _ = M.load(gpath)
+    if not isinstance(g, dict) or g.get("goal_id") != gid:
+        report(["no goal %s" % gid], [])
+        return 2
+    if M.ledger_block(cwd, "goal"):             # a broken ledger first: its lost goal.derived is not "never derived"
+        return 2
+    try:
+        bad = list(M.problems(g, "goal", gpath))
+    except ValueError as e:
+        bad = ["goal %s cannot be hashed (%s)" % (gid, e)]
+    bad = bad or derived_problems(cwd, g)       # sealed, as derived: before anything is read as met
     if bad:
         report(bad, [])
         return 2
-    if doc.get("goal_id") != gid:
-        report(["eval %s is not an evaluation of goal %s (it evaluates %s): evaluate while the goal is active"
-                % (eid, gid, doc.get("goal_id") or "the whole mission")], [])
+    if any(r["data"].get("sha256") == M.digest(g) for r in M.records(cwd, "goal.met", M.rel(cwd, gpath))):
+        if g["status"] != "met":                 # a stop after the record: the record decides, the status follows
+            g["status"] = "met"
+            M.save(gpath, g)
+        print("[goal] %s is already met" % gid, file=sys.stderr)
+        return 0
+    _, ev, bad = close_problems(cwd, g, eid)
+    if bad:
+        report(bad, [])
         return 2
-    born, seen = ledger_index(cwd, derived(cwd, gid)["event_id"]), ledger_index(cwd, ev.get("event_id"))
-    if born < 0 or seen <= born:
-        report(["eval %s was recorded before goal %s was derived: it says nothing about the goal's work" % (eid, gid)], [])
-        return 2
-    if not doc["goal_met"]:
-        still = [x.get("gap_id") for x in doc["gaps"] if isinstance(x, dict)]
-        report(["goal %s is not met in eval %s; still open: %s" % (gid, eid, ", ".join(map(str, still)))], [])
-        return 2
-    g["status"] = "met"
-    M.save(gpath, g)
+    # the record first (its digest leaves the status out), then the status: a stop between them leaves a
+    # goal every reader takes as met (`goal next` reads the record too), and closing again sets the status
     M.record(cwd, "goal.met", M.rel(cwd, gpath), "evaluator", goal_id=gid, eval_id=eid, eval_event=ev.get("event_id"),
              sha256=M.digest(g))
+    g["status"] = "met"
+    M.save(gpath, g)
     print("[goal] %s met (eval %s)" % (gid, eid), file=sys.stderr)
     return 0
 
