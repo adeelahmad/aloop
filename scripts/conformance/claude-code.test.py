@@ -31,6 +31,8 @@ ENV = dict(os.environ, RUSTUP_HOME=os.environ.get("RUSTUP_HOME", os.path.join(_h
 # The caller's tools dir goes too (CLAUDE_PLUGIN_DATA, XDG_DATA_HOME): ensure-tools looks there before
 # PATH, so an installed ctx-symbols stood in for the scripted one a case puts on PATH, and for the grep
 # fallback CI runs (a passing one there failed 10 checks, the HELD_BY lsp-adapter run among them).
+# PATH stays the caller's (cargo, git and python are on it), so a stale ctx-symbols or md-db there still
+# stands in for them (an `exit 0` ctx-symbols first on PATH fails 8 checks): an open ROADMAP §4.9 item.
 DROP = ("AGENTIC_HOST", "SKIP_HOOKS", "STORY_DIR", "AGENT_ROLE", "REPO_DIR", "BASE_REF", "SCOPE_GLOBS",
         "CLAUDE_PLUGIN_DATA", "XDG_DATA_HOME")
 for k in DROP:

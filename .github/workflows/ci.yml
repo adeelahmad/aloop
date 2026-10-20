@@ -1,5 +1,5 @@
 # CI — the checks `make ci` + `make validate` run, mirrored on every push/PR.
-# Documented in README.md ("Continuous integration"). Four independent jobs:
+# Documented in README.md ("Versioning, changelog and CI"). Five independent jobs:
 #   rust       — ctx-symbols + md-db: fmt-check, clippy -D warnings, tests; §6 conformance fixtures
 #   shellcheck — lints every gate script (errors fail the build)
 #   plugin     — JSON sanity + eval-suite validation + `claude plugin validate --strict`
