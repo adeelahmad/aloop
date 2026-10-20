@@ -15,6 +15,8 @@ matrix is green with zero suppressions and every plan-ready.md fully ticked.
 ## Mandate
 - Run the full cross-cutting gate matrix from sprintN/plan.md, zero exceptions.
 - Grep the workspace for every suppression pattern; confirm count is zero.
+- No credential in the project (private keys, cloud and API tokens): `selfcheck final-gate`
+  scans for one and names the file and line. Report it; never paste or move the secret.
 - Walk every story's plan-ready.md; confirm every checkbox is [x].
 
 ## Hard limits

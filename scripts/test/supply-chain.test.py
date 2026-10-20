@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""ROADMAP M10.2 (first half): GREEN refuses a dependency added to a manifest that the approved
-plan does not name. Package installs are the usual supply-chain entry, and acceptance proved
+"""ROADMAP M10.2: GREEN refuses a dependency added to a manifest that the approved plan does not
+name, and a credential committed to the project blocks GREEN (in the lines it added) and the
+final gate (anywhere). Package installs are the usual supply-chain entry, and acceptance proved
 behaviour, not where the code came from. `deps added` lists the new names per manifest
 (Cargo.toml, package.json, requirements*.txt, pyproject.toml, go.mod); gate-green-verify blocks
 on any the story's plan (tasks.md, targets.json, plan.md, validate.md, stories.md) leaves out.
+`secrets scan` finds fixed-shape credentials and prints where, never the text.
     python3 scripts/test/supply-chain.test.py
 """
 import atexit
@@ -106,5 +108,51 @@ write(os.path.join(STORY, "tasks.md"), "---\ntype: tasks\nstory: S1-01\n---\n## 
 r = green()
 assert r.returncode == 0, r.stderr
 ok("GREEN refuses a dependency the approved plan does not name, and accepts it once the plan names it")
+
+# Fake credentials are assembled at run time so this file never holds one (push protection).
+SECRETS = os.path.join(BIN, "secrets")
+FAKE_KEYS = {
+    "private key": "-----BEGIN RSA " + "PRIVATE KEY-----",
+    "AWS access key id": "AK" + "IA" + "Q3EGRZ7XKPLMNB2Y",
+    "GitHub token": "gh" + "p_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8",
+    "Slack token": "xo" + "xb-" + "1234567890-abcdefghij",
+    "Anthropic API key": "sk-" + "ant-" + "api03-" + "x" * 40,
+}
+
+# 3) `secrets scan`: each shape is found with its file and line, the text never printed; a marked
+#    fixture line and an ordinary line pass; with --base only added lines count
+write(os.path.join(MAIN, "conf.py"), "".join('k%d = "%s"\n' % (i, v) for i, v in enumerate(FAKE_KEYS.values())))
+r = subprocess.run([SECRETS, "scan", "--root", MAIN], env=ENV, capture_output=True, text=True)
+assert r.returncode == 2, r
+assert sorted(r.stdout.split("\n")[:-1]) == sorted("conf.py:%d: %s" % (i + 1, k) for i, k in enumerate(FAKE_KEYS)), r.stdout
+assert not any(v[8:] in r.stdout + r.stderr for v in FAKE_KEYS.values()), "the scan printed a secret"
+write(os.path.join(MAIN, "conf.py"), 'k = "%s"  # aloop: allow-secret\ntoken = os.environ["API_TOKEN"]\nsk = "sk-learn"\n' % FAKE_KEYS["GitHub token"])
+assert sh(SECRETS, "scan", "--root", MAIN).stdout == ""
+write(os.path.join(MAIN, "conf.py"), 'k = "%s"\n' % FAKE_KEYS["AWS access key id"])
+sh("git", "add", "conf.py")
+sh("git", "commit", "-qm", "an old key")
+sh("git", "tag", "before")
+write(os.path.join(MAIN, "app.py"), "x = 1\ny = 2\n")
+assert sh(SECRETS, "scan", "--base", "before", "--root", MAIN).stdout == ""
+write(os.path.join(MAIN, "app.py"), "x = 1\ny = 2\nkey = '%s'\n" % FAKE_KEYS["Slack token"])
+r = subprocess.run([SECRETS, "scan", "--base", "before", "--root", MAIN], env=ENV, capture_output=True, text=True)
+assert r.returncode == 2 and r.stdout == "app.py:3: Slack token\n", r
+ok("secrets scan finds each credential shape by file and line without printing it, honours the allow marker, and --base sees only added lines")
+
+# 4) GREEN blocks a credential its own diff adds; the final gate blocks one anywhere in the project
+sh("git", "checkout", "-q", "--", "app.py")
+sh("git", "merge", "-q", "--no-edit", "main", cwd=wt)  # main moved in case 3: the old key is not GREEN's
+write(os.path.join(wt, "app.py"), "import requests\nimport leftpadx\nKEY = '%s'\n" % FAKE_KEYS["Anthropic API key"])
+sh("git", "commit", "-qam", "green: key", cwd=wt)
+r = green()
+assert r.returncode == 2 and "app.py:3: Anthropic API key" in r.stderr and "environment" in r.stderr, r.stderr
+assert FAKE_KEYS["Anthropic API key"][8:] not in r.stderr
+write(os.path.join(wt, "app.py"), "import os\nimport requests\nimport leftpadx\nKEY = os.environ['ANTHROPIC_API_KEY']\n")
+sh("git", "commit", "-qam", "green: env", cwd=wt)
+assert green().returncode == 0
+final = subprocess.run([os.path.join(BIN, "gate-final")], cwd=MAIN, input="", capture_output=True, text=True,
+                       env=dict(ENV, REPO_DIR=MAIN, AGENTIC_SELFCHECK="1", GATE_RUN_MATRIX="0", SPRINT_DIR=os.path.dirname(STORY)))
+assert final.returncode == 2 and "conf.py:1: AWS access key id" in final.stderr, final.stderr
+ok("GREEN blocks a credential its diff adds and passes once it reads the environment; the final gate blocks one anywhere")
 
 print("\n%d checks passed" % n[0])
