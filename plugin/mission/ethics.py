@@ -39,6 +39,7 @@ import sys
 import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "bin"))
+import _events  # noqa: E402
 import _mission as M  # noqa: E402
 
 TIERS = ("clear", "gray", "hard")
@@ -174,8 +175,13 @@ def word_keys(kind, doc, only=None):
 
 def rows(cwd):
     """The ethics records a verdict decides from: the ledger's intact rows (reviews, hard lines and the
-    human's consents), so a hard line holds on a fresh checkout, where the git-ignored stream is gone."""
-    return [r for r in M.ledger_rows(cwd)[0] if str(r.get("event", "")).startswith("ethics.")]
+    human's consents), so a hard line holds on a fresh checkout, where the git-ignored stream is gone;
+    plus the run log's hard lines the ledger does not have (recorded before it held them): a hard
+    line only ever closes, so the log may add one but never clears or consents."""
+    led = [r for r in M.ledger_rows(cwd)[0] if str(r.get("event", "")).startswith("ethics.")]
+    have = {r.get("event_id") for r in led}
+    return led + [e for e in _events.read(cwd) if is_hard(e) and e.get("event_id") not in have
+                  and isinstance(e.get("data"), dict)]
 
 
 def hard_words(cwd):

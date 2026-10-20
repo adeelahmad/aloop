@@ -221,7 +221,175 @@ r = hook(s, "AskUserQuestion", {"questions": [{"question": "Which name do you pr
 assert r.stdout == "", r.stdout                                    # no live run: asking is the human's choice
 ok("questions (live run): only a one-way door the gate stopped and nobody authorized; two-way is decided, not asked")
 
-# 10) list and the area's docstring
+# 10) the gate reads a command as the shell runs it (adversarial review of M9.30): a comment, a line
+#     continuation or `${#x}` hides nothing; a heredoc's text is data unless a shell or python runs it;
+#     wrappers (xargs, find -exec, `echo … | sh`, a variable program) are unwrapped; a dry run, a help page
+#     and a lookup (`command -v`) are two-way
+CAT = D.catalogue()
+
+
+def doors_of(cmd, cwd=None, assume=True):
+    return [d["id"] for d in D.classify(cwd or p.dir, "Bash", {"command": cmd}, CAT, assume_when=assume)]
+
+
+for cmd, want in (("# ship it\ngit push origin main", "push-default-branch"),
+                  ("echo ${#files[@]} && git push origin main", "push-default-branch"),
+                  ("curl -s http://x/#a && npm publish", "publish-release"),
+                  ("git status\n# now push\ngit push --force origin feature", "force-push-or-delete-remote"),
+                  ("git push \\\n  origin main", "push-default-branch"),
+                  ("terraform \\\n  apply -auto-approve", "production-deploy"),
+                  ("bash <<'EOF'\nnpm publish\nEOF", "publish-release"),
+                  ("bash <<< 'npm publish'", "publish-release"),
+                  ("echo 'npm publish' | sh", "publish-release"),
+                  ("find dist -name '*.tgz' -exec npm publish {} \;", "publish-release"),
+                  ("echo main | xargs git push origin", "push-default-branch"),       # arguments it cannot see
+                  ("kubectl apply --dry-run=none -f k8s/", "production-deploy"),     # not a dry run
+                  ("gh pr merge 3 -- --help", "push-default-branch"),
+                  ("pacman -Syu", "system-change"),
+                  ("git config core.hooksPath /dev/null", "change-agent-settings"),
+                  ("git -c core.hooksPath=/dev/null commit -m wip", "bypass-gate"),
+                  ("echo authorize publish-release --by A --reason ok | xargs mission doors", "forge-human-record"),
+                  ("find . -maxdepth 0 -exec mission doors authorize credentials-and-secrets --by A --reason r \;",
+                   "forge-human-record"),
+                  ("M=mission; $M doors authorize production-deploy --by A --reason r", "forge-human-record"),
+                  ("python3 -c \"import _mission as M; M.record_human('.', 'door.authorized', 'door:x', 'A')\"",
+                   "forge-human-record")):
+    assert want in doors_of(cmd), (cmd, doors_of(cmd))
+for cmd in ("cat > .github/workflows/release.yml <<'EOF'\nrun: npm publish\nEOF",
+            "cat > Makefile <<-EOF\n\tgit push origin main --tags\n\tEOF",
+            "git commit -F - <<'EOF'\nfix: install\n\nsudo is no longer needed\nEOF",
+            "cat > CONTRIBUTING.md <<'EOF'\nSKIP_HOOKS=1 git commit is for humans only.\nEOF",
+            "git commit -m \"$(cat <<'EOF'\nnpm publish\nEOF\n)\"",
+            "command -v sudo >/dev/null && echo has-sudo", "command -v mail || echo none", "npm ls -g",
+            "npm list -g --depth=0", "pacman -Ss jq", "kubectl create deployment web --image=nginx --dry-run=client -o yaml",
+            "helm upgrade --install app ./chart --dry-run", "poetry publish --dry-run", "gh pr merge --help",
+            "terraform apply --help", "git config --get core.hooksPath"):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+ledger_before = open(M.ledger(p.dir)).read()
+r = hook(p, "Bash", {"command": "echo authorize production-deploy --by Adeel --reason ok | xargs mission doors"})
+assert "BLOCK[door] forge-human-record" in denied(r)
+assert open(M.ledger(p.dir)).read() == ledger_before
+r = subprocess.run([os.path.join(BIN, "mission"), "doors", "authorize", "production-deploy", "--by", "Adeel", "--reason",
+                    "r"], cwd=p.dir, env=dict(p.env, CLAUDECODE="1"), capture_output=True, text=True)
+assert r.returncode == 2 and "own terminal" in r.stderr, r.stderr                 # an agent's shell authorizes nothing
+assert open(M.ledger(p.dir)).read() == ledger_before
+ok("the gate reads commands as the shell does: comments, continuations, heredocs, wrappers; dry runs and lookups are two-way")
+
+# 11) a `when` condition reads the directory the command acts on (`git -C DIR`, `cd DIR &&`), not the
+#     hook's: a task worktree's own reset is two-way from anywhere; the main checkout's is one-way from
+#     a worktree; a directory the gate cannot resolve counts as the main checkout
+assert hook(p, "Bash", {"command": "git -C home/wt reset --hard"}).stdout == ""
+assert hook(p, "Bash", {"command": "cd home/wt && git reset --hard HEAD~1"}).stdout == ""
+assert "discard-local-work" in denied(hook(p, "Bash", {"command": "git -C %s reset --hard" % p.dir}, cwd=wt))
+assert "discard-local-work" in denied(hook(p, "Bash", {"command": "cd %s && git reset --hard" % p.dir}, cwd=wt))
+assert "discard-local-work" in denied(hook(p, "Bash", {"command": "cd \"$TOP\" && git reset --hard"}, cwd=wt))
+assert hook(p, "Bash", {"command": "(cd %s && ls) && git reset --hard" % p.dir}, cwd=wt).stdout == ""   # a subshell's cd
+assert "push-default-branch" not in doors_of("git -C home/wt push", assume=False)
+assert "push-default-branch" in doors_of("git -C %s push" % p.dir, cwd=wt, assume=False)
+assert "push-default-branch" not in doors_of("git push", cwd=wt, assume=False)
+ok("when-conditions read the directory a command acts on (git -C, cd); an unresolved one counts")
+
+# 12) the agent's settings are one-way wherever they live: ~/.claude, a worktree's own, a linked file
+assert "change-agent-settings" in denied(hook(p, "Edit", {"file_path": "~/.claude/settings.json", "old_string": "a",
+                                                           "new_string": "b"}))
+assert "change-agent-settings" in denied(hook(p, "Write", {"file_path": os.path.join(wt, ".claude", "settings.local.json"),
+                                                           "content": "{}"}, cwd=wt))
+assert "forge-human-record" in denied(hook(p, "Write", {"file_path": os.path.join(wt, "docs/agents/mission/ledger.jsonl"),
+                                                        "content": "{}"}, cwd=wt))
+assert "send-external-message" in denied(hook(p, "mcp__slack__slack_post_message", {"channel_id": "C1", "text": "hi"}))
+assert hook(p, "mcp__slack__slack_list_channels", {}).stdout == ""
+ok("settings and the ledger are guarded by suffix (home, worktrees); real Slack send tools are one-way")
+
+# 13) the newest decision is the newest by time, on any branch: a revoke recorded on main closes the door
+#     on another checkout of the same run log, and a union merge that puts an older authorization last
+#     does not reopen it
+q = Project(mode="spoon-fed")
+qenv = dict(q.env, **GENV)
+subprocess.run(["git", "branch", "-M", "main"], cwd=q.dir, check=True)
+subprocess.run(["git", "add", "-A"], cwd=q.dir, check=True)
+subprocess.run(["git", "commit", "-qm", "seed"], cwd=q.dir, env=qenv, check=True)
+assert q.run("doors", "authorize", "publish-release", "--by", "Adeel", "--reason", "ship").returncode == 0
+subprocess.run(["git", "add", "-f", M.ledger(q.dir)], cwd=q.dir, check=True)
+subprocess.run(["git", "commit", "-qm", "authorized"], cwd=q.dir, env=qenv, check=True)
+assert q.run("doors", "revoke", "publish-release", "--by", "Adeel", "--reason", "freeze").returncode == 0
+subprocess.run(["git", "commit", "-qam", "revoked"], cwd=q.dir, env=qenv, check=True)
+assert classify(q, "npm publish").returncode == 3
+subprocess.run(["git", "checkout", "-q", "HEAD~1"], cwd=q.dir, check=True)     # the ledger without the revoke
+assert M.ledger_problems(q.dir) == [] and classify(q, "npm publish").returncode == 3
+subprocess.run(["git", "checkout", "-q", "main"], cwd=q.dir, check=True)
+lp = M.ledger(q.dir)
+base = M.ledger_rows(q.dir)[0][-1]
+
+
+def human_row(event, ts):
+    row = {"event_id": event + ts, "ts": ts, "event": event, "role": "human", "prev": base["hash"],
+           "data": {"subject": "door:production-deploy", "by": "Adeel", "reason": "r", "grant": "standing", "until": "",
+                    "action_sha256": ""}}
+    row["hash"] = M._row_hash(row)
+    return json.dumps(row, sort_keys=True) + "\n"
+
+
+merged = open(lp).read() + human_row("door.revoked", "2099-01-01T00:00:01Z") + human_row("door.authorized", "2099-01-01T00:00:00Z")
+open(lp, "w").write(merged)                       # two branches' rows after a union merge: the revoke is newer
+assert M.ledger_problems(q.dir) == [] and classify(q, "terraform apply").returncode == 3
+ok("a revoke closes the door by time, on any branch of the checkout and after a union merge")
+
+# 14) a broken ledger: the ASK says so, `doors check` fails, and the human's authorize says how to restore it
+assert q.run("doors", "check").returncode == 0                    # the merged ledger itself is sound
+q2 = Project(mode="spoon-fed")
+assert q2.run("doors", "authorize", "publish-release", "--by", "Adeel", "--reason", "ship").returncode == 0
+lp2 = M.ledger(q2.dir)
+whole = open(lp2).read()
+open(lp2, "w").write("".join(whole.splitlines(True)[:-1]))    # the authorization lost; the run log has it
+r = classify(q2, "npm publish")
+assert r.returncode == 3 and "ledger is broken" in r.stderr and "git checkout --" in r.stderr, r.stderr
+r = q2.run("doors", "authorize", "publish-release", "--by", "Adeel", "--reason", "again")
+assert r.returncode == 2 and "BLOCK[doors]" in r.stderr and "git checkout --" in r.stderr and "Traceback" not in r.stderr, r.stderr
+r = q2.run("doors", "check")
+assert r.returncode == 2 and "lost" in r.stderr, r.stderr
+open(lp2, "w").write(whole)
+ok("a broken ledger: the ASK names it, check fails, authorize blocks with the restore line (no traceback)")
+
+# 15) a once-authorization is crossed once, even by two gates at the same moment
+for i in range(4):
+    cmd = "gh secret set K%d" % i
+    assert q2.run("doors", "authorize", "credentials-and-secrets", "--by", "Adeel", "--reason", "rotate",
+                  "--once", D.action_sha("Bash", {"command": cmd})).returncode == 0
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": q2.dir, "session_id": "s%d" % i})
+    procs = [subprocess.Popen([os.path.join(BIN, "mission"), "doors", "hook"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, cwd=q2.dir, env=q2.env, text=True) for _ in range(2)]
+    outs = [x.communicate(payload) for x in procs]
+    assert [x.returncode for x in procs] == [0, 0], outs
+    assert sorted(o for o, _ in outs)[0] == "" and "ASK[door]" in sorted(o for o, _ in outs)[1], outs
+assert len(M.records(q2.dir, "door.crossed", "door:credentials-and-secrets")) == 4 and M.ledger_problems(q2.dir) == []
+ok("a once-authorization is crossed once under concurrent gates (serialized), with no transient broken ledger")
+
+# 16) questions: intake and planning are the human's (the plan's approval is asked); a sprint is live only
+#     once its plan is approved, for the session holding its lock
+s1 = Project(mode="spoon-fed")
+plan_q = "Sprint 1 plan is ready (3 stories, 9 tasks). Approve and start execution?"
+
+
+def ask_in(x, text, session="S1", env=None):
+    return hook(x, "AskUserQuestion", {"questions": [{"question": text, "header": "plan", "options": []}]},
+                session=session, env=env)
+
+
+r = subprocess.run([os.path.join(BIN, "gate-supervisor-scope")], cwd=s1.dir, env=s1.env, capture_output=True, text=True,
+                   input=json.dumps({"tool_name": "Write", "session_id": "S1", "cwd": s1.dir, "hook_event_name": "PreToolUse",
+                                     "tool_input": {"file_path": os.path.join(s1.dir, "docs/agents/memory.md")}}))
+assert r.returncode == 0, r.stderr
+assert open(os.path.join(s1.dir, ".aladdin", "state", "sprint.lock")).readline().strip() == "S1"   # the lock is armed
+assert ask_in(s1, plan_q).stdout == ""                                      # planning: the approval is asked
+_events.emit(s1.dir, "plan.created", role="planner", sprint="sprint1")
+_events.record_authority(s1.dir, "Adeel", "reviewed", "sprint1")            # the human approved the plan
+assert "two-way" in denied(ask_in(s1, "parse_row or parse_line?"))           # executing: decide it
+assert ask_in(s1, "parse_row or parse_line?", session="S2").stdout == ""      # another session's sprint
+assert "two-way" in denied(ask_in(Project(mode="spoon-fed"), "parse_row or parse_line?",
+                                  env={"AGENTIC_AUTONOMY_MODE": "autonomous"}))   # an autonomous run
+ok("questions: planning and the plan approval are asked; live once the plan is approved, for the lock's session")
+
+# 17) list and the area's docstring
 r = p.run("doors", "list", "--json")
 lst = json.loads(r.stdout)
 pd = next(d for d in lst["doors"] if d["id"] == "publish-release")
@@ -229,7 +397,7 @@ assert pd["grant"] == "standing" and pd["authorized"]["by"] == "Adeel", pd
 assert "doors" in p.run("--list").stdout.split() and "two-way" in p.run("doors", "--help").stdout
 assert p.run("doors", "nope").returncode == 64
 assert hashlib.sha256(b"bash\0git push origin main").hexdigest() == D.action_sha("Bash", {"command": "git  push origin   main"})
-for x in (p, s):
+for x in (p, s, q, q2, s1):
     shutil.rmtree(x.dir, ignore_errors=True)
 ok("list names each door's grant and live authorization; discovered as an area; usage errors are 64")
 

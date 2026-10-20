@@ -6,9 +6,10 @@ is crossed only under the human's recorded authorization, a hash-chained `door.a
 docs/agents/mission/ledger.jsonl; without one the PreToolUse gate stops the action with
 ASK[door] <id>, and the agent asks one question with a recommended option. A wall (grant
 `never`: switching a gate off, forging a human record) is never crossed by an agent. While a
-run is live (a fresh sprint lock, or an approved autonomous mission), a question to the human
-must name a one-way door the gate stopped and the human has not authorized: a two-way question
-is decided, not asked. Anything the catalogue does not list is two-way.
+run is live (an approved autonomous mission or an autonomous run, or a sprint whose plan is
+approved, for the session holding its lock), a question to the human must name a one-way door
+the gate stopped and the human has not authorized: a two-way question is decided, not asked.
+Anything the catalogue does not list is two-way.
 
 Usage:
   mission doors list [--json]
@@ -30,9 +31,12 @@ Usage:
 
 Grants: standing (one authorization covers the door), once (one exact action), never (a wall:
 the human runs it in their own terminal), command (a question-only door, answered by its own
-human command). An agent never runs `doors authorize` or writes the ledger (forge-human-record).
+human command). An agent never runs `doors authorize` or writes the ledger (forge-human-record),
+and `authorize` refuses a shell an agent host runs (CLAUDECODE set).
 """
+import contextlib
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -40,6 +44,11 @@ import shlex
 import subprocess
 import sys
 import time
+
+try:
+    import fcntl
+except ImportError:          # no flock (Windows): the gate runs unserialized
+    fcntl = None
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "bin"))
@@ -56,12 +65,17 @@ DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 QUIET = {"Read", "Grep", "Glob", "LS", "TodoWrite", "TodoRead", "WebSearch", "WebFetch", "NotebookRead", "ToolSearch"}
 EDITS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 QUESTION = "AskUserQuestion"
+# set in every shell an agent host runs (the agent's Bash tool): an authorization never comes from there
+AGENT_SHELL = ("CLAUDECODE",)
 TAG = re.compile(r"\[door:([^\]\s]*)\]")
 WRAPPERS = {"sudo", "doas", "env", "nohup", "time", "command", "exec", "nice", "timeout", "stdbuf", "caffeinate", "ionice"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 SEPARATORS = {";", "&&", "||", "|", "&", "|&", ";;", "(", ")", "\n"}
 REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
 ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# {DRY} in a pattern: the command is not a dry run or a help page (`--dry-run=none|false` is a real run;
+# an option after a bare `--` is an argument)
+DRY = r"(?!(?:(?!\s--(?:\s|$)).)*(?:^|\s)--(?:dry-run(?:=(?!(?:none|false)(?:\s|$))\S+)?|help)(?:\s|$))"
 GIT_PAIRED = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"}
 SCHEMA = {
     "type": "object", "required": ["version", "doors", "two_way_examples"],
@@ -76,7 +90,7 @@ SCHEMA = {
                 "answer": {"type": "string", "minLength": 1},
                 "bash": {"type": "array", "items": {"type": "object", "additionalProperties": False, "properties": {
                     "prog": {"type": "string"}, "args": {"type": "string"}, "flag": {"type": "string"},
-                    "env": {"type": "string"}, "writes": {"type": "string"},
+                    "env": {"type": "string"}, "writes": {"type": "string"}, "config": {"type": "string"},
                     "when": {"enum": ["on-default-branch", "main-worktree"]}}}},
                 "tools": {"type": "array"}, "paths": {"type": "array", "items": {"type": "string"}},
                 "plugin_paths": {"type": "array", "items": {"type": "string"}},
@@ -105,7 +119,7 @@ def load(path=None):
 
     def rx(s, where):
         try:
-            return re.compile(s.replace("{DEF}", default))
+            return re.compile(s.replace("{DEF}", default).replace("{DRY}", DRY))
         except re.error as e:
             bad.append("%s: %r does not compile (%s)" % (where, s, e))
             return None
@@ -118,7 +132,8 @@ def load(path=None):
         d["_bash"] = []
         for j, b in enumerate(d.get("bash") or []):
             if not set(b) - {"when"}:
-                bad.append("%s bash[%d]: a pattern names at least one of prog, args, flag, env, writes" % (where, j))
+                bad.append("%s bash[%d]: a pattern names at least one of prog, args, flag, env, writes, config"
+                           % (where, j))
             d["_bash"].append({k: (rx(v, "%s bash[%d].%s" % (where, j, k)) if k != "when" else v) for k, v in b.items()})
         d["_tools"] = []
         for j, t in enumerate(d.get("tools") or []):
@@ -168,33 +183,186 @@ def action_sha(tool, inp):
     return hashlib.sha256((tool + "\0" + json.dumps(inp or {}, sort_keys=True, separators=(",", ":"))).encode()).hexdigest()
 
 
+def subst_end(cmd, i):
+    """The index just past the command substitution that starts at i (`$(` or a backtick)."""
+    if cmd[i] == "`":
+        j = i + 1
+        while j < len(cmd) and cmd[j] != "`":
+            j += 2 if cmd[j] == "\\" else 1
+        return min(j + 1, len(cmd))
+    depth, j, q = 0, i + 1, None
+    while j < len(cmd):
+        c = cmd[j]
+        if q:
+            if c == "\\" and q == '"':
+                j += 1
+            elif c == q:
+                q = None
+        elif c in "'\"":
+            q = c
+        elif c == "\\":
+            j += 1
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        j += 1
+    return len(cmd)
+
+
+def heredoc_word(cmd, i):
+    """(delimiter, strip_tabs, end) of the heredoc operator `<<` at i, or None (a here-string)."""
+    if cmd.startswith("<<<", i):
+        return None
+    j, strip = i + 2, cmd[i + 2:i + 3] == "-"
+    j += 1 if strip else 0
+    while j < len(cmd) and cmd[j] in " \t":
+        j += 1
+    k = j
+    while k < len(cmd) and not cmd[k].isspace() and cmd[k] not in ";&|()<>":
+        k += 1
+    word = re.sub(r"[\"'\\]", "", cmd[j:k])
+    return (word, strip, k) if word else None
+
+
+def scan(cmd):
+    """(clean, subs, heredocs) of a command line as the shell reads it: unquoted newlines become
+    separators; comments (an unquoted `#` that starts a word) and backslash-newlines are dropped;
+    heredoc bodies are cut out, each kept as (the line it feeds, its body); every command
+    substitution, `$(…)` or `…`, unquoted or in double quotes, is kept in subs (its text stays)."""
+    out, subs, docs, pending = [], [], [], []
+    i, n, q, line = 0, len(cmd), None, 0
+    while i < n:
+        c = cmd[i]
+        if q == "'":
+            q = None if c == "'" else q
+            out.append(c)
+            i += 1
+            continue
+        if c == "\\" and i + 1 < n:
+            if cmd[i + 1] != "\n":
+                out.append(cmd[i:i + 2])
+            i += 2              # a backslash-newline joins the lines
+            continue
+        if c == "`" or cmd.startswith("$(", i):
+            j = subst_end(cmd, i)
+            subs.append(cmd[i + 1:j - 1] if c == "`" else cmd[i + 2:j - 1])
+            out.append(cmd[i:j])
+            i = j
+            continue
+        if q == '"':
+            q = None if c == '"' else q
+            out.append(c)
+            i += 1
+            continue
+        if c in "'\"":
+            q = c
+        elif c == "#" and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|()<>"):
+            while i < n and cmd[i] != "\n":
+                i += 1
+            continue
+        elif cmd.startswith("<<", i) and heredoc_word(cmd, i):
+            word, strip, k = heredoc_word(cmd, i)
+            pending.append((word, strip))
+            out.append(cmd[i:k])
+            i = k
+            continue
+        elif c == "\n":
+            for word, strip in pending:
+                body, j = [], i + 1
+                while j <= n:
+                    e = cmd.find("\n", j)
+                    e = n if e < 0 else e
+                    text = cmd[j:e]
+                    j = e + 1
+                    if (text.lstrip("\t") if strip else text) == word:
+                        break
+                    body.append(text)
+                docs.append(("".join(out[line:]), "\n".join(body)))
+                i = j - 1
+            pending = []
+            out.append(" ; ")
+            line = len(out)
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    for word, strip in pending:     # a heredoc whose body never came: nothing to cut
+        docs.append(("".join(out[line:]), ""))
+    return "".join(out), subs, docs
+
+
 def tokens(cmd):
-    """Shell words and operators (quotes respected); a line with an unbalanced quote falls back to a
-    plain split, so it is still read."""
-    lex = shlex.shlex(cmd.replace("\n", " ; "), posix=True, punctuation_chars=True)
+    """Shell words and operators (quotes respected, `#` inside a word kept); a line with an
+    unbalanced quote falls back to a plain split, so it is still read."""
+    lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
     lex.whitespace_split = True
+    lex.commenters = ""
     try:
         return list(lex)
     except ValueError:
-        return re.findall(r"&&|\|\||>>|[;&|()<>]|[^\s;&|()<>]+", cmd.replace("\n", " ; "))
+        return re.findall(r"&&|\|\||>>|[;&|()<>]|[^\s;&|()<>]+", cmd)
+
+
+UNKNOWN = "\0unknown"   # a directory the gate cannot resolve (a variable, `cd -`): its git state is assumed
+
+
+def chdir(cur, arg):
+    """The directory a `cd ARG` (or `git -C ARG`) moves to, relative to the call's cwd ("" = it)."""
+    if cur == UNKNOWN or arg is None or arg == "-" or re.search(r"[$`*?]", arg):
+        return UNKNOWN
+    arg = os.path.expanduser(arg or "~")
+    return arg if os.path.isabs(arg) else os.path.join(cur, arg)
 
 
 def views(cmd, depth=0):
-    """Every (prog, args, env, writes) a command line runs: one per simple command, one per wrapper
-    (sudo, env, timeout, …) around it, and the commands inside `sh -c` and `eval`."""
-    out, seg = [], []
-    for t in tokens(cmd) + [";"]:
+    """Every (prog, args, env, writes, dir) a command line runs: one per simple command, one per
+    wrapper (sudo, env, timeout, xargs, find -exec, …) around it, the commands inside `sh -c`,
+    `eval`, a command substitution, a heredoc or here-string fed to a shell and `echo … | sh`,
+    each with the directory it runs in (`cd DIR` before it, `git -C DIR`; a subshell's `cd`
+    stays in the subshell)."""
+    if depth > 4:
+        return []
+    clean, subs, docs = scan(cmd)
+    out, seg, cur, stack, prev = [], [], "", [], None
+    for t in tokens(clean) + [";"]:
         if t not in SEPARATORS:
             seg.append(t)
             continue
         if seg:
-            out += simple(seg, depth)
+            vs = simple(seg, depth, cur)
+            if vs and vs[0]["prog"] in ("cd", "pushd"):
+                cur = chdir(cur, next((a for a in vs[0]["args"] if not a.startswith("-")), ""))
+            if t == "|" or prev is not None:
+                if prev and vs and vs[0]["prog"] in SHELLS and not vs[0]["args"]:
+                    out += views(" ".join(prev), depth + 1)      # echo CMD | sh
+                prev = [a for v in vs[:1] if v["prog"] in ("echo", "printf") for a in v["args"]] if t == "|" else None
+            out += vs
+        elif t == "(":
+            stack.append(cur)
+        if t == ")" and stack:
+            cur = stack.pop()
         seg = []
+    for s in subs:
+        out += views(s, depth + 1)
+    for line, body in docs:
+        lv = views(line, depth + 1) if body else []
+        if any(v["prog"] in SHELLS and not v["args"] for v in lv):
+            out += views(body, depth + 1)       # bash <<EOF … EOF runs its body
+        out += [dict(v, args=v["args"] + [body]) for v in lv if PYTHON.fullmatch(v["prog"])]   # python3 - <<EOF
     return out
 
 
-def simple(seg, depth):
-    out, env, writes, words = [], [], [], []
+STDIN = "{stdin}"   # the arguments xargs or parallel adds from stdin: unseen, so any flag may be among them
+PYTHON = re.compile(r"python[\d.]*")
+XARGS_PAIRED = {"-I", "-i", "-n", "-P", "-L", "-l", "-s", "-d", "-E", "-e", "-a", "--max-args", "--max-procs",
+                "--delimiter", "--arg-file", "--replace", "--max-lines", "--max-chars", "--eof", "-j", "--jobs"}
+
+
+def simple(seg, depth, cur=""):
+    out, env, writes, words, herestr = [], [], [], [], []
     i = 0
     while i < len(seg):
         t = seg[i]
@@ -204,32 +372,65 @@ def simple(seg, depth):
             i += 2
             continue
         if t in ("<", "<<", "<<<"):
+            if t == "<<<" and i + 1 < len(seg):
+                herestr.append(seg[i + 1])
             i += 2
             continue
         words.append(t)
         i += 1
     while words and ASSIGN.match(words[0]):
         env.append(words.pop(0))
+    config, stdin_args = [], False
     while words:
         prog = os.path.basename(words[0])
         rest = words[1:]
-        if prog in ("python", "python3") and rest and not rest[0].startswith("-"):
+        if PYTHON.fullmatch(prog) and rest and not rest[0].startswith("-"):
             prog, rest = os.path.basename(rest[0]), rest[1:]
+        elif PYTHON.fullmatch(prog):
+            rest = rest + herestr       # python3 <<< "CODE"
         if prog == "tee":
             writes += [w for w in rest if not w.startswith("-")]
         if prog == "git":
             while rest and rest[0].startswith("-"):
-                rest = rest[2:] if rest[0] in GIT_PAIRED else rest[1:]
-        out.append({"prog": prog, "args": rest, "env": list(env), "writes": list(writes)})
+                o, v = rest[0], rest[1] if len(rest) > 1 else None
+                if o == "-C":
+                    cur = chdir(cur, v)
+                elif o in ("-c", "--config-env") and v:
+                    config.append(v)
+                elif o.startswith(("--git-dir", "--work-tree")):
+                    cur = UNKNOWN
+                elif o.startswith("--config-env="):
+                    config.append(o.split("=", 1)[1])
+                rest = rest[2:] if o in GIT_PAIRED else rest[1:]
+        if prog == "command" and rest[:1] in (["-v"], ["-V"]):
+            rest = []           # `command -v X` looks X up; it runs nothing
+        out.append({"prog": prog, "args": rest + ([STDIN] if stdin_args else []), "env": list(env),
+                    "writes": list(writes), "dir": cur, "config": list(config)})
         if prog in SHELLS and depth < 4:
             for j, a in enumerate(rest):
                 if re.match(r"^-[A-Za-z]*c[A-Za-z]*$", a) and j + 1 < len(rest):
                     out += [dict(v, env=v["env"] + env) for v in views(rest[j + 1], depth + 1)]
                     break
+            else:
+                if not rest:
+                    for s in herestr:
+                        out += views(s, depth + 1)      # bash <<< "CMD"
             break
         if prog == "eval" and depth < 4:
             out += views(" ".join(rest), depth + 1)
             break
+        if prog == "find":
+            for j, a in enumerate(rest):
+                if a in ("-exec", "-execdir", "-ok", "-okdir"):
+                    inner = list(itertools.takewhile(lambda w: w not in (";", "+"), rest[j + 1:]))
+                    out += simple(inner, depth + 1, cur) if inner else []
+            break
+        if prog in ("xargs", "parallel"):
+            words = rest
+            while words and words[0].startswith("-"):
+                words = words[2:] if words[0] in XARGS_PAIRED else words[1:]
+            stdin_args = True   # the arguments come from stdin: the gate cannot see them
+            continue
         if prog not in WRAPPERS:
             break
         words = rest
@@ -276,43 +477,60 @@ class Context:
         return True
 
 
+def contexts(cwd, assume_when):
+    """The Context of each directory a command runs in (`cd DIR`, `git -C DIR`), made once: a directory
+    the gate cannot resolve or find has its `when` conditions assumed (the door counts)."""
+    made = {}
+
+    def at(where):
+        if where not in made:
+            full = os.path.join(cwd, where) if where != UNKNOWN else ""
+            made[where] = Context(full or cwd, assume_when or not (full and os.path.isdir(full)))
+        return made[where]
+    return at
+
+
 def bash_hits(d, v, ctx, default):
     for b in d["_bash"]:
         if "prog" in b and not b["prog"].fullmatch(v["prog"]):
             continue
         if "args" in b and not b["args"].search(" ".join(v["args"])):
             continue
-        if "flag" in b and not any(b["flag"].fullmatch(a) for a in v["args"]):
+        if "flag" in b and not any(b["flag"].fullmatch(a) or (a == STDIN and d["grant"] != "never") for a in v["args"]):
             continue
         if "env" in b and not any(b["env"].fullmatch(e) for e in v["env"]):
             continue
         if "writes" in b and not any(b["writes"].search(w) for w in v["writes"]):
             continue
+        if "config" in b and not any(b["config"].fullmatch(c) for c in v["config"]):
+            continue
         if ("prog" in b or "args" in b or "flag" in b) and not v["prog"]:
             continue
-        if ctx.when(b.get("when"), default):
+        if ctx(v["dir"]).when(b.get("when"), default):
             return True
     return False
 
 
 def rel_path(cwd, path):
-    """A path as the catalogue reads it: relative to the project (or the plugin, for its own files)."""
-    full = os.path.realpath(os.path.join(cwd, path))
-    proj = os.path.realpath(_paths.project(cwd))
-    r = os.path.relpath(full, proj)
+    """(the forms a project path pattern is matched against, the path relative to the plugin or None): a
+    path relative to the project, and the absolute path as written and resolved, so a suffix pattern
+    (one that ends in /.claude/settings.json) also covers ~/.claude, a worktree's own and a linked file."""
+    given = os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
+    full = os.path.realpath(given)
+    r = os.path.relpath(full, os.path.realpath(_paths.project(cwd)))
     plug = os.path.relpath(full, PLUGIN)
-    return (r if not r.startswith("..") else full), (plug if not plug.startswith("..") else None)
+    return [x for x in (r, given, full) if not x.startswith("..")], (plug if not plug.startswith("..") else None)
 
 
 def classify(cwd, tool, inp, cat=None, assume_when=False):
     """[door] the action crosses, in catalogue order (none: two-way)."""
     cat = cat or catalogue()
     default = re.compile("(?:%s)" % cat.get("default_branch", "main|master"))
-    ctx = Context(cwd, assume_when)
+    ctx = contexts(cwd, assume_when)
     inp = inp if isinstance(inp, dict) else {}
     vs = views(str(inp.get("command", ""))) if tool == "Bash" else []
     path = inp.get("file_path") or inp.get("notebook_path") if tool in EDITS else None
-    proj_rel, plug_rel = rel_path(cwd, path) if isinstance(path, str) and path else (None, None)
+    proj_rel, plug_rel = rel_path(cwd, path) if isinstance(path, str) and path else ([], None)
     out = []
     for d in cat["doors"]:
         if d["grant"] == "command":
@@ -320,7 +538,7 @@ def classify(cwd, tool, inp, cat=None, assume_when=False):
         hit = any(bash_hits(d, v, ctx, default) for v in vs)
         hit = hit or any(t["tool"].search(tool) and all(isinstance(inp.get(k), str) and r.fullmatch(inp[k])
                                                         for k, r in t["input"].items()) for t in d["_tools"])
-        hit = hit or bool(proj_rel and any(r.search(proj_rel) for r in d["_paths"]))
+        hit = hit or any(r.search(x) for r in d["_paths"] for x in proj_rel)
         hit = hit or bool(plug_rel and any(r.search(plug_rel) for r in d["_plugin_paths"]))
         if hit:
             out.append(d)
@@ -341,15 +559,28 @@ def authorization(cwd, d, sha, now=None):
     return row if row and not M.ledger_problems(cwd) else None
 
 
+def decisions(cwd, did):
+    """The door's records, newest first by time (file order breaks a tie, so a union merge that puts an
+    older row last changes nothing): the ledger's rows, plus the run log's revokes and crossings the
+    ledger does not have (recorded on another branch of this checkout; they only ever close)."""
+    rows, _ = M.ledger_rows(cwd)
+    have = {r.get("event_id") for r in rows}
+    log = [e for e in _events.read(cwd) if e.get("event") in ("door.revoked", "door.crossed")
+           and e.get("event_id") not in have and isinstance(e.get("data"), dict) and e["data"].get("ledger") is True
+           and isinstance(e.get("ts"), str)]
+    mine = [(r["ts"], 0, i, r) for i, r in enumerate(rows)] + [(e["ts"], 1, i, e) for i, e in enumerate(log)]
+    return [r for _, _, _, r in sorted(mine, key=lambda x: x[:3], reverse=True)
+            if r["data"].get("subject") == subject(did)]
+
+
 def _authorization(cwd, d, sha, now=None):
     if d is None or d["grant"] not in ("standing", "once"):
         return None
     now = now or M.now()
-    rows, _ = M.ledger_rows(cwd)
-    used = {r["data"].get("authorization") for r in rows if r["event"] == "door.crossed"
-            and r["data"].get("subject") == subject(d["id"])}
-    for r in reversed(rows):
-        if r["data"].get("subject") != subject(d["id"]) or r.get("role") != "human":
+    rows = decisions(cwd, d["id"])
+    used = {r["data"].get("authorization") for r in rows if r["event"] == "door.crossed"}
+    for r in rows:
+        if r.get("role") != "human":
             continue
         if r["event"] == "door.revoked":
             return None
@@ -377,12 +608,14 @@ def wall_text(d):
             "terminal, if at all." % (d["id"], d["title"], d["why"]))
 
 
-def verdict(cwd, tool, inp, cat=None):
+def verdict(cwd, tool, inp, cat=None, hits=None):
     """(exit, lines, crossings): 0 two-way or authorized, 2 a wall, 3 one-way and not authorized;
     crossings = [(door, row)] of the authorized doors."""
     sha = action_sha(tool, inp)
     lines, crossings, rc = [], [], 0
-    for d in classify(cwd, tool, inp, cat):
+    hits = classify(cwd, tool, inp, cat) if hits is None else hits
+    broken = M.ledger_problems(cwd) if any(d["grant"] in ("standing", "once") for d in hits) else []
+    for d in hits:
         if d["grant"] == "never":
             lines.append(wall_text(d))
             rc = 2
@@ -396,23 +629,41 @@ def verdict(cwd, tool, inp, cat=None):
         else:
             lines.append(ask_text(d, sha))
             rc = rc or 3
+    if rc == 3 and broken:
+        lines.append("The mission ledger is broken, so no authorization counts until it is restored (%s; git checkout "
+                     "-- %s)." % ("; ".join(broken), M.rel(cwd, M.ledger(cwd))))
     if not lines:
         lines.append("[door] two-way: decide it, record it, don't ask")
     return rc, lines, crossings
 
 
 # ── the gate ─────────────────────────────────────────────────────────────────────────
-def live_run(cwd):
-    """A run is live while its sprint lock is fresh or an approved autonomous mission is running."""
+def live_run(cwd, session=""):
+    """A run is live (a two-way question is decided, not asked) under an approved autonomous mission or an
+    autonomous run, or while this session's sprint executes: its lock is fresh and names this session,
+    and the latest frozen plan is approved. Intake and planning are not live: the plan's own approval
+    is the human's question."""
+    doc, _, ev = M.mission(cwd)
+    if (doc and doc.get("mode") == "autonomous" and ev) or os.environ.get("AGENTIC_AUTONOMY_MODE") == "autonomous":
+        return True
     lock = os.path.join(_paths.home(cwd, make=False), "state", "sprint.lock")
     try:
         ttl = int(os.environ.get("AGENTIC_SPRINT_LOCK_TTL") or 14400)
-        if os.path.isfile(lock) and time.time() - os.path.getmtime(lock) < ttl:
-            return True
+        if not os.path.isfile(lock) or time.time() - os.path.getmtime(lock) >= ttl:
+            return False
+        with open(lock, encoding="utf-8") as f:
+            owner = f.readline().strip()
     except (OSError, ValueError):
         return True
-    doc, _, ev = M.mission(cwd)
-    return bool(doc and doc.get("mode") == "autonomous" and ev)
+    if owner and session and owner != session:
+        return False        # another session's sprint
+    plan, approved = None, set()
+    for e in _events.read(cwd):
+        if e.get("event") in ("plan.created", "plan.revised"):
+            plan = e
+        elif e.get("event") == "plan.approved":
+            approved.add(e.get("caused_by"))
+    return bool(plan and plan.get("event_id") in approved)
 
 
 def question_problem(cwd, inp, session, cat):
@@ -463,24 +714,42 @@ def hook(cwd_default):
     session = payload.get("session_id") or ""
     cat = catalogue()
     if tool == QUESTION:
-        why = question_problem(cwd, inp, session, cat) if live_run(cwd) else None
+        why = question_problem(cwd, inp, session, cat) if live_run(cwd, session) else None
         return deny(why) if why else 0
-    rc, lines, crossings = verdict(cwd, tool, inp, cat)
-    sha = action_sha(tool, inp)
-    if rc:
-        for d in classify(cwd, tool, inp, cat):
-            if d["grant"] in ("standing", "once") and not authorization(cwd, d, sha):
-                M.emit(cwd, "door.denied", role="gate", door=d["id"], grant=d["grant"], action_sha256=sha, tool=tool,
-                       session_id=session)
-        return deny(" ".join(l for l in lines if not l.startswith("[door]")))
-    for d, row in crossings:
-        if row["data"].get("action_sha256"):   # a once-authorization is used up by its first crossing
-            M.record(cwd, "door.crossed", subject(d["id"]), "harness", door=d["id"], authorization=row["event_id"],
-                     action_sha256=sha, session_id=session)
-        else:
-            M.emit(cwd, "door.crossed", role="harness", door=d["id"], authorization=row["event_id"], action_sha256=sha,
-                   session_id=session)
+    hits = classify(cwd, tool, inp, cat)
+    if not hits:
+        return 0
+    with serialized(cwd):       # check, then record: a once-authorization is crossed once
+        rc, lines, crossings = verdict(cwd, tool, inp, cat, hits)
+        sha = action_sha(tool, inp)
+        if rc:
+            for d in hits:
+                if d["grant"] in ("standing", "once") and not authorization(cwd, d, sha):
+                    M.emit(cwd, "door.denied", role="gate", door=d["id"], grant=d["grant"], action_sha256=sha, tool=tool,
+                           session_id=session)
+            return deny(" ".join(l for l in lines if not l.startswith("[door]")))
+        for d, row in crossings:
+            if row["data"].get("action_sha256"):   # a once-authorization is used up by its first crossing
+                M.record(cwd, "door.crossed", subject(d["id"]), "harness", door=d["id"], authorization=row["event_id"],
+                         action_sha256=sha, session_id=session)
+            else:
+                M.emit(cwd, "door.crossed", role="harness", door=d["id"], authorization=row["event_id"],
+                       action_sha256=sha, session_id=session)
     return 0
+
+
+@contextlib.contextmanager
+def serialized(cwd):
+    """One door decision at a time per project (an exclusive lock on .aladdin/state/doors.lock)."""
+    if fcntl is None:
+        yield
+        return
+    fd = os.open(os.path.join(_paths.home(cwd, "state"), "doors.lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
 
 
 # ── commands ─────────────────────────────────────────────────────────────────────────
@@ -501,8 +770,8 @@ def cmd_check(cwd, path, as_json):
                 if hit:
                     bad.append("a two-way example %r classifies to %s" % (x, ", ".join(d["id"] for d in hit)))
         ids = {d["id"] for d in cat["doors"]}
-        rows, lbad = M.ledger_rows(cwd)
-        bad += ["ledger: %s" % b for b in lbad]
+        rows, _ = M.ledger_rows(cwd)
+        bad += ["ledger: %s" % b for b in M.ledger_problems(cwd)]
         for r in rows:
             s = str(r["data"].get("subject", ""))
             if r["event"].startswith("door.") and s[len("door:"):] not in ids:
@@ -583,6 +852,12 @@ def cmd_authorize(cwd, did, o, revoke=False):
     if not by or not reason:
         print("mission doors %s DOOR --by NAME --reason TEXT" % verb, file=sys.stderr)
         return 64
+    if any(os.environ.get(k) for k in AGENT_SHELL):
+        print("BLOCK[doors]: this shell belongs to an agent session (%s is set): the human %ss a door in their own "
+              "terminal" % (" ".join(k for k in AGENT_SHELL if os.environ.get(k)), verb), file=sys.stderr)
+        return 2
+    if M.ledger_block(cwd, "doors"):
+        return 2
     data = {}
     if not revoke:
         once = o.get("once") or ""
@@ -603,6 +878,8 @@ def cmd_authorize(cwd, did, o, revoke=False):
         data = {"grant": "once" if once else "standing", "until": until, "action_sha256": once}
     try:
         eid = M.record_human(cwd, "door.revoked" if revoke else "door.authorized", subject(did), by, reason, **data)
+    except M.LedgerBroken:
+        return M.ledger_block(cwd, "doors") or 2
     except ValueError as e:
         print("mission doors %s: %s" % (verb, e), file=sys.stderr)
         return 64

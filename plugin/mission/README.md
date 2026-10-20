@@ -119,8 +119,9 @@ A gate checks structure and evidence, never whether a judgment is right.
   newest file before normalizing it). `record_authority` also approves the latest plan:
   record a goal's authority only after its sprint's `ids freeze`. `aladdin "<intent>"` refuses a
   bare intent containing `/`; use `aladdin run`.
-- **M9.30 doors.** `doors.json` is the catalogue (anything unlisted is two-way); `doors.py` matches an
-  action by program and arguments, reads the human's `door.authorized` / `door.revoked` ledger rows
+- **M9.30 doors.** `doors.json` is the catalogue (anything unlisted is two-way; `{DEF}` is the default
+  branch, `{DRY}` "not a dry run or a help page"); `doors.py` reads Bash as the shell does (`scan`,
+  `views`: each command with the directory it acts on), matches an action by program and arguments, reads the human's `door.authorized` / `door.revoked` ledger rows
   (`HUMAN_EVENTS`), and runs as the PreToolUse hook `mission doors hook` (deny JSON, fails closed with
   exit 2). A gate that knows an action is a one-way door can call `doors.verdict(cwd, tool, input)`.
   The core principles live in `principles.md` `## Core`, rendered by `principles.render_core()`.

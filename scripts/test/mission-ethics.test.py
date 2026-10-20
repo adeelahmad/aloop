@@ -22,6 +22,7 @@ PASS = [0]
 sys.path.insert(0, BIN)
 sys.path.insert(0, os.path.join(ROOT, "mission"))
 import _mission as M  # noqa: E402
+import _events  # noqa: E402
 import ethics as E  # noqa: E402
 
 
@@ -234,6 +235,23 @@ r = run(MI, "ethics", "check", "--subject", gid3)
 assert r.returncode == 2 and "ledger is broken" in r.stderr, r.stderr   # an edited hard line decides nothing
 open(led, "w").write(keep)
 ok("hard: record blocks and records ethics.blocked in the ledger; consent refused; a later softer review, a deleted file, a lost run log or an edited row never unlocks")
+
+#    an upgrade keeps every hard line: one recorded before the ledger held them (the run log only) still binds
+gid7 = goal("phish users for their bank passwords")
+subj7, doc7 = E.binding(T, "goal", gid7)
+_events.emit(T, "ethics.blocked", role="ethics-reviewer", refs={"subject": subj7["ref"]}, ethics_id="eth_old",
+             subject=subj7["ref"], sha256=subj7["sha256"], text_sha256=E.text_digest(doc7), categories=["harmful"],
+             kind="goal", words=E.word_keys("goal", doc7))
+r = run(MI, "ethics", "check", "--subject", gid7)
+assert r.returncode == 2 and "hard line" in r.stderr and "eth_old" in r.stderr, r.stderr
+assert set(E.word_keys("goal", doc7)) <= E.hard_words(T)
+p7, _ = start(gid7)
+r = fill(p7, [{"category": c, "tier": "gray", "reason": "only a little"} for c in json.load(open(p7))["screen"]] or
+         [{"category": "other", "tier": "gray", "reason": "only a little"}], "gray")
+assert r.returncode == 2 and "hard line" in r.stderr, r.stderr
+r = run(MI, "ethics", "consent", "--subject", gid7, "--by", "Adeel", "--reason", "fine")
+assert r.returncode == 2, r.stderr
+ok("upgrade: a hard line only the run log holds (recorded before the ledger) still blocks; a later gray review and consent do not clear it")
 
 # 8) tampering: an edited review fails its seal; an edited subject binding is a review of other content
 rev = json.load(open(path))

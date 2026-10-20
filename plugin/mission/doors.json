@@ -10,17 +10,17 @@
    "bash": [
     {
      "prog": "git",
-     "args": "^push\\b(?!.*--dry-run)",
+     "args": "^push\\b{DRY}",
      "flag": "\\+?(?:[^:\\s]*:)?(?:refs/heads/)?{DEF}"
     },
     {
      "prog": "git",
-     "args": "^push(?:\\s+(?:-u|--set-upstream))?(?:\\s+[\\w.-]+)?$",
+     "args": "^push{DRY}(?:\\s+(?:-u|--set-upstream))?(?:\\s+[\\w.-]+)?$",
      "when": "on-default-branch"
     },
     {
      "prog": "gh",
-     "args": "^pr\\s+merge\\b"
+     "args": "^pr\\s+merge\\b{DRY}"
     }
    ],
    "tools": [
@@ -38,7 +38,12 @@
      "git -C r push origin HEAD:master",
      "bash -c \"git push origin main\"",
      "gh pr merge 12 --squash",
-     "git push"
+     "git push",
+     "# ship it\ngit push origin main",
+     "git push \\\n  origin main",
+     "echo ${#a[@]} && git push origin main",
+     "bash <<'EOF'\ngit push origin main\nEOF",
+     "cd sub && git push origin main"
     ],
     "tools": [
      "mcp__github__merge_pull_request"
@@ -53,7 +58,7 @@
    "bash": [
     {
      "prog": "git",
-     "args": "^push\\b(?!.*--dry-run)",
+     "args": "^push\\b{DRY}",
      "flag": "-f|--force|--force-with-lease(?:=.*)?|--force-if-includes|--mirror|--delete|--prune|-d|-[A-Za-z]*[fd][A-Za-z]*|[+:]\\S+"
     }
    ],
@@ -96,35 +101,35 @@
    "bash": [
     {
      "prog": "npm|pnpm|yarn|bun",
-     "args": "^publish\\b(?!.*--dry-run)"
+     "args": "^publish\\b{DRY}"
     },
     {
      "prog": "cargo",
-     "args": "^publish\\b(?!.*--dry-run)"
+     "args": "^publish\\b{DRY}"
     },
     {
      "prog": "twine",
-     "args": "^upload\\b"
+     "args": "^upload\\b{DRY}"
     },
     {
      "prog": "gem",
-     "args": "^push\\b"
+     "args": "^push\\b{DRY}"
     },
     {
      "prog": "poetry|uv|hatch|flit",
-     "args": "^publish\\b"
+     "args": "^publish\\b{DRY}"
     },
     {
      "prog": "gh",
-     "args": "^release\\s+(?:create|upload|edit|delete)\\b"
+     "args": "^release\\s+(?:create|upload|edit|delete)\\b{DRY}"
     },
     {
      "prog": "git",
-     "args": "^push\\b(?!.*--dry-run).*\\s--tags\\b"
+     "args": "^push\\b{DRY}.*\\s--tags\\b"
     },
     {
      "prog": "docker|podman",
-     "args": "^(?:image\\s+)?push\\b"
+     "args": "^(?:image\\s+)?push\\b{DRY}"
     }
    ],
    "examples": {
@@ -134,7 +139,10 @@
      "gh release create v1.0.0",
      "docker push me/app:1",
      "twine upload dist/x.whl",
-     "git push origin --tags"
+     "git push origin --tags",
+     "# release\nnpm publish",
+     "find dist -name '*.tgz' -exec npm publish {} \\;",
+     "npm publish --dry-run=false"
     ]
    }
   },
@@ -146,47 +154,47 @@
    "bash": [
     {
      "prog": "terraform|tofu",
-     "args": "^(?:apply|destroy|import|state\\s+(?:rm|mv|push))\\b"
+     "args": "^(?:apply|destroy|import|state\\s+(?:rm|mv|push))\\b{DRY}"
     },
     {
      "prog": "pulumi",
-     "args": "^(?:up|destroy|refresh)\\b"
+     "args": "^(?:up|destroy|refresh)\\b{DRY}"
     },
     {
      "prog": "kubectl",
-     "args": "^(?:apply|create|delete|replace|patch|scale|set|edit|drain|cordon|rollout\\s+(?:restart|undo))\\b"
+     "args": "^(?:apply|create|delete|replace|patch|scale|set|edit|drain|cordon|rollout\\s+(?:restart|undo))\\b{DRY}"
     },
     {
      "prog": "helm",
-     "args": "^(?:install|upgrade|uninstall|rollback|delete)\\b"
+     "args": "^(?:install|upgrade|uninstall|rollback|delete)\\b{DRY}"
     },
     {
      "prog": "cdk",
-     "args": "^(?:deploy|destroy)\\b"
+     "args": "^(?:deploy|destroy)\\b{DRY}"
     },
     {
      "prog": "serverless|sls",
-     "args": "^(?:deploy|remove)\\b"
+     "args": "^(?:deploy|remove)\\b{DRY}"
     },
     {
      "prog": "fly|flyctl",
-     "args": "^deploy\\b"
+     "args": "^deploy\\b{DRY}"
     },
     {
      "prog": "vercel",
-     "args": "(?:^|\\s)--prod\\b"
+     "args": "^{DRY}.*(?:^|\\s)--prod\\b"
     },
     {
      "prog": "netlify",
-     "args": "^deploy\\b.*--prod\\b"
+     "args": "^deploy\\b{DRY}.*--prod\\b"
     },
     {
      "prog": "gcloud",
-     "args": "\\bdeploy\\b"
+     "args": "^{DRY}.*\\bdeploy\\b"
     },
     {
      "prog": "aws",
-     "args": "^(?:cloudformation\\s+(?:deploy|delete-stack|update-stack)|ecs\\s+update-service|lambda\\s+update-function-code|ec2\\s+terminate-instances|s3\\s+(?:rm|sync)\\b.*--delete)"
+     "args": "^{DRY}(?:cloudformation\\s+(?:deploy|delete-stack|update-stack)|ecs\\s+update-service|lambda\\s+update-function-code|ec2\\s+terminate-instances|s3\\s+(?:rm|sync)\\b.*--delete)"
     }
    ],
    "examples": {
@@ -195,7 +203,9 @@
      "kubectl apply -f k8s/",
      "helm upgrade app ./chart",
      "fly deploy",
-     "vercel --prod"
+     "vercel --prod",
+     "kubectl apply --dry-run=none -f k8s/",
+     "terraform \\\n  apply -auto-approve"
     ]
    }
   },
@@ -210,7 +220,7 @@
     }
    ],
    "tools": [
-    "(?i)^mcp__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)\\w*?__(?:send|reply|forward|post|chat_post)\\w*$"
+    "(?i)^mcp__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)\\w*?__(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)_)?(?:send|reply|forward|post|chat_post)\\w*$"
    ],
    "examples": {
     "bash": [
@@ -218,7 +228,9 @@
     ],
     "tools": [
      "mcp__Gmail__send_message",
-     "mcp__slack__post_message"
+     "mcp__slack__post_message",
+     "mcp__slack__slack_post_message",
+     "mcp__slack__slack_reply_to_thread"
     ]
    }
   },
@@ -237,7 +249,7 @@
     },
     {
      "prog": "pacman",
-     "args": "^-[A-Za-z]*[SRU]"
+     "args": "^-[A-Za-z]*(?:[RU]|S(?![A-Za-z]*[sigpl]))"
     },
     {
      "prog": "brew",
@@ -257,7 +269,12 @@
     },
     {
      "prog": "npm|pnpm|yarn",
-     "flag": "-g|--global"
+     "flag": "-g|--global",
+     "args": "^(?:-\\S+\\s+)*(?!-)(?!(?:ls|list|la|ll|root|prefix|bin|view|v|info|show|outdated|help|search|s|find|doctor|explain|why|query|get|config\\s+(?:get|list))(?:\\s|$))"
+    },
+    {
+     "prog": "yarn",
+     "args": "^global\\s+(?:add|remove|upgrade|upgrade-interactive)\\b"
     }
    ],
    "examples": {
@@ -267,7 +284,10 @@
      "brew install jq",
      "systemctl restart nginx",
      "npm install -g pnpm",
-     "crontab -e"
+     "crontab -e",
+     "pacman -Syu",
+     "yarn global add pnpm",
+     "npm -g install pnpm"
     ]
    }
   },
@@ -384,8 +404,8 @@
    "title": "Change the agent's own settings, hooks or gates",
    "why": "settings and gates decide what every later step may do",
    "paths": [
-    "^\\.claude/settings(?:\\.local)?\\.json$",
-    "^\\.codex/config\\.toml$"
+    "(?:^|/)\\.claude/settings(?:\\.local)?\\.json$",
+    "(?:^|/)\\.codex/config\\.toml$"
    ],
    "plugin_paths": [
     "^hooks/hooks\\.json$",
@@ -395,15 +415,27 @@
    "bash": [
     {
      "writes": "(?:^|/)\\.claude/settings(?:\\.local)?\\.json$"
+    },
+    {
+     "prog": "git",
+     "args": "(?i)^config\\b(?!.*\\s(?:--get\\S*|--list|-l|get|list)(?:\\s|$)).*\\score\\.hookspath\\s+\\S"
+    },
+    {
+     "prog": "git",
+     "args": "(?i)^config\\b.*\\s(?:--unset(?:-all)?|unset)\\s(?:.*\\s)?core\\.hookspath\\b"
     }
    ],
    "examples": {
     "paths": [
      ".claude/settings.json",
-     ".claude/settings.local.json"
+     ".claude/settings.local.json",
+     "~/.claude/settings.json",
+     "home/wt/.claude/settings.local.json"
     ],
     "bash": [
-     "echo '{}' > .claude/settings.json"
+     "echo '{}' > .claude/settings.json",
+     "git config core.hooksPath /dev/null",
+     "git config --unset core.hooksPath"
     ]
    }
   },
@@ -418,7 +450,7 @@
     },
     {
      "prog": "export",
-     "flag": "(?:SKIP_HOOKS|AGENTIC_NO_BUDGET)=(?!0?$).*"
+     "flag": "(?:SKIP_HOOKS|AGENTIC_NO_BUDGET)=(?!0?$).*|(?i:GIT_CONFIG_PARAMETERS=.*core\\.hookspath.*|GIT_CONFIG_KEY_\\d+=core\\.hookspath)"
     },
     {
      "prog": "git",
@@ -429,6 +461,13 @@
      "prog": "git",
      "args": "^(?:push|merge|rebase|am|cherry-pick)\\b",
      "flag": "--no-verify"
+    },
+    {
+     "env": "(?i:GIT_CONFIG_PARAMETERS=.*core\\.hookspath.*|GIT_CONFIG_KEY_\\d+=core\\.hookspath)"
+    },
+    {
+     "prog": "git",
+     "config": "(?i)core\\.hookspath=.*"
     }
    ],
    "examples": {
@@ -436,7 +475,10 @@
      "SKIP_HOOKS=1 aloop task-worktree merge S1-1-T1",
      "git commit --no-verify -m x",
      "export AGENTIC_NO_BUDGET=1",
-     "env SKIP_HOOKS=1 make"
+     "env SKIP_HOOKS=1 make",
+     "git -c core.hooksPath=/dev/null commit -m wip",
+     "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null git commit -m x",
+     "# wip\nSKIP_HOOKS=1 make"
     ]
    }
   },
@@ -461,19 +503,45 @@
      "prog": "sed|perl",
      "flag": "-[A-Za-z]*i.*",
      "args": "(?:^|/|\\s)mission/ledger\\.jsonl\\b"
+    },
+    {
+     "prog": "aloop|mission",
+     "args": "^(?:mission\\s+)?(?:doors\\b.*)?\\{stdin\\}"
+    },
+    {
+     "prog": "aloop",
+     "args": "^mission\\s+doors\\s+\\S*[$`*?]"
+    },
+    {
+     "prog": "mission",
+     "args": "^doors\\s+\\S*[$`*?]"
+    },
+    {
+     "prog": ".*[$`].*",
+     "args": "^(?:mission\\s+)?doors\\s+(?:authorize|revoke)\\b"
+    },
+    {
+     "prog": "python[\\d.]*",
+     "args": "record_human|door\\.(?:authorized|revoked)"
     }
    ],
    "paths": [
-    "^docs/agents/mission/ledger\\.jsonl$"
+    "(?:^|/)mission/ledger\\.jsonl$"
    ],
    "examples": {
     "bash": [
      "aloop mission doors authorize push-default-branch --by me --reason r",
      "echo x >> docs/agents/mission/ledger.jsonl",
-     "sed -i s/a/b/ docs/agents/mission/ledger.jsonl"
+     "sed -i s/a/b/ docs/agents/mission/ledger.jsonl",
+     "echo authorize publish-release --by me --reason r | xargs mission doors",
+     "find . -maxdepth 0 -exec aloop mission doors authorize x --by me --reason r \\;",
+     "M=mission; $M doors authorize production-deploy --by me --reason r",
+     "python3 -c \"import _mission as M; M.record_human('.', 'door.authorized', 'door:x', 'me')\"",
+     "python3 - <<'EOF'\nM.record_human('.', 'door.authorized', 'door:x', 'me')\nEOF"
     ],
     "paths": [
-     "docs/agents/mission/ledger.jsonl"
+     "docs/agents/mission/ledger.jsonl",
+     "home/wt/docs/agents/mission/ledger.jsonl"
     ]
    }
   },
@@ -548,12 +616,28 @@
    "aloop mission doors list",
    "git commit -m x",
    "git reset --soft HEAD~1",
-   "docker build ."
+   "docker build .",
+   "cat > .github/workflows/release.yml <<'EOF'\nrun: npm publish\nEOF",
+   "git commit -F - <<'EOF'\nfix: sudo is no longer needed\nEOF",
+   "cat > CONTRIBUTING.md <<'EOF'\nSKIP_HOOKS=1 git commit is for humans only.\nEOF",
+   "command -v sudo >/dev/null && echo has-sudo",
+   "command -v mail || echo none",
+   "kubectl apply --dry-run=server -f k8s/",
+   "helm upgrade --install app ./chart --dry-run",
+   "gh pr merge --help",
+   "docker push --help",
+   "npm ls -g",
+   "npm root -g",
+   "pacman -Ss jq",
+   "git config --get core.hooksPath",
+   "echo ${#files[@]} && ls # list",
+   "aloop mission doors classify --bash \"npm publish\""
   ],
   "tools": [
    "Read",
    "mcp__github__create_pull_request",
-   "mcp__github__push_files"
+   "mcp__github__push_files",
+   "mcp__slack__slack_list_channels"
   ],
   "paths": [
    "src/a.py",
