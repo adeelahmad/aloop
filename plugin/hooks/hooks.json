@@ -16,7 +16,8 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-dispatch\"", "timeout": 15 } ] },
       { "matcher": "*", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/host-adapter\" hook", "timeout": 15 },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook pre", "timeout": 15 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook pre", "timeout": 15 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/mission\" doors hook", "timeout": 15 } ] }
     ],
     "UserPromptSubmit": [
       { "matcher": "*", "hooks": [
@@ -38,7 +39,8 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-validate-artifact\"" } ] },
       { "matcher": "*", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" record" },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook post", "timeout": 15 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook post", "timeout": 15 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/intent\" hook", "timeout": 15 } ] }
     ],
     "Stop": [
       { "matcher": "*", "hooks": [

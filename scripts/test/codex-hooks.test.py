@@ -17,6 +17,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+from plan_fixture import approve_plan  # noqa: E402
+
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
 BIN = os.path.join(ROOT, "bin")
 HOOKS = json.load(open(os.path.join(ROOT, "hooks", "hooks.json")))["hooks"]
@@ -47,9 +50,9 @@ def matches(matcher, names):
     return any(re.search(matcher, n) for n in names)
 
 
-def fire(event, payload):
-    """Run every matching hook like Codex: returns [(exit, stdout, stderr)]."""
-    payload = dict(payload, hook_event_name=event, turn_id="turn-1", cwd=payload.get("cwd", T))
+def fire(event, payload, claude=False):
+    """Run every matching hook like Codex (or Claude Code: no turn_id): returns [(exit, stdout, stderr)]."""
+    payload = dict(payload, hook_event_name=event, cwd=payload.get("cwd", T), **({} if claude else {"turn_id": "turn-1"}))
     key = payload.get("tool_name") if "Tool" in event else payload.get("agent_type")
     names = [key or ""] + ALIASES.get(key or "", [])
     out = []
@@ -123,6 +126,20 @@ assert why and "production source" in why; ok("supervisor-scope blocks the super
 why = denied(fire("PreToolUse", dict(base, tool_name="Bash", tool_input={"command": "git commit -m 'x\n\nCo-Authored-By: Claude <noreply@anthropic.com>'"})))
 assert why and "co-author" in why.lower(); ok("commit-author blocks a Claude trailer")
 
+# dispatch: Codex's spawn_agent ({agent_type, message}) runs gate-dispatch through the `Agent` matcher: the
+# TASK_ID line, the task contract, then the human's plan approval (ROADMAP M0.9); no model per call is fine
+spawn = lambda msg: dict(base, tool_name="spawn_agent", tool_input={"agent_type": "green-worker", "message": msg})  # noqa: E731
+why = denied(fire("PreToolUse", spawn("go green")))
+assert why and "TASK_ID: <id>" in why, why
+os.makedirs(os.path.join(T, ".aladdin/state/tasks"), exist_ok=True)
+open(os.path.join(T, ".aladdin/state/tasks/S1-01-T9.env"), "w").write(
+    "TASK_ID=S1-01-T9\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\n" % os.path.join(T, "docs/agents/sprint1/s1-01-x"))
+why = denied(fire("PreToolUse", spawn("TASK_ID: S1-01-T9\nGREEN")))
+assert why and "has not approved the plan of S1" in why, why
+approve_plan(T, ENV)
+assert not denied(fire("PreToolUse", spawn("TASK_ID: S1-01-T9\nGREEN")))
+ok("spawn_agent is gated: its TASK_ID line, its contract and the human's approval of the sprint's plan")
+
 # worker: SubagentStart registers; unbound writes refused; bind; confinement
 worker = dict(base, agent_id="th-red", agent_type="red-worker")
 fire("SubagentStart", worker)
@@ -171,5 +188,38 @@ claude = {"session_id": "c1", "transcript_path": os.path.join(T, "cc", "c1.jsonl
 r = subprocess.run(["sh", "-c", HOOKS["PreToolUse"][-1]["hooks"][0]["command"]], cwd=T, env=ENV, capture_output=True, text=True,
                    input=json.dumps(dict(claude, hook_event_name="PreToolUse", cwd=T, tool_name="Bash", tool_input={"command": "cargo test"})))
 assert "deny" not in r.stdout; ok("Claude Code worker (no turn_id, no bind) is not confined by host-adapter")
+
+# ROADMAP §4.9: an intake that stops to ask the human is released at once as NEEDS-HUMAN (never blocked
+# for rounds it cannot use), and the supervisor's next tool result carries its questions, once
+open(os.path.join(T, "docs/agents/sprint1/intake.md"), "w").write(
+    "# Intent\nWhat: export\n## Constraints\n## Failure scenarios\n## Success scenarios\n## Connections\n")
+ic = sh(os.path.join(BIN, "intent"), "new", "--source", "prompt", "--raw", "export the report as CSV")
+contract = dict(json.load(open(ic)), actor="analyst", want="CSV export", why="finance", constraints=["none"],
+                success_scenarios=["a .csv downloads"], failure_scenarios=["an empty table exports a header"],
+                connections=["report page"], done_looks_like="Export works",
+                open_questions=[{"question": "may the export include personal data?", "class": "ask"}])
+json.dump(contract, open(ic, "w"))
+intake = dict(base, agent_id="th-intake", agent_type="intake")
+fire("SubagentStart", intake)
+r = fire("SubagentStop", dict(intake, agent_transcript_path="", last_assistant_message="a question needs the human", stop_hook_active=False))
+assert not any(c == 2 for c, _, _ in r) and any("NEEDS-HUMAN" in se for _, _, se in r), r
+ok("Codex: an intake whose contract only waits on the human is released at once (NEEDS-HUMAN), not blocked")
+told = context(fire("PostToolUse", dict(base, tool_name="wait_agent", tool_input={}, tool_response="intake finished")))
+assert "intake th-intake: NEEDS-HUMAN" in told and "may the export include personal data?" in told, told
+assert "NEEDS-HUMAN" not in context(fire("PostToolUse", dict(base, tool_name="wait_agent", tool_input={}, tool_response="x")))
+ok("Codex: the supervisor's next tool result carries NEEDS-HUMAN with the questions, once")
+json.dump(dict(contract, want=""), open(ic, "w"))
+r = fire("SubagentStop", dict(intake, agent_transcript_path="", last_assistant_message="done", stop_hook_active=False))
+assert any(c == 2 and "is invalid" in se for c, _, se in r), r
+json.dump(contract, open(ic, "w"))
+ok("Codex: a malformed Intent Contract still blocks the intake's stop")
+cc = {"session_id": "c1", "transcript_path": os.path.join(T, "cc", "c1.jsonl")}
+r = fire("SubagentStop", dict(cc, agent_id="a-intake", agent_type="aloop:intake", last_assistant_message="a question",
+                              stop_hook_active=False), claude=True)
+assert not any(c == 2 for c, _, _ in r) and any("NEEDS-HUMAN" in se for _, _, se in r), r
+told = context(fire("PostToolUse", dict(cc, tool_name="Agent", tool_input={"subagent_type": "aloop:intake"}, tool_response="done"),
+                    claude=True))
+assert "intake a-intake: NEEDS-HUMAN" in told and "may the export include personal data?" in told, told
+ok("Claude Code: the intake (aloop:intake) is released at once and its Agent result carries NEEDS-HUMAN with the questions")
 
 print("\n%d checks passed" % PASS[0])

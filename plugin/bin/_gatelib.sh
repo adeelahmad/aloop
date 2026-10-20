@@ -283,13 +283,16 @@ validate_comms() {
   local last; last="$(awk '/^## /{n=NR} END{print n+0}' "$out")"
   [ "${last:-0}" -gt 0 ] || fail "output.md has no '## <task> · attempt N · <role> · <ts>' block — append your report. How: $how"
   local block; block="$(awk -v s="$last" 'NR>=s' "$out")"
+  # Here-strings, never `printf "$block" | grep -q`: grep -q exits at its match, the printf still
+  # writing the rest dies of SIGPIPE (141), and pipefail read a well-formed block as missing a
+  # section (conformance §6.6 flaked on "missing '### Next'"; a block past what a pipe holds always did).
   if [ -n "${AGENT_ROLE:-}" ]; then
-    printf '%s\n' "$block" | head -1 | grep -q "$AGENT_ROLE" \
+    grep -q "$AGENT_ROLE" <<<"${block%%$'\n'*}" \
       || fail "the latest output.md block is not from '$AGENT_ROLE' — append YOUR report block for this dispatch (one block per attempt, append-only). How: $how"
   fi
-  printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Summary' || fail "latest output.md block missing '### Summary'"
-  printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Result'  || fail "latest output.md block missing '### Result'"
-  printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Next'    || fail "latest output.md block missing '### Next'"
+  grep -qE '^###[[:space:]]*Summary' <<<"$block" || fail "latest output.md block missing '### Summary'"
+  grep -qE '^###[[:space:]]*Result'  <<<"$block" || fail "latest output.md block missing '### Result'"
+  grep -qE '^###[[:space:]]*Next'    <<<"$block" || fail "latest output.md block missing '### Next'"
   note "comms ok: latest output.md block is a well-formed '${AGENT_ROLE:-?}' report in $(basename "$dir")"
 }
 
@@ -348,6 +351,36 @@ changed_paths() {
   fi
 }
 
+# The commit this change is measured from: BASE_REF if set, else where the branch left the
+# main tree's HEAD (as changed_paths). Empty when neither resolves.
+diff_base() {
+  local root common main_head; root="$(repo_dir)"
+  if [ -n "${BASE_REF:-}" ]; then echo "$BASE_REF"; return; fi
+  common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  main_head="$(git -C "${common%/.git}" rev-parse HEAD 2>/dev/null)"
+  [ -n "$main_head" ] && git -C "$root" merge-base HEAD "$main_head" 2>/dev/null
+}
+
+# Supply chain (ROADMAP M10.2): a dependency added to a manifest must be named by the approved
+# plan (the story's tasks.md / targets.json / plan.md / validate.md / stories.md). exit 2 if not.
+assert_planned_dependencies() {
+  [ -n "${STORY_DIR:-}" ] || return 0
+  local base out; base="$(diff_base)"
+  [ -n "$base" ] || return 0
+  if ! out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deps" unplanned --base "$base" --story "$STORY_DIR" --root "$(repo_dir)" 2>&1)"; then
+    fail "dependency added that the approved plan does not name: $(echo "$out" | tr '\t\n' ': ' | sed 's/ *$//'). Use what the project already has, or ask the planner to name the dependency in the plan (a re-plan, which the human approves)"
+  fi
+}
+
+# Secrets (ROADMAP M10.2): no credential in the project. With an argument, only lines added since
+# that ref (a task's diff); without, every file (the sprint sign-off). exit 2 if one is found.
+assert_no_secrets() {
+  local out
+  if ! out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/secrets" scan ${1:+--base "$1"} --root "$(repo_dir)" 2>&1)"; then
+    fail "credential in the project: $(echo "$out" | tr '\n' ';' | sed 's/; *$//'). Read it from the environment or a git-ignored file instead; a test fixture that must look like a key carries an \`aloop: allow-secret\` comment on its line"
+  fi
+}
+
 # True if $1 matches any space-separated glob in $2.
 # Test files by convention: Rust's tests/ and tests/common/, any tests/ dir, and the Python/Go/JS
 # test-file names. RED writes only these; GREEN may touch them besides its scope, to drop shims.
@@ -369,10 +402,11 @@ path_matches_any() {
 # Suppression patterns that must never appear in source. exit 2 if found.
 assert_no_suppression() {
   local root; root="$(repo_dir)"
-  if grep -rEn '#\[ignore\]|\.skip\(|(^|[^A-Za-z])xit\(|#\[cfg\(not\(test\)\)\]' \
+  # Rust's are attributes: `.skip(n)` on an iterator is not one (live runs 46-48)
+  if grep -rEn '#\[ignore *(\]|=)|#\[cfg\(not\(test\)\)\]' \
       --include='*.rs' "$root" 2>/dev/null \
       | grep -v '/target/' >/dev/null 2>&1; then
-    fail "test-suppression pattern present (no #[ignore]/.skip/xit/cfg(not(test)))"
+    fail "test-suppression pattern present (no #[ignore]/cfg(not(test)))"
   fi
   # Python, Go, JS/TS: the same rule in each test framework's own words
   if grep -rEn '@pytest\.mark\.(skip|skipif|xfail)|pytest\.(skip|xfail)\(|@unittest\.(skip|expectedFailure)|(^|[^A-Za-z_])t\.Skip(Now|f)?\(|\.skip\(|(^|[^A-Za-z])x(it|describe|test)\(' \
@@ -441,13 +475,15 @@ standards_file() {
   done
   for d in "$(repo_dir)" "${AGENTIC_PROJECT:-}"; do
     [ -n "$d" ] || continue
-    c="$(find "$d" -maxdepth 6 -name standards.md -not -path '*/worktrees/*' 2>/dev/null | sort | tail -1)"
+    c="$(agentic_find_doc standards.md "$d")"   # not a host's agent definition, not a linked worktree's
     [ -n "$c" ] && { printf '%s\n' "$c"; return 0; }
   done
   return 0
 }
 # shellcheck source=/dev/null
 . "$GATELIB_DIR/_matrix.sh"                      # standards_matrix_lines
+# shellcheck source=/dev/null
+. "$GATELIB_DIR/_finddoc.sh"                     # agentic_find_doc
 
 # Run the gate matrix declared in standards.md (standards-bind-gates). Falls back
 # to a default Rust matrix with a WARN if standards.md / its matrix is not found.

@@ -19,7 +19,8 @@ do exactly the action it names, and tick again. *Models explore. Gates decide.*
 
 The loop is IBM's autonomic MAPE-K over `docs/agents/mission/`: monitor (ASSESS), analyze
 (EVALUATE), plan (DERIVE_GOAL, PLAN_INTENTS), execute (SPRINT, an Aladdin sprint). A met goal
-sends it back to the mission to raise the bar. Every command is `aloop mission …`; each
+sends it back to the mission to raise the bar; a goal its sprints did not meet is retired
+(RETIRE_GOAL) and the next one is derived. Every command is `aloop mission …`; each
 area explains itself with `aloop mission <area> --help`, and `aloop mission --list` lists them.
 
 ## Setting a mission (first run only)
@@ -69,9 +70,10 @@ paste artifacts into it. A role writes its artifact only through `aloop mission 
 |---|---|---|---|
 | `SET_MISSION` | human | Set a mission with the human (above). An invalid `mission.json`: show `aloop mission check`. | `aloop mission check` exits 0 or 3 |
 | `CONFIRM_MISSION` | human | Show `aloop mission show` and relay the reason's `approve <id> <code>` line; once they have typed it, `aloop mission approve --by`. | the content is approved |
+| `STOPPED` | human | The human ran `aloop stop`: say so with its reason and do nothing else. Only they resume it (`aloop stop --clear` in their own terminal). | they clear the stop |
 | `STOP_BUDGET` | human | Show the spend and cap from `aloop mission tick --json` (`budget`). A higher cap is a mission change: edit, then their approval. | the cap is raised or the mission ends |
 | `ETHICS_REVIEW` | `ethics-reviewer` | Review the subject (the mission or a goal) against the mission's constraints; it records the tier with `aloop mission ethics`. | a review covers that content |
-| `BLOCKED` | human | A hard line, 3 failed goals in a row, a stalled sprint, an action repeated without result, or a broken record (the ledger, the confirmed baseline). Report it. | the human fixes the subject; a repeat or 3 failed goals: `aloop mission tick --force --by "<their name>"` |
+| `BLOCKED` | human | A hard line, every open gap held (a hard line, or a retired goal's gaps: a new baseline version, their lift or their approval of the mission frees those), 3 failed goals in a row, a stalled sprint, an action repeated without result, or a broken record (the ledger, the confirmed baseline). Report it. | the human fixes the subject; a repeat, 3 failed goals or a retired goal's held gaps: `aloop mission tick --force --by "<their name>"`, then their `lift …` line |
 | `ASK_CONSENT` | human | Gray tier: show the review's reason and relay the `consent <id> <code>` line tick names; once they have typed it, run the `aloop mission ethics consent` it names. It never carries over to another goal. | consent covers that content |
 | `RESEARCH` | `market-researcher` | Sourced landscape: rival products, papers, benchmarks (`aloop mission research`). When the goal is met: raise the bar, "what is best that the user is not even thinking of?" | a new research artifact |
 | `DEFINE_JOURNEYS` | `market-researcher` | User journeys from the research: scripted steps, pass criteria, an event per step, sources (`aloop mission journeys`). A baseline with nothing to earn: raise the bar (new or stricter journeys). A listed journey that no longer runs as pinned: a journey that supersedes it. | a proposed journey |
@@ -79,11 +81,12 @@ paste artifacts into it. A role writes its artifact only through `aloop mission 
 | `CONFIRM_BASELINE` | human | In plain words: the journeys, where we are, where the rivals are. Relay the `confirm <id> <code>` line tick names; once they have typed it, `aloop mission baseline confirm <id> --by`; a no is `veto <id> --by --reason`. | a confirmed or vetoed version |
 | `OFFER_OPTIONS` | `mission-planner`, then human | Spoon-fed: show the eval's ranked gaps (`aloop mission goal options`), one line each, recommended first; their pick derives the goal (`aloop mission goal derive --pick GAP_ID --by "<their name>"`). | a goal with `goal.approved` |
 | `PLAN_INTENTS` | `mission-planner` | Turn the goal's gaps into Aladdin intents, source `mission` (`aloop mission goal intents <goal_id>`). | the goal is active |
-| `SPRINT` | supervisor | `aloop mission goal next <goal_id>` makes the next intent current; load the aloop skill and run one sprint on it. Autonomous: `aloop events authority --initiated-by "<who approved the mission>" --mode autonomous --scope "mission <id>, goal <id>"`; spoon-fed: reviewed mode, one intent at a time. | Aladdin's final gate closes the sprint |
-| `APPROVE_PLAN` | human | Spoon-fed: show the sprint's plan in one screen. On their go, `aloop events authority --initiated-by "<their name>" --mode reviewed --scope "mission <id>, goal <id>"` (it records `plan.approved`). | the plan is approved |
+| `SPRINT` | supervisor | `aloop mission goal next <goal_id>` makes the next intent current; load the aloop skill and run one sprint on it (that intent is the sprint's contract: no `intent new`). Autonomous: `aloop events authority --initiated-by "<who approved the mission>" --mode autonomous --scope "mission <id>, goal <id>" --sprint N` (the approved autonomous mission is the grant: no line to type); spoon-fed: reviewed mode, one intent at a time. | Aladdin's final gate closes the sprint |
+| `APPROVE_PLAN` | human | Spoon-fed: show the sprint's plan in one screen. Then `aloop events authority --initiated-by "<their name>" --mode reviewed --scope "mission <id>, goal <id>" --sprint N`: it exits 3 with the line `approve SN <code>`; they type it, run it again (it records `plan.approved`; no dispatch before it). | the plan is approved |
 | `ASSESS` | `state-assessor` | Measure the product with the pinned scripts; numbers only, no opinions (`aloop mission assess`). | a new state report |
 | `EVALUATE` | `evaluator` | Compare the state with the baseline and the rivals: the gap list and `goal_met` (`aloop mission evaluate`); it never builds. A goal met in its eval: `aloop mission goal close <goal_id> --eval <eval_id>`. | a new eval, or a closed goal |
 | `DERIVE_GOAL` | `mission-planner` | The eval's top gaps become one goal, with the standing principles for the mode (`aloop mission goal derive`). | a derived goal |
+| `RETIRE_GOAL` | `mission-planner` | Every intent of the goal was sprinted and the newest eval of it still lists gaps: set it aside (`aloop mission goal retire <goal_id> --eval <eval_id>`). The next eval covers the whole mission, and the next goal is derived from the gaps the retired goal did not hold open. | a `goal.retired` record |
 | `WAIT` | — | A sprint is running, planning is under way, or the raised bar is still met. Stop. | the cron wakes the loop |
 
 Usage telemetry (Google Analytics) is opt-in (`aloop mission telemetry`): it feeds research
@@ -93,8 +96,8 @@ and goals once there is usage, and is never a gate.
 
 - You never write or edit anything under `docs/agents/mission/` yourself: the roles do, through
   `aloop mission <area>`. `mission.json` changes only with a new human approval.
-- You record a human approval (the mission, the baseline, a goal pick, a consent) only on the
-  human's explicit yes in this session, with `--by` naming them. Never infer one.
+- You record a human approval (the mission, the baseline, a goal pick, a consent, a lift) only
+  on the human's explicit yes in this session, with `--by` naming them. Never infer one.
 - A grant counts only in the human's own typed words (M9.17). Run the command; it exits 3 with
   `they reply  <verb> <id> <code>`. Give them that exact line once and stop; once they have
   typed it, run the command the ASK names after "then" (usually the same command; a spoon-fed

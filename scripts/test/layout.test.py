@@ -9,7 +9,11 @@ reader (Python, bash gates, the OpenCode plugin's dir rule) agrees on the one di
 import json
 import os
 import subprocess
+import sys
 import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+from plan_fixture import approve_plan  # noqa: E402
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
 BIN = os.path.join(ROOT, "bin")
@@ -107,22 +111,23 @@ assert run(C, os.path.join(BIN, "events"), "emit", "sprint.started", "--role", "
 sd = os.path.join(C, "docs", "agents", "sprint1", "s1-01-x")
 os.makedirs(sd)
 os.makedirs(os.path.join(C, ".agentic", "state", "tasks"))
-open(os.path.join(C, ".agentic", "state", "tasks", "T1.env"), "w").write("TASK_ID=T1\nATTEMPT=1\nAGENT_ROLE=green\nSTORY_DIR=%s\n" % sd)
+open(os.path.join(C, ".agentic", "state", "tasks", "S1-01-T1.env"), "w").write("TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=green\nSTORY_DIR=%s\n" % sd)
 assert sh_home(C) == os.path.join(C, ".aladdin"), "the one stray contract must not flip the live dir"
-out = run(C, "bash", "-c", '. "%s/_paths.sh"; agentic_contract_path T1; agentic_contract_path nope; echo "rc=$?"' % BIN).stdout
-assert out.splitlines()[0] == os.path.join(C, ".agentic", "state", "tasks", "T1.env") and out.splitlines()[-1] == "rc=1", out
-assert run(C, "python3", "-c", 'import sys; sys.path.insert(0, "%s"); import _paths; print(_paths.contract_path("%s", "T1"))' % (BIN, C)).stdout.strip() == os.path.join(C, ".agentic", "state", "tasks", "T1.env")
+out = run(C, "bash", "-c", '. "%s/_paths.sh"; agentic_contract_path S1-01-T1; agentic_contract_path nope; echo "rc=$?"' % BIN).stdout
+assert out.splitlines()[0] == os.path.join(C, ".agentic", "state", "tasks", "S1-01-T1.env") and out.splitlines()[-1] == "rc=1", out
+assert run(C, "python3", "-c", 'import sys; sys.path.insert(0, "%s"); import _paths; print(_paths.contract_path("%s", "S1-01-T1"))' % (BIN, C)).stdout.strip() == os.path.join(C, ".agentic", "state", "tasks", "S1-01-T1.env")
+approve_plan(C, dict(os.environ, HOME=os.path.join(C, "home"), AGENTIC_NO_AUTOINSTALL="1"), 1)   # M0.9
 payload = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Agent", "cwd": C,
-                      "tool_input": {"subagent_type": "aloop:green-worker", "prompt": "TASK_ID: T1\ndo it", "model": "sonnet"}})
+                      "tool_input": {"subagent_type": "aloop:green-worker", "prompt": "TASK_ID: S1-01-T1\ndo it", "model": "sonnet"}})
 r = run(C, os.path.join(BIN, "gate-dispatch"), input=payload) if False else subprocess.run(
     [os.path.join(BIN, "gate-dispatch")], cwd=C, input=payload, capture_output=True, text=True,
     env=dict(os.environ, HOME=os.path.join(C, "home"), AGENTIC_NO_AUTOINSTALL="1"))
 assert r.returncode == 0, (r.returncode, r.stderr)
 payload2 = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Agent", "cwd": C,
-                       "tool_input": {"subagent_type": "aloop:green-worker", "prompt": "TASK_ID: T9\ndo it", "model": "sonnet"}})
+                       "tool_input": {"subagent_type": "aloop:green-worker", "prompt": "TASK_ID: S1-01-T9\ndo it", "model": "sonnet"}})
 r = subprocess.run([os.path.join(BIN, "gate-dispatch")], cwd=C, input=payload2, capture_output=True, text=True,
                    env=dict(os.environ, HOME=os.path.join(C, "home"), AGENTIC_NO_AUTOINSTALL="1"))
-assert r.returncode == 2 and ".aladdin/state/tasks/T9.env" in r.stderr, (r.returncode, r.stderr)
+assert r.returncode == 2 and ".aladdin/state/tasks/S1-01-T9.env" in r.stderr, (r.returncode, r.stderr)
 ok("the task contract is found in .aladdin/ or .agentic/ (bash, python, gate-dispatch); a missing one is named at the live dir")
 
 # 7) worktree-local markers: written to the worktree's .aladdin/ (guarded) in a fresh project, to

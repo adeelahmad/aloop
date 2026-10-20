@@ -60,6 +60,8 @@ assert [(g["gap_id"], g["kind"]) for g in e1["gaps"]] == [(j1 + "#fast", "open")
 assert e1["gaps"][0]["distance"] == 0.8 and e1["earned"] == []
 ec = p.events("eval.completed")[-1]["data"]
 assert ec["gaps"] == 2 and ec["eval_id"] == e1["eval_id"] and ec["sha256"] == e1["sha256"] == M.digest(e1), ec
+rec = M.newest(p.dir, "eval.completed", M.rel(p.dir, M.path_of(p.dir, "eval", e1["eval_id"])))
+assert rec and rec["role"] == "evaluator" and rec["data"]["sha256"] == e1["sha256"], rec   # a ledger row (M9.27)
 p.app(seconds_to_first_task=11.0, working_steps=["open", "add"], tasks_shown=0)     # slower: j2's ok10 passed at baseline
 s2 = made(p.run("assess"))
 e2 = made(p.run("evaluate", s2["state_id"]))

@@ -45,7 +45,9 @@ rows = {line.split()[0]: line for line in out.splitlines() if line.strip()}
 for h, gate in (("claude", "native"), ("codex", "native"), ("opencode", "outer"), ("dsh", "native")):
     assert "gate_blocking=%s" % gate in rows[h], (h, rows.get(h))
 assert "codex     usage=exact; cache write not reported  compaction=unknown" in out, out
-assert "live_messaging=unknown" in rows["dsh"] and "compaction=unknown" in rows["dsh"], rows["dsh"]
+# dsh: both proven on its runtime (dsh-runtime.test.mjs: a send_message reaches a running role; an
+# overflowed session is compacted and recorded)
+assert "live_messaging=advertised" in rows["dsh"] and "compaction=advertised" in rows["dsh"], rows["dsh"]
 assert run(CAP, "vim").returncode == 64
 ok("capability matrix: usage, compaction, live messaging, lifecycle, gate blocking per host")
 
@@ -54,6 +56,7 @@ assert run(CAP, "boundary", "claude").stdout.strip() == "rotate: start a fresh s
 assert run(CAP, "boundary", "opencode").stdout.strip() == "rotate: start a fresh session with /new"
 open(DEF, "w").write("AGENTIC_CONTEXT_BOUNDARY=compact\n")
 assert run(CAP, "boundary", "claude").stdout.startswith("compact:")
+assert run(CAP, "boundary", "dsh").stdout.startswith("compact:")
 assert "compaction is not advertised by codex" in run(CAP, "boundary", "codex").stdout
 assert run(CAP, "boundary", "--keep").returncode == 2
 assert run(CAP, "boundary", "--keep", "--reason", "one-task hotfix sprint").stdout.strip() == "keep"

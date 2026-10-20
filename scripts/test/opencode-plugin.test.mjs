@@ -2,11 +2,12 @@
 // Runs the REAL generated plugin (aloop install opencode) and the REAL bin/ scripts in a
 // throw-away git repo. No OpenCode, no network, no tokens.   node scripts/test/opencode-plugin.test.mjs
 import { execFileSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import assert from "node:assert/strict"
+import { approvePlan } from "./fixtures/plan-fixture.mjs"
 
 const ROOT = join(fileURLToPath(import.meta.url), "..", "..", "..", "plugin")
 const BIN = join(ROOT, "bin")
@@ -67,14 +68,34 @@ assert.ok(envOut.env.PATH.startsWith(BIN)); ok("shell.env prepends plugin bin/")
 await hooks["chat.message"]({ sessionID: "root" }, { message: {}, parts: [{ type: "text", text: "build X" }] })
 assert.ok(readFileSync(join(T, ".aladdin/transcripts/global.jsonl"), "utf8").includes('"prompt"')); ok("human prompt captured")
 
+// commit authorship (before the sprint lock: once it is live, the supervisor's commit on main is refused first)
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "3" },
+  { args: { command: 'git commit -m "x\n\nCo-Authored-By: Claude <noreply@anthropic.com>"' } }), /co-author/i, "gate-commit-author blocks Claude trailer")
+
 // supervisor may not write source once a sprint is live (arm the lock via a docs write)
 await hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "1" }, { args: { filePath: join(T, "docs/agents/sprint1/s1-01-x/init.md"), content: "x" } })
 await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "2" }, { args: { filePath: join(T, "src/main.rs"), content: "x" } }),
   /may not write production source/, "gate-supervisor-scope blocks the supervisor")
+// a plugin gets the model's raw arguments, extra keys included (OpenCode 1.19: the AI SDK input is
+// not validated before tool.execute.before), so tool_input holds each tool's declared ones only
+await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "2a" },
+  { args: { filePath: join(T, "src/main.rs"), content: "x", agent_type: "green-worker", agent_id: "w1" } }),
+  /may not write production source/, "an `agent_type` argument does not make the supervisor a dispatched agent")
+await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "2b" },
+  { args: { filePath: join(T, "src/main.rs"), content: "x", file_path: join(T, "docs/agents/sprint1/s1-01-x/init.md") } }),
+  /may not write production source/, "a `file_path` argument does not hide the path OpenCode writes (filePath)")
+await hooks["tool.execute.after"]({ tool: "edit", sessionID: "root", callID: "2c",
+  args: { filePath: join(T, "docs/agents/sprint1/s1-01-x/init.md"), oldString: "a", newString: "b", agent_type: "green-worker", cwd: "/" } }, { output: "", metadata: {} })
+const rec = readFileSync(join(T, ".aladdin/transcripts/session/events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).at(-1)
+assert.deepEqual(rec.payload.tool_input, { file_path: join(T, "docs/agents/sprint1/s1-01-x/init.md"), old_string: "a", new_string: "b", replace_all: false })
+assert.ok(!("agent_type" in rec.payload) && rec.payload.cwd === T, JSON.stringify(rec.payload)); ok("tool_input is built from the tool's declared arguments (Claude-shaped), nothing else")
+// the supervisor's shell is judged as on every other host: no commit on main, no block in an agent's output.md
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "3a" }, { args: { command: "git add README && git commit -m 'Track README'" } }),
+  /never commits on main/, "gate-supervisor-scope refuses the supervisor's commit on main (bash)")
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "3b" },
+  { args: { command: "echo '## S1-01-T1 · attempt 1 · final-gate' >> docs/agents/sprint1/s1-01-x/output.md" } }),
+  /never writes a block in it/, "gate-supervisor-scope refuses the supervisor's append to an agent's output.md (bash)")
 
-// commit authorship
-await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "3" },
-  { args: { command: 'git commit -m "x\n\nCo-Authored-By: Claude <noreply@anthropic.com>"' } }), /co-author/i, "gate-commit-author blocks Claude trailer")
 
 // worker isolation: must bind first, then commands/edits are confined to its worktree
 await hooks.event({ event: { type: "session.created", properties: { info: { id: "child", parentID: "root" } } } })
@@ -87,6 +108,11 @@ await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "
 const bashArgs = { command: "cargo test" }
 await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "6" }, { args: bashArgs })
 assert.equal(bashArgs.workdir, wt); ok("bound worker's bash runs in its worktree")
+await hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "6a" }, { args: { command: "git commit -qm wip", workdir: wt } })
+ok("the supervisor's commit in a task worktree (its workdir) is a worker's, not judged as main")
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "6b" },
+  { args: { command: "sed -i s/ATTEMPT=1/ATTEMPT=9/ .aladdin/task.env" } }),
+  /rewrites the supervisor's task contract/, "a role's bash may not rewrite its task contract")
 const writeArgs = { filePath: "tests/a.rs", content: "x" }
 await hooks["tool.execute.before"]({ tool: "write", sessionID: "child", callID: "7" }, { args: writeArgs })
 assert.equal(writeArgs.filePath, join(wt, "tests/a.rs")); ok("bound worker's relative write lands in its worktree")
@@ -154,6 +180,9 @@ assert.ok(!existsSync(join(T, ".aladdin/state/mission-runs/bld.json")))
 ok("a mission sub-agent's start records what exists once its role is known (a builder's never)")
 await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m1" }, { args: { filePath: join(T, "src/app.py"), content: "x" } }),
   /BLOCK\[mission-scope\].*evaluator writes only/s, "gate-mission-scope: an evaluator never writes source")
+await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m1b" },
+  { args: { filePath: join(T, "src/app.py"), content: "x", file_path: join(T, "docs/agents/mission/eval/e.json") } }),
+  /BLOCK\[mission-scope\]/, "gate-mission-scope judges the path OpenCode writes, not a `file_path` argument beside it")
 await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "msn", callID: "m2" }, { args: { command: "echo x > src/app.py" } }),
   /BLOCK\[mission-scope\]/, "gate-mission-scope judges the evaluator's bash too")
 await hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m3" }, { args: { filePath: join(T, "docs/agents/mission/eval/e.json"), content: "{}" } })
@@ -162,6 +191,44 @@ const msnOut = { title: "", output: "evaluated", metadata: { sessionId: "msn" } 
 await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "m4", args: {} }, msnOut)
 assert.ok(/BLOCKED after 3 fix rounds/.test(msnOut.output) && /BLOCK\[mission-artifact\]/.test(msnOut.output), msnOut.output)
 ok("gate-mission-artifact runs at the evaluator's stop and blocks a run that wrote no artifact")
+
+// an intake that stops to ask the human (ROADMAP §4.9): released at once as NEEDS-HUMAN with its questions in
+// the task result, never re-prompted for rounds it cannot use; a malformed Intent Contract is still re-prompted
+writeFileSync(join(T, "docs/agents/sprint1/intake.md"), "# Intent\nWhat: a parser\n## Constraints\n## Failure scenarios\n## Success scenarios\n## Connections\n")
+const ic = sh(join(BIN, "intent"), ["new", "--source", "prompt", "--raw", "a semver parser"]).trim()
+const contract = { ...JSON.parse(readFileSync(ic, "utf8")), actor: "dev", want: "parse semver", why: "releases", constraints: ["std only"],
+  success_scenarios: ["1.2.3 parses"], failure_scenarios: ["bad input errors"], connections: ["none"], done_looks_like: "parse() works",
+  open_questions: [{ question: "accept a leading v (v1.2.3)?", class: "ask" },
+    { question: "Should orders STUCK in review (NOT verified by finance) be exported?", class: "ask" }] }
+writeFileSync(ic, JSON.stringify(contract))
+parents.itk = "root"
+await hooks.event({ event: { type: "session.created", properties: { info: { id: "itk", parentID: "root" } } } })
+await hooks["chat.message"]({ sessionID: "itk", agent: "intake" }, { message: {}, parts: [{ type: "text", text: "intake" }] })
+const askOut = { title: "", output: "one question needs the human", metadata: { sessionId: "itk" } }
+before = calls.prompt.length
+await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "i1", args: {} }, askOut)
+assert.ok(/NEEDS-HUMAN — released UNVERIFIED/.test(askOut.output) && /accept a leading v/.test(askOut.output) && calls.prompt.length === before, askOut.output)
+// the release is read from the gate's own marker line, not from a question that quotes STUCK … NOT verified, and the
+// record is claimed once told (a later Claude Code or Codex session is not told again)
+assert.ok(!/STUCK — released/.test(askOut.output) && /"Should orders STUCK in review \(NOT verified by finance\) be exported\?"/.test(askOut.output), askOut.output)
+assert.deepEqual(readdirSync(join(T, ".aladdin/state/needs-human")).filter((n) => n.endsWith(".json")), [])
+ok("an intake whose contract only waits on the human is released at once; the task result says NEEDS-HUMAN with its questions (quoted, claimed once)")
+writeFileSync(ic, JSON.stringify({ ...contract, want: "" }))
+const badOut = { title: "", output: "done", metadata: { sessionId: "itk" } }
+await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "i2", args: {} }, badOut)
+assert.ok(/BLOCKED after 3 fix rounds/.test(badOut.output) && /is invalid/.test(badOut.output) && calls.prompt.length - before === 3, badOut.output)
+ok("a malformed Intent Contract still re-prompts the intake, then reports it BLOCKED")
+// dispatch (the task tool) runs gate-dispatch: the TASK_ID line, the task contract, then the human's plan
+// approval (ROADMAP M0.9); OpenCode names no model per call (the agent file pins it)
+const task = (id, prompt, sessionID = "root") => hooks["tool.execute.before"]({ tool: "task", sessionID, callID: id },
+  { args: { subagent_type: "green-worker", description: "GREEN", prompt } })
+await throws(() => task("d1", "go green"), /BLOCK\[dispatch\].*TASK_ID: <id>/s, "OpenCode task: a worker dispatch without its TASK_ID line is refused")
+mkdirSync(join(T, ".aladdin/state/tasks"), { recursive: true })
+writeFileSync(join(T, ".aladdin/state/tasks/S1-01-T2.env"), `TASK_ID=S1-01-T2\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=${join(T, "docs/agents/sprint1/s1-01-x")}\n`)
+await throws(() => task("d2", "TASK_ID: S1-01-T2\nGREEN"), /has not approved the plan of S1/, "OpenCode task: no worker is dispatched before the human approves the sprint's plan")
+approvePlan(T, BIN)
+await task("d3", "TASK_ID: S1-01-T2\nGREEN"); ok("OpenCode task: after the human's typed approval the dispatch is admitted")
+await task("d4", "TASK_ID: S2-01-T1\nGREEN", "child"); ok("OpenCode task: a sub-agent's own task call is not gate-dispatch's")
 
 // Stop: a closed sprint is announced once (toast + prompt back into the session)
 mkdirSync(join(T, ".aladdin/state"), { recursive: true })

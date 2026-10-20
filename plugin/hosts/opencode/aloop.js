@@ -10,7 +10,7 @@
 //   UserPromptSubmit   chat.message on a root session → transcripts prompt, intent-trigger
 //                      (its context goes into the next turn's system prompt)
 //   PreToolUse         tool.execute.before → host-adapter, gate-supervisor-scope,
-//                      gate-commit-author, budget pre; a deny THROWS (the tool call fails
+//                      gate-commit-author, gate-dispatch (task), budget pre; a deny THROWS (the tool call fails
 //                      with the reason). Bound workers' commands/edits are REWRITTEN into
 //                      their worktree (bash workdir, file paths, patch headers).
 //   PostToolUse        tool.execute.after → transcripts record, budget post; context is
@@ -20,7 +20,7 @@
 //                      a mission role's gate-mission-artifact start on its first chat.message
 //   SubagentStop       tool.execute.after of the `task` tool → the role's gate; a block is
 //                      sent back to the sub-agent (it keeps working) up to 3 rounds, then
-//                      reported in the task result
+//                      reported in the task result, as a STUCK or NEEDS-HUMAN release is
 //   Stop               event session.idle (root session) → transcripts snapshot, stats hook;
 //                      a `decision: block` reason is prompted back into the session
 // Token usage: every completed assistant message is appended, Claude-shaped, to
@@ -45,6 +45,15 @@ const GATES = {
 const TOOL = { bash: "Bash", write: "Write", edit: "Edit", apply_patch: "apply_patch", read: "Read", task: "Agent" }
 const EDITS = new Set(["write", "edit", "apply_patch"])
 const GATE_ROUNDS = 3
+// a gate's release (exit 0, NOT a pass): the same block N times (STUCK), or questions only the human can answer
+// questions only the intake can raise. Read from the gate's own marker line (`[<gate>] STUCK …` at a line start, the
+// last one), never from model text it quotes (an intake's question, a test's output); NEEDS-HUMAN only at the intake's stop.
+const RELEASE = /^\[[\w-]+\] (STUCK|NEEDS-HUMAN)\b[^\n]*NOT verified/gm
+const releaseOf = (stderr, role) => {
+  const kind = [...String(stderr || "").matchAll(RELEASE)].at(-1)?.[1]
+  return kind === "NEEDS-HUMAN" && role !== "intake" ? null : kind || null
+}
+const HUMAN_FALLBACK = (role) => `[aloop gate] ${role}: NEEDS-HUMAN — released UNVERIFIED (not a pass): its Intent Contract has questions only the human can answer (\`aloop intent check\` on the newest docs/agents/intents/int_*.json lists them). Ask the human each one, then re-dispatch ${role} with the answers in a ### Feedback block. Do not plan from it until gate-intake passes.`
 
 export const AgenticAgile = async ({ client, directory, worktree }) => {
   const project = worktree || directory
@@ -100,10 +109,24 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
   const bound = (id) => {
     try { return JSON.parse(readFileSync(join(homeDir, "state", "agents", `${safe(id)}.json`), "utf8")).worktree || "" } catch { return "" }
   }
-  const toolInput = (tool, a) =>
-    tool === "bash" ? { command: a.command, workdir: a.workdir }
-      : tool === "apply_patch" ? { command: a.patchText || "" }
-        : { file_path: a.filePath, ...a }
+  // Claude-shaped tool_input, built from each tool's declared arguments only (OpenCode 1.19's
+  // schemas): a plugin gets the model's raw arguments, extra keys included, and a gate must never
+  // read a field the model made up (an `agent_type`, or a `file_path` beside the filePath OpenCode
+  // writes). Any other tool's arguments travel as one JSON string.
+  const toolInput = (tool, a) => {
+    const str = (v) => (typeof v === "string" ? v : undefined)
+    const num = (v) => (typeof v === "number" ? v : undefined)
+    switch (tool) {
+      case "bash": return { command: str(a.command) || "", workdir: str(a.workdir) }
+      case "apply_patch": return { command: str(a.patchText) || "" }
+      case "write": return { file_path: str(a.filePath), content: str(a.content) }
+      case "edit": return { file_path: str(a.filePath), old_string: str(a.oldString), new_string: str(a.newString), replace_all: a.replaceAll === true }
+      case "read": return { file_path: str(a.filePath), offset: num(a.offset), limit: num(a.limit) }
+      case "glob": case "grep": return { pattern: str(a.pattern), path: str(a.path), include: str(a.include) }
+      case "task": return { subagent_type: str(a.subagent_type), description: str(a.description), prompt: str(a.prompt) || "" }
+      default: return { arguments: JSON.stringify(a) }
+    }
+  }
   // Map a path into the worker's worktree: relative → under wt; project-absolute → same path in wt.
   const intoWt = (p, wt) => {
     if (!p) return p
@@ -123,9 +146,15 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
     const gate = GATES[role]
     for (let round = 0; gate && round <= GATE_ROUNDS; round++) {
       const res = run(gate, [], p, bound(childID) || project)
-      // A stuck release (the same block N times) exits 0 but is NOT a pass: hand the supervisor
-      // the reason as a release, never as a silent success.
-      if (res.code === 0 && /\bSTUCK\b.*NOT verified/.test(res.stderr || "")) { verdict = { stuck: res.stderr }; break }
+      // A release (stuck on one block, or waiting on the human's answers) exits 0 but is NOT a pass:
+      // hand the supervisor the reason as a release, never as a silent success.
+      const rel = res.code === 0 && releaseOf(res.stderr, role)
+      if (rel === "STUCK") { verdict = { stuck: res.stderr }; break }
+      if (rel) {   // the notice `intent hook` builds from the record `intent release` wrote (and claims it: told once)
+        const told = run("intent", ["hook"], { hook_event_name: "PostToolUse", session_id: p.session_id, cwd: project })
+        verdict = { human: told.json?.hookSpecificOutput?.additionalContext || HUMAN_FALLBACK(role) }
+        break
+      }
       if (res.code !== 2) { verdict = null; break }
       verdict = { blocked: res.stderr }
       if (round === GATE_ROUNDS) break
@@ -204,10 +233,14 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
           p = await payload("PreToolUse", input.sessionID, { tool_name: TOOL[input.tool] || input.tool, tool_input: toolInput(input.tool, args) })
         }
       }
+      // a shell runs where its workdir says: the supervisor's commit in a task worktree is a worker's, one in
+      // the main tree is judged (gate-supervisor-scope reads cwd, as Claude Code's Bash payload carries it)
+      if (input.tool === "bash" && typeof args.workdir === "string" && args.workdir) p.cwd = resolve(project, args.workdir)
       const checks = []
-      if (EDITS.has(input.tool)) checks.push(["gate-supervisor-scope", []])
+      if (EDITS.has(input.tool) || input.tool === "bash") checks.push(["gate-supervisor-scope", []])
       if (EDITS.has(input.tool) || input.tool === "bash") checks.push(["gate-mission-scope", []])   // role path guards
       if (input.tool === "bash") checks.push(["gate-commit-author", []])
+      if (input.tool === "task") checks.push(["gate-dispatch", []])     // the task contract and the plan approval (M0.9)
       checks.push(["budget", ["hook", "pre"]])
       for (const [script, a] of checks) {
         const why = denyOf(run(script, a, p))
@@ -232,6 +265,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
         if (child) {
           const v = await subagentStop(child, input.sessionID)
           if (v?.stuck) output.output = `${output.output || ""}\n\n[aloop gate] STUCK — released UNVERIFIED (not a pass): the sub-agent hit the same block repeatedly:\n${v.stuck}\nDo not merge. Discard its worktree and re-dispatch the task with a Feedback block that addresses the reason, or re-plan.`
+          else if (v?.human) output.output = `${output.output || ""}\n\n${v.human}`
           else if (v?.blocked) output.output = `${output.output || ""}\n\n[aloop gate] BLOCKED after ${GATE_ROUNDS} fix rounds — the sub-agent did not pass its gate:\n${v.blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`
         }
       }

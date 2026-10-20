@@ -28,8 +28,8 @@
     },
     "dsh": {
       "usage": "exact; session-title and web-search calls not reported",
-      "compaction": "unknown",
-      "live_messaging": "unknown",
+      "compaction": "advertised",
+      "live_messaging": "advertised",
       "lifecycle": "plugin events + aloop bind",
       "gate_blocking": "native",
       "rotate_command": "a new `dsh --profile aloop` run"

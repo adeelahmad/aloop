@@ -308,7 +308,7 @@ r = at5(MI, "check")
 assert r.returncode == 3 and "replying `%s`" % line in r.stderr, r.stderr      # the check names the line too
 assert M.ledger_rows(T5) == ([], [])
 for words in ("approve %s deadbeef" % mid, "confirm %s %s" % (mid, sha[:8]), "don't approve %s %s yet" % (mid, sha[:8]),
-              "I would approve %s %s" % (mid, sha[:8]), "approve %s %s" % (mid, sha[:7]), "approve %s %sff" % (mid, sha[:8])):
+              "I would approve %s %s" % (mid, sha[:8]), "approve %s %s" % (mid, sha[:7]), "approve %s %s%s" % (mid, sha[:8], "ee" if sha[8] == "f" else "ff")):
     say(T5, ENV, words)                    # another code, verb or meaning: none of them grants this content
     assert asked(at5(MI, "approve", "--by", "Adeel")) == line, words
 say(T5, ENV, "Thanks for the summary.\nYes, %s.\nThen carry on." % line)

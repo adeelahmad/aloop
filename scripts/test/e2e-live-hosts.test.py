@@ -117,6 +117,22 @@ assert not os.path.exists(os.path.join(d, "repo", ".opencode")) and "host: claud
 assert "E2E-DONE" not in cmd and "prompt: stdin" in r.stdout, cmd
 ok("default host is claude: claude -p --plugin-dir … with the prompt on stdin (no host install)")
 
+# 3b) the approval given up front is the human's typed line (ROADMAP M0.9): the prompt carries the line that
+#     grants sprint 1 autonomy, and that line, captured as the human's words, is what the recorded grant cites
+r, d = run("--host", "opencode")
+grant = re.search(r"^autonomous S1 [0-9a-f]{8}$", r.stdout, re.M)
+assert grant and "--mode autonomous" in r.stdout and "--sprint 1" in r.stdout, r.stdout
+repo = os.path.join(d, "repo")
+AUTH = [os.path.join(BIN, "events"), "authority", "--initiated-by", "e2e human", "--mode", "autonomous", "--scope", "the e2e run",
+        "--sprint", "1"]
+assert subprocess.run(AUTH, cwd=repo, env=ENV, capture_output=True, text=True).returncode == 3     # not before the human's words
+subprocess.run([os.path.join(BIN, "transcripts"), "prompt"], cwd=repo, env=ENV, check=True, capture_output=True, text=True,
+               input=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "e2e", "prompt": "Use the aloop skill.\n"
+                                 + grant.group(0) + "\nRun the whole loop."}))
+r = subprocess.run(AUTH, cwd=repo, env=ENV, capture_output=True, text=True)
+assert r.returncode == 0, r.stderr
+ok("the e2e prompt carries the human's line granting sprint 1 autonomy; captured, it records that grant")
+
 # 4) an unknown host or a missing CLI is a usage error before anything is seeded or spent
 r, _ = run("--host", "cursor")
 assert r.returncode == 2 and "cursor" in r.stdout + r.stderr, (r.returncode, r.stdout, r.stderr)
@@ -139,6 +155,60 @@ assert "| semver (opencode) |" in row and "| — |" in row and "HOST=opencode" i
 r = subprocess.run([os.path.join(BIN, "run-summary"), rd, "--intent", "semver"], capture_output=True, text=True, env=ENV)
 assert json.load(open(os.path.join(rd, "summary.json")))["host"] == "claude" and "HOST=" not in r.stdout
 ok("run-summary --host records the host, names it in the reproduce command, and never prints $0.00 for an unmeasured cost")
+
+# 5a) dsh prints no cost line, but its plugin logs each call's exact usage per role (.aladdin/host/dsh):
+#     run-summary prices every call from the dated DeepSeek table (cache hits apart, the peak or
+#     off-peak band of its UTC time); a model with no published price keeps its tokens and gets no
+#     dollars, and the run's cost is then unmeasured (—), never a guess or a partial sum
+rd = os.path.join(T, "rs-dsh"); hd = os.path.join(rd, "repo", ".aladdin", "host", "dsh")
+os.makedirs(os.path.join(hd, "root", "subagents"))
+subprocess.run(["git", "init", "-q", os.path.join(rd, "repo")], check=True, env=ENV)
+open(os.path.join(rd, "out.jsonl"), "w").write(json.dumps({"type": "status", "phase": "turn_end"}) + "\n")
+
+
+def calls(path, *rows):
+    with open(path, "a") as f:
+        for ts, model, i, cr, cw, o in rows:
+            f.write(json.dumps({"timestamp": ts, "message": {"id": "%s@%s" % (model, ts), "model": model, "usage": {
+                "input_tokens": i, "output_tokens": o, "cache_read_input_tokens": cr, "cache_creation_input_tokens": cw}}}) + "\n")
+
+
+#   supervisor on deepseek-v4-pro: Tue 07:30 UTC is peak, Sat is off-peak
+calls(os.path.join(hd, "root.jsonl"), ("2026-10-20T07:30:00.000Z", "deepseek-v4-pro", 100000, 2000000, 0, 50000),
+      ("2026-10-24T07:30:00.000Z", "deepseek-v4-pro", 100000, 1000000, 0, 10000))
+#   a worker on deepseek-flash: Tue 02:00 is peak, Tue 12:00 off-peak (a cache write bills as a miss)
+calls(os.path.join(hd, "root", "subagents", "agent-w1.jsonl"), ("2026-10-20T02:00:00.000Z", "deepseek-flash", 200000, 4000000, 0, 100000),
+      ("2026-10-20T12:00:00.000Z", "deepseek-flash", 900000, 10000000, 100000, 200000))
+#   the legacy id is billed at the Flash price (Wed 05:00, between the two peak bands)
+calls(os.path.join(hd, "root", "subagents", "agent-w2.jsonl"), ("2026-10-21T05:00:00.000Z", "deepseek-v4-flash", 1000000, 0, 0, 0))
+PRO = 0.1 * 1.32 + 2 * 0.044 + 0.05 * 3.96 + 0.1 * 0.66 + 1 * 0.022 + 0.01 * 1.98      # 0.5258
+FLASH = 0.2 * 0.30 + 4 * 0.006 + 0.1 * 1.20 + 1.0 * 0.15 + 10 * 0.003 + 0.2 * 0.60    # 0.504
+LEGACY = 1.0 * 0.15
+r = subprocess.run([os.path.join(BIN, "run-summary"), rd, "--intent", "semver", "--host", "dsh", "--checks", "12/12", "--secs", "600"],
+                   capture_output=True, text=True, env=ENV)
+assert r.returncode == 0, r.stderr
+s = json.load(open(os.path.join(rd, "summary.json")))
+by = s.get("cost_by_model") or {}
+assert set(by) == {"deepseek-v4-pro", "deepseek-flash", "deepseek-v4-flash"}, s
+assert abs(by["deepseek-v4-pro"]["usd"] - PRO) < 1e-6 and abs(by["deepseek-flash"]["usd"] - FLASH) < 1e-6, by
+assert abs(by["deepseek-v4-flash"]["usd"] - LEGACY) < 1e-6, by
+assert by["deepseek-v4-pro"]["in"] == 200000 and by["deepseek-v4-pro"]["cache_read"] == 3000000 and by["deepseek-v4-pro"]["out"] == 60000, by
+assert by["deepseek-flash"]["cache_write"] == 100000 and by["deepseek-flash"]["calls"] == 2, by
+assert s["cost_usd"] == round(PRO + FLASH + LEGACY, 2) == 1.18 and "api-docs.deepseek.com" in (s.get("prices") or ""), s
+row = [l for l in r.stdout.splitlines() if l.startswith("| ")][-1]
+assert "| semver (dsh) |" in row and "| $1.18 |" in row and "HOST=dsh" in row, row
+calls(os.path.join(hd, "root", "subagents", "agent-w3.jsonl"), ("2026-10-20T12:00:00.000Z", "my-gateway-model", 5000, 0, 0, 700))
+r = subprocess.run([os.path.join(BIN, "run-summary"), rd, "--intent", "semver", "--host", "dsh"], capture_output=True, text=True, env=ENV)
+s = json.load(open(os.path.join(rd, "summary.json")))
+by = s["cost_by_model"]
+assert s["cost_usd"] is None and by["my-gateway-model"]["usd"] is None and by["my-gateway-model"]["in"] == 5000, s
+assert by["my-gateway-model"]["out"] == 700 and abs(by["deepseek-flash"]["usd"] - FLASH) < 1e-6, by
+row = [l for l in r.stdout.splitlines() if l.startswith("| ")][-1]
+assert "| — |" in row and "my-gateway-model" in r.stdout and "no published price" in r.stdout, r.stdout
+shutil.rmtree(os.path.join(rd, "repo", ".aladdin"))
+r = subprocess.run([os.path.join(BIN, "run-summary"), rd, "--host", "dsh"], capture_output=True, text=True, env=ENV)
+assert json.load(open(os.path.join(rd, "summary.json")))["cost_usd"] is None and "$0.00" not in r.stdout, r.stdout
+ok("run-summary --host dsh: every call priced from the dated DeepSeek table (model, cache hits, peak band); an unpriced model keeps its tokens and the cost is unmeasured")
 
 # 5b) the Python intent seeds a Python package (no cargo) and needs python3 + pytest, not cargo
 py = os.path.join(STUBS, "python3")      # the real python3, except `-m pytest` answers $HAS_PYTEST

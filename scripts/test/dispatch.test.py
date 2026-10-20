@@ -10,12 +10,16 @@ import atexit
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+from plan_fixture import approve_plan  # noqa: E402
 
 GATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin", "gate-dispatch")
 T = tempfile.mkdtemp(prefix="aloop-dispatch-")
 atexit.register(shutil.rmtree, T, ignore_errors=True)
-ENV = {k: v for k, v in os.environ.items() if k != "SKIP_HOOKS"}
+ENV = {k: v for k, v in os.environ.items() if k not in ("SKIP_HOOKS", "AGENTIC_HOST")}
 n = 0
 
 
@@ -40,6 +44,7 @@ os.makedirs(os.path.join(T, ".aladdin", "state", "tasks"))
 os.makedirs(os.path.join(T, "docs", "agents"))
 open(os.path.join(T, "docs", "agents", "defaults.md"), "w").write(
     "---\ntype: agentic-defaults\n---\n```conf\nAGENTIC_MODEL_PLANNING=haiku\nAGENTIC_MODEL_WORKER=haiku\n```\n")
+approve_plan(T, ENV, 1)     # the human approved sprint 1's plan (M0.9; plan-approval.test.py checks that gate)
 
 r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.")
 assert r.returncode == 2 and "S1-01-T1.env" in r.stderr, r
@@ -148,6 +153,30 @@ ok("a STORY_DIR inside the run-data dir (.aladdin/, .agentic/) is denied with th
 r = run("aloop:green-worker", "TASK_ID: S1-09-T9\nDo GREEN.", agent_type="aloop:planner")
 assert r.returncode == 0, r
 ok("a sub-agent's own Agent calls are not this gate's business")
+
+# Plan only once gate-intake passes (ROADMAP §4.9): a NEEDS-HUMAN release lets the intake's stop through
+# unverified, and on Claude Code the notice rides on a PostToolUse that can land after the planner's call,
+# so the planner is refused while the newest Intent Contract (the one gate-intake judges) has an unanswered
+# `ask`, its questions quoted one per line. The intake (the remedy) and standards (dispatched beside it) are not.
+INTENT = os.path.join(os.path.dirname(GATE), "intent")
+ic = subprocess.run([INTENT, "new", "--source", "prompt", "--raw", "export orders"], cwd=T, env=ENV,
+                    capture_output=True, text=True).stdout.strip()
+c = json.load(open(ic))
+c.update(actor="analyst", want="export orders", why="finance", done_looks_like="a CSV", success_scenarios=["a CSV"],
+         failure_scenarios=["no rows: header only"], open_questions=[
+             {"question": "delimiter?", "class": "default", "default": "comma"},
+             {"question": "May the export include\npersonal data?", "class": "ask"}])
+json.dump(c, open(ic, "w"))
+r = run("aloop:planner", "Plan sprint 1 from the intake.")
+assert r.returncode == 2 and "gate-intake passes" in r.stderr and ic in r.stderr, r
+assert '- "May the export include personal data?"' in r.stderr and "delimiter?" not in r.stderr, r
+assert "Ask the human" in r.stderr and "re-dispatch intake" in r.stderr, r
+for st in ("aloop:intake", "aloop:standards"):
+    assert run(st, "Record the human's answers.").returncode == 0, st
+c["open_questions"][1]["answer"] = "no"
+json.dump(c, open(ic, "w"))
+assert run("aloop:planner", "Plan sprint 1 from the intake.").returncode == 0
+ok("a planner dispatch is refused while the newest Intent Contract has an unanswered ask, naming it; once answered it is admitted")
 
 empty = tempfile.mkdtemp(prefix="aloop-dispatch-none-")
 atexit.register(shutil.rmtree, empty, ignore_errors=True)

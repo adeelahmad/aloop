@@ -16,15 +16,25 @@ Usage:
                                        its recorded decisions and the intent, never model prose
   events graph [--format json|dot]     the stream as a graph (events, tasks, commits, intents;
                                        parent / caused_by / about edges); rebuildable, downstream
-  events authority --initiated-by WHO --mode reviewed|autonomous --scope "..."
+  events authority --initiated-by WHO --mode reviewed|autonomous --scope "..." [--sprint N]
                    [--policy P] [--override key=value ...]
                                        the run's authority record (human.approval);
-                                       decisions default to it
+                                       decisions default to it. With a sprint (reviewed: the
+                                       latest frozen plan's by default) it is the human's grant
+                                       and counts only in their own typed line: until a captured
+                                       prompt says `approve SN <code>` (autonomous: `autonomous
+                                       SN <code>`) it asks with that line (exit 3). An approved
+                                       autonomous mission is that word for its own sprints
+  events approval SPRINT|TASK_ID [--story-dir DIR] [--role ROLE]
+                                       may an execution role of that sprint be dispatched now, on
+                                       that STORY_DIR? (gate-dispatch asks): exit 0 yes, 2 no and why
+                                       (ROADMAP M0.9)
   events decide KIND --reason "one line" [--task T] [--evidence ref ...] [--authority EVENT_ID]
                                        structured rationale (plan|split|target|
                                        implementation|replan|acceptance)
 Emitting never fails a hook: an unknown event type is the only error (exit 64), besides the
-human approvals, ethics verdicts and goal lineage of the mission layer, which only their own commands write.
+human approvals (the authority record and plan.approved included), ethics verdicts and goal lineage of the
+mission layer, which only their own commands write.
 """
 import glob
 import json
@@ -33,15 +43,22 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _approval  # noqa: E402
 import _events  # noqa: E402
 import _mission  # noqa: E402
 import _paths  # noqa: E402
 
-# events only their own command may write (ROADMAP §4.12): human approvals, the ethics gate's verdicts
-# and the goal lineage (`events trace` and `mission goal close` read them)
-GATE_OWNED = set(_mission.APPROVAL_EVENTS) | {"ethics.reviewed", "ethics.blocked", "goal.derived", "goal.met",
-                                             "state.assessed", "eval.completed",   # what goals are derived and closed from
-                                             "intent.received"}                    # an intent's lineage (`intent new`)
+# events only their own command may write (ROADMAP §4.12): human decisions, the ethics and door gates'
+# records and the goal lineage (`events trace` and `mission goal close` read them)
+GATE_OWNED = set(_mission.HUMAN_EVENTS) | {"ethics.reviewed", "ethics.blocked", "goal.derived", "goal.met",
+                                          "goal.retired",                      # `mission goal retire` (M9.50)
+                                          "door.denied", "door.crossed",       # the door gate's own records (M9.30)
+                                          "state.assessed", "eval.completed",  # what goals are derived and closed from
+                                          "intent.received"}                   # an intent's lineage (`intent new`)
+# the human's grant of a sprint (ROADMAP M0.9): only `events authority` writes it, from their typed line
+GATE_OWNED |= {"human.approval", "plan.approved"}
+# the project stop (ROADMAP M10.4): only `aloop stop` writes it
+GATE_OWNED |= {"run.stopped", "run.resumed"}
 
 
 def parse(argv):
@@ -109,7 +126,13 @@ def trace(cwd, sha):
         a = appr[-1].get("authority") or {}
         print("approved %s (%s) scope=%r" % (a.get("initiated_by"), a.get("autonomy_mode"), a.get("scope")))
     else:
-        print("approved (missing: no plan.approved for this plan)")
+        auto = [e for e in evs if e.get("event") == "human.approval" and (e.get("authority") or {}).get("sprint") == sprint
+                and (e.get("authority") or {}).get("autonomy_mode") == "autonomous" and e.get("ts", "") <= commit.get("ts", "")]
+        if auto:
+            a = auto[-1]["authority"]
+            print("approved %s (autonomous) scope=%r" % (a.get("initiated_by"), a.get("scope")))
+        else:
+            print("approved (missing: no plan.approved for this plan)")
     return 0
 
 
@@ -240,9 +263,22 @@ def main(argv):
     if cmd in ("authority", "decide"):
         try:
             if cmd == "authority":
-                eid = _events.record_authority(cwd, opts.get("initiated_by", ""), opts.get("mode", ""), opts.get("scope", ""),
-                                               policy=opts.get("policy", "default"),
-                                               overrides=dict(o.split("=", 1) for o in opts["override"] if "=" in o))
+                who, mode, scope = opts.get("initiated_by", ""), opts.get("mode", ""), opts.get("scope", "")
+                if mode not in _events.AUTONOMY or not who or not scope:
+                    raise ValueError("need --initiated-by WHO --mode %s --scope \"...\"" % "|".join(_events.AUTONOMY))
+                policy = opts.get("policy", "default")
+                overrides = dict(o.split("=", 1) for o in opts["override"] if "=" in o)
+                try:
+                    sprint, grant = _approval.grant_for(cwd, who, mode, scope, opts.get("sprint", ""), policy, overrides)
+                except _mission.NeedsHuman as e:
+                    print("ASK[events]: %s" % e, file=sys.stderr)
+                    return 3
+                eid = _events.record_authority(cwd, who, mode, scope, policy=policy, overrides=overrides,
+                                               sprint=sprint, grant=grant)
+                if grant:
+                    print("[events] %s: the human's %s recorded (code %s)" % (
+                        sprint, "plan approval" if grant["kind"] == "plan" else "grant of autonomy", _mission.code(grant["sha256"])),
+                        file=sys.stderr)
             else:
                 eid = _events.record_decision(cwd, pos[0] if pos else "", opts.get("reason", ""), task=opts.get("task", ""),
                                               evidence=opts["evidence"], authority_ref=opts.get("authority"),
@@ -252,6 +288,16 @@ def main(argv):
             return 64
         print(eid)
         return 0
+    if cmd == "approval":
+        if not pos:
+            print("events approval: need a SPRINT or TASK_ID", file=sys.stderr)
+            return 64
+        good, why = _approval.check(cwd, pos[0], opts.get("story_dir", ""), opts.get("role", ""))
+        if good:
+            print(why)
+            return 0
+        print("\n".join(why), file=sys.stderr)
+        return 2
     if cmd == "query":
         for ev in _events.read(cwd):
             ids = ev.get("ids") or {}

@@ -31,6 +31,23 @@ worktree: /abs/.aladdin/worktrees/S1-02-T3. First command: `aloop bind
 exactly as on Claude Code (see "The task contract" below). Models per role come from the generated agent files
 (`aloop install` renders them from `docs/agents/defaults.md`).
 
+## NEEDS-HUMAN: an intake that stops to ask
+
+An `ask` question (irreversible, security-sensitive or intent-changing) is the human's, never the
+intake's: `gate-intake` releases its stop at once, **not verified** (as a STUCK release), records the
+questions in `.aladdin/state/needs-human/<intent_id>.json` and logs `gate.failed` (`released=needs-human`).
+You are told `[aloop gate] intake <id>: NEEDS-HUMAN — released UNVERIFIED (not a pass)` with the
+questions: with the Agent result on Claude Code (on Codex, your next tool result), in the `task` result
+on OpenCode, as a message on dsh. It is not a pass:
+
+1. Ask the human each question as written. Never answer one yourself.
+2. Re-dispatch `intake` with a `### Feedback` block quoting each question and the human's answer; it
+   records each `answer` in the contract (you never edit it).
+3. Dispatch the planner only once `gate-intake` passes. In autonomous mode this is the escalation class
+   (`intent check` exit 3).
+
+A malformed contract or an incomplete five-part intent is still blocked and sent back to the intake.
+
 ## Budget overrun → mid-sprint re-plan (the re-plan route)
 
 A task killed at its hard limit is too big — retrying it would burn the same budget
@@ -51,6 +68,10 @@ again. Instead:
 4. **Re-validate:** `gate-stage2-complete docs/agents/sprintN` must pass again. Log
    `replan SN-NN complete Tn`.
 5. **Resume** the sprint: dispatch the new tasks (from RED) and continue the loop.
+   Reviewed mode: the re-plan changed the plan, so `gate-dispatch` blocks every dispatch of the
+   sprint until the human approves the new plan: run `events authority … --sprint N` again and
+   relay the `approve SN <code>` line it asks for (ROADMAP M0.9). An autonomous grant for the
+   sprint covers its re-plans.
 
 ### Breach classes (classify before you split)
 
@@ -131,7 +152,8 @@ All of these are on PATH — call them by bare name.
 - Real isolation = the global store is never staged into the worktree. The read-only
   chmod is the softer "not yours to write" signal (defeatable, but it errors loudly).
 - Retention: everything is kept (no auto-compaction). `transcripts prune` is a manual,
-  opt-in cap (`AGENTIC_TRANSCRIPTS_KEEP=<n>`) if disk gets tight.
+  opt-in cap (`AGENTIC_TRANSCRIPTS_KEEP=<n>`) if disk gets tight; it keeps the human's prompts,
+  which their grants cite.
 
 ## Worktree hygiene (bin/worktree-hygiene)
 - SubagentStart (exec roles) sparse-checkout-excludes `docs/agents/` from the new

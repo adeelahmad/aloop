@@ -26,9 +26,9 @@ EVENT_TYPES = {
     "artifact.created", "artifact.updated", "semantic_target.created", "semantic_target.resolved",
     "decision.recorded", "commit.created",
     "memory.candidate", "memory.promoted", "memory.retired",
-    "human.approval", "human.override", "run.completed", "run.aborted",
+    "human.approval", "human.override", "run.completed", "run.aborted", "run.stopped", "run.resumed",
     # the mission layer (ROADMAP §4.12): registered up front so its parallel tracks never edit this set
-    "mission.set", "mission.approved", "mission.tick", "mission.budget_exhausted",
+    "mission.set", "mission.approved", "mission.tick", "mission.budget_exhausted", "mission.lifted",
     "research.recorded",
     "baseline.proposed", "baseline.measured", "baseline.confirmed", "baseline.superseded", "baseline.vetoed",
     "journey.proposed", "journey.approved", "journey.retired", "journey.run",
@@ -37,6 +37,7 @@ EVENT_TYPES = {
     "ethics.reviewed", "ethics.consent", "ethics.blocked",
     "telemetry.consent", "telemetry.revoked", "telemetry.setup", "telemetry.report",
     "judge.run",
+    "door.authorized", "door.revoked", "door.denied", "door.crossed",
 }
 ENVELOPE = ("schema", "event_id", "ts", "event", "ids", "parent_event_id", "caused_by", "role", "host",
             "model", "authority", "decision", "refs", "data")
@@ -69,11 +70,12 @@ def canonical(cwd, ids):
 
 
 def emit(cwd, event, task="", attempt="", agent_id="", role="", host="", model="", parent_event_id=None,
-         caused_by=None, authority=None, decision=None, refs=None, **data):
-    """Append one aladdin.event/1 record; returns its event_id ("" on any failure)."""
+         caused_by=None, authority=None, decision=None, refs=None, event_id=None, **data):
+    """Append one aladdin.event/1 record; returns its event_id ("" on any failure). `event_id` is given
+    by a writer that recorded the event elsewhere first (the mission ledger)."""
     if event not in EVENT_TYPES:
         raise ValueError("unknown event type %r (see _events.EVENT_TYPES)" % event)
-    ev = {"schema": SCHEMA, "event_id": uuid.uuid4().hex,
+    ev = {"schema": SCHEMA, "event_id": event_id or uuid.uuid4().hex,
           "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "event": event,
           "ids": ids_for(task, attempt, agent_id),
           "parent_event_id": parent_event_id, "caused_by": caused_by,
@@ -100,27 +102,32 @@ def authority_file(cwd=None):
     return os.path.join(_paths.home(cwd, "state"), "authority.json")
 
 
-def record_authority(cwd, initiated_by, autonomy_mode, scope, policy="default", overrides=None):
+def record_authority(cwd, initiated_by, autonomy_mode, scope, policy="default", overrides=None, sprint="", grant=None):
     """The run's authority record (who started it, under which policy and approval mode,
     for which scope, with which overrides). Stored in .agentic/state/authority.json and
-    emitted as human.approval; decisions point at it."""
+    emitted as human.approval; decisions point at it. `sprint` and `grant` are the human's
+    grant about that sprint (_approval.grant_for, ROADMAP M0.9): a plan grant also emits
+    plan.approved for the sprint's latest frozen plan."""
     if autonomy_mode not in AUTONOMY:
         raise ValueError("autonomy_mode must be one of %s" % ", ".join(AUTONOMY))
     if not initiated_by or not scope:
         raise ValueError("an authority record needs initiated_by and scope")
     auth = {"initiated_by": initiated_by, "policy": policy, "autonomy_mode": autonomy_mode,
             "scope": scope, "overrides": overrides or {}}
+    if sprint:
+        auth.update(sprint=sprint, grant=grant)
     eid = emit(cwd, "human.approval", role="human", authority=auth, refs={"authority": authority_file(cwd)})
     auth["event_id"] = eid
     with open(authority_file(cwd), "w") as f:
         json.dump(auth, f, indent=1)
     plan = None
     for ev in read(cwd):
-        if ev.get("event") in ("plan.created", "plan.revised"):
+        if ev.get("event") in ("plan.created", "plan.revised") and isinstance(ev.get("data"), dict) \
+                and ev["data"].get("sprint") == sprint:
             plan = ev
-    if plan:  # the approval covers the latest frozen plan
+    if plan and (grant or {}).get("kind") == "plan":  # the approval covers the sprint's latest frozen plan
         emit(cwd, "plan.approved", role="human", parent_event_id=eid, caused_by=plan.get("event_id"),
-             authority=auth, refs=plan.get("refs"), sprint=(plan.get("data") or {}).get("sprint", ""))
+             authority=auth, refs=plan.get("refs"), sprint=sprint, plan_sha256=grant.get("plan_sha256"))
     return eid
 
 
