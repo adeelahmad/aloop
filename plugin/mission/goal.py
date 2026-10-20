@@ -123,14 +123,15 @@ def split_held(cwd, gaps, edoc=None):
     """(open, held): a gap whose summary a hard line fixed is held for good (ethics.hard_words), so a
     goal derived again never takes it and the loop moves on to the next gap. A gap a retired goal left
     open is held too (M9.50: its sprints already tried it), on that eval's baseline, until a new
-    baseline version or the human's next approval of the mission. Each held gap names what holds it."""
+    baseline version, the human's lift of that hold (`tick --force`) or their next approval of the
+    mission; a regression is never held. Each held gap names what holds it."""
     hard, ids = E.hard_words(cwd), E.held_gaps(cwd)
     tried = retired_gaps(cwd, edoc.get("baseline_id")) if isinstance(edoc, dict) else {}
     held = []
     for g in gaps:
         if E.word_key(g["summary"]) in hard or g["gap_id"] in ids:
             held.append(dict(g, held_by="a hard line"))
-        elif g["gap_id"] in tried:
+        elif g["gap_id"] in tried and g.get("kind") != "regression":     # a regression always comes back
             held.append(dict(g, held_by="retired goal %s" % tried[g["gap_id"]]))
     out = {g["gap_id"] for g in held}
     return [g for g in gaps if g["gap_id"] not in out], held
@@ -138,13 +139,21 @@ def split_held(cwd, gaps, edoc=None):
 
 def retired_gaps(cwd, baseline_id):
     """{gap_id: goal_id} of the gaps a goal.retired record left open, measured on this baseline and
-    recorded after the mission's newest human approval (a new version or a new approval frees them)."""
+    recorded after the mission's newest human approval, for a goal no human lift of failed goals
+    reached (`tick --force` on that block, as tick reads it): a new version, approval or lift frees them."""
+    import tick as T      # noqa: E402 — the lift's own rule
     mref = M.rel(cwd, M.path_of(cwd, "mission"))
     since = max([r["ts"] for r in M.records(cwd, "mission.approved", mref, role="human")] or [""])
+    reach = max([r["data"]["occurrence"] for r in M.records(cwd, "mission.lifted", role="human")
+                 if r["data"].get("grant") == "GOALS" and isinstance(r["data"].get("occurrence"), int)
+                 and str(r["data"].get("by") or "").strip() and r["data"].get("sha256") == M.digest(T.lifted(r["data"]))]
+                or [0])
     out = {}
     for r in M.records(cwd, "goal.retired"):
         d = r["data"]
-        if baseline_id and d.get("baseline_id") == baseline_id and r["ts"] > since:
+        gid = d.get("goal_id") if isinstance(d.get("goal_id"), str) else ""
+        if baseline_id and d.get("baseline_id") == baseline_id and r["ts"] > since \
+                and T.ms_doc({"goal_id": gid}, "goal") > reach:
             for x in d.get("open") if isinstance(d.get("open"), list) else []:
                 if isinstance(x, str):
                     out.setdefault(x, d.get("goal_id"))
@@ -346,7 +355,8 @@ def cmd_derive(cwd, o):
         stuck = [g for g in held if g["gap_id"] in want]
         if stuck:
             report(["%s held by %s: no goal takes it (a hard line: aloop mission ethics check; a retired goal's gap: "
-                    "a new baseline version or the human's approval of the mission frees it)"
+                    "a new baseline version, the human's `aloop mission tick --force --by NAME` or their approval "
+                    "of the mission frees it)"
                     % (", ".join(g["gap_id"] for g in stuck), stuck[0]["held_by"])], [])
             return 2
         missing = [x for x in want if x not in by_id]
@@ -518,10 +528,16 @@ def cmd_next(cwd, gid):
     planned = {e["data"].get("intent_id") for e in _events.read(cwd)
                if e.get("event") in ("plan.created", "plan.revised") and isinstance(e.get("data"), dict)
                and isinstance(e["data"].get("intent_id"), str)}
-    for gap in g["gaps"]:
-        if gap["gap_id"] not in have:
-            continue
-        p, it = have[gap["gap_id"]]
+    # each gap's intent in the goal's order, then any later intent of the goal (a retry for a gap): every
+    # intent `mission tick` and `goal retire` count is handed out here
+    queue = [have[gap["gap_id"]] for gap in g["gaps"] if gap["gap_id"] in have]
+    first = {it.get("intent_id") for _, it in queue}
+    for iid in goal_intent_ids(cwd, gid):
+        p = os.path.join(_paths.docs(cwd), "intents", "%s.json" % iid)
+        doc, _ = M.load(p)
+        if iid not in first and isinstance(doc, dict) and doc.get("intent_id") == iid:
+            queue.append((p, doc))
+    for p, it in queue:
         if it.get("intent_id") in planned:
             continue
         others = [os.path.getmtime(x) for x in glob.glob(os.path.join(os.path.dirname(p), "int_*.json")) if x != p]
@@ -707,7 +723,8 @@ def cmd_retire(cwd, gid, eid):
     if bad:
         report(bad, [])
         return 2
-    still = [x.get("gap_id") for x in doc["gaps"] if isinstance(x, dict)]
+    own = {x["gap_id"] for x in g["gaps"]}       # a regression elsewhere is the next eval's, not this goal's
+    still = [x.get("gap_id") for x in doc["gaps"] if isinstance(x, dict) and x.get("gap_id") in own]
     # the record first (its digest leaves the status out), then the status: a stop between them leaves
     # a goal every reader already takes as retired, and running retire again is a no-op
     M.record(cwd, "goal.retired", M.rel(cwd, gpath), "mission-planner", goal_id=gid, eval_id=eid,

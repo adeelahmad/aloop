@@ -6,10 +6,11 @@
         Each call records a mission.tick event (--peek records nothing). The same action is
         handed out at most 3 times in a row without a result, then BLOCKED.
   mission tick --force --by NAME
-        the human lifts a block the loop set (that repeat guard, or 3 failed goals in a row). It
-        is their own words (M9.17): it asks (exit 3) for the line they reply, `lift <mission>
-        <code>`, then records the lift in the ledger (mission.lifted), so the next tick, from any
-        session or a fresh checkout, goes on. A hard line or a stalled sprint is not lifted this way.
+        the human lifts a block the loop set (that repeat guard, 3 failed goals in a row, or a
+        retired goal's held gaps). It is their own words (M9.17): it asks (exit 3) for the line
+        they reply, `lift <mission> <code>`, then records the lift in the ledger (mission.lifted),
+        so the next tick, from any session or a fresh checkout, goes on. A hard line or a stalled
+        sprint is not lifted this way.
 
 The loop is IBM's autonomic MAPE-K over docs/agents/mission/: monitor (ASSESS), analyze
 (EVALUATE), plan (DERIVE_GOAL, PLAN_INTENTS), execute (SPRINT). Actions, first match wins:
@@ -841,10 +842,14 @@ def cycle(f, now, cad):
             return act("BLOCKED", "every gap of eval %s is held by a hard line (%d): no goal may take one, so only a "
                                   "human-approved change of the mission moves on (aloop mission ethics check)"
                        % (e["id"], len(held)), e["ref"])
-        if held and not opened:
+        if held and not opened:      # the newest retired goal holding one: a lift of it reaches every older one
+            tried = [x["held_by"].split()[-1] for x in held if x["held_by"].startswith("retired goal ")]
+            newest = max(tried, key=lambda gid: ms_doc({"goal_id": gid}, "goal"))
             return act("BLOCKED", "every gap of eval %s is held (%s): a retired goal's sprints already tried them, so "
-                                  "the human looks; a new baseline version or their approval of the mission frees a "
-                                  "retired goal's gaps" % (e["id"], G.held_text(held)), e["ref"])
+                                  "the human looks; `aloop mission tick --force --by NAME` lets the loop try them "
+                                  "again (so do their approval of the mission and a new baseline version)"
+                       % (e["id"], G.held_text(held)), M.rel(f["cwd"], M.path_of(f["cwd"], "goal", newest)),
+                       grant="GOALS")
         why = "goal %s %s: derive another from" % (fails[0][0]["id"], fails[0][1]) if fails else "eval %s shows " \
             "gaps: derive the next goal from" % e["id"]
         if f["mission"].get("mode") == "spoon-fed":
@@ -938,10 +943,10 @@ def lift_of(f, d):
 
 
 def force(cwd, now, by):
-    """The human lifts a block the loop set (the repeat guard, or 3 failed goals in a row): their typed
-    `lift` line (M9.17; M.NeedsHuman asks for it), recorded in the ledger, and a grant tick, so the next
-    tick, from any session or a fresh checkout, hands the action out again. A hard line or a stalled
-    sprint is not lifted this way."""
+    """The human lifts a block the loop set (the repeat guard, 3 failed goals in a row, or a retired goal's
+    held gaps): their typed `lift` line (M9.17; M.NeedsHuman asks for it), recorded in the ledger, and a
+    grant tick, so the next tick, from any session or a fresh checkout, hands the action out again. A hard
+    line or a stalled sprint is not lifted this way."""
     d = decide(cwd, now)
     if d["action"] != "BLOCKED":
         print("mission tick --force: nothing is blocked; the next action is %s" % line(d), file=sys.stderr)

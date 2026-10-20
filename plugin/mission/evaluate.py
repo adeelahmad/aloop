@@ -46,11 +46,12 @@ def active_goal(cwd):
         ref, sha = M.rel(cwd, path), M.digest(d)
         starts = [r["ts"] for ev in ("goal.derived", "goal.approved") for r in M.records(cwd, ev, ref)
                   if r["data"].get("sha256") == sha]
-        if starts and (best is None or max(starts) > best[0]):
-            best = (max(starts), d, ref)
+        key = (max(starts), str(d.get("goal_id"))) if starts else None    # a tie in the second: the newer id
+        if key and (best is None or key > best[0]):
+            best = (key, d, ref)
     # only the newest goal is in flight, as `mission tick` reads it: once it is met or retired the next
     # eval covers the whole mission, never an older goal nobody works
-    if not best or any(r["ts"] >= best[0] for r in M.records(cwd, "goal.met", best[2])) or retired(cwd, best[1]):
+    if not best or any(r["ts"] >= best[0][0] for r in M.records(cwd, "goal.met", best[2])) or retired(cwd, best[1]):
         return None
     return best[1]
 

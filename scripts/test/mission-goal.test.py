@@ -437,8 +437,9 @@ ok("intent: a mission intent names its goal and gap, passes the goal's gate, and
 #     its sprints closed from a state measured after them, still lists its gaps, is set aside by a goal.retired
 #     ledger record (the planner's): `mission evaluate` then covers the whole mission, the retired goal's open
 #     gaps are held (its sprints tried them), and a retired goal takes no more intents, sprints or close
-p4, (k1, _), ek = setup("autonomous")
+p4, (k1, k2), ek = setup("autonomous")
 assert review(p4, "mission").returncode == 0
+gold = made(p4.run("goal", "derive"))["goal_id"]                    # an older goal nobody works
 gk = made(p4.run("goal", "derive"))["goal_id"]
 assert review(p4, gk).returncode == 0
 gkref = M.rel(p4.dir, p4.path("goal", gk))
@@ -475,7 +476,14 @@ r = tool(p4, INTENT, "new", "--source", "mission", "--goal", gk, "--gap", em["ga
 assert r.returncode == 0, r.stderr                                 # a second intent for a gap is the goal's too
 i3 = p4.events("intent.received")[-1]["data"]["intent_id"]
 refused(em["eval_id"], "intent %s has no plan yet" % i3)
+ip3 = os.path.join(p4.dir, "docs", "agents", "intents", i3 + ".json")
+d3, d1 = json.load(open(ip3)), json.load(open(G.goal_intents(p4.dir, gk)[em["gaps"][0]["gap_id"]][0]))
+d3.update({k: d1[k] for k in ("actor", "want", "why", "done_looks_like", "success_scenarios", "failure_scenarios")})
+json.dump(d3, open(ip3, "w"))                                      # the planner fills it, as intake would
+r = p4.run("goal", "next", gk)
+assert os.path.basename(r.stdout.strip()) == i3 + ".json", (r.returncode, r.stdout, r.stderr)   # `next` hands it out
 _events.emit(p4.dir, "plan.created", role="planner", sprint="S3", intent_id=i3)
+assert p4.run("goal", "next", gk).returncode == 1                  # every intent has a plan
 refused(em["eval_id"], "sprint 3 is not closed")
 json.dump({"closed": [{"sprint": 1, "at": past}, {"sprint": 2, "at": stamp}, {"sprint": 3, "at": stamp}, junk]},
           open(closes, "w"))
@@ -492,9 +500,10 @@ p4.app(seconds_to_first_task=2.0, working_steps=["open", "add", "see"], tasks_sh
 emet = evaluate(p4)
 assert emet["goal_id"] == gk and emet["goal_met"] is True
 refused(emet["eval_id"], "is met in eval", "close it")             # a met goal is closed, never retired
-p4.app(seconds_to_first_task=9.0, working_steps=["open", "add"], tasks_shown=0)
+p4.app(seconds_to_first_task=12.0, working_steps=["open", "add"], tasks_shown=0)   # and the 10s journey regresses
 ek3 = evaluate(p4)
-assert not ek3["goal_met"]
+assert not ek3["goal_met"] and {"gap_id": k2 + "#ok10", "kind": "regression"}.items() <= \
+    next(x for x in ek3["gaps"] if x["gap_id"] == k2 + "#ok10").items(), ek3["gaps"]
 gpath = p4.path("goal", gk)
 orig = open(gpath).read()
 gd = json.loads(orig)
@@ -516,7 +525,9 @@ assert r.returncode == 0, r.stderr
 recs = M.records(p4.dir, "goal.retired", gkref)
 assert len(recs) == 1 and recs[0]["role"] == "mission-planner" and recs[0]["data"]["eval_id"] == ek3["eval_id"], recs
 assert recs[0]["data"]["sha256"] == M.digest(p4.load("goal", gk)) and p4.load("goal", gk)["status"] == "retired"
-assert recs[0]["data"]["open"] == [x["gap_id"] for x in ek3["gaps"]], recs[0]["data"]
+own = [x["gap_id"] for x in p4.load("goal", gk)["gaps"]]
+assert recs[0]["data"]["open"] == [x["gap_id"] for x in ek3["gaps"] if x["gap_id"] in own], recs[0]["data"]
+assert sorted(recs[0]["data"]["open"]) == sorted(own) and k2 + "#ok10" not in recs[0]["data"]["open"]   # not the regression
 assert recs[0]["data"]["baseline_id"] == ek3["baseline_id"], recs[0]["data"]
 r = p4.run("goal", "retire", gk, "--eval", ek3["eval_id"])
 assert r.returncode == 0 and len(M.records(p4.dir, "goal.retired", gkref)) == 1, r.stderr   # once
@@ -529,13 +540,15 @@ for args in (("next", gk), ("intents", gk), ("check", gk), ("close", gk, "--eval
 assert not M.records(p4.dir, "goal.met", gkref)
 r = p4.run("goal", "derive")
 assert r.returncode == 2 and "was retired with its gaps still open" in r.stderr, r.stderr   # the eval narrowed to it
-assert EV.active_goal(p4.dir) is None
+assert EV.active_goal(p4.dir) is None                         # not the older goal nobody worked either
+p4.app(seconds_to_first_task=9.0, working_steps=["open", "add"], tasks_shown=0)
 ek4 = evaluate(p4)
 assert ek4["goal_id"] is None
 r = p4.run("goal", "derive")                                  # its sprints already tried these gaps: held
 assert r.returncode == 2 and "2 held: 2 by retired goal %s" % gk in r.stderr, r.stderr
 o4 = json.loads(p4.run("goal", "options", "--json").stdout)
 assert o4["options"] == [] and {x["held_by"] for x in o4["held"]} == {"retired goal %s" % gk}, o4
+assert not G.split_held(p4.dir, [dict(o4["held"][0], kind="regression")], ek4)[1]   # a regression is never held
 assert p4.run("approve", "--by", "Adeel").returncode == 0     # the human's approval of the mission frees them
 assert made(p4.run("goal", "derive"))["goal_id"] != gk
 r = tool(p4, EVENTS, "emit", "goal.retired", "--data", "goal_id=%s" % gk)
