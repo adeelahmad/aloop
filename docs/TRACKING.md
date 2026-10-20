@@ -67,10 +67,12 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.5 | LLM judges: pinned model, hashed rubric, several runs, agreement threshold | NOT_IMPLEMENTED | §4.12 |
 | M9.6 | Telemetry (GA4): opt-in, Admin API setup, debug hit, fixed reports, minimum sample; never a gate | NOT_IMPLEMENTED | §4.12 |
 | M9.7 | Standing principles in two variants (autonomous, spoon-fed) | NOT_IMPLEMENTED | §4.12 |
-| M9.8 | Mission loop: `tick` from facts, zero-token `due`, cron, budget caps | NOT_IMPLEMENTED | §4.12 |
+| M9.8 | Mission loop: `tick` from facts, zero-token `due`, cron, budget caps | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.9 | Six fixed mission roles, wired; role path guards; artifact check at stop | NOT_IMPLEMENTED | §4.12 |
 | M9.10 | State Assessor report and Evaluator gap list | NOT_IMPLEMENTED | §4.12 |
 | M9.11 | Goals become Aladdin intents; lineage reaches the mission | NOT_IMPLEMENTED | §4.12 |
-| M9.12 | `/aloop:mission` skill | NOT_IMPLEMENTED | §4.12 |
+| M9.12 | `/aloop:mission` skill | IMPLEMENTED_TESTED | `scripts/test/mission-skill.test.py` |
 | M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12 |
 | M9.17 | Approvals name the captured human prompt | NOT_IMPLEMENTED | §4.12 |
+| M9.18 | Mission spend counts mission sessions only | NOT_IMPLEMENTED | §4.12 |
+| M9.19 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |
