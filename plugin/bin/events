@@ -56,6 +56,8 @@ GATE_OWNED = set(_mission.HUMAN_EVENTS) | {"ethics.reviewed", "ethics.blocked", 
                                           "intent.received"}                   # an intent's lineage (`intent new`)
 # the human's grant of a sprint (ROADMAP M0.9): only `events authority` writes it, from their typed line
 GATE_OWNED |= {"human.approval", "plan.approved"}
+# the project stop (ROADMAP M10.4): only `aloop stop` writes it
+GATE_OWNED |= {"run.stopped", "run.resumed"}
 
 
 def parse(argv):
