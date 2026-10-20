@@ -17,7 +17,8 @@ Usage:
         Exit 0 ok · 2 invalid (BLOCK[principles] lines) · 64 usage
 
 From Python (the goal module): stamp(mode) -> {"mode", "sha256", "ids"}; verify(stamp) ->
-problems ([] when the stamp is the current block for its mode).
+problems ([] when the stamp is the current block for its mode); verify(stamp, stale_ok=True) and
+stale(stamp) for a goal derived under an older block, which keeps its stamp as provenance.
 """
 import hashlib
 import json
@@ -163,12 +164,18 @@ def stamp(mode, path=None):
     return {"mode": mode, "sha256": digest(mode, path), "ids": [p["id"] for p in load(path)["principles"]]}
 
 
-def verify(st, path=None):
-    """Problems with a goal's stamp: [] when it is the current block for its mode."""
+def verify(st, path=None, stale_ok=False):
+    """Problems with a goal's stamp: [] when it is the current block for its mode. With stale_ok, a
+    well-formed stamp of an older block is not a problem (the goal keeps it as provenance; stale() says so),
+    but a malformed stamp or the other mode's block still is."""
     if not isinstance(st, dict) or not st.get("mode") or not st.get("sha256"):
         return ["the principles stamp needs mode and sha256 (principles.stamp(mode))"]
     if st["mode"] not in MODES:
         return ["the principles stamp's mode %r must be one of %s" % (st["mode"], ", ".join(MODES))]
+    if not isinstance(st["sha256"], str) or not re.match(r"^[0-9a-f]{64}$", st["sha256"]):
+        return ["the principles stamp's sha256 is not a sha256"]
+    if not isinstance(st.get("ids"), list) or not all(isinstance(i, str) for i in st["ids"]):
+        return ["the principles stamp needs ids, the principle ids it carries"]
     try:
         cur = {m: digest(m, path) for m in MODES}
     except ValueError as e:
@@ -180,8 +187,13 @@ def verify(st, path=None):
     other = [m for m in MODES if m != st["mode"] and cur[m] == st["sha256"]]
     if other:
         return ["the principles stamp's sha256 is the %s block, not the %s one (mode mismatch)" % (other[0], st["mode"])]
-    return ["the principles changed since this stamp (sha256 %s, now %s): re-stamp the goal"
-            % (str(st["sha256"])[:12], cur[st["mode"]][:12])]
+    return [] if stale_ok else ["the principles changed since this stamp (sha256 %s, now %s)"
+                                % (st["sha256"][:12], cur[st["mode"]][:12])]
+
+
+def stale(st, path=None):
+    """A well-formed stamp of a block that is no longer the current one for its mode."""
+    return not verify(st, path, stale_ok=True) and bool(verify(st, path))
 
 
 def mission_mode(cwd):

@@ -20,7 +20,9 @@ Usage:
         Exits like `check`.
   mission ethics check --subject mission|<goal_id> [--json]
         the gate. Exit 0 clear, or gray with consent · 2 no review of this content, an invalid
-        or edited review, or a hard line · 3 gray without the human's consent
+        or edited review, or a hard line · 3 gray without the human's consent. --json adds the
+        facts, with state: none (review it) · broken (restore the recorded review) · pending
+        (ask the human) · hard (retired) · ok · unresolved (no such subject)
   mission ethics consent --subject mission|<goal_id> --by NAME --reason TEXT
         the human's consent to a gray review of the current content (ethics.consent);
         refused on a hard line
@@ -43,7 +45,10 @@ HARD_LINE = ("illegal", "deceptive", "harmful")
 
 # The screen: fixed patterns per topic. A match does not decide anything; it names a topic the
 # review must address (a finding), and a matched hard-line topic can't be cleared outright.
-# Blunt on purpose ("anti-fraud" matches "fraud"): the reviewer says why in one line.
+# Blunt on purpose ("anti-fraud" matches "fraud"): the reviewer says why in one line, and a
+# defensive use of a hard-line word still pauses once for the human (a false gray costs one consent;
+# a false clear costs the gate). Labels and the mechanics a planner would write instead both count.
+W = r"(?:[\w'-]+ )"   # one word of a gap, possessives and hyphens included (the text is normalized first)
 CATEGORIES = {
     "illegal": [r"\bpira(?:te|tes|ted|ting|cy)\b", r"\bcounterfeit", r"\blaunder(?:s|ed|ing)?\b", r"\bfraud",
                 r"\b(?:evade|evading|evasion of) (?:tax|taxes|sanctions)\b", r"\bunlicensed\b",
@@ -51,28 +56,41 @@ CATEGORIES = {
                 r"\bcrack(?:ed|ing)? (?:software|licen[cs]es?|keys?)\b", r"\bkeygens?\b",
                 r"\bscrap\w* .{0,40}\b(?:without (?:permission|consent)|against (?:the |their )?terms)\b"],
     "deceptive": [r"\bdark[- ]patterns?\b",
-                  r"\bfake (?:reviews?|ratings?|accounts?|users?|followers?|testimonials?|news|urgency|scarcity)\b",
+                  r"\bfake[- ]" + W + r"{0,2}(?:reviews?|ratings?|accounts?|followers?|testimonials?|news|urgency|"
+                  r"scarcity|countdowns?|timers?|endorsements?|discounts?)\b",
                   r"\bimpersonat", r"\bphish", r"\bastroturf", r"\bmislead", r"\bdecepti", r"\bdeceiv",
                   r"\bhidden (?:fees?|charges?|costs?|subscriptions?)\b", r"\bbait[- ]and[- ]switch\b",
-                  r"\bsock ?puppets?\b", r"\bclickbait\b"],
+                  r"\bsock ?puppets?\b", r"\bclickbait\b", r"\b(?:secretly|covertly)\b", r"\bdeep ?fakes?\b",
+                  r"\b(?:cancel\w*|unsubscrib\w*|opt[- ]outs?|delet\w*) " + W + r"{0,3}(?:hard|harder|difficult) to find\b",
+                  r"\b(?:hard|harder|difficult) to (?:cancel|unsubscribe|opt[- ]out|delete|leave)\b",
+                  r"\b(?:hid(?:e|es|ing|den)|bur(?:y|ies|ying|ied)) (?:the |a |an )?(?:unsubscribe|cancel\w*|opt[- ]outs?|"
+                  r"delete)\b",
+                  r"\bpre-?(?:check|tick|select)\w* " + W + r"{0,5}?(?:box|boxes|opt[- ]ins?|consent|subscri\w*)\b",
+                  r"\b(?:charge|bill)\w* " + W + r"{0,4}after (?:they|the user|users?|the customer|customers?) cancel"],
     "harmful": [r"\bmalware\b", r"\bransomware\b", r"\bspyware\b", r"\bstalk(?:s|ed|er|ers|ing)?\b", r"\bharass",
                 r"\bdox(?:x)?(?:es|ed|ing)?\b", r"\bweapons?\b", r"\bself[- ]harm\b", r"\bkey ?loggers?\b",
-                r"\bddos\b", r"\bbotnets?\b", r"\bexploit\w* (?:children|minors|users|people|the vulnerable)\b"],
+                r"\bddos\b", r"\bbotnets?\b", r"\bexploit\w* (?:children|minors|users|people|the vulnerable)\b",
+                r"\bhack\w* into\b", r"\bexfiltrat", r"\bbrute[- ]?forc\w* (?:the )?(?:passwords?|accounts?|logins?) of\b",
+                r"\bcrypto[- ]?jack", r"\bmin(?:e|es|ing) (?:crypto\w*|bitcoins?|monero)\b"],
     "user-data": [r"\b(?:collect|harvest|gather|capture|store|record)\w* (?:more |extra |additional |all )?"
                   r"(?:of )?(?:the )?(?:user|users'?|personal|customer|people's) ?(?:data|information|info)\b",
                   r"\bpersonal (?:data|information|info)\b", r"\bpii\b",
                   r"\b(?:gps |geo)?location (?:data|tracking|history)\b",
                   r"\btrack\w* (?:the )?(?:users?|people|visitors?|location)\b",
                   r"\bcontacts? (?:lists?|books?)\b", r"\bbiometric", r"\bfingerprint(?:s|ing)?\b",
-                  r"\b(?:email addresses|phone numbers)\b"],
+                  r"\b(?:email addresses|phone numbers)\b",
+                  r"\b(?:collect|harvest|gather|capture|log|record|store|upload)\w* " + W + r"{0,3}(?:data|information|info) "
+                  r"(?:about|on|from) (?:the )?(?:users?|people|customers?|visitors?|children|kids)\b",
+                  r"\b(?:children|kids|minors)(?:'s|')? (?:data|information|info|locations?|photos?)\b",
+                  r"\b(?:address books?|microphone|keystrokes?|clipboard|browsing history|private messages)\b"],
     "notifications": [r"\bnotif(?:y|ies|ied|ying|ication|ications)\b", r"\bpush (?:alerts?|messages?)\b",
                       r"\bnag(?:s|ging)?\b"],
     "engagement": [r"\bengagement\b", r"\btime[- ]on[- ](?:app|site|page)\b", r"\bstreaks?\b",
                    r"\binfinite scroll", r"\baddict", r"\bfomo\b", r"\bretention (?:hooks?|tricks?|loops?)\b",
                    r"\bgamif"],
     "third-party": [r"\bthird[- ]part(?:y|ies)\b",
-                    r"\b(?:sell|share|monetiz)\w* (?:\w+ ){0,3}(?:data|information)\b",
-                    r"\bad(?:vertising)? networks?\b", r"\btracking pixels?\b", r"\bdata brokers?\b", r"\bretarget"],
+                    r"\b(?:sell|share|monetiz)\w* " + W + r"{0,3}(?:data|information)\b",
+                    r"\bad(?:vertising)? networks?\b", r"\badvertisers?\b", r"\btracking pixels?\b", r"\bdata brokers?\b", r"\bretarget"],
     "outreach": [r"\b(?:send|sends|sending|email|emails|emailing|message|messaging|text|texting|sms)"
                  r" (?:\w+ ){0,3}(?:users|customers|people|contacts|leads|subscribers)\b",
                  r"\bcold (?:emails?|outreach|calls?)\b", r"\bmass (?:emails?|messages?|mail)\b", r"\bnewsletters?\b",
@@ -90,6 +108,7 @@ _RX = {c: [re.compile(p, re.I) for p in ps] for c, ps in CATEGORIES.items()}
 SKIP = set(M.UNHASHED) | {"created_at"}
 ID_VALUE = re.compile(r"^(?:[a-z]{3}_[0-9a-f]{20}|[0-9a-f]{64})$")
 REASON_MAX = 200
+APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'", "\u2032": "'"})
 
 
 def strings(x, top=True):
@@ -107,9 +126,9 @@ def strings(x, top=True):
 
 
 def normalize(text):
-    """What the screen reads: NFKC (fullwidth and compatibility forms folded), invisible format
-    characters (zero-width, soft hyphen) removed, each run of whitespace one space."""
-    t = unicodedata.normalize("NFKC", text or "")
+    """What the screen reads: NFKC (fullwidth and compatibility forms folded), typographic apostrophes
+    folded to ', invisible format characters (zero-width, soft hyphen) removed, each run of whitespace one space."""
+    t = unicodedata.normalize("NFKC", text or "").translate(APOSTROPHES)
     t = "".join(ch for ch in t if unicodedata.category(ch) != "Cf")
     return re.sub(r"\s+", " ", t).strip()
 
@@ -122,6 +141,28 @@ def text_of(doc):
 def text_digest(doc):
     """The sha256 of the screened words: a hard line follows them to any goal that repeats them."""
     return hashlib.sha256(text_of(doc).encode("utf-8", "surrogatepass")).hexdigest()
+
+
+def word_key(text):
+    """One phrase as a hard line remembers it: normalized, case-folded, hashed."""
+    t = normalize(text).casefold() if isinstance(text, str) else ""
+    return hashlib.sha256(t.encode("utf-8", "surrogatepass")).hexdigest() if t else None
+
+
+def word_keys(kind, doc):
+    """A goal's own words: its statement and each gap's summary. A goal derived again from the same gaps
+    repeats them whatever its id, refs, sizes or eval, so a hard line follows them (a mission has one file)."""
+    if kind != "goal" or not isinstance(doc, dict):
+        return []
+    gaps = doc.get("gaps") if isinstance(doc.get("gaps"), list) else []
+    xs = [doc.get("statement")] + [g.get("summary") for g in gaps if isinstance(g, dict)]
+    return sorted({k for k in map(word_key, xs) if k})
+
+
+def hard_words(cwd):
+    """Every word key a hard line has fixed (the goal module skips gaps that repeat one)."""
+    return {w for e in _events.read(cwd) if e.get("event") == "ethics.blocked"
+            for w in ((e.get("data") or {}).get("words") or []) if isinstance(w, str)}
 
 
 def screen(text):
@@ -225,10 +266,10 @@ def verdict(cwd, kind, sid):
     try:
         subj, doc = binding(cwd, kind, sid)
     except LookupError as e:
-        return 2, [str(e)], {}
+        return 2, [str(e)], {"state": "unresolved"}
     ref, sha = subj["ref"], subj["sha256"]
-    matched, words = screen(text_of(doc)), text_digest(doc)
-    facts = {"subject": ref, "kind": kind, "id": subj["id"], "sha256": sha,
+    matched, words, mine = screen(text_of(doc)), text_digest(doc), set(word_keys(kind, doc))
+    facts = {"subject": ref, "kind": kind, "id": subj["id"], "sha256": sha, "state": "none",
              "screen": {c: p for c, p in matched}, "tier": None, "review": None, "reviews": [],
              "consent_event": None}
     every, recs, hard, consents = [], {}, [], []
@@ -237,9 +278,11 @@ def verdict(cwd, kind, sid):
         if not str(e.get("event", "")).startswith("ethics."):
             continue
         # a hard line is sticky: for this content, for this goal whatever it says now (a hard-lined goal
-        # is retired, not edited), and for these exact words under any goal id
+        # is retired, not edited), for these exact words under any goal id, and for any goal that repeats
+        # its statement or one of its gaps (derived again with a new id, refs or eval)
         if is_hard(e) and (d.get("subject") == ref and (d.get("sha256") == sha or kind == "goal")
-                           or d.get("text_sha256") == words):
+                           or d.get("text_sha256") == words
+                           or (kind == "goal" and d.get("kind") == "goal" and mine & set(d.get("words") or []))):
             hard.append(e)
         if d.get("subject") != ref or d.get("sha256") != sha:
             continue
@@ -251,7 +294,7 @@ def verdict(cwd, kind, sid):
             consents.append(e)
     if hard:
         h = hard[0].get("data") or {}
-        facts.update(tier="hard", review=h.get("ethics_id"))
+        facts.update(tier="hard", review=h.get("ethics_id"), state="hard")
         return 2, ["hard line: review %s found illegal, deceptive or harmful work in %s; no consent, later review "
                    "or edit unlocks it%s" % (h.get("ethics_id"), h.get("subject"),
                                              ": retire this goal" if kind == "goal" else
@@ -265,7 +308,8 @@ def verdict(cwd, kind, sid):
         p = M.path_of(cwd, "ethics", eid)
         rev, err = M.load(p)
         if not isinstance(rev, dict):
-            bad.append("review %s was removed or is unreadable after it was recorded" % eid)
+            bad.append("review %s was removed or is unreadable after it was recorded: restore it (git checkout), "
+                       "or change the content and review it again" % eid)
             continue
         try:
             bad += ["review %s: %s" % (eid, x) for x in review_problems(cwd, rev, p, matched)]
@@ -282,13 +326,14 @@ def verdict(cwd, kind, sid):
             bad.append("review %s was re-recorded below its %s tier: a review never lowers (restore it, or write "
                        "a new review; the tier of this content stays %s)" % (eid, top, top))
     if bad:
+        facts["state"] = "broken"   # not fixed by another review: the recorded one must come back
         return 2, sorted(set(bad), key=bad.index), facts
     # a later review never lowers the tier of this content; every current gray review needs its own
     # consent, naming that review and its sealed version
     tier = max((e["data"].get("tier") for e in every), key=rank)
     facts["tier"] = tier
     if tier == "clear":
-        facts["review"] = list(recs)[-1]
+        facts.update(review=list(recs)[-1], state="ok")
         return 0, [], facts
     gray = [e["data"] for e in recs.values() if e["data"].get("tier") == "gray"]
     facts["reviews"] = [{"ethics_id": d["ethics_id"], "review_sha256": d.get("review_sha256")} for d in gray]
@@ -301,8 +346,8 @@ def verdict(cwd, kind, sid):
     if pending:
         return 3, ["gray area in %s (review %s): the human's consent is needed for exactly this content "
                    "(mission ethics consent --subject %s --by NAME --reason TEXT)"
-                   % (ref, ", ".join(pending), sid or "mission")], dict(facts, pending=pending)
-    facts["consent_event"] = matched_consents[-1].get("event_id")
+                   % (ref, ", ".join(pending), sid or "mission")], dict(facts, pending=pending, state="pending")
+    facts.update(consent_event=matched_consents[-1].get("event_id"), state="ok")
     return 0, [], facts
 
 
@@ -379,9 +424,11 @@ def cmd_record(cwd, path):
             cats = [c for c in list(CATEGORIES) + ["other"]
                     if any(f["category"] == c and f["tier"] == "hard" for f in rev["findings"])]
             M.emit(cwd, "ethics.blocked", role="ethics-reviewer", refs=refs, ethics_id=eid, subject=cur["ref"],
-                   sha256=cur["sha256"], text_sha256=words, categories=cats, kind=kind)
+                   sha256=cur["sha256"], text_sha256=words, categories=cats, kind=kind, words=word_keys(kind, doc))
     print("[ethics] %s recorded: tier %s for %s" % (eid, rev["tier"], cur["ref"]), file=sys.stderr)
-    rc, bad, _ = verdict(cwd, kind, sid)
+    rc, bad, facts = verdict(cwd, kind, sid)
+    if facts.get("state") == "hard" and kind == "goal" and doc.get("status") != "blocked":
+        M.save(M.path_of(cwd, kind, sid), dict(doc, status="blocked"))   # retired; status is outside its sha256
     report(rc, bad)
     return rc
 

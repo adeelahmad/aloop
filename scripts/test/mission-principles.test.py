@@ -104,6 +104,13 @@ assert any("mode" in x for x in P.verify(dict(st, mode="sometimes")))
 assert any("mode" in x for x in P.verify(dict(st, mode="spoon-fed")))   # the other mode's block has another hash
 assert P.verify(None) and P.verify({"mode": "autonomous"})
 assert any("ids" in x for x in P.verify(dict(st, ids=[])))      # the stamp names the principles it carries
+# a goal keeps the stamp it was derived under as provenance: an older block is stale, not invalid
+# (re-stamping would change the goal's sha256 and void its ethics review and approval)
+assert P.verify(dict(st, sha256="ab" * 32), stale_ok=True) == []
+assert P.stale(dict(st, sha256="ab" * 32)) and not P.stale(st)
+assert any("mode" in x for x in P.verify(dict(st, mode="spoon-fed"), stale_ok=True))
+for b in (dict(st, sha256="nope"), dict(st, ids="x"), {"mode": "autonomous"}):
+    assert P.verify(b, stale_ok=True), b
 ok("stamp(mode) = {mode, sha256, ids}; verify() names a changed block, a wrong mode, a missing field")
 
 # 6) a malformed or incomplete edit is refused (exit 2) with a line per problem; --file checks a draft
