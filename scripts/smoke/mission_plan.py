@@ -23,6 +23,7 @@ conversation. plan.json holds names of scrubbed variables only, never a value.
 import datetime
 import hashlib
 import json
+import math
 import os
 import re
 import shlex
@@ -67,12 +68,52 @@ FIXED_CAPS = {"same_line_relays": 1, "per_session_usd": 10.0, "no_progress_sessi
 # The environment no session and no seed step inherits: every gate and loop override by prefix (a
 # named list misses one: GATE_RUN_TESTS=0 skips RED's tests), the worker identity a hook reads, and
 # the parent Claude Code session's binding (live runs 32-34 inherited it; e2e-live.sh unsets the same).
-SCRUB_PREFIXES = ("AGENTIC_", "ALADDIN_", "ALOOP_", "GATE_")
-SCRUB_NAMES = ("SKIP_HOOKS", "TASK_ID", "ATTEMPT", "AGENT_ROLE", "SPRINT_LOCK_TTL")
+# Also by prefix: pytest's own overrides (PYTEST_ADDOPTS deselects a test in every gate), and the git
+# identity and config (GIT_AUTHOR_NAME put the operator's name on every commit, past gate-commit-author,
+# and GIT_CONFIG_* can set core.hooksPath for every git a gate runs).
+SCRUB_PREFIXES = ("AGENTIC_", "ALADDIN_", "ALOOP_", "GATE_", "PYTEST_", "GIT_AUTHOR_", "GIT_COMMITTER_", "GIT_CONFIG")
+# git addresses the run's own repo only (a GIT_DIR from a hook or a shell would redirect the seed)
+GIT_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+            "GIT_COMMON_DIR", "GIT_NAMESPACE")
+# The per-dispatch gate contract: _gatelib.sh reads these from the environment first and loads a key from the
+# supervisor's task.env only when it is unset ("Real env still overrides"), so an inherited REPO_DIR or
+# SCOPE_GLOBS judges another tree or widens GREEN's scope. BASH_ENV runs inside every bash gate.
+GATE_CONTRACT = ("REPO_DIR", "STORY_DIR", "SPRINT_DIR", "BASE_REF", "SCOPE_GLOBS", "TEST_GLOBS", "SCAFFOLD_SYMBOLS",
+                 "STANDARDS_FILE", "INTAKE_FILE", "MEMORY_FILE", "TASK_CONTRACT", "TOOL_FILE_PATH", "CLAUDE_ENV_FILE",
+                 "CLAUDE_PLUGIN_DATA", "CLAUDE_PLUGIN_ROOT", "BASH_ENV")
+
+
+def task_env_keys():
+    """_gatelib.sh's TASK_ENV_KEYS (every contract key a gate loads only when the env leaves it unset): read from
+    the file, so a key added there is scrubbed too."""
+    try:
+        with open(os.path.join(PLUGIN, "bin", "_gatelib.sh"), encoding="utf-8", errors="replace") as f:
+            m = re.search(r'^TASK_ENV_KEYS="([^"]*)"', f.read(), re.M)
+    except OSError:
+        return ()
+    return tuple(m.group(1).split()) if m else ()
+
+
+SCRUB_NAMES = ("SKIP_HOOKS", "TASK_ID", "ATTEMPT", "AGENT_ROLE", "SPRINT_LOCK_TTL") + GATE_CONTRACT + GIT_VARS + \
+    task_env_keys()
 SCRUB_SUFFIXES = ("_SPRINT_LOCK_TTL",)
 PARENT_SESSION = ("CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_REMOTE_SESSION_ID", "CLAUDE_CODE_REMOTE_SDK_URL",
                   "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE", "CLAUDE_MEMORY_STORES",
                   "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
+# The host's own settings an operator's shell (or a parent session) carries: --setting-sources project does not
+# cover the environment, so these would change what is measured with no trace (a model for every worker that
+# overrides aloop's routing, the effort, thinking, compaction, the subagent depth, extra tools, another dir's
+# CLAUDE.md, a synced plugin or skill). Auth, proxy and transport variables stay; plan.json and summary.json name
+# every CLAUDE*/ANTHROPIC* variable a session still inherits (host_kept), never a value.
+HOST_BEHAVIOUR = ("CLAUDE_EFFORT", "MAX_THINKING_TOKENS", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE",
+                  "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_CODE_MAX_OUTPUT_TOKENS", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+                  "CLAUDE_CODE_COORDINATOR_EXTRA_TOOLS", "CLAUDECODE", "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_ENTRYPOINT",
+                  "CLAUDE_ADDITIONAL_DIRECTORIES", "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD",
+                  "CLAUDE_AFTER_LAST_COMPACT", "CLAUDE_AUTO_BACKGROUND_TASKS", "CLAUDE_CODE_SYNC_PLUGINS",
+                  "CLAUDE_CODE_SYNC_SKILLS", "CLAUDE_CODE_SKILL_PROPOSALS", "CLAUDE_CODE_TERMINAL_MCP_TOOLS",
+                  "CLAUDE_CODE_SILENT_TURN_REMINDER", "CLAUDE_PID")
+HOST_MODEL = re.compile(r"^(?:ANTHROPIC|CLAUDE)_\w*MODEL$")      # ANTHROPIC_MODEL, ANTHROPIC_DEFAULT_*_MODEL, CLAUDE_CODE_SUBAGENT_MODEL
+HOST_VAR = re.compile(r"^(?:ANTHROPIC|CLAUDE)")
 DEVIATIONS = ["ALOOP_MISSION_LOOP=<driver pid> is set on every session, the first and the replies too: a handout "
               "from an ended loop session is then due again at once instead of leased for 2h (due.py), which a "
               "run of a few hours needs. It labels the human's sessions as loop sessions."]
@@ -81,7 +122,12 @@ IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 def scrubbed(name):
     return name.startswith(SCRUB_PREFIXES) or name in SCRUB_NAMES or name.endswith(SCRUB_SUFFIXES) \
-        or name in PARENT_SESSION
+        or name in PARENT_SESSION or name in HOST_BEHAVIOUR or HOST_MODEL.match(name) is not None
+
+
+def host_kept(env):
+    """The host variables a session still inherits (auth, proxy, transport): names only, for the record."""
+    return sorted(k for k in env if HOST_VAR.match(k) and not scrubbed(k) and IDENT.match(k))
 
 
 def scrub(env):
@@ -155,10 +201,10 @@ def caps():
         v = os.environ.get(var)
         try:
             out[k] = typ(v) if v not in (None, "") else default
-        except ValueError:
+        except (ValueError, OverflowError):
             raise SystemExit("mission_plan: %s=%r is not a number" % (var, v))
-        if out[k] <= 0:
-            raise SystemExit("mission_plan: %s must be above 0" % var)
+        if not math.isfinite(out[k]) or out[k] <= 0:       # nan <= 0 is False: a nan cap would never stop the run
+            raise SystemExit("mission_plan: %s=%r must be a finite number above 0" % (var, v))
     out.update(FIXED_CAPS)
     return out
 
@@ -215,7 +261,9 @@ def plan(o):
                  "fixture": os.path.relpath(FIXTURE_DIR, ROOT)},
         "env": {"scrub_prefixes": list(SCRUB_PREFIXES), "scrub_names": list(SCRUB_NAMES),
                 "scrub_suffixes": list(SCRUB_SUFFIXES), "parent_session": list(PARENT_SESSION),
+                "host_behaviour": list(HOST_BEHAVIOUR), "host_model": HOST_MODEL.pattern,
                 "scrubbed": sorted(set(n for n in (o.scrubbed or "").split() if IDENT.match(n))),
+                "host_kept": host_kept(os.environ),
                 "set": {"ALOOP_MISSION_LOOP": "<driver pid>"}, "deviations": DEVIATIONS},
         "crontab_shim": os.path.join(o.shim_dir, "crontab"), "session_path_first": o.shim_dir,
         "crontab_before": crontab_before(),
@@ -242,6 +290,64 @@ def plan(o):
         ", ".join("%s %s_… (%s)" % (x["verb"], x["prefix"], x["action"]) for x in ALLOWLIST), STOPS["ASK_CONSENT"]))
     print("seed: %s (2 commits; runner %s, sha256 %s)" % (o.seed_sha, RUNNER, doc["seed"]["runner_sha256"][:12]))
     return 0
+
+
+# ── the gate log: what counts as a pass (the driver's checks and the summary read it alike) ───────────
+GATE_PASSES = {"red": "gate-red-verify", "green": "gate-green-verify", "final": "gate-final"}
+HARD_LIMITS = ("task.token_hard_limit", "task.time_hard_timeout")
+
+
+def run_events(repo):
+    """The run log's events (aladdin.event/1), either home's."""
+    for h in (".aladdin", ".agentic"):
+        p = os.path.join(repo, h, "logs", "events.jsonl")
+        if os.path.isfile(p):
+            out = []
+            with open(p, encoding="utf-8", errors="replace") as f:
+                for ln in f:
+                    try:
+                        e = json.loads(ln)
+                    except ValueError:
+                        continue
+                    if isinstance(e, dict):
+                        out.append(e)
+            return out
+    return []
+
+
+def budget_released(events):
+    """(task, attempt) of every attempt bin/budget stopped at its hard limit. _gatelib's budget_release lets its
+    SubagentStop gate exit 0 with no `released` field, so the gate log alone shows a pass (ROADMAP M9.60)."""
+    out = set()
+    for e in events:
+        ids = e.get("ids") if isinstance(e.get("ids"), dict) else {}
+        task, attempt = e.get("task") or ids.get("task"), e.get("attempt") or ids.get("attempt")
+        if e.get("event") in HARD_LIMITS and task:
+            out.add((str(task), str(attempt or "")))
+    return out
+
+
+def budget_marked(v):
+    """The gate line's worktree holds a budget-exceeded marker for its role and attempt (what budget_release reads)."""
+    want, wt = "role=%s attempt=%s" % (v.get("role") or "", v.get("attempt") or ""), v.get("wt")
+    if not isinstance(wt, str) or not os.path.isabs(wt):       # no worktree named: nothing to read (never the cwd's)
+        return False
+    for h in (".aladdin", ".agentic"):
+        try:
+            with open(os.path.join(wt, h, "budget-exceeded"), encoding="utf-8", errors="replace") as f:
+                if want in f.read():
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def gate_pass(v, released):
+    """A host-run pass: exit 0, selfcheck false (a worker's AGENTIC_SELFCHECK=1 run has no hook payload, no role
+    binding and no gate.passed: it is not a gate run), no `released` field (a stuck release), and not an attempt
+    released for its budget (released: budget_released's set)."""
+    return v.get("exit") == 0 and v.get("selfcheck") is False and "released" not in v \
+        and (str(v.get("task") or ""), str(v.get("attempt") or "")) not in released and not budget_marked(v)
 
 
 # ── preflight (live only) ──────────────────────────────────────────────────────────────────────────

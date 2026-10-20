@@ -9,9 +9,11 @@ It plays the human in three ways only, then checks the run:
            "/aloop:mission\\n<line>". Only mission approve and baseline confirm, and only a line that
            (1) is the one `mission tick --peek --json`'s reason names, (2) equals the line recomputed on
            disk (the code: the mission's sha256 from `mission check --json`, or the baseline's digest),
-           (3) passes the pre-grant checks (the mission is the typed answers; one journey on the seeded
-           runner, measured twice and agreeing, failing at baseline), and (4) the previous session showed
-           the human: its final result text holds the exact line. A line not shown gets ONE surface session
+           (3) passes the pre-grant checks (mission.json is the typed answers, whole; one journey on the
+           seeded runner run as `python3 <runner>` with nothing else beside it, no benchmark, no rival, no
+           looser tolerance, measured twice and agreeing, failing at baseline), and (4) the previous session
+           showed the human: its final result text holds the exact line. The relay records the subject and
+           sha256 it checked; its grant must cover exactly them. A line not shown gets ONE surface session
            (prompt "/aloop:mission"); a line relayed once and still pending stops the run, as "hook did
            not capture" (its prompt never reached the prompt log) or "captured, not granted"
   cron     "/aloop:mission" when the peek names a role or the supervisor and `due` says due (called in
@@ -21,7 +23,10 @@ Everything else a human does stops the run with its reason (a gray ethics verdic
 the driver never runs a writing mission command, never writes a mission.tick or a ledger row, never
 uses --force. Every session: the env scrubbed by prefix with ALOOP_MISSION_LOOP=<this pid> (a recorded
 deviation), the failing crontab shim first on PATH, its own process group (a timeout or a kill takes the
-whole group), the mission loop lock held as `mission cron --fire` holds it. While a session runs it is
+whole group), the mission loop lock held as `mission cron --fire` holds it. A SIGTERM, SIGINT or SIGHUP
+kills the running session's group, writes its record (killed: interrupted) and stops the run (interrupted);
+the checks and driver.json still follow. A failure of the driver itself while a session runs does the same
+(killed: the driver failed; the stop is driver_error). While a session runs it is
 polled: after goal.met, a RESEARCH, DEFINE_JOURNEYS or BASELINE tick kills its group (cost_complete
 false). Caps, from plan.json: sessions, grants, the same line relayed once, the outer USD cap on
 max(the host's summed cost, tick's own estimate) with --max-budget-usd min(10, what is left), the
@@ -31,7 +36,9 @@ session and total timeouts, no progress in 2 sessions in a row, a WAIT slept onc
 Writes RUN/sessions/NN.jsonl (stream) and NN.err, RUN/sessions.jsonl (one record a session) and
 RUN/driver.json (the checks, the stop, the grants, the path), which mission_summary.py (e2e-mission.sh runs
 it next) folds into RUN/summary.json (kind mission) and summary.md. Prints every post-run check (each one
-runs, whatever the others say).
+runs, whatever the others say). The outcome, the grants and the run's ledger, events and gate log are read
+before any check runs the repo's own code (the runner, pytest), which runs as a session would: the scrubbed
+env, the crontab shim first on PATH, its own process group.
 Exit 0 every check passed · 1 a check failed · 2 the plan or the run dir was refused.
 """
 import glob
@@ -42,6 +49,7 @@ import re
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
@@ -55,6 +63,8 @@ sys.path.insert(0, os.path.join(PLUGIN, "mission"))
 import mission_plan as MP  # noqa: E402
 import _events  # noqa: E402
 import _mission as M  # noqa: E402
+import _paths  # noqa: E402
+import baseline as B  # noqa: E402
 import due as DUE  # noqa: E402
 
 BY = MP.BY
@@ -66,11 +76,21 @@ REPLY = re.compile(r"repl(?:ies|ying) `([^`]+)`, then `aloop mission ([^`]+)`")
 GRANTISH = re.compile(r"^\W*(?:(?:yes|ok|okay|sure)\W+)?(approve|confirm|consent|restore|retire|veto|revoke)\b"
                       r".*\b[0-9a-f]{8,64}\b", re.I)
 TRACE = re.compile(r"mission\s+msn_\S+\s+approved by scripted-human \(e2e\)")
+# what drops or fakes a test: a skip or xfail mark, and the hooks and settings that deselect, ignore, re-mark
+# or re-report one (in a conftest.py or a test file)
 SUPPRESS = re.compile(r"pytest\.mark\.(?:skip|skipif|xfail)|pytest\.(?:skip|xfail|importorskip)\(|unittest\.skip"
-                      r"|@skip\b|expectedFailure")
+                      r"|@skip\b|expectedFailure|\bpytest_(?:collection_modifyitems|ignore_collect|deselected"
+                      r"|pycollect_makeitem|collect_file|runtest_setup|runtest_call|runtest_protocol|runtest_makereport"
+                      r"|report_teststatus|plugins)\b|\bcollect_ignore(?:_glob)?\b|\badd_marker\(")
+# pytest's own norecursedirs (and a virtualenv): what it never collects, so neither tests_of nor the scan reads
+SKIP_DIRS = re.compile(r"^(?:\..*|__pycache__|node_modules|site-packages|build|dist|venv|CVS|_darcs|\{arch\}|.*\.egg)$")
+# a pytest config: the first of these from the repo up is pytest's inifile; a key below drops tests
+PYTEST_CONFIGS = ("pytest.ini", ".pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg")
+PYTEST_SECTIONS = ("pytest", "tool:pytest", "tool.pytest.ini_options", "tool.pytest")
+PYTEST_DROPS = re.compile(r"^\s*(?:addopts|testpaths|norecursedirs|python_files|python_classes|python_functions"
+                          r"|collect_ignore\w*|required_plugins|confcutdir)\b")
 CRASH = "the gate itself failed"
-GIT_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-            "GIT_COMMON_DIR", "GIT_NAMESPACE")
+GIT_VARS = MP.GIT_VARS
 PROGRESS_EVENTS = ("plan.created", "plan.revised", "commit.created", "worktree.merged", "intent.received",
                    "artifact.created", "artifact.updated", "gate.passed")
 GATES = {"red": "gate-red-verify", "green": "gate-green-verify", "final": "gate-final"}
@@ -223,6 +243,30 @@ def disk_line(repo, peek, plan):
     return line, None
 
 
+def typed_mission(a):
+    """mission.json's content as the typed answers set it (`mission init` with no other flag: the default veto
+    window), without its id, its dates and what approval changes."""
+    return {"statement": a["statement"], "mode": a["mode"], "cadence": a["cadence"],
+            "budget": {"usd": float(a["budget_usd"]), "deadline": a["deadline"]}, "constraints": list(a["constraints"]),
+            "veto_window_h": float(B.DEFAULT_VETO_H), "provenance": {"set_by": BY}}
+
+
+MISSING = "<missing>"
+NOT_TYPED = ("mission_id", "created_at") + M.UNHASHED      # what no answer sets: the id, the date, the seal, approval
+
+
+def runner_extras(repo):
+    """Every file or dir under the seeded runner's dir but the runner itself (a json.py there, or a helper,
+    would stand in for what it imports or measure another way)."""
+    d, out = os.path.join(repo, os.path.dirname(RUNNER)), []
+    for top, dirs, files in os.walk(d):
+        for n in sorted(dirs) + sorted(files):
+            rp = os.path.relpath(os.path.join(top, n), repo)
+            if rp != RUNNER:
+                out.append(rp)
+    return sorted(out)
+
+
 def pregrant(repo, plan, action, ident=None):
     """What a careful human checks before typing the line; [] when it holds."""
     a, probs = plan["answers"], []
@@ -230,15 +274,19 @@ def pregrant(repo, plan, action, ident=None):
         doc = load(M.path_of(repo, "mission"))
         if doc is None:
             return ["no mission.json"]
-        for k in ("statement", "mode", "cadence", "constraints"):
-            if doc.get(k) != a[k]:
-                probs.append("mission.json %s is %r, the typed answer %r" % (k, doc.get(k), a[k]))
-        want = {"usd": a["budget_usd"], "deadline": a["deadline"]}
-        if doc.get("budget") != want:
-            probs.append("mission.json budget (and deadline) is %r, the typed answers %r" % (doc.get("budget"), want))
-        set_by = (doc.get("provenance") or {}).get("set_by")
-        if set_by != BY:
-            probs.append("mission.json was set by %r, not %s" % (set_by, BY))
+        want = typed_mission(a)
+        have = {k: v for k, v in doc.items() if k not in NOT_TYPED}
+        prov = have.pop("provenance", None)
+        for k in sorted(set(have) - set(want)):
+            probs.append("mission.json has %s, which the typed answers do not set" % k)
+        for k in ("statement", "mode", "cadence", "budget", "constraints", "veto_window_h"):
+            if have.get(k, MISSING) != want[k]:
+                probs.append("mission.json %s is %r, the typed answer %r" % (k, have.get(k, MISSING), want[k]))
+        p = prov if isinstance(prov, dict) else {}
+        if p.get("set_by") != BY or set(p) - {"set_by", "set_at"}:
+            probs.append("mission.json was set by %r (provenance %r), not %s" % (p.get("set_by"), prov, BY))
+        if not re.match(r"^msn_[0-9A-Za-z]+$", str(doc.get("mission_id"))):
+            probs.append("mission.json's mission_id %r is not an msn_ id" % doc.get("mission_id"))
         return probs
     if action != "CONFIRM_BASELINE":
         return ["%s is not on the allowlist" % action]
@@ -253,6 +301,19 @@ def pregrant(repo, plan, action, ident=None):
     bj = bdoc.get("journeys") if isinstance(bdoc.get("journeys"), list) else []
     if len(bj) != 1:
         probs.append("baseline %s covers %d journeys, not exactly 1" % (bdoc.get("baseline_id"), len(bj)))
+    if bdoc.get("benchmarks"):
+        probs.append("the baseline lists benchmark(s) %r: the constraint measures one journey, nothing else"
+                     % [b.get("id") if isinstance(b, dict) else b for b in bdoc["benchmarks"]])
+    if bdoc.get("rivals"):
+        probs.append("the baseline lists rival(s) %r: a rival on the same tasks is run, and the constraint installs "
+                     "or runs none" % (bdoc["rivals"],))
+    tol = bdoc.get("tolerance")
+    if isinstance(tol, bool) or not isinstance(tol, (int, float)) or not 0 <= tol <= B.DEFAULT_TOLERANCE:
+        probs.append("the baseline's tolerance %r is not a number from 0 to %s (the default, never looser)"
+                     % (tol, B.DEFAULT_TOLERANCE))
+    extras = runner_extras(repo)
+    if extras:
+        probs.append("other files beside the seeded runner under %s/: %s" % (os.path.dirname(RUNNER), ", ".join(extras)))
     if journeys and bj:
         j, want = journeys[0], plan["seed"]["fixture_runner_sha256"]
         if bj[0].get("journey_id") != j.get("journey_id") or bj[0].get("sha256") != M.digest(j):
@@ -260,8 +321,8 @@ def pregrant(repo, plan, action, ident=None):
         rn = j.get("runner") if isinstance(j.get("runner"), dict) else {}
         if rn.get("files") != {RUNNER: want}:
             probs.append("the journey's runner pins %r, not the seeded runner %s at %s" % (rn.get("files"), RUNNER, want[:12]))
-        if RUNNER not in (rn.get("command") or []):
-            probs.append("the journey's runner command %r does not run %s" % (rn.get("command"), RUNNER))
+        if rn.get("command") != ["python3", RUNNER]:
+            probs.append("the journey's runner command %r is not `python3 %s`" % (rn.get("command"), RUNNER))
         if sha_file(os.path.join(repo, RUNNER)) != want:
             probs.append("the runner on disk is not the seeded one (sha256 differs)")
         if [s.get("id") for s in j.get("steps") or [] if isinstance(s, dict)] != ["open", "add", "see"]:
@@ -279,6 +340,13 @@ def pregrant(repo, plan, action, ident=None):
         if not failing:
             probs.append("the journey does not fail at baseline: nothing to earn")
     return probs
+
+
+def granted_subject(repo, action, ident):
+    """(subject, sha256) of the content a line grants, as the pre-grant checks read it just before it is typed."""
+    p = M.path_of(repo, "mission") if action == "CONFIRM_MISSION" else M.path_of(repo, "baseline", ident)
+    doc = load(p)
+    return M.rel(repo, p), (M.digest(doc) if doc is not None else None)
 
 
 def wait_step(waits, peek, now_ms, wait_max_s):
@@ -300,8 +368,12 @@ def wait_step(waits, peek, now_ms, wait_max_s):
 
 
 def gate_facts(repo):
-    """The gate log, parsed as JSON: a stuck release (either spelling) is counted and is never a pass."""
-    out = {"lines": 0, "stuck_releases": 0, "selfcheck_false": False, "passed": {k: False for k in GATES}, "log": None}
+    """The gate log, parsed as JSON. A pass is the host's own run (selfcheck false: a worker's self-check is no
+    gate run), exit 0, no `released` field (a stuck release, either spelling), and not an attempt released for
+    its budget (a hard-limit event for its task and attempt, or a budget-exceeded marker in its worktree)."""
+    released = MP.budget_released(MP.run_events(repo))
+    out = {"lines": 0, "stuck_releases": 0, "budget_releases": 0, "selfcheck_false": False,
+           "passed": {k: False for k in GATES}, "log": None}
     for h in (".aladdin", ".agentic"):
         p = os.path.join(repo, h, "logs", "gates.jsonl")
         if not os.path.isfile(p):
@@ -311,10 +383,13 @@ def gate_facts(repo):
             out["lines"] += 1
             if v.get("released") == "stuck":
                 out["stuck_releases"] += 1
+            if v.get("exit") == 0 and ((str(v.get("task") or ""), str(v.get("attempt") or "")) in released
+                                       or MP.budget_marked(v)):
+                out["budget_releases"] += 1
             if v.get("selfcheck") is False:
                 out["selfcheck_false"] = True
             for k, name in GATES.items():
-                if v.get("gate") == name and v.get("exit") == 0 and "released" not in v:
+                if v.get("gate") == name and MP.gate_pass(v, released):
                     out["passed"][k] = True
         break
     return out
@@ -337,7 +412,130 @@ def kill_group(proc):
             time.sleep(0.05)
 
 
+def contained(c, argv, timeout):
+    """The repo's own code, run as a session runs it: the scrubbed env with the loop's pid and the crontab shim
+    first on PATH, no bytecode, its own process group (killed whole when it ends or times out, 124).
+    (rc, stdout, stderr)."""
+    first = c.plan.get("session_path_first")
+    env = MP.session_env(os.environ, c.run.get("driver_pid") or os.getpid(), first) if first else clean_env()
+    env.update(PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")     # no plugin a session installed
+    with tempfile.TemporaryFile() as so, tempfile.TemporaryFile() as se:
+        proc = None
+        try:
+            proc = subprocess.Popen(argv, cwd=c.repo, stdin=subprocess.DEVNULL, stdout=so, stderr=se, env=env,
+                                    start_new_session=True)
+            try:
+                rc = proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                rc = 124
+        except OSError as e:
+            return 127, "", "%s: %s" % (type(e).__name__, e)
+        finally:
+            if proc is not None:
+                kill_group(proc)
+                proc.poll()
+        so.seek(0)
+        se.seek(0)
+        return rc, so.read().decode("utf-8", "replace"), se.read().decode("utf-8", "replace")
+
+
+def walk(top):
+    """Every file under top that pytest would look at (its norecursedirs and virtualenvs left out), sorted."""
+    out = []
+    for d, dirs, files in os.walk(top):
+        dirs[:] = sorted(x for x in dirs if not SKIP_DIRS.match(x)
+                         and not os.path.isfile(os.path.join(d, x, "pyvenv.cfg")))
+        out += [os.path.join(d, f) for f in sorted(files)]
+    return out
+
+
+def read(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def is_test_file(path):
+    b = os.path.basename(path)
+    return b.endswith(".py") and (b.startswith("test_") or b.endswith("_test.py"))
+
+
+TEST_DEF = re.compile(r"^\s*(?:async\s+)?def\s+(test\w*)\s*\(", re.M)
+
+
+def tests_of(repo, seed):
+    """(file, name) of every test function the repo's test files define, and the seed's own tests too (a test
+    deleted since the seed still has to run and pass)."""
+    out = set()
+    for p in walk(repo):
+        if is_test_file(p):
+            out |= {(os.path.relpath(p, repo), n) for n in TEST_DEF.findall(read(p))}
+    if seed:
+        src = git(repo, "show", "%s:tests/test_todo.py" % seed)
+        if src.returncode == 0:
+            out |= {("tests/test_todo.py", n) for n in TEST_DEF.findall(src.stdout)}
+    return sorted(out)
+
+
+PASSED = re.compile(r"^PASSED (\S+?)::(?:\w+::)*(\w+)(?:\[.*\])?\s*$")
+
+
+def pytest_problems(out, tests):
+    """What pytest -rA's output says beyond a pass: a skipped, xfailed, xpassed, deselected, failed or errored
+    test (in the counts or a summary line), or a test with no PASSED line of its own; [] when every test ran
+    and passed."""
+    probs = []
+    for m in re.finditer(r"\b(\d+) (skipped|xfailed|xpassed|deselected|failed|errors?)\b", out):
+        if int(m.group(1)) > 0:
+            probs.append("%s %s" % (m.group(1), m.group(2)))
+    lines = out.splitlines()
+    probs += [ln.strip()[:160] for ln in lines if re.match(r"(?:SKIPPED|XFAIL|XPASS|ERROR|FAILED)\b", ln)]
+    passed = {m.groups() for m in (PASSED.match(ln) for ln in lines) if m}
+    missing = ["%s::%s" % t for t in tests if tuple(t) not in passed]
+    if missing:
+        probs.append("no PASSED line for %s%s" % (", ".join(missing[:5]), " …" if len(missing) > 5 else ""))
+    if not tests:
+        probs.append("no test function found")
+    return probs
+
+
+def config_drops(path):
+    """The keys of a pytest config file's pytest section that drop or change tests ([] for none, or no section)."""
+    text, out, sect = read(path), [], None
+    for ln in text.splitlines():
+        m = re.match(r"^\s*\[([^\]]+)\]\s*$", ln)
+        if m:
+            sect = m.group(1).strip()
+            continue
+        if sect in PYTEST_SECTIONS and PYTEST_DROPS.match(ln):
+            out.append(ln.split("=")[0].strip())
+    return out
+
+
+def has_pytest_section(path):
+    if os.path.basename(path) in ("pytest.ini", ".pytest.ini"):
+        return True      # pytest takes it as the inifile whatever it holds
+    return any(re.match(r"^\s*\[(%s)\]\s*$" % "|".join(re.escape(x) for x in PYTEST_SECTIONS), ln)
+               for ln in read(path).splitlines())
+
+
 # ── the run ───────────────────────────────────────────────────────────────────────────────────────
+SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGHUP)
+
+
+class Interrupted(BaseException):
+    """A SIGTERM, SIGINT or SIGHUP: raised once, where the run waits (a session, a sleep, a peek)."""
+
+    def __init__(self, sig):
+        BaseException.__init__(self, sig)
+        self.sig = sig
+
+    def __str__(self):
+        return "signal %s" % signal.Signals(self.sig).name
+
+
 class Run:
     def __init__(self, plan, plan_path):
         self.plan, self.plan_path = plan, plan_path
@@ -350,6 +548,35 @@ class Run:
         self.texts = {}                  # session n -> its final result text (in memory only)
         self.no_progress, self.stop, self.tick_usd = 0, None, 0.0
         self.goal_met_s = None
+        self.signalled, self.delivered, self.interruptible = None, False, False
+
+    # signals: the first one stops the run; it is raised where the run waits, else at the next safe point
+    def on_signal(self, sig, frame):
+        again = self.signalled is not None
+        if not again:
+            self.signalled = sig
+        print("driver: %s%s" % (signal.Signals(sig).name, " again: the run is already stopping" if again else
+                                 ": stopping the run (the session's group is killed, its record written)"), flush=True)
+        if self.interruptible:
+            self.deliver()
+
+    def deliver(self):
+        """Raise the first signal, once."""
+        if self.signalled is not None and not self.delivered:
+            self.delivered, self.interruptible = True, False
+            raise Interrupted(self.signalled)
+
+    def waiting(self, fn, *a, **k):
+        """fn(*a, **k) with a signal raised in it (the waits a signal ends: a session, a sleep, a peek)."""
+        self.interruptible = True
+        try:
+            self.deliver()
+            return fn(*a, **k)
+        finally:
+            self.interruptible = False
+
+    def sleep(self, secs):
+        self.waiting(time.sleep, secs)
 
     # facts
     def host_usd(self):
@@ -436,7 +663,7 @@ class Run:
         while True:
             left = deadline - time.time()
             try:
-                rc = proc.wait(timeout=max(0.05, min(float(self.caps["poll_s"]), left)))
+                rc = self.waiting(proc.wait, timeout=max(0.05, min(float(self.caps["poll_s"]), left)))
                 break
             except subprocess.TimeoutExpired:
                 pass
@@ -456,7 +683,8 @@ class Run:
             timed_out = True
         return rc, timed_out, killed
 
-    def session(self, kind, prompt, line=None):
+    def session(self, kind, prompt, line=None, meta=None):
+        self.deliver()
         stop = self.cap_stop()
         if stop:
             self.halt(*stop)
@@ -473,15 +701,26 @@ class Run:
             self.halt("lock_held", "the mission loop lock is held by another session (%s)" % DUE.holder(self.repo))
             return None
         out, err = os.path.join(self.sdir, "%02d.jsonl" % n), os.path.join(self.sdir, "%02d.err" % n)
-        start, rc, timed_out, killed, error = time.time(), None, False, None, None
+        start, rc, timed_out, killed, error, proc, stopped = time.time(), None, False, None, None, None, None
         try:
             with open(out, "w") as so, open(err, "w") as se:
                 proc = subprocess.Popen(argv, cwd=self.repo, stdin=subprocess.DEVNULL, stdout=so, stderr=se, env=env,
                                         start_new_session=True)
                 rc, timed_out, killed = self.watch(proc, start + timeout)
         except OSError as e:
-            error = "%s: %s" % (type(e).__name__, e)
+            if proc is not None:            # the host started: an OSError while it runs is the driver's own failure
+                stopped, killed = e, "the driver failed (%s: %s)" % (type(e).__name__, e)
+            else:
+                error = "%s: %s" % (type(e).__name__, e)
+        except BaseException as e:      # the run is stopping (a signal) or the driver failed: the session goes first,
+            stopped = e                 # whole, and its record is written before the run stops
+            killed = "interrupted (%s)" % (e if isinstance(e, Interrupted) else "Ctrl-C") \
+                if isinstance(e, (Interrupted, KeyboardInterrupt)) else "the driver failed (%s: %s)" % (type(e).__name__, e)
         finally:
+            self.interruptible = False
+            if proc is not None and (stopped is not None or rc is None):
+                kill_group(proc)
+                rc = proc.poll()
             os.close(fd)
         end = time.time()
         st = stream(out)
@@ -495,19 +734,22 @@ class Run:
                "actions": acts, "cost_complete": bool(st["result"]) and not killed and not timed_out,
                "has_result": bool(st["result"]), "subtype": res.get("subtype"), "is_error": res.get("is_error"),
                "timed_out": timed_out, "killed": killed, "error": error, "max_budget_usd": round(budget, 2),
-               "line": line, "progress": fp1 != fp0, "started_at": iso(start), "ended_at": iso(end),
-               "start_s": start, "end_s": end}
+               "line": line, "progress": fp1 != fp0, "started_at": iso(start), "ended_at": iso(end)}
         self.texts[n] = st["text"]
         self.records.append(rec)
         with open(os.path.join(self.dir, "sessions.jsonl"), "a") as f:
-            f.write(json.dumps({k: v for k, v in rec.items() if k not in ("start_s", "end_s")}, sort_keys=True) + "\n")
+            f.write(json.dumps(rec, sort_keys=True) + "\n")
         if line:
-            self.relays.append({"action": rule_kind(self.plan, line), "line": line, "n": n, "session_id": sid})
+            self.relays.append(dict({"action": rule_kind(self.plan, line), "line": line, "n": n, "session_id": sid},
+                                    **(meta or {})))
         self.no_progress = 0 if rec["progress"] else self.no_progress + 1
         print("session %d (%s): exit %s · %ss · %s · %s turns · %s%s" % (
             n, kind, rc, rec["secs"], "$%.2f" % rec["cost_usd"] if rec["cost_usd"] is not None else "no cost line",
             rec["turns"], " → ".join(acts) or "no tick", (" · killed: %s" % killed) if killed else
             (" · timed out" if timed_out else "")), flush=True)
+        if stopped is not None:
+            raise stopped
+        self.deliver()
         return rec
 
     def after(self, rec):
@@ -529,7 +771,7 @@ class Run:
 
     def peek(self):
         now = int(time.time())
-        r = mission(self.repo, "tick", "--peek", "--json", "--now", iso(now))
+        r = self.waiting(mission, self.repo, "tick", "--peek", "--json", "--now", iso(now))
         try:
             p = json.loads(r.stdout)
         except ValueError:
@@ -572,9 +814,10 @@ class Run:
             return None
         last = self.records[-1]
         if shown(self.texts.get(last["n"]), line):
-            print("relay: `%s` (shown in session %d; the line on disk; the pre-grant checks hold)" % (line, last["n"]),
-                  flush=True)
-            return ("reply", LEAD + "\n" + line, line)
+            subject, digest = granted_subject(self.repo, action, line.split()[1])
+            print("relay: `%s` (shown in session %d; the line on disk; the pre-grant checks hold on %s @ %s)" % (
+                line, last["n"], subject, (digest or "")[:12]), flush=True)
+            return ("reply", LEAD + "\n" + line, line, {"subject": subject, "sha256": digest})
         if line not in self.surfaced:
             self.surfaced.add(line)
             print("surface: session %d never showed `%s`%s; one surface session" % (
@@ -623,9 +866,9 @@ class Run:
                     return
                 if nxt[0] == "sleep":
                     print("wait: sleeping %ss (until %s)" % (round(nxt[1], 1), peek.get("next_check")), flush=True)
-                    time.sleep(nxt[1])
+                    self.sleep(nxt[1])
                     continue
-                rec = self.session(nxt[0], nxt[1], line=nxt[2])
+                rec = self.session(nxt[0], nxt[1], line=nxt[2], meta=nxt[3] if len(nxt) > 3 else None)
                 if rec is None:
                     return
 
@@ -646,6 +889,11 @@ class Ctx:
         if key not in self._c:
             self._c[key] = fn()
         return self._c[key]
+
+    def prime(self):
+        """Read the ledger, the run log and the gate log as the run left them, before a check runs the repo's
+        own code (a test the sessions wrote may write to the repo: the checks judge the run, not that)."""
+        return self.rows, self.events, self.gates
 
     @property
     def rows(self):
@@ -669,6 +917,38 @@ class Ctx:
         return (self.plan.get("seed") or {}).get("sha") or ""
 
 
+def rule_event(plan, action):
+    return (rule_of(plan, action) or {}).get("event")
+
+
+def relay_problems(c, x):
+    """Why one relayed line is not granted exactly as it was checked: exactly one human row cites it, that row
+    is the allowlist's event for it, cites it from its reply session, by BY, with no data.action, and covers
+    the subject and sha256 the pre-grant checks read just before it was typed, still the content on disk."""
+    want, line = rule_event(c.plan, x.get("action")), x.get("line")
+    rows = [r for r in c.human() if (r["data"].get("prompt") or {}).get("line") == line]
+    probs = [] if len(rows) == 1 else ["%d ledger rows cite `%s`, not exactly 1 (%s)" % (
+        len(rows), line, ", ".join("%s %s" % (r["event"], r["data"].get("subject")) for r in rows) or "none")]
+    for r in rows:
+        d = r["data"]
+        if r["event"] != want:
+            probs.append("`%s` is cited by a %s, not %s" % (line, r["event"], want))
+        if (d.get("subject"), d.get("sha256")) != (x.get("subject"), x.get("sha256")):
+            probs.append("the %s citing `%s` covers %s @ %s; the line was checked against %s @ %s" % (
+                r["event"], line, d.get("subject"), (d.get("sha256") or "")[:12], x.get("subject"),
+                (x.get("sha256") or "")[:12]))
+        if (d.get("prompt") or {}).get("session") != x.get("session_id"):
+            probs.append("the %s cites `%s` from session %s, not its reply session %s" % (
+                r["event"], line, (d.get("prompt") or {}).get("session"), x.get("session_id")))
+        if d.get("by") != BY or not M.cites(r) or d.get("action"):
+            probs.append("the %s citing `%s` is by %r, cites it %s, action %r" % (
+                r["event"], line, d.get("by"), "exactly" if M.cites(r) else "not", d.get("action")))
+    doc = load(os.path.join(c.repo, x["subject"])) if x.get("subject") else None
+    if doc is None or M.digest(doc) != x.get("sha256"):
+        probs.append("%s on disk is not the content checked before `%s` was typed" % (x.get("subject"), line))
+    return probs
+
+
 def check_sessions(c):
     if not c.sessions:
         return False, "no session ran"
@@ -681,67 +961,88 @@ def check_sessions(c):
 
 def check_mission_typed(c):
     p = pregrant(c.repo, c.plan, "CONFIRM_MISSION")
-    return not p, "; ".join(p) or "statement, mode, budget, deadline, cadence, constraints as typed; set by %s" % BY
+    return not p, "; ".join(p) or "statement, mode, budget, deadline, cadence, constraints, the default veto window " \
+        "as typed, nothing else; set by %s" % BY
 
 
 def check_mission_approved(c):
-    rows = c.human("mission.approved")
-    if not rows:
-        return False, "no mission.approved record"
-    r, relays = rows[-1], c.relay("CONFIRM_MISSION")
-    p = r["data"].get("prompt") or {}
-    hit = [x for x in relays if x["line"] == p.get("line")]
-    ok = bool(hit) and p.get("session") == hit[-1]["session_id"] and r["data"].get("by") == BY and M.cites(r) \
-        and M.mission(c.repo)[2] is not None
-    return ok, "cites `%s` from session %s (the reply session: %s)" % (p.get("line"), p.get("session"),
-                                                                        hit[-1]["session_id"] if hit else "none relayed")
+    relays = c.relay("CONFIRM_MISSION")
+    if not relays:
+        return False, "no approve line was relayed"
+    probs = [p for x in relays for p in relay_problems(c, x)]
+    cur = M.mission(c.repo)[2]
+    last = [r for r in c.human("mission.approved") if (r["data"].get("prompt") or {}).get("line") == relays[-1]["line"]]
+    if cur is None or not last or cur.get("event_id") != last[-1].get("event_id"):
+        probs.append("the mission's current approval (%s) is not the row citing `%s`" % (
+            (cur or {}).get("event_id"), relays[-1]["line"]))
+    return not probs, "; ".join(probs) or "`%s` from session %s approves exactly %s @ %s, the mission's current " \
+        "approval" % (relays[-1]["line"], relays[-1]["session_id"], relays[-1].get("subject"),
+                      (relays[-1].get("sha256") or "")[:12])
 
 
 def confirmed_baseline(c):
-    rows = M.records(c.repo, "baseline.confirmed", role="human")
-    if not rows:
+    """(row, doc) of the confirmation of the last relayed confirm line, when that baseline is the current one
+    and intact (its file is the content the confirmation covers); else (None, None)."""
+    relays = c.relay("CONFIRM_BASELINE")
+    if not relays:
         return None, None
-    ref = rows[-1]["data"].get("subject") or ""
-    return rows[-1], load(os.path.join(c.repo, ref))
+    x = relays[-1]
+    rows = [r for r in c.human("baseline.confirmed") if (r["data"].get("prompt") or {}).get("line") == x["line"]]
+    path, doc, bad = B.current_intact(c.repo)
+    if len(rows) != 1 or path is None or bad or M.rel(c.repo, path) != x.get("subject") \
+            or rows[0]["data"].get("subject") != x.get("subject"):
+        return None, None
+    return rows[0], doc
 
 
 def check_baseline_confirmed(c):
-    r, doc = confirmed_baseline(c)
-    if r is None or doc is None:
-        return False, "no baseline.confirmed record"
-    ms = doc.get("measurements") or {}
+    relays = c.relay("CONFIRM_BASELINE")
+    if not relays:
+        return False, "no confirm line was relayed"
+    probs = [p for x in relays for p in relay_problems(c, x)]
+    path, doc, bad = B.current_intact(c.repo)
+    probs += bad
+    if path is None or M.rel(c.repo, path) != relays[-1].get("subject"):
+        probs.append("the current baseline is %s, not %s (the one `%s` confirmed)" % (
+            M.rel(c.repo, path) if path else "none", relays[-1].get("subject"), relays[-1]["line"]))
+    ms = (doc or {}).get("measurements") or {}
     runs = ms.get("runs") if isinstance(ms.get("runs"), list) else []
-    p = r["data"].get("prompt") or {}
-    hit = [x for x in c.relay("CONFIRM_BASELINE") if x["line"] == p.get("line")]
-    ok = len(runs) == 2 and ms.get("agreed") is True and bool(hit) and p.get("session") == hit[-1]["session_id"] \
-        and r["data"].get("by") == BY and M.cites(r)
-    return ok, "measured %d time(s), agreed %r; cites `%s` from session %s" % (len(runs), ms.get("agreed"), p.get("line"),
-                                                                              p.get("session"))
+    if len(runs) != 2 or ms.get("agreed") is not True:
+        probs.append("measured %d time(s), agreed %r" % (len(runs), ms.get("agreed")))
+    return not probs, "; ".join(probs) or "measured twice and agreed; `%s` from session %s confirms exactly %s @ %s, " \
+        "the current baseline, intact" % (relays[-1]["line"], relays[-1]["session_id"], relays[-1].get("subject"),
+                                         (relays[-1].get("sha256") or "")[:12])
 
 
 def check_grants_relayed(c):
-    relayed = {x["line"] for x in c.run.get("relays") or []}
-    if not relayed:
+    relays = c.run.get("relays") or []
+    if not relays:
         return False, "no grant line was relayed"
+    probs = [p for x in relays for p in relay_problems(c, x)]
+    relayed = {x["line"] for x in relays}
     rows = [r for r in c.human() if r["event"] in M.GRANT_VERBS]
     stray = [r["event"] for r in rows if ((r["data"].get("prompt") or {}).get("line") not in relayed)]
     qs = M.prompts(c.repo)
     extra = sorted({ln.strip() for q in qs for ln in q["text"].splitlines() if GRANTISH.match(ln.strip())} - relayed)
     mine = sorted(s["full_prompt_sha256"] for s in c.sessions if s.get("full_prompt_sha256"))
     exact = sorted(q["sha256"] for q in qs) == mine
-    return not stray and not extra, "%d grant(s), each citing a relayed line%s%s; prompt log: %d captured, %s the run's %d" % (
-        len(rows), "; not relayed: %s" % stray if stray else "", "; other grant lines captured: %s" % extra if extra else "",
-        len(qs), "exactly" if exact else "not exactly", len(mine))
+    return not stray and not extra and not probs, "%d grant(s) for %d relayed line(s)%s%s%s; prompt log: %d captured, " \
+        "%s the run's %d" % (len(rows), len(relays), "; " + "; ".join(probs) if probs else "",
+                             "; not relayed: %s" % stray if stray else "",
+                             "; other grant lines captured: %s" % extra if extra else "", len(qs),
+                             "exactly" if exact else "not exactly", len(mine))
 
 
 def check_allowlist(c):
     allowed = {x["event"] for x in c.plan["allowlist"]}
-    other = sorted({r["event"] for r in c.human()} - allowed)
+    other = sorted({"%s (%s)" % (r["event"], r["data"]["action"]) if r["data"].get("action") else r["event"]
+                    for r in c.human() if r["event"] not in allowed or r["data"].get("action")})
     force = [e for e in c.events if e.get("event") == "mission.tick" and (e.get("data") or {}).get("action") == "FORCE"]
     stop = [e for e in c.events if e.get("event") == "mission.budget_exhausted"]
     many = len(c.run.get("relays") or []) > c.plan["caps"]["grants"]
-    return not (other or force or stop or many), "human records outside the allowlist: %s; --force: %d; budget stops: " \
-        "%d; lines typed: %d" % (other or "none", len(force), len(stop), len(c.run.get("relays") or []))
+    return not (other or force or stop or many), "human records outside the allowlist (or a restore or retire): %s; " \
+        "--force: %d; budget stops: %d; lines typed: %d" % (other or "none", len(force), len(stop),
+                                                           len(c.run.get("relays") or []))
 
 
 def check_human_by(c):
@@ -749,10 +1050,25 @@ def check_human_by(c):
     sets = [e for e in c.events if e.get("event") == "mission.set"]
     bad += ["mission.set" for e in sets if "by" in (e.get("data") or {}) and e["data"]["by"] != BY]
     doc = load(M.path_of(c.repo, "mission"))
+    cur = M.digest(doc) if doc is not None else None
+    other = [e.get("ts") for e in sets if (e.get("data") or {}).get("sha256") != cur]
     set_by = ((doc or {}).get("provenance") or {}).get("set_by")
-    ok = not bad and bool(c.human()) and bool(sets) and set_by == BY
-    return ok, "%d human record(s), %d mission.set (mission.json set_by %r)%s" % (
-        len(c.human()), len(sets), set_by, "; not by %s: %s" % (BY, bad) if bad else "")
+    ok = not bad and not other and bool(c.human()) and bool(sets) and set_by == BY
+    return ok, "%d human record(s), %d mission.set (mission.json set_by %r)%s%s" % (
+        len(c.human()), len(sets), set_by, "; not by %s: %s" % (BY, bad) if bad else "",
+        "; mission.set of other content than mission.json (it carries no by): %s" % other if other else "")
+
+
+def check_ledger_intact(c):
+    probs = list(M.ledger_problems(c.repo))
+    path, _, bad = B.current_intact(c.repo)
+    probs += bad
+    r = mission(c.repo, "check", "--json")
+    if r.returncode != 0:
+        probs.append("mission check exit %d: %s" % (r.returncode, (r.stderr.strip().splitlines() or [""])[-1][:200]))
+    return not probs, "; ".join(probs[:8]) or "every row's hash verifies and every human grant cites its line; the " \
+        "confirmed baseline %s is the content its confirmation covers; mission check passes" % (
+            M.rel(c.repo, path) if path else "(none)")
 
 
 def check_runner(c):
@@ -761,17 +1077,18 @@ def check_runner(c):
     pins = [((d.get("runner") or {}).get("files")) for d in js]
     same = git(c.repo, "diff", "--quiet", seed, "--", RUNNER).returncode == 0 if seed else False
     tracked = git(c.repo, "cat-file", "-e", "%s:%s" % (seed, RUNNER)).returncode == 0 if seed else False
+    extras = runner_extras(c.repo)
     ok = bool(js) and all(p == {RUNNER: want} for p in pins) and same and tracked \
-        and sha_file(os.path.join(c.repo, RUNNER)) == want
-    return ok, "%d journey(s) pinning %s; unchanged since seed %s: %s; sha256 the fixture's: %s" % (
-        len(js), "the seeded runner" if js and all(p == {RUNNER: want} for p in pins) else pins, seed[:12], same,
-        sha_file(os.path.join(c.repo, RUNNER)) == want)
+        and sha_file(os.path.join(c.repo, RUNNER)) == want and not extras
+    return ok, "%d journey(s) pinning %s; unchanged since seed %s: %s; sha256 the fixture's: %s; other files " \
+        "beside it: %s" % (len(js), "the seeded runner" if js and all(p == {RUNNER: want} for p in pins) else pins,
+                           seed[:12], same, sha_file(os.path.join(c.repo, RUNNER)) == want, extras or "none")
 
 
 def check_failing_at_baseline(c):
     _, doc = confirmed_baseline(c)
     if doc is None:
-        return False, "no confirmed baseline"
+        return False, "no confirmed baseline that is the relayed one, current and intact"
     ms = doc.get("measurements") or {}
     runs = ms.get("runs") or []
     np_ = ms.get("not_passing") or []
@@ -794,10 +1111,13 @@ def check_goal(c):
                                                                      ", ".join(str(x.get("source")) for x in intents))
 
 
+NOT_A_PASS = "exit 0 by the host's own run: not a self-check, a stuck release or a budget release"
+
+
 def check_red_green(c):
     p = c.gates["passed"]
-    return p["red"] and p["green"], "RED %s, GREEN %s (exit 0 with no `released` field)" % (
-        "passed" if p["red"] else "no pass", "passed" if p["green"] else "no pass")
+    return p["red"] and p["green"], "RED %s, GREEN %s (%s; budget releases: %d)" % (
+        "passed" if p["red"] else "no pass", "passed" if p["green"] else "no pass", NOT_A_PASS, c.gates["budget_releases"])
 
 
 def check_host_gates(c):
@@ -805,7 +1125,8 @@ def check_host_gates(c):
 
 
 def check_final_gate(c):
-    return c.gates["passed"]["final"], "final gate %s" % ("passed" if c.gates["passed"]["final"] else "no pass")
+    return c.gates["passed"]["final"], "final gate %s (%s)" % ("passed" if c.gates["passed"]["final"] else "no pass",
+                                                               NOT_A_PASS)
 
 
 def check_goal_met(c):
@@ -814,34 +1135,27 @@ def check_goal_met(c):
     return bool(met) and ev == 0, "%d goal.met record(s); mission evaluate check exit %s" % (len(met), ev)
 
 
-def check_product(c):
-    head = git(c.repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
-    r = run(["python3", RUNNER], c.repo, timeout=120, env=dict(clean_env(), PYTHONDONTWRITEBYTECODE="1"))
-    try:
-        steps = json.loads((r.stdout.strip().splitlines() or ["{}"])[-1]).get("steps") or {}
-    except ValueError:
-        steps = {}
-    calls = [p for p in glob.glob(os.path.join(c.repo, "tests", "**", "*.py"), recursive=True)
-             if "add(" in (open(p, encoding="utf-8", errors="replace").read())]
-    seed_test = git(c.repo, "diff", "--quiet", c.seed(), "--", "tests/test_todo.py").returncode == 0 if c.seed() else False
-    ok = head == "main" and steps.get("see") is True and bool(calls) and seed_test
-    return ok, "on %s: the runner's see %r; tests calling add(: %d; the seed's test unchanged: %s" % (
-        head, steps.get("see"), len(calls), seed_test)
-
-
-def check_pytest(c):
-    r = run(["python3", "-m", "pytest", "-q", "-p", "no:cacheprovider"], c.repo, timeout=600,
-            env=dict(clean_env(), PYTHONDONTWRITEBYTECODE="1"))
-    tail = (r.stdout + r.stderr).strip().splitlines()[-1:] or [""]
-    return r.returncode == 0, "exit %d: %s" % (r.returncode, tail[0][:160])
-
-
 def check_no_suppressed(c):
+    """Nothing in the repo (or above it) that drops, skips or re-reports a test: a mark or a hook in any .py file
+    pytest would read, a pytest config at the root whose pytest section changes what is collected or how, and
+    any pytest config or conftest.py in a dir above the repo (pytest would take it)."""
     hits = []
-    for p in glob.glob(os.path.join(c.repo, "tests", "**", "*.py"), recursive=True) + \
-            glob.glob(os.path.join(c.repo, "todo", "**", "*.py"), recursive=True):
-        if SUPPRESS.search(open(p, encoding="utf-8", errors="replace").read()):
-            hits.append(os.path.relpath(p, c.repo))
+    for p in walk(c.repo):
+        rp = os.path.relpath(p, c.repo)
+        if p.endswith(".py") and SUPPRESS.search(read(p)):
+            hits.append(rp)
+        elif os.path.dirname(rp) == "" and os.path.basename(p) in PYTEST_CONFIGS and config_drops(p):
+            hits.append("%s (%s)" % (rp, ", ".join(config_drops(p))))
+    d = os.path.dirname(os.path.realpath(c.repo))
+    while True:
+        for n in PYTEST_CONFIGS + ("conftest.py",):
+            p = os.path.join(d, n)
+            if os.path.isfile(p) and (n == "conftest.py" or has_pytest_section(p)):
+                hits.append("%s (above the repo)" % p)
+        up = os.path.dirname(d)
+        if up == d:
+            break
+        d = up
     return not hits, "suppressed: %s" % (hits or "none")
 
 
@@ -865,6 +1179,20 @@ def check_trace(c):
         len(shas), untraced or "none", product or "none", BY, traced_to_mission or "none")
 
 
+def check_authors(c):
+    """Every commit on main, the seed's too, is authored and committed by the author defaults.md names (the
+    seed's own author: a session that changed defaults.md, or an inherited git identity, shows here)."""
+    st = _paths.settings(c.repo)
+    want = "%s <%s>" % (st.get("COMMIT_AUTHOR_NAME") or "", st.get("COMMIT_AUTHOR_EMAIL") or "")
+    seed = c.seed()
+    seed_by = git(c.repo, "log", "-1", "--format=%an <%ae>", seed).stdout.strip() if seed else ""
+    rows = [ln.split("\t") for ln in git(c.repo, "log", "--format=%H\t%an <%ae>\t%cn <%ce>", "HEAD").stdout.splitlines()]
+    bad = sorted({"%s (%s / %s)" % (h[:12], a, m) for h, a, m in (r_ for r_ in rows if len(r_) == 3) if a != want or m != want})
+    ok = bool(st.get("COMMIT_AUTHOR_NAME")) and want == seed_by and bool(rows) and not bad
+    return ok, "%d commit(s); defaults.md's author %s (the seed's: %s); by another: %s" % (
+        len(rows), want, seed_by or "none", bad[:5] or "none")
+
+
 def check_no_crash(c):
     sd = c.plan.get("sessions_dir") or ""
     paths = glob.glob(os.path.join(sd, "*.jsonl")) + glob.glob(os.path.join(sd, "*.err")) + \
@@ -879,6 +1207,30 @@ def check_no_crash(c):
             continue
     return n == 0 and c.gates["stuck_releases"] == 0, "%d hook crash(es) (%r) in %d file(s); stuck releases: %d" % (
         n, CRASH, len(paths), c.gates["stuck_releases"])
+
+
+def check_product(c):
+    head = git(c.repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
+    extras = runner_extras(c.repo)
+    rc, out, err = contained(c, ["python3", RUNNER], 120)
+    try:
+        steps = json.loads((out.strip().splitlines() or ["{}"])[-1]).get("steps") or {}
+    except (ValueError, AttributeError):
+        steps = {}
+    calls = [p for p in glob.glob(os.path.join(c.repo, "tests", "**", "*.py"), recursive=True) if "add(" in read(p)]
+    seed_test = git(c.repo, "diff", "--quiet", c.seed(), "--", "tests/test_todo.py").returncode == 0 if c.seed() else False
+    ok = head == "main" and steps.get("see") is True and bool(calls) and seed_test and not extras
+    return ok, "on %s: the runner (exit %s, run as a session) sees %r; tests calling add(: %d; the seed's test " \
+        "unchanged: %s; other files beside the runner: %s" % (head, rc, steps.get("see"), len(calls), seed_test,
+                                                               extras or "none")
+
+
+def check_pytest(c):
+    rc, out, err = contained(c, ["python3", "-m", "pytest", "-q", "-rA", "-p", "no:cacheprovider",
+                                 "--rootdir", c.repo, "--confcutdir", c.repo], 600)
+    probs = pytest_problems(out, tests_of(c.repo, c.seed()))
+    tail = (out + err).strip().splitlines()[-1:] or [""]
+    return rc == 0 and not probs, "exit %d: %s%s" % (rc, tail[0][:160], "; " + "; ".join(probs[:6]) if probs else "")
 
 
 def check_crontab(c):
@@ -899,7 +1251,8 @@ def check_driver_wrote_nothing(c):
     ticks = [e for e in c.events if e.get("event") == "mission.tick"]
     foreign = [e.get("ts") for e in ticks if (e.get("data") or {}).get("loop") != pid]
     counted = sum(len(s.get("actions") or []) for s in c.sessions)
-    wins = [(int(s["start_s"]) - 1, int(s["end_s"]) + 2) for s in c.sessions if "start_s" in s]
+    wins = [((ms_of(s["started_at"]) or 0) / 1000.0 - 1, (ms_of(s["ended_at"]) or 0) / 1000.0 + 2) for s in c.sessions
+            if s.get("started_at") and s.get("ended_at")]
     outside = [r["event"] for r in c.rows if not any(a <= (ms_of(r["ts"]) or 0) / 1000.0 <= b for a, b in wins)]
     ok = not foreign and counted == len(ticks) and not outside
     return ok, "%d mission.tick (each a session's, loop %s: %s; counted in sessions: %d); ledger rows outside a " \
@@ -907,26 +1260,36 @@ def check_driver_wrote_nothing(c):
                                 outside or "none")
 
 
+# In this order: what reads the run (the ledger, the artifacts, the gate log, git) first; then the two that run
+# the repo's own code (the runner, pytest), as a session would; then what reads only what the run recorded.
 CHECKS = [
     ("every session ended with a success result line (or the run killed it after goal.met)", check_sessions),
-    ("mission.json is the typed answers, set by %s" % BY, check_mission_typed),
-    ("mission.approved cites the relayed approve line and its reply session", check_mission_approved),
-    ("the baseline was measured twice and agreed; baseline.confirmed cites the relayed confirm line", check_baseline_confirmed),
-    ("every grant cites a line the run relayed; no captured line grants anything else", check_grants_relayed),
-    ("no grant outside the allowlist, no tick --force, no budget stop", check_allowlist),
-    ("every human record is by %s" % BY, check_human_by),
-    ("the journey runs the seeded runner, unchanged since the seed", check_runner),
+    ("mission.json is the typed answers, whole, set by %s" % BY, check_mission_typed),
+    ("mission.approved cites the relayed approve line from its reply session and covers exactly what was checked",
+     check_mission_approved),
+    ("the baseline was measured twice and agreed; its one confirmation cites the relayed confirm line and covers "
+     "exactly what was checked, the current baseline, intact", check_baseline_confirmed),
+    ("every relayed line is cited by exactly one grant of the content checked before it was typed; no captured "
+     "line grants anything else", check_grants_relayed),
+    ("no grant outside the allowlist (no restore or retire), no tick --force, no budget stop", check_allowlist),
+    ("every human record is by %s; every mission.set is of the mission.json checked" % BY, check_human_by),
+    ("the ledger verifies (every row's hash, every human grant cites its line), the confirmed baseline is the "
+     "content its confirmation covers, mission check passes", check_ledger_intact),
+    ("the journey runs the seeded runner, unchanged since the seed, nothing beside it", check_runner),
     ("the journey failed at baseline (something to earn)", check_failing_at_baseline),
     ("one goal: derived, ethics-reviewed, one intent with source mission", check_goal),
-    ("RED and GREEN passed (exit 0, not a stuck release)", check_red_green),
+    ("RED and GREEN passed (the host's run, exit 0, not a self-check, stuck or budget release)", check_red_green),
     ("the host's SubagentStop gates ran (selfcheck false in the gate log)", check_host_gates),
-    ("the final gate passed (exit 0, not a stuck release)", check_final_gate),
+    ("the final gate passed (the host's run, exit 0, not a self-check, stuck or budget release)", check_final_gate),
     ("goal.met is recorded and mission evaluate check passes", check_goal_met),
-    ("on main the runner sees the task, a test calls add(, the seed's test is unchanged", check_product),
-    ("pytest passes on main", check_pytest),
-    ("no suppressed tests", check_no_suppressed),
+    ("no suppressed tests (no skip or xfail mark, collection or report hook, or pytest config that drops a test, "
+     "in the repo or above it)", check_no_suppressed),
     ("every commit after the seed traces; the product commit to the mission %s approved" % BY, check_trace),
+    ("every commit after the seed is by the run's author (defaults.md's, the seed's own), committer too",
+     check_authors),
     ("no hook crashed and no gate was stuck-released", check_no_crash),
+    ("on main the runner sees the task, a test calls add(, the seed's test is unchanged", check_product),
+    ("pytest passes on main: every test ran and passed (none skipped, xfailed, xpassed or deselected)", check_pytest),
     ("crontab -l is unchanged", check_crontab),
     ("the cost stayed within the outer cap", check_cost),
     ("the driver wrote no mission.tick and no ledger row", check_driver_wrote_nothing),
@@ -1002,11 +1365,24 @@ def main(argv):
 
     R = Run(plan, argv[1])
     print("driver: pid %s · caps %s" % (R.pid, json.dumps(plan["caps"], sort_keys=True)), flush=True)
+    for sig in SIGNALS:                 # SIGINT too: a background job of e2e-mission.sh starts with it ignored
+        signal.signal(sig, R.on_signal)
     try:
         R.loop()
+        R.deliver()                     # a signal that came as the loop ended
+    except (Interrupted, KeyboardInterrupt) as e:
+        R.halt("interrupted", "interrupted (%s): the running session's group was killed and its record written; "
+                              "no retry" % (e if isinstance(e, Interrupted) else "Ctrl-C"))
     except Exception as e:              # a driver bug stops the run; the checks and the record still follow
         R.halt("driver_error", "the driver failed (%s: %s)" % (type(e).__name__, e))
+
+    def calm(sig, frame):               # the checks are bounded: they finish, then driver.json is written
+        print("driver: %s during the post-run checks: they finish first" % signal.Signals(sig).name, flush=True)
+    for sig in SIGNALS:
+        signal.signal(sig, calm)
     wall = round(time.time() - R.t0, 1)
+    # the outcome, the grants and the run's own records: read before any check runs the repo's code
+    met = R.goal_met()
     after = []
     seen = False
     for e in events(repo):
@@ -1014,17 +1390,19 @@ def main(argv):
             seen = True
         elif seen and e.get("event") == "mission.tick":
             after.append((e.get("data") or {}).get("action"))
-    run_info = {"driver_pid": R.pid, "relays": R.relays, "tick_usd": R.tick_usd, "stop": R.stop}
-    print("checks:", flush=True)
-    results = run_checks(Ctx(plan, R.records, run_info))
-    passed = sum(1 for x in results if x["ok"])
-    met = R.goal_met()
     cited = {}
     for r in M.ledger_rows(repo)[0]:
         if r.get("role") == "human" and isinstance((r.get("data") or {}).get("prompt"), dict):
             cited[r["data"]["prompt"].get("line")] = (r["event"], r["data"]["prompt"].get("session"))
     grants = [dict(g, event=(cited.get(g["line"]) or (None, None))[0], cited_session=(cited.get(g["line"]) or (None, None))[1])
               for g in R.relays]
+    captured = len(M.prompts(repo))
+    run_info = {"driver_pid": R.pid, "relays": R.relays, "tick_usd": R.tick_usd, "stop": R.stop}
+    ctx = Ctx(plan, R.records, run_info)
+    ctx.prime()
+    print("checks:", flush=True)
+    results = run_checks(ctx)
+    passed = sum(1 for x in results if x["ok"])
     doc = {"kind": "mission-driver", "version": 1, "plan": argv[1], "driver_pid": R.pid,
            "checks": "%d/%d" % (passed, len(results)), "check_results": results,
            "outcome": "GOAL MET" if met else "stopped: %s" % (R.stop or {}).get("code"), "stop": R.stop,
@@ -1036,7 +1414,7 @@ def main(argv):
            "cost_complete": bool(R.records) and all(r["cost_complete"] for r in R.records),
            "actions_after_goal_met": after, "deviations": (plan.get("env") or {}).get("deviations") or [],
            "seed_sha": (plan.get("seed") or {}).get("sha"), "by": BY,
-           "captured_prompts": len(M.prompts(repo)), "finished_at": iso()}
+           "captured_prompts": captured, "finished_at": iso()}
     with open(os.path.join(rdir, "driver.json"), "w") as f:
         json.dump(doc, f, indent=1, sort_keys=True)
         f.write("\n")

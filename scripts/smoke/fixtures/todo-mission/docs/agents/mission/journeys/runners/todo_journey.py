@@ -13,14 +13,20 @@ Metrics: none. The journey passes when every step passes (pass criterion `steps:
 Pin: python3, probed with `python3 --version`; pin exactly what that probe prints.
 
 The last stdout line is the result: {"steps": {"open": …, "add": …, "see": …}, "metrics": {}}.
-The runner writes no files (no bytecode either), so two runs on the same code agree.
+The runner writes no files (no bytecode either), so two runs on the same code agree. It looks
+nothing up beside itself: its own dir leaves sys.path before the first import, and the project
+root is added only after the standard library is imported, so a file planted next to it (or a
+json.py in the root) never stands in for the code it measures with.
 """
-import json
-import os
 import sys
+import os  # loaded with the interpreter (site imports it): never looked up on sys.path
 
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path[:] = [p for p in sys.path if os.path.realpath(p or os.curdir) != HERE]
 sys.dont_write_bytecode = True
-ROOT = os.path.realpath(os.path.join(os.path.dirname(os.path.realpath(__file__)), *[os.pardir] * 5))
+import json  # noqa: E402 - only once this dir is off sys.path, before the root is on it
+
+ROOT = os.path.realpath(os.path.join(HERE, *[os.pardir] * 5))
 sys.path.insert(0, ROOT)
 
 

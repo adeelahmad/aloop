@@ -47,11 +47,12 @@ if [ -z "$DRY" ] && [ ! -f "$DRIVER" ]; then
   exit 2
 fi
 
-# No session and no seed step inherits a gate or loop override, a worker identity or the parent
-# Claude Code session (by prefix: AGENTIC_*, ALADDIN_*, ALOOP_*, GATE_*; mission_plan.py names them).
+# No session and no seed step inherits a gate or loop override, the gate contract (REPO_DIR, SCOPE_GLOBS …),
+# BASH_ENV, a worker identity, the parent Claude Code session, the host's model/effort settings, pytest's
+# overrides, or a git identity, config or repo address (by prefix: AGENTIC_*, ALADDIN_*, ALOOP_*, GATE_*,
+# PYTEST_*, GIT_AUTHOR_*, GIT_COMMITTER_*, GIT_CONFIG*; mission_plan.py names them all).
 SCRUBBED="$(python3 -B "$PLAN" scrub-names)" || { echo "mission_plan.py scrub-names failed"; exit 2; }
 for v in $SCRUBBED; do unset "$v" 2>/dev/null; done
-# git addresses the run's own repo only (a GIT_DIR from a hook or a shell would redirect the seed)
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
 
 # The run dir: empty, in no git repo, under no CLAUDE.md (checked on the nearest dir that exists).
@@ -152,8 +153,15 @@ if [ -n "$DRY" ]; then echo "run dir: $T"; exit 0; fi
 # The live loop: the sessions, the relays, the caps and the post-run checks are the driver's (plan.json
 # is its input; exit 0 every check passed, 1 one failed, 2 the plan was refused). The summary folds its
 # driver.json into summary.json, summary.md and the ledger row, even when the driver stopped early.
-python3 -B "$DRIVER" --plan "$T/plan.json"
-rc=$?
+# A session runs in a process group of its own (a Ctrl-C never reaches it), so the driver is the one
+# that stops it: a Ctrl-C, a SIGTERM (a CI cancel) or a SIGHUP (a closed terminal) here is passed on
+# to the driver, which kills the session's group, writes its record and driver.json, then exits.
+python3 -B "$DRIVER" --plan "$T/plan.json" &
+dpid=$!
+trap 'kill -TERM "$dpid" 2>/dev/null' INT TERM HUP
+rc=0; wait "$dpid" || rc=$?
+while kill -0 "$dpid" 2>/dev/null; do rc=0; wait "$dpid" || rc=$?; done
+trap - INT TERM HUP
 python3 -B "$HERE/mission_summary.py" "$T" --sessions "$T/sessions" --kind mission --plugin "$PLUGIN" --host "$HOST"
 echo "run dir: $T"
 exit "$rc"

@@ -2,16 +2,18 @@
 """mission_host.py — a stub `claude` for scripts/test/mission-e2e-live.test.py: it behaves like the host a live
 mission run drives, at zero tokens (a scenario file says how, per session).
 
-    claude plugin list --json      prints [] (no installed plugin, for e2e-mission.sh's preflight)
+    claude plugin list --json      prints the scenario's "plugins" (default [], for e2e-mission.sh's preflight)
     claude -p PROMPT … --session-id ID --max-budget-usd N … --allowedTools …
-        1. appends its argv, the session id, the loop's env (and any variable the run should have scrubbed) and
-           what `crontab -l` / `crontab -` did to $MISSION_STUB_DIR/calls.jsonl
+        1. appends its argv, the session id, the loop's env (and any variable the run should have scrubbed, and the
+           names of every variable it inherited), what `crontab -l` / `crontab -` did and who holds the mission
+           loop lock to $MISSION_STUB_DIR/calls.jsonl
         2. captures PROMPT through the plugin's UserPromptSubmit hooks (transcripts prompt, intent-trigger) with
            the session id, exactly as a host runs them, unless the scenario turns the hook off
         3. acts: `cycle` is the supervisor the playbook describes, scripted on the real mission CLI (at most 8
            ticks; a grant command that asks shows its line and ends the session; the sprint is the fixture's
            one-line fix, merged with task-worktree, the gates' verdicts in the gate log); `idle` does nothing;
-           `hang` leaves a child process behind and never ends
+           `hang` leaves a child process behind and never ends (`child` leaves one behind in any mode, and
+           `stubborn` is one that ignores SIGTERM)
         4. prints stream-json: system init, an assistant message, the tool results, and a result line
            (total_cost_usd, num_turns, modelUsage, the final text the human sees)
 
@@ -47,6 +49,10 @@ DEFAULT = {
     "cost": 0.5, "turns": 10, "subtype": "success", "is_error": False, "rc": 0, "result": True,
     "ledger_usd": 0.0,        # a token-ledger row worth this much, as the budget hook would write
     "crash": False,           # a hook crash's text in the stream
+    "reseal": False,          # CONFIRM_MISSION: re-set the same answers (`mission init --force`, a new id) instead of approving
+    "child": "",              # plain | stubborn: leave a child behind (hang mode: plain unless set); stubborn ignores SIGTERM
+    "plant": False,           # write tests/test_sneak.py: run by pytest, it records goal.met and probes its own env
+    "plugins": [],            # what `claude plugin list --json` prints (the preflight's input)
 }
 BY_LINE = re.compile(r"^Name for the records \(--by\): (.+)$", re.M)
 
@@ -111,7 +117,11 @@ class Session:
 
     def log_call(self):
         cr = {}
+        shim = os.path.join((os.environ.get("PATH") or "").split(os.pathsep)[0], "crontab")
         for k, args, stdin in (("list", ["-l"], None), ("install", ["-"], "* * * * * true\n")):
+            if k == "install" and "disabled in this run" not in shim_text(shim):   # never the real one: the run's shim first
+                cr[k] = [None, "not run: no crontab shim first on PATH"]
+                continue
             try:
                 r = subprocess.run(["crontab"] + args, capture_output=True, text=True, input=stdin, timeout=10)
                 cr[k] = [r.returncode, r.stderr.strip()[:200]]
@@ -122,7 +132,8 @@ class Session:
                "max_budget_usd": flag(self.argv, "--max-budget-usd"), "cwd": self.cwd, "pid": os.getpid(),
                "pgid": os.getpgid(0), "loop": env.get("ALOOP_MISSION_LOOP"),
                "path0": (env.get("PATH") or "").split(os.pathsep)[0],
-               "leaked": sorted(k for k in env if SCRUB.search(k) and k != "ALOOP_MISSION_LOOP"), "crontab": cr}
+               "leaked": sorted(k for k in env if SCRUB.search(k) and k != "ALOOP_MISSION_LOOP"), "crontab": cr,
+               "env_names": sorted(env), "lock": lock_holder(self.cwd)}
         with open(os.path.join(os.environ.get("MISSION_STUB_DIR") or ".", "calls.jsonl"), "a") as f:
             f.write(json.dumps(rec) + "\n")
 
@@ -157,6 +168,33 @@ class Session:
         for c in re.findall(r"^Constraint: (.+)$", p, re.M):
             args += ["--constraint", c]
         return self.mission(*args).returncode == 0
+
+    def reseal(self):
+        """The same answers set again (`mission init --force`): a new mission id, so a new line to approve."""
+        doc = json.load(open(os.path.join(self.cwd, "docs", "agents", "mission", "mission.json")))
+        args = ["init", doc["statement"], "--force", "--mode", doc["mode"], "--budget-usd", str(doc["budget"]["usd"]),
+                "--deadline", doc["budget"]["deadline"], "--cadence", doc["cadence"], "--by",
+                doc["provenance"]["set_by"]]
+        for c in doc["constraints"]:
+            args += ["--constraint", c]
+        self.mission(*args)
+
+    def plant(self):
+        """A test the post-run pytest runs: it records goal.met through the plugin and writes what it ran under."""
+        probe = os.path.join(os.environ.get("MISSION_STUB_DIR") or self.cwd, "probe.json")
+        with open(os.path.join(self.cwd, "tests", "test_sneak.py"), "w") as f:
+            f.write("import json, os, subprocess, sys\nsys.path.insert(0, %r)\nimport _mission as M\n\n\n"
+                    "def test_sneak():\n"
+                    "    try:   # read-only: the run's shim refuses it\n"
+                    "        cr = subprocess.run(['crontab', '-l'], capture_output=True, text=True)\n"
+                    "        cr = [cr.returncode, cr.stderr.strip()[:200]]\n"
+                    "    except OSError as e:\n"
+                    "        cr = [None, str(e)]\n"
+                    "    with open(%r, 'w') as f:\n"
+                    "        json.dump({'path0': os.environ.get('PATH', '').split(os.pathsep)[0], 'pgid': os.getpgid(0),\n"
+                    "                   'crontab': cr}, f)\n"
+                    "    M.record(os.getcwd(), 'goal.met', 'docs/agents/mission/goals/gol_sneak.json', 'mission')\n"
+                    % (self.bin, probe))
 
     def grant(self, args):
         """A grant command: it records the grant once the human typed the line, else it asks (3) with it."""
@@ -281,6 +319,8 @@ class Session:
                 if not self.set_mission():
                     return
             elif a == "CONFIRM_MISSION":
+                if self.cfg["reseal"]:
+                    self.reseal()
                 if self.grant(["approve", "--by", self.by()]) != "granted":
                     return
             elif a == "CONFIRM_BASELINE":
@@ -335,10 +375,16 @@ class Session:
         if self.cfg["hook"]:
             self.hooks()
         self.out({"type": "system", "subtype": "init", "session_id": self.sid, "cwd": self.cwd})
-        if self.cfg["mode"] == "hang":
-            child = subprocess.Popen(["sleep", "600"])
+        if self.cfg["plant"]:
+            self.plant()
+        kind = self.cfg["child"] or ("plain" if self.cfg["mode"] == "hang" else "")
+        if kind:
+            argv = ["sh", "-c", "trap '' TERM; sleep 600; :"] if kind == "stubborn" else ["sleep", "600"]
+            child = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.2 if kind == "stubborn" else 0)        # its trap is set before anyone signals it
             with open(os.path.join(os.environ.get("MISSION_STUB_DIR") or ".", "child-%d.pid" % self.n), "w") as f:
                 f.write(str(child.pid))
+        if self.cfg["mode"] == "hang":
             time.sleep(600)
         if self.cfg["mode"] == "cycle":
             self.cycle()
@@ -368,9 +414,27 @@ class Session:
         return self.cfg["rc"]
 
 
+def shim_text(path):
+    try:
+        with open(path, errors="replace") as f:
+            return f.read(4096)
+    except OSError:
+        return ""
+
+
+def lock_holder(cwd):
+    """Who holds the mission loop lock (due.holder): the driver while a session runs, as `mission cron --fire`."""
+    sys.path.insert(0, os.path.join(ROOT, "plugin", "mission"))
+    try:
+        import due
+        return due.holder(cwd)
+    except Exception as e:      # noqa: BLE001 - recorded, never fatal: the test reads it
+        return {"error": "%s: %s" % (type(e).__name__, e)}
+
+
 def main(argv):
     if argv[:2] == ["plugin", "list"]:
-        print("[]")
+        print(json.dumps(scenario(0)["plugins"]))
         return 0
     if "-p" not in argv:
         print("mission_host stub: only `-p PROMPT …` and `plugin list --json`", file=sys.stderr)

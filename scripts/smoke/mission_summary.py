@@ -15,8 +15,12 @@ docs/evidence/README.md row (`## Mission runs`). Numbers come from the harness, 
   tick_usd        tick's own estimate (budget.usd of tick --peek --json): it prices the token
                   ledger from mission.set on, so it misses the first session's spend before that
   gate lines      parsed as JSON; stuck_releases counts "released": "stuck" in either spelling, and
-                  RED, GREEN and the final gate pass only with exit 0 and no `released` field
-  grants          the mission ledger's human grant rows (each cites the typed line it relayed)
+                  RED, GREEN and the final gate pass only as the host's own run (selfcheck false), exit 0,
+                  no `released` field, and not an attempt released for its budget (a hard-limit event for
+                  its task and attempt, or a budget-exceeded marker in its worktree)
+  grants          the mission ledger's human grant rows that verify (their hash intact, each citing the
+                  typed line it relayed); ledger_problems lists what does not verify
+  host_env_kept   plan.json's names of the CLAUDE*/ANTHROPIC* variables a session inherited (auth, proxy)
 Exit 0; a usage error is 64."""
 import glob
 import json
@@ -28,6 +32,8 @@ import time
 
 sys.dont_write_bytecode = True
 HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, HERE)
+import mission_plan as MP  # noqa: E402  (what counts as a gate pass: the driver's checks read it alike)
 GRANTS = ("mission.approved", "baseline.confirmed", "journey.approved", "goal.approved", "ethics.consent",
           "telemetry.consent")
 PASS_GATES = {"red": "gate-red-verify", "green": "gate-green-verify", "final": "gate-final"}
@@ -81,6 +87,7 @@ def session(path, n):
 
 
 def gates(repo):
+    released = MP.budget_released(MP.run_events(repo))
     out = {"gate_verdicts": 0, "gate_blocks": 0, "selfcheck_blocks": 0, "stuck_releases": 0,
            "passed": {k: False for k in PASS_GATES}, "log": None}
     for h in (".aladdin", ".agentic"):
@@ -95,8 +102,8 @@ def gates(repo):
                 out["selfcheck_blocks"] += v.get("selfcheck") is True
             if v.get("released") == "stuck":
                 out["stuck_releases"] += 1
-            for k, name in PASS_GATES.items():      # a stuck release exits 0 and is not a pass
-                if v.get("gate") == name and v.get("exit") == 0 and "released" not in v:
+            for k, name in PASS_GATES.items():      # a self-check, a stuck or a budget release exits 0: no pass
+                if v.get("gate") == name and MP.gate_pass(v, released):
                     out["passed"][k] = True
         break
     return out
@@ -113,10 +120,21 @@ def crashes(paths):
     return n
 
 
+def ledger(repo, plugin):
+    """(the ledger's rows that verify, its problems), as the plugin's own _mission reads them; a plugin that
+    cannot be loaded reads as no row and that one problem."""
+    if os.path.join(plugin, "bin") not in sys.path:
+        sys.path.insert(0, os.path.join(plugin, "bin"))
+    try:
+        import _mission as M
+        return M.ledger_rows(repo)[0], M.ledger_problems(repo)
+    except Exception as e:      # noqa: BLE001 - the summary is written whatever the plugin does
+        return [], ["the ledger could not be read with %s (%s: %s)" % (plugin, type(e).__name__, e)]
+
+
 def mission_facts(repo, plugin):
     """Ledger grants, goal.met and sprint closes from the run repo (read only)."""
-    ledger = os.path.join(repo, "docs", "agents", "mission", "ledger.jsonl")
-    rows = jsonl(ledger)
+    rows, problems = ledger(repo, plugin)
     grants = [{"event": r.get("event"), "by": (r.get("data") or {}).get("by"),
                "line": ((r.get("data") or {}).get("prompt") or {}).get("line"),
                "session": ((r.get("data") or {}).get("prompt") or {}).get("session")}
@@ -137,7 +155,7 @@ def mission_facts(repo, plugin):
         except (OSError, ValueError, subprocess.TimeoutExpired, AttributeError):
             tick = None
     return {"grants": grants, "goal_met": any(r.get("event") == "goal.met" for r in rows), "sprints": sprints,
-            "tick_usd": tick}
+            "tick_usd": tick, "ledger_problems": problems}
 
 
 def git(path, *args):
@@ -185,7 +203,9 @@ def main(argv):
          "cost_basis": "the host's total_cost_usd, the last result line of each session",
          "turns": sum(int(x["turns"] or 0) for x in per), "tick_usd": f["tick_usd"],
          "drift_usd": round(cost - f["tick_usd"], 2) if cost is not None and f["tick_usd"] is not None else None,
-         "grants": f["grants"], "sprints": f["sprints"], "goal_met": f["goal_met"], "outcome": outcome,
+         "grants": f["grants"], "ledger_problems": f["ledger_problems"], "sprints": f["sprints"],
+         "goal_met": f["goal_met"], "outcome": outcome,
+         "host_env_kept": (plan.get("env") or {}).get("host_kept") or [],
          "gate_verdicts": g["gate_verdicts"], "gate_blocks": g["gate_blocks"], "selfcheck_blocks": g["selfcheck_blocks"],
          "stuck_releases": g["stuck_releases"], "passed": g["passed"],
          "hook_crashes": crashes(streams + transcripts + ([g["log"]] if g["log"] else [])),
@@ -205,8 +225,12 @@ def main(argv):
           "tick estimate | outcome | reproduce |\n|---|---|---|---|---|---|---|---|---|---|---|\n%s\n\n"
           "The grants were typed by the script as %s: the run proves the relay, not a human's review.\n"
           "seed: `%s` · run repo head: `%s` · gate verdicts: %d (%d blocks, %d stuck releases) · cost complete: %s\n"
+          "ledger: %s · host variables kept: %s\n"
           % (os.path.basename(run), row, s["scripted_human"], s["seed_sha"], s["run_repo_head"], g["gate_verdicts"],
-             g["gate_blocks"], g["stuck_releases"], "yes" if complete else "no"))
+             g["gate_blocks"], g["stuck_releases"], "yes" if complete else "no",
+             "verifies" if not f["ledger_problems"] else "%d problem(s): %s" % (
+                 len(f["ledger_problems"]), "; ".join(f["ledger_problems"][:5])),
+             ", ".join(s["host_env_kept"]) or "none"))
     if driver.get("check_results"):          # the driver's post-run checks and why the loop stopped
         md += "\nstop: %s · path: %s\n\n## Checks (%s)\n\n%s\n" % (
             (driver.get("stop") or {}).get("reason"), driver.get("path"), checks,
@@ -219,6 +243,9 @@ def main(argv):
     print("cost: %s (host%s) · tick's estimate: %s · turns: %d · wall: %s" % (
         cost_cell, "" if complete else ", a session without a result line", tick_cell, s["turns"], s["wall"]))
     print("sessions: %d · grants: %d · sprints: %d · outcome: %s" % (len(per), len(f["grants"]), f["sprints"], outcome))
+    if f["ledger_problems"]:
+        print("ledger: %d problem(s), its grants not counted: %s" % (len(f["ledger_problems"]),
+                                                                    "; ".join(f["ledger_problems"][:3])))
     print("gate verdicts: %d (%d blocks, %d stuck releases) · hook crashes: %d" % (
         g["gate_verdicts"], g["gate_blocks"], g["stuck_releases"], s["hook_crashes"]))
     print("evidence row (docs/evidence/README.md, ## Mission runs):")

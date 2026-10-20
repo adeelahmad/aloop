@@ -115,7 +115,8 @@ without spending anything. The run leaves `summary.json`, `summary.md` and a rea
 |---|---|---|---|---|---|---|---|---|---|---|
 
 Columns: *checks* are the run's own post-run checks (N/M); *sessions / grants* count the host
-sessions it started and the human grant rows in the mission ledger; *cost* is the sum of each
+sessions it started and the mission ledger's human grant rows that verify (an edited or uncited row is
+not counted: `summary.json` lists it under `ledger_problems`); *cost* is the sum of each
 session's last `result` line (≥ when a session ended without one); *tick estimate* is `mission tick`'s
 own price of the token ledger since the mission was set (— when unmeasured); *outcome* is
 `GOAL MET` or the run's stop reason. A row has this shape (placeholders, not a result):
