@@ -239,6 +239,7 @@ ROWS = [
     (S, P, "make -C /tmp/rival test > /tmp/rival.log", 0),
     # ── the human's word (restore, the authority record, a human event) and the ledger: PR #77 ──
     (S, P, "aloop mission baseline restore bsl_x --by h", 2),
+    (E, P, "aloop mission tick --force --by Adeel", 2),
     (E, P, "aloop events authority --initiated-by h --mode autonomous --scope all", 2),
     (G, T1, "events authority --initiated-by h --mode reviewed --scope x", 2),
     (E, P, "aloop events emit telemetry.consent --role human --data subject=x", 2),
