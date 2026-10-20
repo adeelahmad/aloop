@@ -1,0 +1,12 @@
+[
+  { "query": "set a mission for this repo: make it the best markdown editor out there, autonomous, $30 cap", "should_trigger": true },
+  { "query": "/aloop:mission", "should_trigger": true },
+  { "query": "keep improving this app toward being the best habit tracker, check every 6 hours", "should_trigger": true },
+  { "query": "what is the mission loop waiting on right now?", "should_trigger": true },
+  { "query": "resume the mission, the cron fired", "should_trigger": true },
+  { "query": "raise our mission budget to $80 and keep going", "should_trigger": true },
+  { "query": "add a dark mode toggle to the settings page", "should_trigger": false },
+  { "query": "fix the failing login test", "should_trigger": false },
+  { "query": "write our company's mission statement for the about page", "should_trigger": false },
+  { "query": "explain what MAPE-K means", "should_trigger": false }
+]

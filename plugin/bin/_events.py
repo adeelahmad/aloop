@@ -155,7 +155,7 @@ def read(cwd=None):
                     ev = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(ev, dict):      # a torn append can leave a bare value
+                if isinstance(ev, dict):       # every reader keys into it; a stray line is skipped
                     yield ev
     except OSError:
         return
