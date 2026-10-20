@@ -75,7 +75,8 @@ pycheck: ## Byte-compile the Python hook scripts
 	@python3 -m py_compile plugin/bin/budget plugin/bin/stats plugin/bin/aloop-init plugin/bin/gate-commit-author plugin/bin/_paths.py \
 	    plugin/bin/_usage.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/capabilities plugin/bin/models plugin/bin/_routes.py plugin/bin/host plugin/bin/_host.py plugin/bin/config plugin/bin/_config.py plugin/bin/layout plugin/bin/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
 	    plugin/bin/mission plugin/bin/_mission.py plugin/bin/_mission_roles.py plugin/bin/_shellread.py plugin/bin/gate-mission-scope plugin/bin/gate-mission-artifact $$(ls plugin/mission/*.py 2>/dev/null) \
-	  && rm -rf plugin/bin/__pycache__ plugin/mission/__pycache__ && echo "python ok"
+	    $$(ls scripts/smoke/*.py 2>/dev/null) \
+	  && rm -rf plugin/bin/__pycache__ plugin/mission/__pycache__ scripts/smoke/__pycache__ && echo "python ok"
 
 .PHONY: test-hosts
 test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and dsh plugins end-to-end (no network, no tokens)
@@ -145,6 +146,11 @@ conformance: ## ROADMAP §6 conformance fixtures on today's gates (needs cargo; 
 e2e-live: ## Live end-to-end run: one-line intent -> planned, tested, merged code (YES=1; spends dollars)
 	@test -n "$(YES)" || { echo "spends tokens: make e2e-live YES=1"; exit 2; }
 	scripts/smoke/e2e-live.sh --yes $(if $(INTENT),--intent $(INTENT)) $(if $(HOST),--host $(HOST)) $(if $(MODEL),--model $(MODEL))
+
+.PHONY: e2e-mission
+e2e-mission: ## Live mission cycle on a seeded to-do repo: the script types only the first message and the grant lines (YES=1; spends dollars; DRY=1 plans it for free)
+	@test -n "$(YES)" || { echo "spends tokens: make e2e-mission YES=1"; exit 2; }
+	scripts/smoke/e2e-mission.sh --yes $(if $(DRY),--dry-run) $(if $(HOST),--host $(HOST)) $(if $(MODEL),--model $(MODEL))
 
 .PHONY: smoke-live
 smoke-live: ## Live Claude Code session: hooks fire, supervisor write blocked, transcripts + ledger (YES=1; spends ~$0.005)

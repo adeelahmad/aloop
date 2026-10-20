@@ -1,11 +1,13 @@
 # Evidence: the measured runs behind every public number
 
 Every time or cost figure in the [README](../../README.md), on the [site](../index.html) and in
-[ROADMAP §0](../ROADMAP.md#0-at-a-glance) is a row here. Each row is one live run of the whole
+[ROADMAP §0](../ROADMAP.md#0-at-a-glance) is a row here. Each row of the first table is one live run of the whole
 loop (`scripts/smoke/e2e-live.sh`): a one-line intent through intake, standards, planning,
 RED/SCAFFOLD/GREEN per task, structural review and the final gate, to merged, tested code in a
-real host session (Claude Code, or Codex/OpenCode with `HOST=`) with the approval given up front. The numbers come from the harness
-(`run-summary` reads the session's `result` lines and the gate log), never from the model.
+real host session (Claude Code, or Codex/OpenCode with `HOST=`) with the approval given up front.
+Each row of [Mission runs](#mission-runs) is one live mission cycle (`scripts/smoke/e2e-mission.sh`).
+The numbers come from the harness (`run-summary` and `scripts/smoke/mission_summary.py` read the
+sessions' `result` lines and the gate log), never from the model.
 `scripts/test/evidence.test.py` fails if a public figure has no row, or a row has no reproduce
 command.
 
@@ -97,3 +99,25 @@ stories and 5 tasks this time, so cost stayed at $1.04: task count still varies 
 Run 48 (on #90: `targets check` refuses two small adjacent tasks on the same files) planned 2
 tasks, one per story, with no merge refusal: the rule's persona line was enough. It is the cheapest
 `cli` run yet ($0.76, 25 supervisor turns, from $1.04 and 41), and all 5 blocks were self-checks.
+
+## Mission runs
+
+Each row is one live mission cycle (`make e2e-mission YES=1`, ROADMAP M9.13) on the seeded to-do
+fixture (`scripts/smoke/fixtures/todo-mission/`): a one-line mission through research, one journey,
+a baseline measured twice, a goal, its sprint and re-evaluation, to `goal.met`. The script types
+only the first message (the mission's answers) and each grant line a session showed the human
+(mission approve, baseline confirm), as `scripted-human (e2e)`: a row proves the relay and the
+loop, not a human's review. `make e2e-mission YES=1 DRY=1` seeds the repo and prints the plan
+without spending anything. The run leaves `summary.json`, `summary.md` and a ready-to-paste row
+(`scripts/smoke/mission_summary.py`); add the row here. No run is recorded yet.
+
+| run | fixture | plugin | checks | sessions / grants | sprints | wall | cost | tick estimate | outcome | reproduce |
+|---|---|---|---|---|---|---|---|---|---|---|
+
+Columns: *checks* are the run's own post-run checks (N/M); *sessions / grants* count the host
+sessions it started and the human grant rows in the mission ledger; *cost* is the sum of each
+session's last `result` line (≥ when a session ended without one); *tick estimate* is `mission tick`'s
+own price of the token ledger since the mission was set (— when unmeasured); *outcome* is
+`GOAL MET` or the run's stop reason. A row has this shape (placeholders, not a result):
+
+    | mission <N> | todo (claude) | v<version> (<sha>) | <N>/<M> | <s> / <g> | <n> | <m>m<ss>s | $<x.xx> | $<y.yy> | GOAL MET | `make e2e-mission YES=1` |
