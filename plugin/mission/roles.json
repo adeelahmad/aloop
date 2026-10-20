@@ -1,41 +1,47 @@
 {
   "schema": "aladdin.mission-roles/1",
-  "note": "The six fixed mission roles (ROADMAP §4.12, M9.9): the same for every mission. `writes` is every project path a role may write; the rest of the project is refused (bin/gate-mission-scope), so no mission role writes source and no builder writes docs/agents/mission/. `group` is the model route group (bin/_routes.py). At its stop, bin/gate-mission-artifact checks every artifact the role wrote (`mission <area> check`, once per artifact with the `area_checks` args where the area checks one; a `verdicts` state such as an ethics hard line is the role's finding, not a defect, and a `foreign` block such as a goal's pending ethics review is another role's next step) and refuses a change to another role's files. A track whose command makes one role write another role's dir changes `writes` here, with its reason.",
+  "note": "The six fixed mission roles (ROADMAP §4.12, M9.9): the same for every mission. `writes` is every project path a role may write; the rest of the project is refused (bin/gate-mission-scope), so no mission role writes source and no builder writes docs/agents/mission/. `group` is the model route group (bin/_routes.py). At its stop, bin/gate-mission-artifact checks every artifact the role wrote (`mission <area> check`, once per artifact with the `area_checks` args where the area checks one; a `verdicts` state such as an ethics hard line is the role's finding, not a defect, and a `foreign` block such as a goal's pending ethics review is another role's next step) and refuses a change to another role's files: a file whose `role` field names a role is that role's (the Product Tester's own reports in `research/`, `research new --role product-tester`). `records` are the files a role's command writes beside its artifacts (a judge run log, a usage report): its work only when the command's own `event` of the run names the file (`ref`), checked by their area. A research snapshot belongs to the roles whose reports cite it. A track whose command makes one role write another role's dir changes `writes` here, with its reason. `ledger_bound` names a role's own commands that decide from the ledger, so they refuse while it is broken: a run of that role that wrote nothing on a ledger broken before it is a note, not a block (the Scout's `journeys retire`; `journeys approve` is the human's); mission-roles.test.py checks each one refuses, that the list holds every command the role's persona, eval suite or handout (the mission skill) names that refuses there, and that the Scout's `research` and `journeys new` do not.",
   "roles": {
     "market-researcher": {
       "persona": "The Scout",
       "job": "Finds rival products, papers and benchmarks, writes a sourced landscape report (every claim cites an archived source), and derives the user journeys, metrics and pass criteria from it",
       "writes": ["docs/agents/mission/research/", "docs/agents/mission/journeys/"],
+      "ledger_bound": ["journeys retire"],
       "group": "planning"
     },
     "product-tester": {
       "persona": "The Field Tester",
       "job": "Runs rival products through the journeys on pinned versions and records what they score: the rival half of the baseline",
-      "writes": ["docs/agents/mission/baseline/"],
+      "writes": ["docs/agents/mission/baseline/", "docs/agents/mission/research/"],
+      "ledger_bound": ["baseline new", "baseline measure", "baseline apply"],
       "group": "worker"
     },
     "state-assessor": {
       "persona": "The Surveyor",
       "job": "Measures our own product with pinned scripts (journeys, the baseline measure, telemetry reports) and reports numbers only; never interprets",
       "writes": ["docs/agents/mission/state/", "docs/agents/mission/baseline/", "docs/agents/mission/telemetry/"],
+      "ledger_bound": ["assess", "baseline new", "baseline measure", "baseline apply"],
       "group": "worker"
     },
     "evaluator": {
       "persona": "The Referee",
       "job": "Compares the current state with the baseline and the rivals and writes the gap list with goal_met; grades subjective UX only through pinned, hashed judge rubrics; never builds",
       "writes": ["docs/agents/mission/eval/", "docs/agents/mission/judges/"],
+      "ledger_bound": ["evaluate", "goal close"],
       "group": "planning"
     },
     "mission-planner": {
       "persona": "The Navigator",
       "job": "Turns the top gaps into the next goal, applies the standing principles and the mission's mode, and hands the goal to Aladdin as intents",
       "writes": ["docs/agents/mission/goals/", "docs/agents/intents/"],
+      "ledger_bound": ["goal derive", "goal retire"],
       "group": "planning"
     },
     "ethics-reviewer": {
       "persona": "The Conscience",
       "job": "Reviews the mission and every derived goal in three tiers: clear (proceed), gray (pause and ask; the consent is bound to that goal), hard line (no consent unlocks it)",
       "writes": ["docs/agents/mission/ethics/"],
+      "ledger_bound": ["ethics record"],
       "group": "planning"
     }
   },
@@ -50,6 +56,13 @@
     "rubric": "judge",
     "telemetry": "telemetry"
   },
+  "records": {
+    "judge_run": {"path": "docs/agents/mission/judges/runs/", "ext": ".jsonl", "prefix": "rub", "area": "judge",
+                  "event": "judge.run", "ref": "runs", "what": "judge run log", "command": "judge run <rub_id>"},
+    "telemetry_report": {"path": "docs/agents/mission/telemetry/reports/", "ext": ".json", "id": "report_id",
+                         "prefix": "tlm", "refs": {"telemetry_id": "tlm"}, "area": "telemetry",
+                         "event": "telemetry.report", "ref": "report", "what": "usage report", "command": "telemetry report"}
+  },
   "area_checks": {
     "research": {"args": ["{id}"]},
     "judge": {"args": ["{id}"]},
@@ -57,7 +70,8 @@
     "assess": {"args": ["{id}"]},
     "journeys": {"args": ["{id}"]},
     "ethics": {"args": ["--subject", "{subject}", "--json"], "verdicts": ["hard"]},
-    "goal": {"args": ["{id}", "--json"], "foreign": ["ethics: "], "verdicts": ["retired"]}
+    "goal": {"args": ["{id}", "--json"], "foreign": ["ethics: "], "verdicts": ["retired"]},
+    "telemetry": {"args": ["--json"], "foreign": ["journey ", "the app does not carry "]}
   },
   "human_verbs": ["approve", "confirm", "consent", "veto", "accept", "revoke", "restore"],
   "read_only": ["status", "show", "check", "list", "diff", "due", "help", "--list", "--help", "-h"]
