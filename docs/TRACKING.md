@@ -89,11 +89,12 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.30 | Core agent principles; one-way / two-way door rule enforced by a gate | IMPLEMENTED_TESTED | `scripts/test/mission-doors.test.py` |
 | M9.40 | Artifact provenance in the mission loop | NOT_IMPLEMENTED | §4.12 |
 | M9.41 | Concurrent mission role runs are serialized | NOT_IMPLEMENTED | §4.12 |
-| M9.42 | Shared mission role dirs, judge run records and the judge command | NOT_IMPLEMENTED | §4.12 |
+| M9.42 | Shared mission role dirs and judge run records | IMPLEMENTED_TESTED | `scripts/test/mission-roles.test.py` |
 | M9.43 | A goal binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
 | M9.44 | A goal is re-measured between its sprints | NOT_IMPLEMENTED | §4.12 |
 | M9.45 | A journey's runner has a named author | NOT_IMPLEMENTED | §4.12 |
 | M9.46 | `mission due` is the supervisor's, not a role's | NOT_IMPLEMENTED | §4.12 |
+| M9.48 | Mission area follow-ups of the role gates' review (telemetry check split, measuring role, intent field shape, ledger repair advice, judge command) | NOT_IMPLEMENTED | §4.12 |
 | M9.50 | A goal sprinted with gaps still open gets a next step | NOT_IMPLEMENTED | §4.12 |
 | M9.51 | Lifting a mission block is the human's typed line, kept in the ledger | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | NOT_IMPLEMENTED | §4.13 |

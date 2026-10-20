@@ -9,6 +9,7 @@ area module, so the other M9 tracks' schemas and areas never change what this te
     python3 scripts/test/mission-roles.test.py
 """
 import atexit
+import glob
 import importlib.machinery
 import importlib.util
 import json
@@ -228,6 +229,18 @@ assert all("`agents/%s.json`" % r in open(os.path.join(ROOT, "evals", "README.md
 v = sh(sys.executable, os.path.join(REPO, "scripts", "eval", "validate-suites.py"), cwd=REPO)
 assert v.returncode == 0, v.stderr
 ok("eval suites: one per role (happy, edge, two negatives) on gate-mission-artifact; validate-suites passes")
+
+named, helps = set(), {}
+for r in ROLES:
+    for f in (os.path.join(ROOT, "agents", r + ".md"), os.path.join(ROOT, "evals", "agents", r + ".json")):
+        named |= {(r, f) + v for v in re.findall(r"`aloop mission ([a-z]+) ([a-z][a-z-]*)", open(f).read())}
+for r, f, area, verb in sorted(named):
+    if area not in helps:
+        h = sh(os.path.join(BIN, "mission"), area, "--help", cwd=REPO)
+        helps[area] = h.stdout + h.stderr
+    assert re.search(r"mission %s %s\b|^\s+%s\b" % (area, verb, verb), helps[area], re.M), (r, f, area, verb)
+assert len(named) >= 10, named
+ok("every `aloop mission <area> <verb>` a role's persona or eval suite names is a verb its area's --help lists")
 
 # ── B. gate-mission-scope: the role path guards ───────────────────────────────────
 P = git_repo(os.path.join(T, "proj"))
@@ -653,6 +666,42 @@ assert hook(MP, "mp6").returncode == 0
 ok("intents: no role rewrites the human's or intake's intent (intake's own check excuses its fill); a `source: mission`"
    " intent is the Mission Planner's, unless a planner run answers for it")
 
+hook(E, "ev27", "start")
+artifact("eval", gaps=[{"gap": "g26"}])
+json.dump({"intent_id": "int_human2", "source": "prompt", "want": "dark mode", "open_questions": [
+    {"question": "which theme?", "class": "ask", "answer": "the dark one"}]}, open(hp, "w"))   # the human answers
+M.emit(Q, "human.override", role="human", refs={"intent": hp})               # and the record names the intent
+r = hook(E, "ev27")
+assert r.returncode == 0 and "int_human2.json" in r.stderr, r.stderr          # the human's step: named, not blocked
+hook(E, "ev28", "start")
+artifact("eval", gaps=[{"gap": "g27"}])
+sk = sh(os.path.join(PL, "bin", "intent"), "new", "--source", "prompt", "--raw", "a cli", cwd=Q).stdout.strip().splitlines()[-1]
+json.dump(dict(json.load(open(sk)), want="a cli"), open(sk, "w"))           # intake fills the skeleton it just made
+assert hook(E, "ev28").returncode == 0                       # intake's intent.received of the run names it
+hook(E, "ev29", "start")
+artifact("eval", gaps=[{"gap": "g28"}])
+posed = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "3c4d5e6f"))
+json.dump(dict(ok_intent, intent_id=os.path.basename(posed)[:-5], want="rewrite the billing module"), open(posed, "w"))
+assert gblocked(hook(E, "ev29"), "%s is a new intent (source prompt)" % os.path.basename(posed)), hook(E, "ev29").stderr
+os.remove(posed)
+assert hook(E, "ev29").returncode == 0
+human_was = open(sk).read()                                  # intake's intent, named by its harness id
+hook(MP, "mp7", "start")
+artifact("goal", eval_id="evl_x", gaps=["g3"])
+os.remove(sk)
+assert gblocked(hook(MP, "mp7"), "%s was deleted" % os.path.basename(sk)), hook(MP, "mp7").stderr
+open(sk, "w").write(human_was)
+assert hook(MP, "mp7").returncode == 0
+hook(E, "ev30", "start")
+artifact("eval", gaps=[{"gap": "g29"}])
+planner_was = open(ev_mi).read()
+os.remove(ev_mi)
+assert gblocked(hook(E, "ev30"), "%s was deleted" % os.path.basename(ev_mi)), hook(E, "ev30").stderr
+open(ev_mi, "w").write(planner_was)
+assert hook(E, "ev30").returncode == 0
+ok("intents: a change the human's record or intake's own event of the run names is theirs; a new intent nothing names"
+   " (a role posing as the human) and a deleted intent block (a file no intent id names is no intent)")
+
 grant("mission.approved", "docs/agents/mission/mission.json", "0" * 64)
 rows, _ = M.ledger_rows(Q)
 row = {"event_id": "e" * 32, "ts": M.now(), "event": "journey.approved", "role": "human", "prev": rows[-1]["hash"],
@@ -676,6 +725,29 @@ grant("goal.approved", "docs/agents/mission/goals/gol_y.json", "0" * 64)   # a C
 assert hook(E, "ev19").returncode == 0
 ok("the ledger is append-only during a run: a removed tail row blocks with or without the run log; an append passes")
 
+led = open(M.ledger(Q)).read()
+open(M.ledger(Q), "a").write('{"event": "junk"}\n')        # a bad edit some earlier step left: the run starts broken
+hook(E, "ev32", "start")
+artifact("eval", gaps=[{"gap": "g30"}])
+open(M.ledger(Q), "w").write(led)                            # the supervisor's repair: the rows before the bad one
+assert not M.ledger_problems(Q)
+r = hook(E, "ev32")
+assert r.returncode == 0 and "ledger.jsonl was restored during your run" in r.stderr, r.stderr
+rows = led.splitlines(True)
+last = json.loads(rows[-1])
+last["data"]["reason"] = "approved after all"                 # an edited newest row, chained again: it verifies
+last["hash"] = M._row_hash({k: v for k, v in last.items() if k != "hash"})
+open(M.ledger(Q), "a").write('{"event": "junk"}\n')
+hook(E, "ev33", "start")
+artifact("eval", gaps=[{"gap": "g31"}])
+open(M.ledger(Q), "w").write("".join(rows[:-1]) + json.dumps(last, sort_keys=True) + "\n")
+assert not M.ledger_problems(Q)
+assert gblocked(hook(E, "ev33"), "ledger.jsonl was rewritten during your run"), hook(E, "ev33").stderr
+open(M.ledger(Q), "w").write(led)
+assert hook(E, "ev33").returncode == 0
+ok("a ledger restored during a run (to HEAD's copy, or the prefix of a ledger that started broken) verifies and"
+   " passes; any other rewrite still blocks")
+
 hook(S, "sa7", "start")
 artifact("state", numbers={"journeys_passed": 9})
 hook(E, "ev20", "start")
@@ -696,6 +768,17 @@ os.remove(fp4)
 assert hook(S, "sa8").returncode == 0
 ok("an overlapping run answers only for what it judged: a change after its stop, or one it never saw, is this run's")
 
+hook(S, "sa9", "start")
+artifact("state", numbers={"journeys_passed": 11})
+hook(E, "ev31", "start")
+fp5, fd5 = artifact("eval", gaps=[{"gap": "the evaluator's, accepted after the assessor started"}])
+assert hook(E, "ev31").returncode == 0
+os.remove(fp5)                                               # deleted inside the assessor's run
+assert gblocked(hook(S, "sa9"), "eval/%s.json was deleted" % fd5["eval_id"]), hook(S, "sa9").stderr
+M.save(fp5, fd5)
+assert hook(S, "sa9").returncode == 0
+ok("an artifact another role created and got accepted after this run started is never this run's to delete")
+
 RUNS = os.path.join(Q, ".aladdin", "state", "mission-runs")
 
 
@@ -712,6 +795,7 @@ backdate("mr9", 95)                                          # a long research r
 bp = {"session_id": "s1", "cwd": Q, "agent_type": MR, "agent_id": "mr9", "hook_event_name": "PostToolUse",
       "tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": ""}
 assert sh(os.path.join(PL, "bin", "budget"), "hook", "post", cwd=Q, inp=json.dumps(bp)).returncode == 0   # its latest call
+assert sh(os.path.join(PL, "bin", "transcripts"), "record", cwd=Q, inp=json.dumps(bp)).returncode == 0   # PostToolUse runs both
 hook(E, "ev22", "start")
 artifact("research", claims=[{"claim_id": "c1"}])
 artifact("eval", gaps=[{"gap": "g21"}])
@@ -728,6 +812,18 @@ assert gblocked(hook(E, "ev23"), "market-researcher"), hook(E, "ev23").stderr
 os.remove(rp10)
 assert hook(E, "ev23").returncode == 0
 ok("a run is open while it works (its last tool call, not its start, decides); one silent past the TTL owns nothing")
+
+hook(MR, "mr11", "start")
+backdate("mr11", 95)                                         # its stop never came
+os.makedirs(os.path.join(Q, ".aladdin", "budget"), exist_ok=True)
+open(os.path.join(Q, ".aladdin", "budget", "mr11.json"), "w").write("{}")   # run data any role may write
+hook(E, "ev26", "start")
+rp11, _ = artifact("research", claims=[{"claim_id": "c1"}])
+artifact("eval", gaps=[{"gap": "g25"}])
+assert gblocked(hook(E, "ev26"), "market-researcher"), hook(E, "ev26").stderr   # a touched budget file revives nothing
+os.remove(rp11)
+assert hook(E, "ev26").returncode == 0
+ok("a run's last tool call is read from the transcript store (no role writes it), never from its budget file")
 
 dr = os.path.join(QD, "eval", "draft-gaps.json")
 hook(E, "ev24", "start")
@@ -930,6 +1026,17 @@ assert any("STUCK" in xstop(MRS, "mr4").stderr for _ in range(3))
 ok("a research report belongs to the role its `role` field names: the Product Tester's own report passes; a report"
    " naming another role, or a change to another role's report, blocks")
 
+MD = os.path.join(X.dir, "docs", "agents", "mission")
+for aid, rid in (("pt5", researched.rid), ("pt6", mr_rid)):     # cited by the Scout's report only; by both roles' reports
+    snap = X.load("research", rid)["sources"][0]["snapshot"]
+    was = open(os.path.join(MD, snap), "rb").read()
+    r, _ = role_run(PT, aid, lambda: (report("product-tester", "Hands-on " + aid),
+                                      open(os.path.join(MD, snap), "wb").write(b"<p>rewritten</p>")))
+    assert r.returncode == 2 and "%s changed during your run, and it is market-researcher" % snap in r.stderr, r.stderr
+    open(os.path.join(MD, snap), "wb").write(was)
+    assert xstop(PT, aid).returncode == 0                    # its own report, and the snapshots it archived, pass
+ok("a research snapshot is its citing reports' roles': the Product Tester never rewrites one the Scout's report cites")
+
 FAKEJ = os.path.join(T, "fakejudge.py")
 open(FAKEJ, "w").write('import json,sys\nm=sys.argv[sys.argv.index("--model")+1]\nprint(json.dumps({"type":"result",'
                        '"result":json.dumps({"score":4,"reason":"clear"}),"modelUsage":{m:{"inputTokens":1,"outputTokens":1}}}))\n')
@@ -960,6 +1067,18 @@ ran(X.run("judge", "run", rub, "--subject", "todo@3", "--input", INP))
 assert xstop(E, "ev13").returncode == 0
 del X.env["ALOOP_JUDGE_CMD"]
 ok("a judge run record (judges/runs/<rub>.jsonl) is the Evaluator's work, checked with `mission judge check <rub>`")
+
+r, rub2 = role_run(E, "ev14", rubric)
+assert r.returncode == 0, r.stderr
+EMPTY = os.path.join(os.path.dirname(RUNS_F), rub2 + ".jsonl")
+r, _ = role_run(E, "ev15", lambda: open(EMPTY, "w").close())   # a run log no judge run wrote
+assert r.returncode == 2 and "runs/%s.jsonl: no judge.run event of your run names it" % rub2 in r.stderr, r.stderr
+os.remove(EMPTY)
+X.env["ALOOP_JUDGE_CMD"] = "%s %s --model {model}" % (sys.executable, FAKEJ)
+ran(X.run("judge", "run", rub2, "--subject", "todo@4", "--input", INP))
+del X.env["ALOOP_JUDGE_CMD"]
+assert xstop(E, "ev15").returncode == 0
+ok("a judge run log is the Evaluator's work only when a judge.run event of its run names it")
 
 st = lambda kind, i: X.load(kind, i)["status"]   # noqa: E731
 r, j4 = role_run(MRS, "mr5", lambda: X.journey(X.draft(researched.rid, title="Add a task fast")))
@@ -1044,6 +1163,28 @@ open(M.ledger(X.dir), "w").write(led)
 assert not M.ledger_problems(X.dir)
 ok("an area check that blocks only on ledger problems that predate the run is a note, not the role's block")
 
+open(M.ledger(X.dir), "w").write("".join(led.splitlines(True)[:-1]))
+r, out = role_run(S, "sa16", lambda: X.run("assess"))        # its command decides from the ledger, so it refuses
+assert out.returncode != 0 and r.returncode == 0 and "you wrote no artifact" in r.stderr and "predate" in r.stderr, r.stderr
+open(M.ledger(X.dir), "w").write(led)
+ok("an area command that refuses only because of ledger problems that predate the run leaves a note, not a block")
+
+LED = os.path.relpath(M.ledger(X.dir), X.dir)
+for c in (["add", LED], ["-c", "user.email=a@a", "-c", "user.name=A", "commit", "-qm", "the mission's ledger"]):
+    subprocess.run(["git"] + c, cwd=X.dir, check=True, capture_output=True)
+open(M.ledger(X.dir), "a").write('{"event": "junk"}\n')      # a bad edit an earlier step left
+
+
+def restored():
+    subprocess.run(["git", "checkout", "--", LED], cwd=X.dir, check=True)   # the supervisor follows the gates' advice
+    return made(X.run("assess"))
+
+
+r, _ = role_run(S, "sa17", restored)
+assert open(M.ledger(X.dir)).read().startswith(led) and r.returncode == 0, r.stderr   # and its own row after it
+assert "ledger.jsonl was restored during your run" in r.stderr, r.stderr
+ok("the supervisor's documented recovery (the ledger restored from git) during a role's run never voids the run")
+
 FAKE_GA = subprocess.Popen([sys.executable, os.path.join(REPO, "scripts", "test", "fixtures", "fake-ga.py")],
                            stdout=subprocess.PIPE, text=True)
 atexit.register(FAKE_GA.kill)
@@ -1090,5 +1231,22 @@ os.remove(q)
 ran(X.run("telemetry", "report", "--realtime"))
 assert xstop(S, "sa14").returncode == 0
 ok("telemetry: instrumentation the builders owe is a note at the assessor's stop; a sealed usage report is its work")
+
+
+def sealed_by_hand():
+    tid = os.path.basename(glob.glob(os.path.join(X.dir, "docs", "agents", "mission", "telemetry", "tlm_*.json"))[0])[:-5]
+    rid = M.new_id("telemetry")
+    rep = {"report_id": rid, "telemetry_id": tid, "kind": "settled", "fetched_at": M.now(),
+           "results": {"users": {"rows": [{"totalUsers": "100000"}]}}}        # numbers no API call fetched
+    M.seal(rep)
+    return M.save(os.path.join(X.dir, "docs", "agents", "mission", "telemetry", "reports", rid + ".json"), rep)
+
+
+r, fp = role_run(S, "sa18", sealed_by_hand)
+assert r.returncode == 2 and "%s: no telemetry.report event of your run names it" % os.path.basename(fp) in r.stderr, r.stderr
+os.remove(fp)
+ran(X.run("telemetry", "report", "--realtime"))
+assert xstop(S, "sa18").returncode == 0
+ok("a usage report is the assessor's work only when a telemetry.report event of its run names it")
 
 print("\n%d checks passed" % PASS[0])

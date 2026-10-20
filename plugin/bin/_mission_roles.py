@@ -10,11 +10,13 @@ project-relative path; anything else (a scratch dir, /dev/null) is outside the p
   - any other dispatched agent (a builder, a planner) never writes docs/agents/mission/, in any tree;
   - the supervisor never hand-writes a role's artifact (mission.json is the human's, sealed by approval).
 """
+import calendar
 import glob
 import hashlib
 import json
 import os
 import re
+import subprocess
 import time
 
 import _events
@@ -25,9 +27,15 @@ ROLES_FILE = os.path.join(M.AREAS_DIR, "roles.json")
 MISSION = "docs/agents/mission/"
 INTENTS = "docs/agents/intents/"
 LEDGER = MISSION + "ledger.jsonl"   # appended only by the mission CLI (_mission.record)
+INTENT_ID = re.compile(r"^int_[0-9a-f]{20}$")   # bin/intent's own id (`intent new` issues it)
+SNAPSHOTS = MISSION + "%s/snapshots/" % M.LAYOUT["research"]   # a source's archived bytes, named by their sha256
 RUN_DATA = (".aladdin/", ".agentic/", ".transcripts/")
 OPEN_RUN_TTL = 90 * 60        # an open run with no activity for this long (its stop never came) owns nothing:
                               # budget only observes a mission role's time box, so its last tool call decides
+                              # (as the transcript store recorded it: activity())
+TS = re.compile(rb'^\{"ts":\s*"(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ)"')   # a transcript store line's own time
+LINE_CAP = 8 << 20            # a longer line keeps only its head (its time), so the read stays linear; that one
+                              # call is not counted as activity (it can only make a run look idle, never active)
 
 
 def table():
@@ -71,6 +79,25 @@ def owners_of(rel, field):
     when that role may write it, else every role whose paths hold it."""
     by = owners(rel)
     return [field] if field in by else by
+
+
+def is_intent_file(rel):
+    """An Aladdin intent: docs/agents/intents/<intent_id>.json named by the id `intent new` issued. Any other
+    file there (a skeleton under a made-up name, a scratch note) is no intent: no intake check accepts it."""
+    return under(rel, INTENTS) and rel.count("/") == 3 and bool(INTENT_ID.match(os.path.basename(rel)[:-5])) \
+        and rel.endswith(".json")
+
+
+def is_snapshot(rel):
+    """A research source's archived bytes (research/snapshots/<sha256>)."""
+    return under(rel, SNAPSHOTS) and rel.count("/") == SNAPSHOTS.count("/")
+
+
+def cited_by(rel, *cites):
+    """The roles a snapshot belongs to: those whose research reports cite it (in any of the `cites` maps that
+    labels() returns), else the research dir's first owner (the Scout, whose evidence store it is)."""
+    out = sorted({r for c in cites for r in (c or {}).get(rel) or () if r in ROLES})
+    return out or owners(rel)[:1]
 
 
 def kind_of(rel):
@@ -189,9 +216,10 @@ def scan(project):
 
 
 def labels(project):
-    """({path: the mission role its `role` field names}, {intent path: its `source`}) of the top-level JSON
-    under docs/agents/mission/<dir>/ and docs/agents/intents/: who each file says it belongs to."""
-    roles, sources = {}, {}
+    """({path: the mission role its `role` field names}, {intent path: its `source`}, {snapshot path: the roles
+    whose research reports cite it}) of the top-level JSON under docs/agents/mission/<dir>/ and
+    docs/agents/intents/: who each file says it belongs to."""
+    roles, sources, cites = {}, {}, {}
     for pat in (os.path.join(project, MISSION, "*", "*.json"), os.path.join(project, INTENTS, "*.json")):
         for p in glob.glob(pat):
             d, _ = M.load(p)
@@ -200,19 +228,36 @@ def labels(project):
                 continue
             if rel.startswith(INTENTS):
                 sources[rel] = d.get("source") if isinstance(d.get("source"), str) else ""
-            elif d.get("role") in ROLES:
+                continue
+            if d.get("role") in ROLES:
                 roles[rel] = d["role"]
-    return roles, sources
+            if kind_of(rel) == "research" and isinstance(d.get("sources"), list):
+                by = roles.get(rel) or owners(rel)[0]
+                for src in d["sources"]:
+                    snap = MISSION + src["snapshot"] if isinstance(src, dict) and isinstance(src.get("snapshot"), str) else ""
+                    if is_snapshot(snap):
+                        cites.setdefault(snap, set()).add(by)
+    return roles, sources, {k: sorted(v) for k, v in cites.items()}
 
 
-def ledger_mark(project):
-    """{size, sha256} of the ledger's bytes now, None when there is none: the CLI only appends to it."""
+def _mark(raw):
+    return {"size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+
+
+def ledger_mark(project, problems=()):
+    """{size, sha256} of the ledger's bytes now, None when there is none: the CLI only appends to it. A ledger
+    with problems also marks its `good` rows: those before the first bad line (the supervisor's repair keeps them)."""
     try:
         with open(os.path.join(project, LEDGER), "rb") as f:
             raw = f.read()
     except OSError:
         return None
-    return {"size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+    mark = _mark(raw)
+    if problems:
+        bad = [int(m.group(1)) for m in (re.match(r"ledger line (\d+) ", x) for x in problems) if m]
+        lines = raw.splitlines(True)
+        mark["good"] = _mark(b"".join(lines[:min(bad) - 1]) if bad else raw)
+    return mark
 
 
 def ledger_kept(project, mark):
@@ -225,6 +270,35 @@ def ledger_kept(project, mark):
     except OSError:
         return False
     return len(raw) == int(mark.get("size") or 0) and hashlib.sha256(raw).hexdigest() == mark.get("sha256")
+
+
+def committed_ledger(project):
+    """The ledger's bytes as HEAD has them, None when it is not committed (or there is no git)."""
+    try:
+        r = subprocess.run(["git", "-C", project, "show", "HEAD:./" + LEDGER], capture_output=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def ledger_restored(project, mark):
+    """What a ledger rewritten during a run (it no longer starts with the bytes `mark` recorded) was restored to,
+    when that is the supervisor's repair: it verifies now and starts with HEAD's committed copy (`git checkout`),
+    or with the good rows of a ledger that started broken (`mark` good); "" for any other rewrite."""
+    try:
+        with open(os.path.join(project, LEDGER), "rb") as f:
+            raw = f.read()
+    except OSError:
+        return ""
+    if ledger_problems(project):
+        return ""
+    head = committed_ledger(project)
+    if head and raw.startswith(head):
+        return "HEAD's committed copy"
+    good = (mark or {}).get("good") if isinstance(mark, dict) else None
+    if isinstance(good, dict) and _mark(raw[:int(good.get("size") or 0)]) == good:
+        return "the rows it had before its first bad line"
+    return ""
 
 
 def runs_dir(project):
@@ -317,9 +391,10 @@ def ledger_problems(project):
 def marks(project):
     """What a stop diffs against: every file's fingerprint, who the files say they belong to, the event log's
     size, the ledger's bytes and its problems."""
-    roles, sources = labels(project)
-    return {"files": scan(project), "roles": roles, "sources": sources, "events_at": events_size(project),
-            "ledger": ledger_mark(project), "ledger_problems": ledger_problems(project)}
+    roles, sources, cites = labels(project)
+    problems = ledger_problems(project)
+    return {"files": scan(project), "roles": roles, "sources": sources, "cites": cites, "events_at": events_size(project),
+            "ledger": ledger_mark(project, problems), "ledger_problems": problems}
 
 
 def record_start(project, agent_id, role):
@@ -333,21 +408,66 @@ def load_run(project, agent_id):
     return d if isinstance(d, dict) else None
 
 
-def seen(project, d):
-    """When a run last showed activity: its start, or its newest tool call (bin/budget's PostToolUse hook rewrites
-    the agent's budget state on every call, on each host), whichever is later."""
+_ACTIVITY = {}
+
+
+def activity(project, since):
+    """{agent id: the time of its newest tool call after `since`}, read from the transcript store: `transcripts
+    record` (PostToolUse, on every host) appends each call's payload there, and no mission role writes the store
+    (is_harness_state). Each file is read from its end back to `since` only, in linear time; once per process."""
+    key = (project, int(since) // 60)
+    if key in _ACTIVITY:
+        return _ACTIVITY[key]
+    out = {}
+    for p in glob.glob(os.path.join(_paths.home(project, "transcripts", make=False), "*", "events.jsonl")):
+        try:
+            if os.path.getmtime(p) < since:
+                continue
+            with open(p, "rb") as f:
+                end, tail, done = f.seek(0, 2), b"", False
+                while end > 0 and not done:
+                    n = min(1 << 20, end)
+                    end -= n
+                    f.seek(end)
+                    lines = (f.read(n) + tail).split(b"\n")
+                    tail = lines.pop(0)[:LINE_CAP] if end > 0 else b""   # a line the next block back completes
+                    for ln in reversed(lines):
+                        m = TS.match(ln)
+                        if not m:
+                            continue
+                        t = calendar.timegm(time.strptime(m.group(1).decode(), "%Y-%m-%dT%H:%M:%SZ"))
+                        if t < since:
+                            done = True
+                            break
+                        if b'"agent_id"' not in ln:
+                            continue
+                        try:
+                            e = json.loads(ln)
+                        except ValueError:
+                            continue
+                        aid = (e.get("payload") or {}).get("agent_id") if isinstance(e, dict) else None
+                        if isinstance(aid, str) and aid and t > out.get(aid, 0):
+                            out[aid] = t
+        except OSError:
+            continue
+    _ACTIVITY[key] = out
+    return out
+
+
+def seen(project, d, now=None):
+    """When a run last showed activity: its start, or its newest tool call in the transcript store, whichever is
+    later (a run's own budget state is run data any role may write, so it never decides)."""
     t = float(d.get("started") or 0)
-    try:
-        aid = re.sub(r"[^A-Za-z0-9_.-]", "_", d.get("agent_id") or "")
-        t = max(t, os.path.getmtime(os.path.join(_paths.home(project, "budget", make=False), aid + ".json")))
-    except (OSError, TypeError):
-        pass
+    now = now or time.time()
+    if now - t >= OPEN_RUN_TTL and isinstance(d.get("agent_id"), str):
+        t = max(t, activity(project, now - OPEN_RUN_TTL).get(d["agent_id"], 0))
     return t
 
 
 def alive(project, d, now=None):
     """A run that started, has not stopped, and was active within OPEN_RUN_TTL."""
-    return not d.get("stopped") and (now or time.time()) - seen(project, d) < OPEN_RUN_TTL
+    now = now or time.time()
+    return not d.get("stopped") and now - seen(project, d, now) < OPEN_RUN_TTL
 
 
 def open_runs(project, now=None):
