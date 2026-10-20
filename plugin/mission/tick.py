@@ -6,9 +6,10 @@
         Each call records a mission.tick event (--peek records nothing). The same action is
         handed out at most 3 times in a row without a result, then BLOCKED.
   mission tick --force --by NAME
-        the human lifts a block the loop set (that repeat guard, or 3 failed goals in a row):
-        recorded as a grant, so the next tick, from any session, goes on. A hard line or a
-        stalled sprint is not lifted this way.
+        the human lifts a block the loop set (that repeat guard, or 3 failed goals in a row). It
+        is their own words (M9.17): it asks (exit 3) for the line they reply, `lift <mission>
+        <code>`, then records the lift in the ledger (mission.lifted), so the next tick, from any
+        session or a fresh checkout, goes on. A hard line or a stalled sprint is not lifted this way.
 
 The loop is IBM's autonomic MAPE-K over docs/agents/mission/: monitor (ASSESS), analyze
 (EVALUATE), plan (DERIVE_GOAL, PLAN_INTENTS), execute (SPRINT). Actions, first match wins:
@@ -290,6 +291,7 @@ def facts(cwd, now):
     raw, _ = M.ledger_rows(cwd)
     rows = sorted(raw, key=lambda r: r["ts"])            # the core's order: a union merge interleaves branches
     assessed, born, met = {}, {}, {}
+    f["lifted"], f["lifts"] = set(), {}
     for r in rows:
         name, d = r["event"], r["data"]
         if name == "state.assessed":
@@ -298,6 +300,11 @@ def facts(cwd, now):
             born.setdefault((d.get("subject"), d.get("sha256")), []).append(r["ts"])
         if name == "goal.met":
             met.setdefault(d.get("subject"), []).append(r["ts"])
+        if name == "mission.lifted" and r.get("role") == "human" and str(d.get("by") or "").strip():
+            f["lifted"].add(d.get("sha256"))             # the human's typed `lift` line (the ledger checks it)
+            f["lifts"][d.get("block")] = f["lifts"].get(d.get("block"), 0) + 1
+            if d.get("grant") == "GOALS":               # only lifting that block clears the count
+                resets.append(ms_ts(d.get("at")) or ms_end(r["ts"]) or 0)
         sub = tuple(x if isinstance(x, str) else None for x in (d.get("subject"), d.get("sha256")))
         if name in M.APPROVAL_EVENTS and r.get("role") == "human" and str(d.get("by") or "").strip():
             newest[(name, sub[0])] = sub[1]
@@ -325,8 +332,6 @@ def facts(cwd, now):
         ts = ms_end(e.get("ts"))
         if name == "intent.received" and isinstance(d.get("goal_id"), str) and isinstance(d.get("intent_id"), str):
             f["intents"].setdefault(d["goal_id"], []).append(d["intent_id"])
-        if name == "mission.tick" and d.get("grant") == "GOALS":    # only lifting that block clears the count
-            resets.append(ms_ts(d.get("at")) or ts or 0)
         m = re.match(r"^S(\d+)$", str(d.get("sprint") or (e.get("ids") or {}).get("sprint") or ""))
         if m and ts:
             n = int(m.group(1))
@@ -795,12 +800,12 @@ def cycle(f, now, cad):
 
 def handouts(f, key):
     """How many times in a row `key` went to a role or the supervisor: another handout ends the
-    run, a human's --force grant for it starts the count again, and human or WAIT ticks between
-    do not count (a retry after a lapsed lease is still a retry)."""
+    run, a human's --force lift of it (with its ledger row) starts the count again, and human or WAIT
+    ticks between do not count (a retry after a lapsed lease is still a retry)."""
     n = 0
     for e in reversed(f["ticks"]):
         d = e["data"]
-        if d.get("grant") == key:
+        if d.get("grant") == key and d.get("lift") in f["lifted"]:
             break
         if d.get("who") not in ("role", "supervisor"):
             continue
@@ -848,9 +853,16 @@ def record(cwd, d):
                    usd=f["budget"]["usd"])
 
 
+def lift_of(f, d):
+    """What the human's `lift` line grants: this block (its key) of this mission, lifted for the n-th
+    time, so a line typed for an earlier lift never lifts a later block."""
+    return M.digest({"mission_id": d["mission_id"], "block": d["key"], "lift": f["lifts"].get(d["key"], 0)})
+
+
 def force(cwd, now, by):
-    """The human lifts a block the loop set (the repeat guard, or 3 failed goals in a row): a grant
-    tick, so the next tick, from any session, hands the action out again. A hard line or a stalled
+    """The human lifts a block the loop set (the repeat guard, or 3 failed goals in a row): their typed
+    `lift` line (M9.17; M.NeedsHuman asks for it), recorded in the ledger, and a grant tick, so the next
+    tick, from any session or a fresh checkout, hands the action out again. A hard line or a stalled
     sprint is not lifted this way."""
     d = decide(cwd, now)
     if d["action"] != "BLOCKED":
@@ -859,9 +871,13 @@ def force(cwd, now, by):
     if not d.get("grant"):
         print("mission tick --force: this block is not lifted by --force: %s" % d["reason"], file=sys.stderr)
         return 2
+    f = d["_facts"]
+    sha = lift_of(f, d)
+    M.approve(cwd, "mission.lifted", f["mission_ref"], sha, by, block=d["key"], grant=d["grant"],
+              mission_id=d["mission_id"], at=iso(f["now"]))
     M.emit(cwd, "mission.tick", role="human", refs={"subject": d["subject"]}, action="FORCE", key="FORCE " + d["grant"],
-           grant=d["grant"], by=by, who="human", roles=[], handout=0, facts=d["facts"], mission_id=d["mission_id"],
-           reason="%s lifted the block: %s" % (by, d["reason"]), at=iso(d["_facts"]["now"]))
+           grant=d["grant"], lift=sha, by=by, who="human", roles=[], handout=0, facts=d["facts"],
+           mission_id=d["mission_id"], reason="%s lifted the block: %s" % (by, d["reason"]), at=iso(f["now"]))
     print("FORCE            %s lifted the block; the next tick goes on (%s)" % (by, d["grant"]))
     return 0
 
