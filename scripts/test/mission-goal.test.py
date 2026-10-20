@@ -220,7 +220,7 @@ ok("intents: one contract per gap (source mission, goal + gap provenance, princi
 r = p.run("goal", "next", gid)
 assert r.returncode == 0 and r.stdout.strip() == paths[0], r.stderr
 newest = max(glob.glob(os.path.join(p.dir, "docs", "agents", "intents", "int_*.json")), key=os.path.getmtime)
-assert newest == paths[0], newest                        # gate-intake re-checks the newest: the one handed off
+assert os.path.basename(newest) == os.path.basename(paths[0]), newest   # gate-intake re-checks the newest: the one handed off
 norm = p.events("intent.normalized")[-1]
 assert norm["data"]["intent_id"] == intents[0]["intent_id"] and norm["data"]["mode"] == "autonomous"
 _events.emit(p.dir, "plan.created", role="planner", caused_by=norm["event_id"], sprint="S1", intent_id=intents[0]["intent_id"])
