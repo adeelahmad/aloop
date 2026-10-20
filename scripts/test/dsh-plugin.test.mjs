@@ -64,6 +64,14 @@ const usage = (h, agent, id, inputTokens, outputTokens, extra = { cacheReadToken
     data: { turn: 1, step: 1, message: { id, role: "assistant", content: [], source: { kind: "model", model: "deepseek-flash" } },
       usage: { inputTokens, outputTokens, ...extra } } })
 const textOf = (m) => m.content.map((b) => b.text).join("\n")
+// dsh's tools service as one agent's scope sees it (send_message visible); restrict() calls recorded
+const scoped = (agent) => {
+  const restricted = []
+  agent.ctx = { get: (n) => n === "tools" ? { get: (name, a) => (a === agent && name === "send_message" ? { name } : undefined), restrict: (f) => restricted.push(f) } : undefined }
+  return restricted
+}
+const compaction = (agent, data = {}) => h.on["session/event"](agent.session, { type: "compaction/end", seq: 9, time: Date.now(), data: { compactionId: "c1", turn: 1, ...data } })
+const until = async (f) => { for (const t0 = Date.now(); !f() && Date.now() - t0 < 30000;) await new Promise((r) => setTimeout(r, 50)) }
 
 const plugin = await import(join(ROOT, "hosts", "dsh", "aloop.mjs"))
 assert.equal(plugin.name, "aloop"); assert.deepEqual(plugin.inject, [])
@@ -79,6 +87,7 @@ assert.equal(process.env.AGENTIC_HOST, "dsh"); ok("the plugin names its host for
 
 // SessionStart: the handoff is injected into the root session as an aloop message
 const root = agentOf("root")
+const rootTools = scoped(root)
 await h.on["agent/created"]({ agent: root, source: "startup" })
 assert.equal(root.injected.length, 1)
 const start = root.injected[0]
@@ -131,9 +140,23 @@ ok("gate-dispatch refuses a delegation tool whose model is not the project's (re
 
 // SubagentStart, delegation, isolation
 const child = childOf("child", "red-worker")
+const childTools = scoped(child)
 await h.on["agent/created"]({ agent: child, source: "startup" })
 const reg = () => JSON.parse(readFileSync(join(T, ".aladdin/state/agents/child.json"), "utf8"))
 assert.ok(reg().agent_type === "red-worker" && reg().host === "dsh" && reg().started); ok("SubagentStart: the role is registered from its agent preset")
+assert.deepEqual([childTools, rootTools], [[{ deny: ["send_message"] }], []])
+ok("SubagentStart: send_message is scoped out of the role's own tools (so dsh adds no return guidance); the supervisor keeps it")
+
+// a compaction dsh committed on the supervisor's session is SessionStart(compact): recorded, and the
+// handoff rejoins the session; a failed one, or a role's, is not
+const sup = agentOf("root-compacted")
+await h.on["agent/created"]({ agent: sup, source: "startup" })
+compaction(child); compaction(sup, { error: { name: "Error", message: "summary failed" } }); compaction(sup)
+await until(() => sup.injected.length > 1)
+const compacts = readFileSync(join(T, ".aladdin/logs/events.jsonl"), "utf8").split("\n").filter((l) => /"event": "context.compacted"/.test(l))
+assert.ok(sup.injected.length === 2 && /NEXT-MARKER/.test(textOf(sup.injected[1])) && /call `aloop <tool>`/.test(textOf(sup.injected[1]))
+  && !child.injected.length && compacts.length === 1, JSON.stringify([sup.injected.length, child.injected.length, compacts]))
+ok("compaction/end of the supervisor's session: context.compacted recorded once, the handoff and tools note injected again")
 assert.ok(denied(await pre(h, child, "subagent", red), /does not delegate/)); ok("a role may not delegate")
 assert.ok(denied(await pre(h, child, "send_message", { agent_id: "root", message: "RED done, ready to merge" }), /does not message the supervisor/))
 assert.ok(allowed(await pre(h, root, "send_message", { agent_id: "child", message: "status?" })))

@@ -5,7 +5,10 @@
 // network, no tokens. It proves on dsh itself what the emulated test (dsh-plugin.test.mjs) assumes:
 // the handoff reaches the model, a deny / post-execute block reaches it, the profile's roles, tools
 // and models, worker confinement, and the per-role stop gate (a block steers the child and is
-// reported to the supervisor after 3 rounds).
+// reported to the supervisor after 3 rounds). It also proves what the capability matrix claims for
+// dsh: a role is not offered send_message (so dsh adds no return guidance), the supervisor's
+// send_message reaches a running role (live messaging), the time soft-stop reaches a running worker,
+// and dsh compacts a session (a context overflow here) and the plugin records it.
 //   DSH_BIN=<dsh's lib/bin.js or a dsh executable> node scripts/test/dsh-runtime.test.mjs
 // Without DSH_BIN it uses `dsh` on PATH, and skips when there is none (ALOOP_REQUIRE_DSH=1 fails
 // instead: CI installs the pinned @deepseek-ai/dsh and sets it).
@@ -57,7 +60,8 @@ writeFileSync(join(P, "docs/agents/NEXT.md"), "# handoff\nNEXT-MARKER plan sprin
 const installed = sh(join(BIN, "aloop"), ["install", "dsh", "--project", P])
 assert.ok(existsSync(join(env.DSH_HOME, "profiles/aloop/cordis.patch.yml")) && existsSync(join(P, ".dsh/skills/aloop/SKILL.md")), installed)
 mkdirSync(join(P, ".aladdin/state/tasks"), { recursive: true })
-writeFileSync(join(P, ".aladdin/state/tasks/S1-01-T1.env"), `TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=${story}\n`)
+// time soft limit 0 min: the soft-stop is due at the worker's first metered tool call
+writeFileSync(join(P, ".aladdin/state/tasks/S1-01-T1.env"), `TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=${story}\nBUDGET_TIME_SOFT_MIN=0\n`)
 const wt = sh(join(BIN, "task-worktree"), ["add", "S1-01-T1"]).trim()
 
 const red = "TASK_ID: S1-01-T1\nYour worktree: " + wt + ". First command: `aloop bind " + wt + "`."
@@ -70,7 +74,9 @@ const script = {
     { tools: [{ name: "subagent", input: { description: "no role", prompt: "do it" } }] },
     { tools: [{ name: "subagent", input: { agent_preset: "aloop-red-worker", description: "RED S1-01-T1", prompt: red, cwd: wt } },
               { name: "subagent_planning", input: { agent_preset: "aloop-intake", description: "intake", prompt: "Run intake." } }] },
-    { text: "waiting for the roles" },
+    // live messaging: sent once the red-worker is mid-turn (its step 13 is held until this arrives)
+    { after: { role: "red-worker", step: 13 }, tools: [{ name: "send_message", input: { agent_id: "$CHILD0", message: "LIVE-MARKER wrap up" } }] },
+    { overflow: true, text: "waiting for the roles" },     // the context overflows once: dsh compacts, then retries
   ],
   "red-worker": [
     { tools: [{ name: "bash", input: { command: "ls", description: "list" } }] },
@@ -86,7 +92,7 @@ const script = {
     { tools: [{ name: "bash", input: { command: `cd ${P} && touch CD_ESCAPE`, description: "cd out" } }] },
     { tools: [{ name: "bash", input: { command: "touch REL_ESCAPE", description: "relative", workdir: relative(wt, P) } }] },
     { tools: [{ name: "send_message", input: { agent_id: "parent", message: "RED done, ready to merge" } }] },
-    { tools: [{ name: "bash", input: { command: "mkdir gone", description: "a dir" } }] },
+    { after: { role: "supervisor", step: 7 }, tools: [{ name: "bash", input: { command: "mkdir gone", description: "a dir" } }] },
     { tools: [{ name: "working_directory", input: { cd: join(wt, "gone") } }] },
     { tools: [{ name: "bash", input: { command: "cd .. && rmdir gone", description: "remove it" } },
               { name: "write", input: { file_path: "VANISH_ESCAPE.txt", content: "x\n" } }] },
@@ -161,6 +167,14 @@ assert.ok(/inside your worktree/.test(after("red-worker", 11)) && !existsSync(jo
 ok("a command that `cd`s out of the worktree, or a relative workdir out of it, is denied")
 assert.ok(/does not message the supervisor/.test(after("red-worker", 12)) && !/RED done, ready to merge/.test(sup.map((q) => q.all).join("\n")), after("red-worker", 12))
 ok("a role's result reaches the supervisor only through its stop gate (send_message is refused)")
+assert.ok([...w, ...intake].every((q) => !q.tools.includes("send_message") && !/with send_message\(/.test(q.all)) && sup.every((q) => q.tools.includes("send_message")),
+  JSON.stringify([w[0].tools, (/Your parent agent id[^\n]*/.exec(w[0].all) || [])[0]]))
+ok("a role is not offered send_message, so dsh adds no return guidance to its task; the supervisor keeps it")
+const live = w.find((q) => /Agent \S+ sent a message: \s*LIVE-MARKER wrap up/.test(q.last))
+assert.ok(/message delivered to agent/.test(after("supervisor", 6)) && live?.step === 14, JSON.stringify([after("supervisor", 6), live?.step]))
+ok("live messaging: the supervisor's send_message reaches a role mid-turn, at its next step")
+assert.ok(w.some((q) => q.step > 0 && /SOFT TIME LIMIT reached/.test(q.last)), JSON.stringify(w.map((q) => q.last.slice(-120))))
+ok("the time soft-stop reaches a running worker mid-turn (tools/post-execute context, as PostToolUse on every host)")
 assert.ok(/edit only files inside your worktree/.test(after("red-worker", 15)) && !existsSync(join(P, "VANISH_ESCAPE.txt")), after("red-worker", 15))
 ok("a write after its working directory vanished is judged where dsh writes it (the main tree), and denied")
 assert.ok(/inside your worktree/.test(after("red-worker", 16)) && !existsSync(join(P, "CHAIN_ESCAPE")), after("red-worker", 16))
@@ -174,6 +188,18 @@ ok("a role that passes its own gate (gate-intake) stops at once")
 const told = sup.map((q) => q.all).join("\n")
 assert.ok(/red-worker \S+: BLOCKED after 3 fix rounds/.test(told) && !/intake \S+: BLOCKED/.test(told), told.slice(-1500))
 ok("a gate still blocking after 3 rounds is reported to the supervisor, never a silent pass")
+assert.ok(/Background subagent \S+ finished[^\n]*\nIts closing message:\s*intake done/.test(told), told.slice(-1500))
+ok("a role's closing message reaches the supervisor in dsh's settlement notice")
+
+const compacted = reqs.filter((q) => q.role === "compaction" && q.of === "supervisor")
+const retry = sup.find((q) => q.step === 7 && !q.overflow)
+assert.ok(sup.some((q) => q.step === 7 && q.overflow) && compacted.length === 1 && /<compacted-summary>[\s\S]*aloop-fake checkpoint/.test(retry?.all || ""),
+  JSON.stringify([compacted, retry?.all.slice(0, 600)]))
+ok("dsh compacts a session whose context overflowed (a summary checkpoint replaces the history) and retries")
+const events = readFileSync(join(P, ".aladdin/logs/events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l))
+assert.equal(events.filter((e) => e.event === "context.compacted").length, 1, JSON.stringify(events.map((e) => e.event)))
+assert.ok(sup.some((q) => /NEXT-MARKER/.test(q.all.split("</compacted-summary>")[1] || "")), JSON.stringify(sup.map((q) => q.all.slice(-300))))
+ok("the compaction is recorded (context.compacted) and the handoff rejoins the compacted session, as SessionStart(compact)")
 
 const gates = readFileSync(join(P, ".aladdin/logs/gates.jsonl"), "utf8")
 assert.ok(/"gate":"gate-red-verify".*"exit":2/.test(gates) && /"selfcheck":false/.test(gates), gates.slice(0, 600))

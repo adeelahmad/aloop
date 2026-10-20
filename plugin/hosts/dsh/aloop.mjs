@@ -6,7 +6,9 @@
 //
 //   Claude Code hook   dsh point used here
 //   SessionStart       agent/created of a root agent → ensure-tools, session-start; the context is
-//                      injected into the session (its first step claims it)
+//                      injected into the session (its first step claims it). dsh compacts a session
+//                      in place (near its context limit, or /compact), so its compaction/end runs
+//                      them again as source `compact`: context.compacted, and the handoff returns
 //   UserPromptSubmit   agent/pre-step of a root agent with a user message → transcripts prompt,
 //                      intent-trigger; exit 2 rejects the step, context joins it
 //   PreToolUse         tools/pre-execute → host-adapter, gate-supervisor-scope, gate-mission-scope,
@@ -15,9 +17,9 @@
 //   PostToolUse        tools/post-execute → gate-validate-artifact, transcripts record, budget post;
 //                      exit 2 turns the result into the gate's feedback, context joins the next
 //                      request, `continue: false` cancels the agent
-//   SubagentStart      agent/created of a child → host-adapter, transcripts stage-in, worktree-hygiene,
-//                      a mission role's gate-mission-artifact start; gate-tooling on an execution
-//                      role's first tool call
+//   SubagentStart      agent/created of a child → send_message scoped out of its tools,
+//                      host-adapter, transcripts stage-in, worktree-hygiene, a mission role's
+//                      gate-mission-artifact start; gate-tooling on an execution role's first tool call
 //   SubagentStop       the child's own agent/turn-stopping → its role's gate. A block steers the child:
 //                      it keeps working and dsh does not settle it (native, like Claude's exit 2), up
 //                      to maxStopBlocks rounds. A STUCK release or a block past them is injected into
@@ -235,7 +237,9 @@ export function apply(ctx, config = {}) {
     const s = info(exec.agent)
     if (!active(s)) return null
     const tool = exec.name, a = argsOf(exec)
-    if (s.child && tool === "send_message")    // as on Claude Code, the result reaches the supervisor only through its stop gate
+    // as on Claude Code, the result reaches the supervisor only through its stop gate (a role is not
+    // offered send_message, see agent/created; a call to it anyway is refused here)
+    if (s.child && tool === "send_message")
       return "aloop: a role does not message the supervisor: your result reaches it when your stop gate passes. Write your report in your output.md block, then finish."
     if (DISPATCH.has(tool)) {
       if (s.child) return "aloop: a role does not delegate. Finish your own task and report back to the supervisor."
@@ -328,28 +332,39 @@ export function apply(ctx, config = {}) {
     }
     s.blocks = 0
   }
+  // SessionStart of a root agent: the context joins the session's next step
+  async function sessionStart(s, agent, source) {
+    const start = { hook_event_name: "SessionStart", session_id: s.id, transcript_path: transcriptOf(s), cwd: s.project, source }
+    const parts = [TOOLS_NOTE]
+    // the one dsh profile holds one project's role models (`aloop install dsh` records which)
+    let here = s.project
+    try { here = realpathSync(s.project) } catch {}
+    if (config.project && config.project !== "(global)" && config.project !== here) {
+      const note = `aloop: the dsh profile was rendered for ${config.project}, so its role models are that project's and gate-dispatch refuses a role on a model this one did not confirm. Run \`aloop install dsh --project ${s.project}\` first.`
+      parts.push(note)
+      process.stderr.write(`[${note}]\n`)
+    }
+    for (const script of ["ensure-tools", "session-start"]) {
+      const c = (await run(script, [], start, s.project)).json?.hookSpecificOutput?.additionalContext
+      if (c) parts.push(c)
+    }
+    agent.inject(msg(parts.join("\n\n")))
+  }
 
   ctx.on("agent/created", async ({ agent, source }) => {
     try {
       const s = info(agent)
       if (!active(s)) return
-      if (!s.child) {
-        const start = { hook_event_name: "SessionStart", session_id: s.id, transcript_path: transcriptOf(s), cwd: s.project, source: source || "startup" }
-        const parts = [TOOLS_NOTE]
-        // the one dsh profile holds one project's role models (`aloop install dsh` records which)
-        let here = s.project
-        try { here = realpathSync(s.project) } catch {}
-        if (config.project && config.project !== "(global)" && config.project !== here) {
-          const note = `aloop: the dsh profile was rendered for ${config.project}, so its role models are that project's and gate-dispatch refuses a role on a model this one did not confirm. Run \`aloop install dsh --project ${s.project}\` first.`
-          parts.push(note)
-          process.stderr.write(`[${note}]\n`)
-        }
-        for (const script of ["ensure-tools", "session-start"]) {
-          const c = (await run(script, [], start, s.project)).json?.hookSpecificOutput?.additionalContext
-          if (c) parts.push(c)
-        }
-        agent.inject(msg(parts.join("\n\n")))
-      } else {
+      if (!s.child) await sessionStart(s, agent, source || "startup")
+      else {
+        // dsh adds "send your result to the parent with send_message" to a child's task whenever
+        // the child can see send_message (dsh-subagent startLocal, right after this event); a role
+        // reports through its stop gate, so the tool is scoped out of its own tools (agent-local,
+        // dropped with the agent) and that guidance never comes. The supervisor keeps it.
+        try {
+          const tools = agent.ctx?.get("tools")
+          if (tools?.get("send_message", agent)) tools.restrict({ deny: ["send_message"] })
+        } catch {}
         const p = payload("SubagentStart", s)
         await run("host-adapter", ["hook"], p, s.project)
         await run("transcripts", ["stage-in"], p, s.project)
@@ -417,6 +432,12 @@ export function apply(ctx, config = {}) {
 
   ctx.on("session/event", (session, event) => {
     try {
+      // a compaction that committed (a failed one ends with `error`): Claude Code's SessionStart(compact)
+      if (event?.type === "compaction/end") {
+        const s = info(session)
+        if (!s.child && s.agent && active(s) && !event.data?.error) sessionStart(s, s.agent, "compact").catch(() => {})
+        return
+      }
       if (event?.type !== "assistant/message" || !event.data?.usage) return
       const s = info(session)
       if (!active(s)) return
