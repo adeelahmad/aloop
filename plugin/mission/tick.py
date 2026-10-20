@@ -388,6 +388,16 @@ def ethics_of(f, kind, a):
     return f["verdicts"][key]
 
 
+def reply(verb, name, sha, cmd):
+    """The line the human types to grant exactly this content (M9.17), and the command that then records
+    it: the same code the grant's provenance checks, so relaying the hand-off is enough."""
+    return "the human replies `%s %s %s`, then `aloop mission %s`" % (verb, name, M.code(sha), cmd)
+
+
+def confirm_line(b):
+    return reply("confirm", b["id"], b["sha"], "baseline confirm %s --by NAME" % b["id"])
+
+
 def has(f, event, a):
     return (event, a["ref"], a["sha"]) in f["approvals"]
 
@@ -489,8 +499,9 @@ def rules(f):
                               "it; the human changes the mission", m["ref"])
     if t == "pending":
         return act("ASK_CONSENT", "the mission is in an ethical gray area: the human consents to this content and "
-                                  "each of its gray reviews, with a reason (aloop mission ethics consent --subject "
-                                  "mission --by NAME --reason TEXT), or changes it", m["ref"])
+                                  "each of its gray reviews, with a reason (%s), or changes it"
+                   % reply("consent", f["mission"].get("mission_id"), m["sha"],
+                           "ethics consent --subject mission --by NAME --reason TEXT"), m["ref"])
     if t != "ok":
         return act("BLOCKED", "the mission's ethics review fails its check (%s): the human restores it (git), or "
                               "changes the mission" % (why[0] if why else t), m["ref"])
@@ -616,7 +627,8 @@ def baseline_rule(f, mode, now):
         if r != "measured":
             return r
         return act("CONFIRM_BASELINE", "baseline %s is measured: the human confirms it as the starting point and "
-                                       "the definition of best" % newer[-1]["id"], newer[-1]["ref"])
+                                       "the definition of best: %s" % (newer[-1]["id"], confirm_line(newer[-1])),
+                   newer[-1]["ref"])
     rc, probs, _ = B.evaluate(cwd)
     if rc == 2:
         return act("BLOCKED", "the confirmed baseline %s fails its check (%s): the human restores it (git), or "
@@ -631,7 +643,7 @@ def baseline_rule(f, mode, now):
             why = ("a spoon-fed mission confirms every version" if mode != "autonomous" else
                    "it tolerates more drift than %s: a looser gate is the human's" % f["baseline_id"])
             return act("CONFIRM_BASELINE", "a replacement baseline %s is measured; %s (the confirmed %s stays until "
-                                           "then)" % (b["id"], why, f["baseline_id"]), b["ref"])
+                                           "then): %s" % (b["id"], why, f["baseline_id"], confirm_line(b)), b["ref"])
         w = veto_window(f)
         since = ms_end(rec["ts"])
         if w is not None and since is not None and now >= since + w:
@@ -664,9 +676,10 @@ def goal_rule(f, g, mode, now, cad):
                                   "sprint; no new goal starts until it closes" % (g["id"], running[-1]), g["ref"])
         return None                              # the cycle re-derives (and counts it)
     if t == "pending":
-        return act("ASK_CONSENT", "goal %s is in an ethical gray area: the human consents for this goal only (aloop "
-                                  "mission ethics consent --subject %s --by NAME --reason TEXT), or the planner "
-                                  "derives another" % (g["id"], g["id"]), g["ref"])
+        return act("ASK_CONSENT", "goal %s is in an ethical gray area: the human consents for this goal only (%s), "
+                                  "or the planner derives another"
+                   % (g["id"], reply("consent", g["id"], g["sha"],
+                                     "ethics consent --subject %s --by NAME --reason TEXT" % g["id"])), g["ref"])
     if t != "ok":
         return act("BLOCKED", "goal %s's ethics review fails its check (%s): the human restores it (git), or the "
                               "planner derives another goal" % (g["id"], why[0] if why else t), g["ref"])

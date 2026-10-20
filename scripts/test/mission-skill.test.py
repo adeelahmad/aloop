@@ -85,8 +85,15 @@ for src, forms in (("bin/_mission.py", ("they reply  ", "then run this again")),
                    ("mission/goal.py", ("then aloop mission goal approve",))):
     text = open(os.path.join(PLUGIN, src)).read()
     assert all(f in text for f in forms), (src, forms)
+# each grant's row relays the line tick's reason names, never a yes in other words
+tick_src = open(os.path.join(PLUGIN, "mission", "tick.py")).read()
+assert "the human replies `%s %s %s`, then `aloop mission %s`" in tick_src, "tick's grant hand-offs name no reply line"
+for action, verb in (("CONFIRM_MISSION", "approve"), ("CONFIRM_BASELINE", "confirm"), ("ASK_CONSENT", "consent")):
+    row = rows[action]
+    assert "relay" in row.lower() and "`%s <id> <code>`" % verb in row and "typed" in row, (action, row)
+    assert not re.search(r"\byes\b", row), "%s's row still waits for a yes: %r" % (action, row)
 ok("hard rules: no mission artifact by hand, approvals only in the human's own typed line, hard lines final, "
-   "telemetry never gates")
+   "telemetry never gates; each grant row relays its line")
 
 # 6) setting a mission asks the human only for what requirement 1 gives them
 setup = SKILL[SKILL.index("## Setting a mission"):]
