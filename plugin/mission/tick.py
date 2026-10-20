@@ -932,10 +932,11 @@ def lifted(data):
 
 def lift_of(f, d):
     """This block's lift: its key, how many lifts of that key the ledger has, and the occurrence: for
-    3 failed goals the newest one's time (the reset reaches that far, whatever the clock says), for
-    a repeat the handout that tripped it. So a line typed for one block never lifts another."""
+    3 failed goals or a retired goal's held gaps the newest goal's time, from the id the block names (the
+    reset reaches that far, whatever the clock or the goal's file says), for a repeat the handout that
+    tripped it. So a line typed for one block never lifts another."""
     if d["grant"] == "GOALS":
-        at = max([g["ms"] for g in f["kinds"]["goal"] if g["ref"] == d["subject"]] or [0])
+        at = ms_doc({"goal_id": os.path.splitext(os.path.basename(d["subject"]))[0]}, "goal")
     else:
         at = next((e.get("event_id") for e in reversed(f["ticks"]) if e["data"].get("key") == d["grant"]
                    and e["data"].get("who") in ("role", "supervisor")), "")

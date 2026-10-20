@@ -123,8 +123,8 @@ def split_held(cwd, gaps, edoc=None):
     """(open, held): a gap whose summary a hard line fixed is held for good (ethics.hard_words), so a
     goal derived again never takes it and the loop moves on to the next gap. A gap a retired goal left
     open is held too (M9.50: its sprints already tried it), on that eval's baseline, until a new
-    baseline version, the human's lift of that hold (`tick --force`) or their next approval of the
-    mission; a regression is never held. Each held gap names what holds it."""
+    baseline version, the human's next approval of the mission or their lift of the block tick sets
+    when every gap is held (`tick --force`); a regression is never held. Each held gap names what holds it."""
     hard, ids = E.hard_words(cwd), E.held_gaps(cwd)
     tried = retired_gaps(cwd, edoc.get("baseline_id")) if isinstance(edoc, dict) else {}
     held = []
@@ -355,8 +355,8 @@ def cmd_derive(cwd, o):
         stuck = [g for g in held if g["gap_id"] in want]
         if stuck:
             report(["%s held by %s: no goal takes it (a hard line: aloop mission ethics check; a retired goal's gap: "
-                    "a new baseline version, the human's `aloop mission tick --force --by NAME` or their approval "
-                    "of the mission frees it)"
+                    "a new baseline version or the human's approval of the mission frees it, and so does their "
+                    "`aloop mission tick --force --by NAME` once every gap is held)"
                     % (", ".join(g["gap_id"] for g in stuck), stuck[0]["held_by"])], [])
             return 2
         missing = [x for x in want if x not in by_id]
@@ -529,24 +529,26 @@ def cmd_next(cwd, gid):
                if e.get("event") in ("plan.created", "plan.revised") and isinstance(e.get("data"), dict)
                and isinstance(e["data"].get("intent_id"), str)}
     # each gap's intent in the goal's order, then any later intent of the goal (a retry for a gap): every
-    # intent `mission tick` and `goal retire` count is handed out here
-    queue = [have[gap["gap_id"]] for gap in g["gaps"] if gap["gap_id"] in have]
-    first = {it.get("intent_id") for _, it in queue}
-    for iid in goal_intent_ids(cwd, gid):
-        p = os.path.join(_paths.docs(cwd), "intents", "%s.json" % iid)
-        doc, _ = M.load(p)
-        if iid not in first and isinstance(doc, dict) and doc.get("intent_id") == iid:
-            queue.append((p, doc))
-    for p, it in queue:
-        if it.get("intent_id") in planned:
+    # intent `mission tick` and `goal retire` count is handed out here, and one whose file is gone or
+    # broken goes to `intent check`, which names it
+    queue = [(p, it.get("intent_id")) for p, it in (have[gap["gap_id"]] for gap in g["gaps"] if gap["gap_id"] in have)]
+    first = {iid for _, iid in queue}
+    queue += [(os.path.join(_paths.docs(cwd), "intents", "%s.json" % iid), iid)
+              for iid in goal_intent_ids(cwd, gid) if iid not in first]
+    for p, iid in queue:
+        if iid in planned:
             continue
-        others = [os.path.getmtime(x) for x in glob.glob(os.path.join(os.path.dirname(p), "int_*.json")) if x != p]
-        t = max(others + [time.time()]) + 0.01
-        os.utime(p, (t, t))     # gate-intake re-checks the newest intent file: the one handed off
+        if os.path.isfile(p):
+            others = [os.path.getmtime(x) for x in glob.glob(os.path.join(os.path.dirname(p), "int_*.json"))
+                      if x != p]
+            t = max(others + [time.time()]) + 0.01
+            os.utime(p, (t, t))     # gate-intake re-checks the newest intent file: the one handed off
         r = subprocess.run([os.path.join(BIN, "intent"), "check", p, "--mode", facts["autonomy"]], cwd=cwd,
                            capture_output=True, text=True)
         sys.stderr.write(r.stderr)
         if r.returncode:
+            print("[goal] %s's next intent %s does not pass `intent check` (%s): the planner fixes it"
+                  % (gid, iid, M.rel(cwd, p)), file=sys.stderr)
             return r.returncode
         print(p)
         return 0

@@ -1366,7 +1366,7 @@ expect(p.tick(later(p)), "EVALUATE", 0, "retired")                         # its
 assert p.mi("evaluate").returncode == 0
 held = "held (%d by retired goal %s)" % (n, gid)                          # its sprints already tried every gap
 expect(p.tick(later(p), "--peek"), "BLOCKED", 2, held)
-json.dump(dict(p.load("goal", gid), status="active"), open(gp, "w"))     # the record decides
+json.dump(dict(p.load("goal", gid), status="active", note="tried"), open(gp, "w"))   # the record decides
 shutil.rmtree(os.path.join(p.dir, ".aladdin"))                             # a fresh checkout keeps the retirement
 d = p.tick(later(p), "--peek")
 expect(d, "BLOCKED", 2, held)

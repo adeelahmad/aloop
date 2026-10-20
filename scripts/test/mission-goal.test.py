@@ -478,6 +478,10 @@ i3 = p4.events("intent.received")[-1]["data"]["intent_id"]
 refused(em["eval_id"], "intent %s has no plan yet" % i3)
 ip3 = os.path.join(p4.dir, "docs", "agents", "intents", i3 + ".json")
 d3, d1 = json.load(open(ip3)), json.load(open(G.goal_intents(p4.dir, gk)[em["gaps"][0]["gap_id"]][0]))
+for broken in (None, "{", json.dumps(d1)):                          # gone, unreadable, another intent's copy
+    os.remove(ip3) if broken is None else open(ip3, "w").write(broken)
+    r = p4.run("goal", "next", gk)                                  # `next` names the file it cannot hand out
+    assert r.returncode == 2 and i3 in r.stderr and "BLOCK[intent]" in r.stderr, (broken, r.returncode, r.stderr)
 d3.update({k: d1[k] for k in ("actor", "want", "why", "done_looks_like", "success_scenarios", "failure_scenarios")})
 json.dump(d3, open(ip3, "w"))                                      # the planner fills it, as intake would
 r = p4.run("goal", "next", gk)
