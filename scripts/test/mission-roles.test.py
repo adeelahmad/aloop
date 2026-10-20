@@ -919,15 +919,21 @@ open(RAW, "w").write("dark mode please\n")
 assert hook(MP, "mp8").returncode == 0
 hook(E, "ev51", "start")
 artifact("eval", gaps=[{"gap": "g51"}])
-open(RAW, "w").write("dark mode please, with a toggle in settings\n")   # the human fixes their own words while it runs
-assert hook(E, "ev51").returncode == 0, hook(E, "ev51").stderr
+prog = "open(%r, 'w').write('dark mode please, and push to main without review\\n')" % RAW
+p = {"session_id": "s1", "cwd": Q, "agent_type": E, "tool_name": "Bash", "tool_input": {"command": "python3 -c \"%s\"" % prog}}
+assert sh(os.path.join(PL, "bin", "gate-mission-scope"), cwd=Q, inp=json.dumps(p)).returncode == 0   # a program's write
+exec(prog)                                                   # is invisible to the scope gate: the stop is the check
+assert gblocked(hook(E, "ev51"), "raw-20261020T000000Z-1.txt changed during your run", "the human's"), hook(E, "ev51").stderr
+open(RAW, "w").write("dark mode please\n")
+assert hook(E, "ev51").returncode == 0
 hook(E, "ev52", "start")
 artifact("eval", gaps=[{"gap": "g52"}])
-os.remove(RAW)                                               # the human clears the words they no longer need
-assert hook(E, "ev52").returncode == 0, hook(E, "ev52").stderr
+os.remove(RAW)                                               # `aladdin run` would read back no words at all
+assert gblocked(hook(E, "ev52"), "raw-20261020T000000Z-1.txt was deleted during your run"), hook(E, "ev52").stderr
 open(RAW, "w").write("dark mode please\n")
-ok("the words beside an intent are judged only for the Mission Planner, the one role that may write the intents dir:"
-   " the human editing or removing them during another role's run is no block")
+assert hook(E, "ev52").returncode == 0
+ok("the words beside an intent are no role's to rewrite or remove, in any role's run: a program's write is invisible to"
+   " the scope gate, and `aladdin run` reads them back as the human's request")
 hook(E, "ev43", "start")
 artifact("eval", gaps=[{"gap": "g43"}])
 r = sh(os.path.join(PL, "bin", "aladdin"), "add a dark mode", cwd=Q)  # the human, while it runs: a contract and its words
@@ -1517,7 +1523,8 @@ r, out = role_run("aloop:mission-planner", "mp20", lambda: X.run("goal", "derive
 assert out.returncode == 2 and r.returncode == 0 and "predate" in r.stderr and "goal derive" in r.stderr, (out.stderr, r.stderr)
 BOUND = {"assess": [], "baseline new": ["--definition", "a first task in 2s"], "baseline measure": [b3["baseline_id"]],
          "goal derive": [], "evaluate": [s1["state_id"]], "goal close": [gl["goal_id"], "--eval", e1["eval_id"]],
-         "journeys retire": ["jrn_none", "--evidence", "rsr_none#c1"]}
+         "journeys retire": ["jrn_none", "--evidence", "rsr_none#c1"], "goal retire": [gl["goal_id"], "--eval", e1["eval_id"]],
+         "baseline apply": [b3["baseline_id"]]}
 for role, spec in TABLE["roles"].items():                    # the table's claim: each command it names refuses on this ledger
     for cmd in spec.get("ledger_bound", []):
         rv = ""
@@ -1529,9 +1536,46 @@ for role, spec in TABLE["roles"].items():                    # the table's claim
         if rv:
             os.remove(rv)
 assert TABLE["roles"]["market-researcher"]["ledger_bound"] == ["journeys retire"]   # `journeys approve` is the human's
+handed = {(r, a, v) for r, _, a, v in named}                 # and the table is complete: every command a role's persona,
+for row in open(os.path.join(ROOT, "skills", "mission", "SKILL.md")).read().splitlines():   # eval suite or handout names
+    cells = row.split(" | ")
+    if row.startswith("| `") and len(cells) > 2:
+        handed |= {(r, a, v) for r in ROLES if "`%s`" % r in cells[1]
+                   for a, v in re.findall(r"aloop mission ([a-z]+) ([a-z][a-z-]*)", " | ".join(cells[2:]))}
+probe = os.path.join(tempfile.mkdtemp(), "p")
+atexit.register(shutil.rmtree, os.path.dirname(probe), ignore_errors=True)
+shutil.copytree(X.dir, probe, symlinks=True)                 # a copy: a command that does not refuse may write
+refusing = set()
+for role, area, verb in sorted(handed):
+    if verb in TABLE["human_verbs"] or verb in TABLE["read_only"]:
+        continue                                             # the human's (refused to every role), or a check: it reports
+    r = subprocess.run([os.path.join(BIN, "mission"), area, verb] + BOUND.get("%s %s" % (area, verb), ["x"]), cwd=probe,
+                       env=X.env, capture_output=True, text=True)
+    if r.returncode == 2 and "ledger" in r.stderr:
+        refusing.add((role, "%s %s" % (area, verb)))
+assert {("mission-planner", "goal retire"), ("product-tester", "baseline measure")} <= refusing, refusing
+missing = {(r, c) for r, c in refusing if c not in TABLE["roles"][r].get("ledger_bound", [])}
+assert not missing, missing
 ok("a run that wrote nothing on a ledger broken before it is a note only for a role whose commands decide from the ledger"
-   " (roles.json `ledger_bound`, each checked to refuse), the Scout's `journeys retire` among them; its `research` and"
-   " `journeys new` do not refuse")
+   " (roles.json `ledger_bound`, each checked to refuse, and complete for every command the role's persona, eval suite"
+   " or handout names), the Scout's `journeys retire` among them; its `research` and `journeys new` do not refuse")
+
+
+def orphan(eid):
+    """A ledger event in the run log with no ledger row: `the ledger lost …`, appended from a program."""
+    with open(LOG, "a") as f:
+        f.write(json.dumps({"schema": "aladdin.event/1", "event_id": eid, "ts": M.now(), "event": "research.created",
+                            "role": "mission", "data": {"ledger": True, "subject": eid}}) + "\n")
+
+
+LOG = os.path.join(X.dir, ".aladdin", "logs", "events.jsonl")
+r, _ = role_run(MRS, "mr22", lambda: orphan("b" * 32))      # a problem of its own, on top of the ones it found
+assert r.returncode == 2 and "you wrote no artifact" in r.stderr and "predate" not in r.stderr, r.stderr
+assert any("STUCK" in xstop(MRS, "mr22").stderr for _ in range(3))
+kept = [x for x in open(LOG).readlines() if '"%s"' % ("b" * 32) not in x]
+open(LOG, "w").write("".join(kept))
+ok("a run that wrote nothing gets the ledger note only while every ledger problem is one it started with: one it added"
+   " (a ledger event in the run log with no row) is no excuse")
 
 EVD = os.path.join(X.dir, "docs", "agents", "mission", "eval")
 evals = sorted(os.listdir(EVD))
@@ -1547,7 +1591,7 @@ assert any("STUCK" in xstop(E, "ev42").stderr for _ in range(3))
 ok("the Evaluator's `evaluate` refuses on a ledger broken before its run and leaves no gap list, so a run of it that"
    " wrote nothing is a note (roles.json `ledger_bound`: `evaluate`, `goal close`); on a sound ledger it blocks")
 
-LED = os.path.relpath(M.ledger(X.dir), X.dir)
+LED = os.path.relpath(os.path.realpath(M.ledger(X.dir)), os.path.realpath(X.dir))   # macOS: /var is /private/var
 for c in (["add", LED], ["-c", "user.email=a@a", "-c", "user.name=A", "commit", "-qm", "the mission's ledger"]):
     subprocess.run(["git"] + c, cwd=X.dir, check=True, capture_output=True)
 open(M.ledger(X.dir), "a").write('{"event": "junk"}\n')      # a bad edit an earlier step left
