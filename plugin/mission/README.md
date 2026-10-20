@@ -60,7 +60,7 @@ A gate checks structure and evidence, never whether a judgment is right.
   draft or changed since its newest approval.
 - **The ledger** `docs/agents/mission/ledger.jsonl` holds every record a gate decides from
   (`LEDGER_EVENTS`: the human decisions, `baseline.measured`, `journey.retired`, `ethics.reviewed`,
-  `ethics.blocked`, `goal.derived`, `goal.met`), committed with the artifacts.
+  `ethics.blocked`, `goal.derived`, `goal.met`, `door.crossed`), committed with the artifacts.
   `M.record(cwd, event, subject, role, **data)` appends one (and emits the event); `M.record_human` /
   `M.approve` are the human-only forms. The event stream is git-ignored run data, so a fresh checkout
   reads the ledger only. Each row carries the hash of the row it follows: an edited, removed,
@@ -106,7 +106,9 @@ A gate checks structure and evidence, never whether a judgment is right.
 - A gap list (`evl_…`, sealed) is `{eval_id, state_id, baseline_id, goal_id, goal_met, regressions,
   gaps, earned, metrics}`; each gap is `{gap_id: "<journey_id>#<criterion_id>", journey_id,
   criterion_id, kind: regression|open|unscored, now, baseline, target, distance}`, regressions first,
-  then by distance. `eval.completed` carries `eval_id` and `sha256`. Every input is the content its
+  then by distance. `eval.completed` is a ledger record carrying `eval_id` and `sha256`: a gap list
+  counts (for `evaluate check`, `goal` and `tick`) only with the record of its content and a seal that
+  matches it, and the newest is the newest by the ledger's order. Every input is the content its
   record covers: the state a `state.assessed` ledger record (only `mission assess` measures), the
   baseline a confirmation, each journey the content the baseline froze, and the goal a `goal.derived`
   or `goal.approved` record (the newest such goal with no later `goal.met` record is the active one; a
@@ -141,6 +143,16 @@ A gate checks structure and evidence, never whether a judgment is right.
   newest file before normalizing it). `record_authority` also approves the latest plan:
   record a goal's authority only after its sprint's `ids freeze`. `aladdin "<intent>"` refuses a
   bare intent containing `/`; use `aladdin run`.
+- **M9.30 doors.** `doors.json` is the catalogue (anything unlisted is two-way; `{DEF}` is the default
+  branch, `{DRY}` "not a dry run or a help page"); `doors.py` reads Bash as the shell does (with
+  `plugin/bin/_shellread.py`, the scope gate's reader; `views`: each command with the directory it acts on and
+  the stdin it is fed), matches an action by program and arguments, reads the human's `door.authorized` / `door.revoked` ledger rows
+  (`HUMAN_EVENTS`), and runs as the PreToolUse hook `mission doors hook` (deny JSON, fails closed with
+  exit 2). A gate that knows an action is a one-way door can call `doors.verdict(cwd, tool, input)`.
+  The core principles live in `principles.md` `## Core`, rendered by `principles.render_core()`.
+- **M9.17 approvals.** Any session can run `mission approve --by anyone` or `events authority`, or
+  append a well-formed ledger row; an approval has to cite a captured human prompt before it means a
+  human approved.
 - **M9.17 approvals (done; what M9.9 must close).** A grant cites a captured prompt line, but the prompt log
   is run data any shell can append to, the hook's own command (`transcripts prompt`) reads its payload from
   stdin, and a headless session a role starts (`claude -p`, `codex exec`, `opencode run`) fires
@@ -175,6 +187,7 @@ loop to move on records them:
 | journeys defined | a journey that `journeys.lifecycle` does not call retired |
 | a state report or eval | its `baseline_id` (another than the current one: re-assess, re-evaluate) and the eval's boolean `goal_met` |
 | a goal's progress | a goal is one a `goal.derived` (or `goal.approved`) ledger row covers at its content, closed by its `goal.met` row; status `derived` → `approved` → `active` (`goal intents` handed it to Aladdin) · `retired` · `blocked`; an eval narrowed to it (`goal_id`) decides its close |
+| a stop at a spend cap | a `mission.budget_exhausted` ledger row (role mission-loop) for the mission's content, written once by the first `STOP_BUDGET` tick (M9.24): a clone stays stopped until a raised cap changes the content |
 | a lifted block | a `mission.lifted` ledger row (role human, `--by`, the human's typed `lift <mission> <code>` line) whose code digests `{mission_id, block, lift, occurrence}`: the block's key, how many lifts of it the ledger has, and which block it was (the handout tick that tripped a repeat; the newest of 3 failed goals, which is how far that reset reaches); `tick --force` records it (M9.51). A repeat restarts at the row's own run-log event (its first copy only); the 3-failed-goals count at its `occurrence` |
 | a goal's sprints | `intent.received` {goal_id, intent_id} → `plan.created` {sprint: "S<N>", intent_id}; with no linked intent, the sprints planned since the loop handed out its `SPRINT`. Closes: `.aladdin/state/sprints.json`; `plan.approved` (spoon-fed) |
 

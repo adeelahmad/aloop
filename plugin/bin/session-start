@@ -4,7 +4,8 @@
 #      data (.agentic/) and — by default — docs/agents/ can never leak into a commit;
 #   2. loads docs/agents/NEXT.md — the orchestrator handoff the harness wrote when the last
 #      sprint closed — into the fresh context. This is how the supervisor resumes after
-#      /clear: from the file, not from memory.
+#      /clear: from the file, not from memory;
+#   3. in an aloop project, adds the core principles (`mission principles show --core`).
 # Never blocks (always exit 0).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -40,7 +41,13 @@ if [ -f "$swapf" ]; then
   fi
 fi
 
-[ -f "$AGENTIC_NEXT" ] || [ -n "$swapped" ] || exit 0
+# the core principles every agent carries (ROADMAP §4.12, M9.30), the door rule first: an aloop
+# project gets them on every start, resume, clear and compact, so they survive a compaction
+core=""
+if [ -d "$AGENTIC_DOCS" ]; then core="$("$HERE/mission" principles show --core 2>/dev/null || true)"; fi
+[ -f "$AGENTIC_NEXT" ] || [ -n "$swapped" ] || [ -n "$core" ] || exit 0
+ctx=""
+if [ -f "$AGENTIC_NEXT" ] || [ -n "$swapped" ]; then
 # the resume rule: tasks shown done without gate evidence are named, so they get re-gated
 rerun="$("$HERE/stats" resume-check 2>/dev/null || true)"
 ctx="${swapped:+$swapped
@@ -51,6 +58,10 @@ $([ -f "$AGENTIC_NEXT" ] && head -c 12000 "$AGENTIC_NEXT" || echo "(no NEXT.md y
 
 Resume check (from the gate log, now):
 $rerun}"
+fi
+ctx="$ctx${core:+${ctx:+
+
+}$core}"
 if command -v python3 >/dev/null 2>&1; then
   CTX="$ctx" python3 -c 'import json,os;print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":os.environ["CTX"]}}))'
 else

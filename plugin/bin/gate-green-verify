@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # GREEN gate: this task's tests pass, no regression, diff within tasks.md scope,
-# the standards.md matrix is green, zero suppressions, output.md validates.
+# the standards.md matrix is green, zero suppressions, no unplanned dependency or added credential, output.md validates.
 # (Target: Rust. The matrix is the one DECLARED IN standards.md — not hardcoded.)
 GATE_NAME="gate-green-verify"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,6 +35,12 @@ if [ -n "${SCOPE_GLOBS:-}" ]; then
 else
   warn "SCOPE_GLOBS unset; tasks.md diff-scope check skipped (set it to enforce R2)"
 fi
+
+# 3b) Supply chain: no dependency the approved plan does not name (ROADMAP M10.2).
+assert_planned_dependencies
+# and no credential in the lines this task added (the final gate scans the whole project).
+secrets_base="$(diff_base)"
+[ -n "$secrets_base" ] && assert_no_secrets "$secrets_base"
 
 # 4) The standards.md gate matrix (fmt/lint/test/coverage/...) must be green.
 #    This also asserts the task's tests now pass and nothing regressed.

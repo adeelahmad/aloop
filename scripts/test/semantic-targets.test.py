@@ -90,7 +90,7 @@ cases = [
     (dict(C2, symbol="nope"), "not defined"),
     (dict(C2, task="T9"), "not a ## heading"),
     (dict(C1, path="src/report.py"), "already exists"),
-    (dict(C2, path="src/ghost.py"), "neither in the tree nor planned"),
+    (dict(C2, path="src/ghost.py"), "neither in the tree nor planned: a new file is a create"),
     (dict(C2, operation="rewrite"), "operation must be"),
     (dict(C1, path="../etc/x.py"), "repo-relative"),
 ]

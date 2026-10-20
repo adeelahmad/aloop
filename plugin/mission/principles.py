@@ -6,14 +6,21 @@ plugin/mission/principles.md; this module parses it, refuses an incomplete edit,
 one block per mode with the tension pairs and the invariant clause, and hashes the block,
 so a goal names the exact principles it was derived under.
 
+The `## Core` section is separate: the core principles every aloop agent carries on every turn,
+the one-way / two-way door rule first (M9.30). They render apart from the goal blocks, so editing
+them never stales a goal's stamp, and the SessionStart hook injects them into an aloop project.
+
 Usage:
   mission principles show [--mode autonomous|spoon-fed] [--json] [--file PATH]
         the block for a mode (default: the mission's own mode); --json adds sha256 and ids
+  mission principles show --core [--file PATH]
+        the core principles block (every agent, every turn)
   mission principles hash [--mode autonomous|spoon-fed] [--file PATH]
         the sha256 of exactly that block (what a goal's stamp records)
   mission principles check [--file PATH]
         principles.md (or a draft at PATH) is complete: every standing principle and tension
-        pair, both variants and different, known ids only, each variant at most 280 chars.
+        pair, both variants and different, known ids only, each variant at most 280 chars; every
+        core principle (the door rule first, naming its gate), the core block at most 800 chars.
         Exit 0 ok · 2 invalid (BLOCK[principles] lines) · 64 usage
 
 From Python (the goal module): stamp(mode) -> {"mode", "sha256", "ids"}; verify(stamp) ->
@@ -40,26 +47,33 @@ REQUIRED = ("autonomic-loop", "own-the-outcome", "ship-small", "verify-dont-assu
 REQUIRED_TENSIONS = ("customer-obsession-vs-frugality", "bias-for-action-vs-dive-deep",
                      "think-big-vs-deliver-results", "grow-adoption-vs-keep-it-simple")
 MAX_VARIANT = 280   # the block is read with every goal: short keeps it cheap (Keep It Simple)
+# the core principles every agent carries (M9.30): read on every session, so the block is capped
+REQUIRED_CORE = ("doors", "evidence", "earn-trust", "ownership", "frugality", "highest-standards",
+                 "disagree-and-commit")
+MAX_CORE = 800
+CORE_HEAD = "Core principles (every aloop agent):"
+DOORS_NAMES = ("ASK[door]", "aloop mission doors")   # the doors line names the gate that enforces it
 INVARIANT_CLAUSE = ("No principle relaxes an invariant, a gate or a budget cap (ROADMAP §7); "
                     "where one seems to, the gate decides.")
 
 HEAD = re.compile(r"^## ([a-z0-9]+(?:-[a-z0-9]+)*): (\S.*)$")
 VARIANT = re.compile(r"^- (autonomous|spoon-fed): (\S.*)$")
+CORE = re.compile(r"^- ([a-z0-9]+(?:-[a-z0-9]+)*): (\S.*)$")
 TENSION = re.compile(r"^- ([a-z0-9]+(?:-[a-z0-9]+)*): (\S.*?) \(([a-z0-9, -]+)\) vs (\S.*?) \(([a-z0-9, -]+)\): (\S.*)$")
 
 
 def parse(text):
     """(doc, problems): doc = {"principles": [{id, title, autonomous, spoon-fed}],
-    "tensions": [{id, a: {label, ids}, b: {label, ids}, resolves}]}."""
-    principles, tensions, bad = [], [], []
+    "tensions": [{id, a: {label, ids}, b: {label, ids}, resolves}], "core": [{id, text}]}."""
+    principles, tensions, core, bad = [], [], [], []
     section, cur = None, None
     for n, raw in enumerate(text.split("\n"), 1):
         line = raw.rstrip()
         if section and line and any(unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") for ch in line):
             bad.append("line %d: a control or invisible character (only plain text renders the same everywhere)" % n)
         if line.startswith("## "):
-            if line == "## Tensions":
-                section, cur = "tensions", None
+            if line in ("## Tensions", "## Core"):
+                section, cur = line[3:].lower(), None
                 continue
             m = HEAD.match(line)
             if not m:
@@ -73,6 +87,13 @@ def parse(text):
             continue   # commentary comes before the first section
         if not line.startswith("- "):
             bad.append("line %d: only bullet lines go inside a section (a variant is one line; no wrapped text)" % n)
+            continue
+        if section == "core":
+            m = CORE.match(line)
+            if not m:
+                bad.append("line %d: unknown line in Core (`- <id>: <text>`, one line each)" % n)
+            else:
+                core.append({"id": m.group(1), "text": m.group(2).strip(), "line": n})
             continue
         if section == "principle":
             m = VARIANT.match(line)
@@ -124,9 +145,32 @@ def parse(text):
     for need in REQUIRED_TENSIONS:
         if need not in tids:
             bad.append("the tension pair %s is missing" % need)
-    for x in principles + tensions:
+    seen = set()
+    for c in core:
+        if c["id"] in seen:
+            bad.append("line %d: duplicate core principle %s" % (c["line"], c["id"]))
+        seen.add(c["id"])
+        if len(c["text"]) > MAX_VARIANT:
+            bad.append("line %d: core principle %s is longer than %d characters (%d)"
+                       % (c["line"], c["id"], MAX_VARIANT, len(c["text"])))
+        if c["id"] == "doors" and not all(x in c["text"] for x in DOORS_NAMES):
+            bad.append("line %d: the doors principle names %s (the gate that enforces it)"
+                       % (c["line"], " and ".join("`%s`" % x if " " in x else x for x in DOORS_NAMES)))
+    for need in REQUIRED_CORE:
+        if need not in seen:
+            bad.append("the core principle %s is missing" % need)
+    if core and core[0]["id"] != REQUIRED_CORE[0]:
+        bad.append("the core principle %s (the door rule) must be listed first" % REQUIRED_CORE[0])
+    size = len(_core_text(core))
+    if size > MAX_CORE:
+        bad.append("the core block is longer than %d characters (%d)" % (MAX_CORE, size))
+    for x in principles + tensions + core:
         x.pop("line", None)
-    return {"principles": principles, "tensions": tensions}, bad
+    return {"principles": principles, "tensions": tensions, "core": core}, bad
+
+
+def _core_text(core):
+    return "\n".join([CORE_HEAD] + ["%d. %s" % (i, c["text"]) for i, c in enumerate(core, 1)]) + "\n"
 
 
 def load(path=None):
@@ -135,7 +179,7 @@ def load(path=None):
         with open(path or SOURCE, encoding="utf-8") as f:
             doc, bad = parse(f.read())
     except (OSError, UnicodeDecodeError) as e:
-        doc, bad = {"principles": [], "tensions": []}, ["cannot read %s: %s" % (path or SOURCE, e)]
+        doc, bad = {"principles": [], "tensions": [], "core": []}, ["cannot read %s: %s" % (path or SOURCE, e)]
     doc["problems"] = bad
     return doc
 
@@ -153,6 +197,15 @@ def render(mode, path=None):
     out += ["- %s vs %s: %s" % (t["a"]["label"], t["b"]["label"], t["resolves"]) for t in doc["tensions"]]
     out.append(INVARIANT_CLAUSE)
     return "\n".join(out) + "\n"
+
+
+def render_core(path=None):
+    """The core principles block every aloop agent carries (M9.30). Raises ValueError when the
+    source is invalid."""
+    doc = load(path)
+    if doc["problems"]:
+        raise ValueError("; ".join(doc["problems"]))
+    return _core_text(doc["core"])
 
 
 def digest(mode, path=None):
@@ -211,8 +264,8 @@ def parse_args(argv):
     for a in argv:
         if k:
             opts[k], k = a, None
-        elif a == "--json":
-            opts["json"] = True
+        elif a in ("--json", "--core"):
+            opts[a[2:]] = True
         elif a.startswith("--"):
             k = a[2:].replace("-", "_")
         else:
@@ -243,6 +296,17 @@ def main(argv, cwd):
     if cmd not in ("show", "hash"):
         print("mission principles: unknown command %r (show, hash, check)" % cmd, file=sys.stderr)
         return 64
+    if o.get("core"):
+        if cmd != "show" or o.get("mode"):
+            print("mission principles: --core goes with show, without --mode", file=sys.stderr)
+            return 64
+        try:
+            sys.stdout.write(render_core(path))
+        except ValueError:
+            for b in load(path)["problems"]:
+                print("BLOCK[principles]: %s" % b, file=sys.stderr)
+            return 2
+        return 0
     mode = o.get("mode") or mission_mode(cwd)
     if mode not in MODES:
         print("mission principles: --mode autonomous|spoon-fed is required%s"

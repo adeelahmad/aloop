@@ -38,18 +38,20 @@ install/rsync destinations (and mv/rsync/zip -m sources, which are removed; mv -
 truncate/mkdir/tee files; sed -i, perl -i, awk -i and other in-place tools (sort -o, sponge, yq -i,
 dos2unix, ed/ex/vim -c or +cmd) and formatters (ruff --fix|format, black, isort, prettier -w, gofmt -w,
 eslint --fix, clang-format -i; not their check modes) inplace files (no path: the cwd, for ruff and
-eslint); dd of=, curl -o/-O, wget (not --spider), find -delete and -exec/-execdir (CMD judged once per
+eslint); dd of=, curl -o/-O, wget (-O even with --spider), find -delete, -fprint/-fls and -exec/-execdir (CMD judged once per
 start path, with {} a match under it and the text around {} kept), tar -x/--remove-files, unzip, zip,
 patch, git merge-file; downloads and installs with a fixed output location (gh clone/fork/download, npm/
-pnpm/yarn, pip, but not a global install); `cd`, `pushd` and `popd` followed (but a `cd` inside a
-compound, group or pipeline element stays there); git writes in the project (a mission role's repo
+pnpm/yarn, pip, but not a global install outside --prefix); `cd`, `pushd` and `popd` followed (a
+pipeline element's or subshell's `cd` stays there; after an if, case, loop, `{ …; }` group or function
+whose `cd` may or may not have run, the rest is judged from each dir it may have left, up to WALKS); git writes in the project (a mission role's repo
 writes, a builder's pathspecs into docs/agents/mission/ (with or without `--`, and through an ancestor
 when they remove it or take another commit's files there), the supervisor's removals there, and the
 commands of bisect run / rebase -x / submodule foreach); the `mission`, `events`, `intent` and `aladdin`
 CLIs, also through `aloop|aladdin <tool>` (which exec that tool) and a package runner (npx, npm exec,
 pnpm|yarn dlx, bunx). A removal (rm -r, find -delete, rsync --delete, a moved dir, git rm -r) of an
 ancestor of docs/agents/mission/ is blocked: a tree's root counts (but not the supervisor's removal of
-a task worktree), and find's -name tests bound it when every match must pass them (no -o, !, -not). An
+a task worktree), and find's -name tests bound it when a match must pass them to reach the -delete or
+-exec (alternatives of an -o group count; a test after the action, across an -o or under a negation does not). An
 extract into docs/agents/, where an archive's mission/ would land, is blocked too, and so is what is too
 large to judge in linear time (FIND_WORK, CLIMB: a find's start paths × -exec words; GIT_ASKS). Wrappers (timeout,
 env, nice, sudo, su, setsid, runuser, xargs, npx, stdbuf…) are looked through, and a shell string
@@ -64,6 +66,7 @@ gate-mission-artifact checks what changed in docs/agents/mission/ when the role 
 Exit: 0 allow · 2 block (stderr, handed back to the model). Honors SKIP_HOOKS=1. Not an aloop project
 (no docs/agents/) → allow. A crash once the call is ours to judge blocks (fail closed).
 """
+import copy
 import fnmatch
 import json
 import os
@@ -102,7 +105,8 @@ JUDGE_SET = re.compile(r"""(?<![\w$]){n}\+?=                # NAME=… (assignme
     | [\[{{]\s*["']?{n}["']?\s*[\]}}]\s*=(?!=)               # os.environ["NAME"] =, ENVIRON[…] =, $ENV{{NAME}} =
     | ["']{n}["']\s*(?::|=>)                                 # {{"NAME": …}}, "NAME" => …: an env mapping
     | [{{,]\s*{n}\s*:(?!:)                                   # {{NAME: …}}: a JS env object
-    | (?:[Ss]etenv|putenv|set_var|setdefault|store|set)\s*\(\s*["']{n}   # os.putenv("NAME", …), Deno.env.set(…)
+    | (?:[Ss]etenv|putenv|set_var|setdefault|store|set|__setitem__)\s*\(\s*["']{n}   # os.putenv("NAME", …), Deno.env.set(…)
+    | [\[(,]\s*\(\s*["']{n}["']\s*,                         # environ.update([("NAME", …)]), dict([("NAME", …)])
     """.format(n=r"ALOOP_JUDGE_(?:CMD|TIMEOUT)"), re.X)
 QUOTED_HEREDOC = re.compile(r"""<<-?[ \t]*(?:'([^'\n]{1,64})'|"([^"\n]{1,64})"|\\(\w{1,64}))""")   # its body is data
 INTERPRETERS = re.compile(r"^(?:node|nodejs|ruby|php|deno|bun|lua|osascript)[0-9.]*$")   # perl keeps its write_targets path
@@ -139,6 +143,12 @@ DEPTH = 8                                             # nested shell strings rea
 # a find is judged once per start path for each -exec word, and a word climbing out of {} once per depth: past these
 # bounds (no real find comes near) it is blocked, so its judging stays linear in the command's length
 FIND_WORK, CLIMB = 100000, 32
+# a compound whose `cd` may or may not have run leaves several possible dirs: the rest of the command is judged once
+# from each distinct state, and past this many such walks it is blocked (split the command)
+WALKS = 1024
+WORK = 50000                                          # the commands judged in all walks: past it, blocked (the 15 s hook)
+AFTER = "from a dir an if/case/loop body, group or function may leave the shell in (its `cd` may or may not run)"
+EVALS = 64                                            # evals and sourced stdin read in the calling shell, per walk
 GIT_ASKS = 16                                         # distinct `git ls-files` asks one call makes (git_untracked)
 TRANSCRIPT_HOOKS = {"prompt", "record", "snapshot", "stop", "stage-in"}
 # the hosts, and their subcommands that start no session (any other word is a prompt or a session)
@@ -272,6 +282,9 @@ class Scope:
         self.roots = R.roots(project)
         self.who = self.role or self.agent_type
         self.seen = {}                                    # what the disk and git said, asked once per call
+        self.work = 0                                     # commands judged, in all walks (WORK)
+        self.walked, self.read = {}, []                   # the (list, index, state) walks judged: their final
+                                                          # states; the lists read
 
     def path(self, target, base, what, bare=False, tree=None, extract=False):
         """Raise Block when writing `target` is not this caller's to do. `bare`: the command may name
@@ -353,8 +366,9 @@ class Scope:
 
     def reaches(self, root, rel, names):
         """Does a removal of `rel` (an ancestor of the mission dir) reach it? Unbounded, always; bounded by
-        find's -name tests ((pattern, ignore case), all must match), when the mission dir, a dir between it
-        and `rel`, or an entry under it matches them now (a matched dir is removed with all it holds)."""
+        find's -name tests (alternatives of (pattern, ignore case) tests, one of which matches in full), when
+        the mission dir, a dir between it and `rel`, or an entry under it matches them now (a matched dir is
+        removed with all it holds)."""
         if not names:
             return True
         key = ("reaches", root, rel, tuple(names))
@@ -363,8 +377,9 @@ class Scope:
                 self.seen[("walk", root)] = [f for _, dirs, files in os.walk(os.path.join(root, self.R.MISSION))
                                              for f in dirs + files]
 
-            def hit(f):
-                return all(fnmatch.fnmatchcase(f.lower() if i else f, p.lower() if i else p) for p, i in names)
+            def hit(f):                                   # one alternative's tests all match
+                return any(all(fnmatch.fnmatchcase(f.lower() if i else f, p.lower() if i else p) for p, i in alt)
+                           for alt in names)
             parts = self.R.MISSION.rstrip("/").split("/")
             self.seen[key] = any(hit(f) for f in parts[0 if rel == "." else len(rel.split("/")) - 1:]
                                  + self.seen[("walk", root)])
@@ -688,12 +703,52 @@ class Scope:
         return out
 
     def shell(self, cmd, base, st=None, depth=0):
-        st = st or {"base": base, "old": None, "vars": {}, "stack": [], "dirs": [], "cwd": []}
+        st = dict(st or {"base": base, "old": None, "vars": {}, "stack": [], "dirs": []}, cwd=[], status=None)
         if depth > DEPTH:
-            return
+            raise Block("This command nests shell strings, evals or substitutions deeper than the gate reads (%d"
+                        " levels). Split it into separate commands." % DEPTH)
         if depth:
             self.judge_code(cmd)                          # a recursed string (bash -c, eval, $(…)): the judge var
-        for c in SR.read(cmd):
+        self.walk(self.listed(SR.read(cmd)), st, depth, 0)
+
+    def listed(self, cmds):
+        self.read.append(cmds)                            # kept, so a walk's id(cmds) names this list alone
+        return cmds
+
+    def walk(self, cmds, st, depth, start):
+        """Judge cmds[start:] from st, the shell's state. Where what ran is not known, the rest is judged from each
+        state the shell may be in (fork): past an if/case/loop body, a `{ …; }` group or a function whose `cd` may
+        or may not have run (an untaken branch, a loop run no times, a function never called), from each dir it may
+        have left; past a `cd` after `&&` or `||`, with and without it; past a loop header, once per item."""
+        after = None                                      # the dirs a just-closed compound may have left
+        lst = (st["base"], st["old"])                     # where the current and-or list started (a `&` job's cd)
+        ends = []                                         # the final states of the forks that went their own way
+        for i in range(start, len(cmds)):
+            c = cmds[i]
+            prev = cmds[i - 1].end if i and isinstance(cmds[i - 1], SR.Cmd) else None
+            self.work += 1
+            if self.work > WORK:
+                raise Block("This command is too large to judge here (%d commands across the states its `cd`s, loops"
+                            " and && / || may leave the shell in). Split it into separate commands." % WORK)
+            if after is not None and not (isinstance(c, SR.Cmd) and c.own):
+                return ends + self.fork(cmds, i, [dict(st, base=b, old=o) for b, o in reversed(after)], depth, AFTER)
+            if not isinstance(c, SR.Cmd) or prev not in ("&&", "||", "|", "|&"):
+                lst = (st["base"], st["old"])
+            if not isinstance(c, SR.Cmd):
+                st["status"] = None                       # a compound's bound: what follows may run
+            if c == "cwd+":                               # a compound opens: where it starts, where its branches end
+                st["cwd"].append(((st["base"], st["old"]), []))
+                continue
+            if c in ("cwd|", "cwd-"):                     # a branch ends (elif, else, ;;) or the compound closes
+                if not st["cwd"]:
+                    continue
+                entry, tails = st["cwd"][-1]
+                tails.append((st["base"], st["old"]))
+                st["base"], st["old"] = entry             # the next branch, and the compound's own redirect,
+                if c == "cwd-":                           # start where the compound did
+                    st["cwd"].pop()
+                    after = [entry] + tails
+                continue
             if c == "(":
                 st["stack"].append((st["base"], st["old"], dict(st["vars"])))
                 continue
@@ -701,39 +756,143 @@ class Scope:
                 if st["stack"]:
                     st["base"], st["old"], st["vars"] = st["stack"].pop()
                 continue
-            if c == "cwd+":                               # a compound/group opens: its `cd` is scoped
-                st["cwd"].append((st["base"], st["old"]))
-                continue
-            if c == "cwd-":
-                if st["cwd"]:
-                    st["base"], st["old"] = st["cwd"].pop()
-                continue
+            if st["status"] is not None:                  # a fork that knows the last status: `&&` after a failure
+                if (prev == "&&") == bool(st["status"]) and prev in ("&&", "||"):   # and `||` after a success
+                    continue                              # skip their command
+                exits = prev in ("&&", "||") and c.words and c.words[0].text() in ("exit", "return")
+                st["status"] = None
+                if exits and not c.pipe:
+                    return ends                           # `… || exit 1`: this fork ends
+            if prev in ("&&", "||") and c.words and c.words[0].text() in ("cd", "pushd", "popd") and not c.pipe \
+                    and not (prev == "&&" and sure(cmds, i)):   # `[ -d x ] && cd x`: it may not have run
+                ends += self.fork(cmds, i + 1, [dict(st, status=1 if prev == "&&" else 0)], depth,
+                          "as if the `cd` after %s had not run (put what needs it in the same && chain)" % prev, linear=False)
             saved = (st["base"], st["old"]) if c.pipe else None   # a pipeline element's `cd` does not leak
             for sub in c.subs:                            # $(…), `…`, <(…): a subshell of their own
                 self.shell(sub, None, {"base": st["base"], "old": st["old"], "vars": dict(st["vars"]),
-                                       "stack": [], "dirs": [], "cwd": []}, depth + 1)
-            if c.loop:                                    # for/select NAME in LIST: NAME is one of the items
-                name, lst = c.loop
-                st["vars"][name] = self.resolve(lst[0].parts, st) if lst else [None]
-                continue
+                                       "stack": [], "dirs": []}, depth + 1)
+            if c.loop:                                    # for/select NAME in LIST: NAME is each of the items
+                name, items = c.loop
+                vals = [v for w in items for v in self.split(w, self.resolve(w.parts, st))] or [[None]]
+                vals = list({repr(v): v for v in vals}.values())
+                if len(vals) == 1:
+                    st["vars"][name] = vals[0]
+                    continue
+                why = "with %s set to each item of its loop" % name
+                k = body_end(cmds, i + 1)
+                if k is None:                             # no body to bound: the rest, once per item
+                    return ends + self.fork(cmds, i + 1, [dict(st, vars=dict(st["vars"], **{name: v})) for v in vals],
+                                            depth, why)
+                body = self.listed(cmds[i + 1:k + 1])     # the body once per item, then the rest once per state it
+                out = self.fork(body, 0, [dict(st, vars=dict(st["vars"], **{name: v})) for v in vals], depth, why)
+                out = [dict(e, vars=dict(e["vars"], **{name: vals[-1]})) for e in out]   # leaves (NAME: the last)
+                return ends + self.fork(cmds, k + 1, out, depth, why)
             self.judge_env(name for name, _ in c.assigns)
             for name, parts in c.assigns:
                 st["vars"][name] = self.resolve(parts, st)
             self.exports(c, st)                           # export/declare/local/readonly/typeset NAME=…
-            ws = [self.resolve(w.parts, st) for w in c.words]
+            ws = [v for w in c.words for v in self.split(w, self.resolve(w.parts, st))]
             for op, fd, w in c.redirs:
                 if op in (">", ">>", ">|", "&>", "&>>", "<>") or (op == ">&" and not re.fullmatch(r"\d+|-", w.text() or "0")):
                     self.write(self.resolve(w.parts, st), st["base"], "Bash write")
+            inline = self.inline(c, ws, st)               # eval STRING, source /dev/stdin: run in this shell
+            if inline is not None:
+                code = SR.read(inline)
+                if code and isinstance(code[-1], SR.Cmd) and code[-1].end is None:
+                    code[-1].end = c.end                  # `eval '…' && cd x`: the eval's own connector
+                return ends + self.walk(self.listed(code + cmds[i + 1:]), dict(st, evals=st.get("evals", 0) + 1),
+                                        depth, 0)
             if ws:
                 self.run(ws, st, depth, stdin=self.stdin_script(c.redirs))
             if saved is not None:
                 st["base"], st["old"] = saved
+            if c.end == "&":                              # a background job is a subshell: its list's `cd` stays there
+                st["base"], st["old"] = lst
+            if after is not None:                         # c was the compound's own redirect (`} > f`, `done < f`),
+                return ends + self.fork(cmds, i + 1, [dict(st, base=b, old=o) for b, o in reversed(after)], depth,
+                                        AFTER)            # opened where it started
+        if after is not None:
+            return ends + [dict(st, base=b, old=o) for b, o in reversed(after)]
+        return ends + [st]
+
+    def fork(self, cmds, i, states, depth, why, linear=True):
+        """cmds[i:] judged from each state, once per distinct state across the whole call (the first one is the
+        last branch's end: master's linear reading, unless not `linear`). A block in another state says which."""
+        seen, out = set(), []
+        for st in states:
+            norm = (os.path.normpath(st["base"]) if st["base"] else st["base"], repr(sorted(st["vars"].items())),
+                    st["status"])
+            if norm in seen:                              # the same dir (another `old` aside), vars and status
+                continue
+            seen.add(norm)
+            alt = copy.deepcopy(st)
+            key = (id(cmds), i, repr(sorted(alt.items())))
+            if key in self.walked:                        # judged already: its final states stand
+                out += self.walked[key]
+                continue
+            self.walked[key] = []
+            if len(self.walked) > WALKS:
+                raise Block("This command can leave the shell in more states than the gate follows (%d walks: a `cd`"
+                            " inside if/case/loop bodies, groups or functions, or after && / ||, and loop items)."
+                            " Split it into separate commands." % WALKS)
+            try:
+                self.walked[key] = self.walk(cmds, alt, depth, i)
+            except Block as e:
+                if linear and st is states[0] or "\n  Judged " in str(e):
+                    raise
+                raise Block("%s\n  Judged %s." % (e, why)) from None
+            out += self.walked[key]
+        return out
+
+    def split(self, w, v):
+        """The words an unquoted expansion's value makes (`F='a b'; rm $F` removes a and b); a quoted word is one."""
+        if not w.quoted and text(v) == "":
+            return []                                     # an unquoted empty expansion is no word
+        if w.quoted or not any(isinstance(p, str) and re.search(r"\s", p) for p in v):
+            return [v]
+        out, cur = [], []
+        for p in v:
+            if p is None:
+                cur.append(None)
+                continue
+            for k, piece in enumerate(re.split(r"\s+", p)):
+                if k:
+                    out.append(cur)
+                    cur = []
+                if piece:
+                    cur.append(piece)
+        out.append(cur)
+        return [x for x in out if x]
+
+    def inline(self, c, ws, st):
+        """The code that `eval STRING` or `source /dev/stdin <<…` runs in this shell, so its `cd` and variables
+        stay (None: run it as a command, or a string the gate cannot read)."""
+        t = [text(a) for a in ws]
+        if not t or c.pipe or c.assigns or c.end == "&" or st.get("evals", 0) >= EVALS or None in t:
+            return None
+        while t and t[0] in ("builtin", "command"):
+            t = t[1:]
+        if t[:1] == ["eval"] and not c.redirs:
+            self.judge_code(" ".join(t[1:]))
+            return " ".join(t[1:])
+        if t[:1] in (["source"], ["."]) and t[1:2] in (["/dev/stdin"], ["/dev/fd/0"], ["/proc/self/fd/0"]):
+            body = self.stdin_script(c.redirs)
+            if body is not None:
+                self.judge_code(body)
+            return body
+        return None
 
     def exports(self, c, st):
-        """export/declare/typeset/local/readonly NAME=VALUE records NAME, as a bare `NAME=VALUE` does."""
-        if not c.words or c.words[0].text() not in ("export", "declare", "typeset", "local", "readonly"):
+        """export/declare/typeset/local/readonly NAME=VALUE records NAME, as a bare `NAME=VALUE` does (and
+        so it does behind `builtin` or `command`)."""
+        ws = c.words
+        while ws and ws[0].text() in ("builtin", "command"):
+            ws = ws[1:]
+            while ws and (ws[0].text() or "").startswith("-"):
+                ws = ws[1:]                               # `command -p export …`
+        if not ws or ws[0].text() not in ("export", "declare", "typeset", "local", "readonly"):
             return
-        for w in c.words[1:]:
+        for w in ws[1:]:
             if w.assign is not None:
                 st["vars"][w.assign] = self.resolve(w.value(), st)
 
@@ -757,8 +916,8 @@ class Scope:
                 return
             if name in ("sudo", "doas"):
                 i, _ = opts(args, "ugCDhprtTU")
-                while i < len(args) and re.match(r"^[A-Za-z_]\w*=", text(args[i]) or ""):
-                    self.judge_env([text(args[i]).split("=", 1)[0]])
+                while i < len(args) and re.match(r"^[A-Za-z_]\w*=", prefix(args[i])):   # NAME=… (its value
+                    self.judge_env([prefix(args[i]).split("=", 1)[0]])                  # may be unknown)
                     i += 1
                 ws = args[i:]
             elif name == "env":
@@ -766,8 +925,8 @@ class Scope:
                 d = f.get("-C") or f.get("--chdir")
                 if isinstance(d, str):
                     base = os.path.join(base, d) if base else (d if d.startswith("/") else None)
-                while i < len(args) and re.match(r"^[A-Za-z_]\w*=", text(args[i]) or ""):
-                    self.judge_env([text(args[i]).split("=", 1)[0]])
+                while i < len(args) and re.match(r"^[A-Za-z_]\w*=", prefix(args[i])):   # NAME=… (its value
+                    self.judge_env([prefix(args[i]).split("=", 1)[0]])                  # may be unknown)
                     i += 1
                 split = f.get("-S") or f.get("--split-string")
                 if isinstance(split, str):
@@ -798,15 +957,16 @@ class Scope:
                 if not ws:
                     return
             elif name == "xargs":
-                i, f = opts(args, "adEeIiLlnPs", ("--arg-file", "--delimiter", "--eof", "--replace", "--max-lines",
-                                                  "--max-args", "--max-procs", "--max-chars", "--process-slot-var"))
-                rep = f.get("-I") or f.get("-i") or f.get("--replace")
-
-                def sub_rep(a):                           # replace only the {} inside a word (sh -c '… {} …')
-                    t = text(a)
-                    return [t.replace(rep, '"$__xargs"')] if isinstance(rep, str) and t is not None and rep in t else a
-                rest = [sub_rep(a) for a in args[i:]]
-                ws = (rest or [["echo"]]) + ([] if rep else [[None]])
+                i, f = opts(args, "adEeILlnPs", ("--arg-file", "--delimiter", "--eof", "--replace", "--max-lines",
+                                                 "--max-args", "--max-procs", "--max-chars", "--process-slot-var"))
+                rep = f.get("-I") or f.get("--replace")
+                if rep is None and f.get("-i"):           # GNU -i takes only an attached value (-i{}); alone, {}
+                    rep = "{}"
+                child = args[i:]
+                if isinstance(rep, str):
+                    ws = [xargs_sub(a, rep) for a in child] or [["echo"]]
+                else:
+                    ws = (child or [["echo"]]) + [[None]]
             elif name == "flock":
                 i, f = opts(args, "wEc", ("--timeout", "--conflict-exit-code", "--command"))
                 c = f.get("-c") or f.get("--command")
@@ -835,12 +995,20 @@ class Scope:
                     self.shell(c, None, dict(st, base=base), depth + 1)
                 return
             elif name == "runuser":
-                i, f = opts(args, "ucgGs", ("--user", "--command", "--group", "--shell"))
-                c = f.get("-c") or f.get("--command")
+                long_v = ("--user", "--group", "--supp-group", "--shell", "--command", "--session-command",
+                          "--whitelist-environment")
+                i, f = opts(args, "ugGscw", long_v)
+                if "-u" not in f and "--user" not in f:   # su's form: runuser [options] [-] USER [-c CMD]
+                    _, f = operands(args, "ugGscw", long_v)
+                c = f.get("-c") or f.get("--command") or f.get("--session-command")
                 if isinstance(c, str):
                     self.shell(c, None, dict(st, base=base), depth + 1)
                     return
-                ws = args[i:]                             # `runuser -u USER -- CMD …`: CMD runs
+                if "-u" not in f and "--user" not in f:
+                    return                                # a login shell, no command
+                ws = args[i:]                             # `runuser -u USER [options] [--] CMD …`: CMD runs
+                if not ws:
+                    return
             elif name in SHELLS:
                 i, f = opts(args, "oO", ("--rcfile", "--init-file"))
                 if any(k.startswith("-") and len(k) == 2 and k[1] == "c" for k in f) or "-c" in f:
@@ -946,21 +1114,15 @@ class Scope:
         """find … -exec CMD {} ; and -execdir / -ok: CMD is a command too, once for each start path. {} is a
         match under that start (GNU substitutes it inside any argument, and the text around it is kept);
         -execdir runs in the match's dir, where {} is ./<name> (F5). One too large to judge (FIND_WORK) blocks."""
-        starts, tests = find_parts(args)
-        segs, i, seen = [], 0, set()
-        while i < len(args):
-            a = text(args[i])
-            if a in ("-exec", "-execdir", "-ok", "-okdir"):
-                j = i + 1
-                while j < len(args) and text(args[j]) not in (";", "+"):
-                    j += 1
-                segs.append((a in ("-execdir", "-okdir"), args[i + 1:j]))
-                i = j
-            i += 1
-        if len(starts or "x") * sum(len(text(w) or "") + 1 for _, ws in segs for w in ws) > FIND_WORK:
+        starts, acts, _ = find_parts(args)
+        segs = [(w in ("-execdir", "-okdir"), args[k + 1:next((j for j in range(k + 1, len(args))
+                                                                 if text(args[j]) in (";", "+")), len(args))], b)
+                for k, w, b in acts if w in FIND_ACTS]
+        seen = set()
+        if len(starts or "x") * sum(len(text(w) or "") + 1 for _, ws, _ in segs for w in ws) > FIND_WORK:
             raise Block("this find runs its -exec commands once per start path (%d), too much to judge here: split it,"
                         " or run each command on the paths it names" % len(starts))
-        for here, ws in segs:
+        for here, ws, tests in segs:
             for sw in starts or [["."]]:
                 start = text(sw)
                 d = base if not here else (os.path.join(base, start) if base and start is not None else
@@ -974,14 +1136,57 @@ class Scope:
                         self.run(sub, st, depth + 1, base=d)
 
 
+def body_end(cmds, i):
+    """The index of the "cwd-" that closes the loop body opening at cmds[i] ("cwd+"), or None."""
+    if i >= len(cmds) or cmds[i] != "cwd+":
+        return None
+    n = 0
+    for k in range(i, len(cmds)):
+        n += {"cwd+": 1, "cwd-": -1}.get(cmds[k], 0) if isinstance(cmds[k], str) else 0
+        if not n:
+            return k
+    return None
+
+
+def sure(cmds, i):
+    """Does the and-list before cmds[i] always succeed (`mkdir -p d && cd d`): only true, :, mkdir -p?"""
+    j = i - 1
+    while j >= 0 and isinstance(cmds[j], SR.Cmd):
+        ws = [w.text() for w in cmds[j].words]
+        if not (ws[:1] in (["true"], [":"]) or ws[:1] == ["mkdir"] and any(re.fullmatch(r"-\w*p\w*|--parents", w or "")
+                                                                         for w in ws[1:])):
+            return False
+        if j == 0 or not isinstance(cmds[j - 1], SR.Cmd) or cmds[j - 1].end != "&&":
+            return True
+        j -= 1
+    return True
+
+
 def shq(s):
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+def xargs_sub(a, rep):
+    """An xargs child word holding the -I placeholder. In code (a word with blanks or shell operators: a `sh -c`
+    or `bash -lc` string) it stands for a stdin word, left as a reference the code is read again with; a plain
+    word is that stdin word, unknown here (`… | xargs -I{} rm -f {}`)."""
+    t = text(a)
+    if t is None or rep not in t:
+        return a
+    if re.search(r"[\s;&|<>()$`'\"]", t.replace(rep, "")):
+        return [t.replace(rep, '"$__xargs"')]
+    out = []
+    for j, seg in enumerate(t.split(rep)):
+        out += ([None] if j else []) + ([seg] if seg else [])
+    return out
+
+
 def find_parts(args):
-    """find's start paths (where its matches live; the leading -H/-L/-P/-O/-D options skipped) and the -name
-    tests every match passes, as (pattern, ignore case): [] when it has none, or when an -o, !, -not, a
-    comma or an unknown pattern makes them no bound on what it matches."""
+    """find's start paths (where its matches live; the leading -H/-L/-P/-O/-D options skipped), its actions as
+    [(index, word, bound)] and the files its -fprint/-fprint0/-fls/-fprintf create. An action's bound is the -name
+    tests a match passes to reach it: [] (none), or [(pattern, ignore case), …] alternatives, one of which a
+    match passes in full (`\\( -name a -o -name b \\) -delete`). Tests after the action, in the other side
+    of an -o or a comma, or under a negation bound nothing; an expression the gate cannot read bounds nothing."""
     i = 0
     while i < len(args) and re.fullmatch(r"-[HLP]|-O\d?|-D", text(args[i]) or ""):
         i += 2 if text(args[i]) == "-D" else 1
@@ -989,24 +1194,136 @@ def find_parts(args):
     while i < len(args) and not re.match(r"^[-(!),]", text(args[i]) or "x"):
         starts.append(args[i])
         i += 1
-    names = []
-    while i < len(args):
-        t = text(args[i])
-        if t in ("-exec", "-execdir", "-ok", "-okdir"):
-            while i < len(args) and text(args[i]) not in (";", "+"):
-                i += 1                                    # its command's words are not find's tests
-        elif t in ("-o", "-or", "!", "-not", ","):
-            return starts, []
-        elif t in ("-name", "-iname", "-path", "-ipath", "-wholename", "-iwholename", "-regex", "-iregex",
-                   "-lname", "-ilname") and i + 1 < len(args):
-            v = text(args[i + 1])
-            if t in ("-name", "-iname"):
-                if v is None:
-                    return starts, []
-                names.append((v, t == "-iname"))
-            i += 1
-        i += 1
-    return starts, names
+    expr = FindExpr(args, i)
+    try:
+        tree = expr.comma()
+        if expr.i < len(args):
+            raise ValueError("a stray )")
+        acts = []
+        reach(tree, [()], acts)
+    except ValueError:                                    # an unknown word where an operator may be, or bad parens
+        acts = [(k, text(a), []) for k, a in enumerate(args[i:], i) if text(a) in FIND_ACTS + ("-delete",)]
+    return starts, acts, expr.files
+
+
+FIND_ACTS = ("-exec", "-execdir", "-ok", "-okdir")
+FIND_ARG = {"-name", "-iname", "-path", "-ipath", "-wholename", "-iwholename", "-regex", "-iregex", "-lname", "-ilname",
+            "-type", "-xtype", "-newer", "-anewer", "-cnewer", "-perm", "-user", "-group", "-size", "-mtime", "-mmin",
+            "-atime", "-amin", "-ctime", "-cmin", "-maxdepth", "-mindepth", "-uid", "-gid", "-links", "-inum",
+            "-samefile", "-used", "-fstype", "-context", "-printf", "-regextype", "-files0-from"}
+FIND_FILES = {"-fprint", "-fprint0", "-fls", "-fprintf"}  # they create (truncate) the file they name
+BRANCHES = 64                                         # a bound's alternatives; more bound nothing
+
+
+class FindExpr:
+    """find's expression as a tree: ("or"|"and"|"comma", [kids]), ("not", kid), ("name", test), ("act", index,
+    word) or ("test",). `files`: the words of the files it writes."""
+
+    def __init__(self, args, i):
+        self.a, self.i, self.files = args, i, []
+
+    def peek(self):
+        if self.i >= len(self.a):
+            return ""
+        t = text(self.a[self.i])
+        if t is None:
+            raise ValueError("an unknown word")
+        return t
+
+    def comma(self):
+        kids = [self.either()]
+        while self.peek() == ",":
+            self.i += 1
+            kids.append(self.either())
+        return ("comma", kids)
+
+    def either(self):
+        kids = [self.both()]
+        while self.peek() in ("-o", "-or"):
+            self.i += 1
+            kids.append(self.both())
+        return ("or", kids)
+
+    def both(self):
+        kids = []
+        while self.peek() not in ("", ")", "-o", "-or", ","):
+            if self.peek() in ("-a", "-and"):
+                self.i += 1
+                continue
+            kids.append(self.unary())
+        return ("and", kids)
+
+    def unary(self):
+        t = self.peek()
+        self.i += 1
+        if t in ("!", "-not"):
+            return ("not", self.unary())
+        if t == "(":
+            e = self.comma()
+            if self.peek() != ")":
+                raise ValueError("an unclosed (")
+            self.i += 1
+            return e
+        k = self.i - 1
+        if t in FIND_ACTS:
+            while self.i < len(self.a) and text(self.a[self.i]) not in (";", "+"):
+                self.i += 1                               # its command's words are not find's tests
+            self.i += 1
+            return ("act", k, t)
+        if t == "-delete":
+            return ("act", k, t)
+        if t in FIND_FILES and self.i < len(self.a):
+            self.files.append(self.a[self.i])
+            self.i += 2 if t == "-fprintf" else 1
+            return ("test",)
+        if t in FIND_ARG or re.fullmatch(r"-newer[aBcmt][aBcmt]", t):
+            v = text(self.a[self.i]) if self.i < len(self.a) else None
+            self.i += 1
+            if t in ("-name", "-iname") and v is not None:
+                return ("name", (v, t == "-iname"))
+        return ("test",)
+
+
+def holds(e):
+    """The alternatives of -name tests one of which holds when e is true: [()] when nothing is known."""
+    kind = e[0]
+    if kind == "name":
+        return [(e[1],)]
+    if kind == "and":
+        out = [()]
+        for kid in e[1]:
+            out = [a + b for a in out for b in holds(kid)]
+            if len(out) > BRANCHES:
+                return [()]
+        return out
+    if kind == "or":
+        return [b for kid in e[1] for b in holds(kid)] if len(e[1]) > 1 else holds(e[1][0])
+    if kind == "comma":
+        return holds(e[1][-1])                            # a comma list is what its last part is
+    return [()]                                           # a negation, another test, an action
+
+
+def reach(e, cond, acts):
+    """Each action with the -name alternatives a match passes to reach it (`cond` reaches e)."""
+    kind = e[0]
+    if kind == "act":
+        acts.append((e[1], e[2], [] if () in cond else [tuple(sorted(set(b))) for b in cond]))
+    elif kind == "and":
+        for kid in e[1]:
+            reach(kid, cond, acts)
+            cond = [a + b for a in cond for b in holds(kid)]
+            cond = [()] if len(cond) > BRANCHES else cond
+    elif kind in ("or", "comma"):                         # the next part runs when this one is false (or), or
+        for kid in e[1]:                                  # always (comma): no -name holds for it
+            reach(kid, cond, acts)
+    elif kind == "not":
+        reach(e[1], cond, acts)
+
+
+def bounds(acts, words):
+    """The bound of all of find's actions among `words`: [] when one of them has none."""
+    bs = [b for _, w, b in acts if w in words]
+    return [] if not bs or [] in bs else [br for b in bs for br in b]
 
 
 def brace(w, start, here, tests):
@@ -1281,17 +1598,21 @@ def write_targets(name, args):
         _, f = operands(args, "OPoaieUtTwQBD", ("--output-document", "--directory-prefix", "--output-file",
                                                  "--append-output"), words=True)
         logs = [(v, {}) for v in (_word(f.get(k)) for k in ("-o", "--output-file", "-a", "--append-output")) if v]
-        if any(k in f for k in ("--spider", "-V", "--version", "-h", "--help")):
-            return logs                                   # it checks a URL or prints: no document is saved
+        if any(k in f for k in ("-V", "--version", "-h", "--help")):
+            return logs                                   # it prints and exits: nothing is opened
         out = _word(f.get("-O") or f.get("--output-document"))
         if out is not None:
-            return [(out, {})] + logs                     # an explicit document ("-" is stdout, skipped above)
+            return [(out, {})] + logs                     # an explicit document ("-" is stdout), --spider too: it
+        if "--spider" in f:                               # truncates -O before it checks the URL
+            return logs
         return [(_word(f.get("-P") or f.get("--directory-prefix")) or ["."], {})] + logs   # cwd/-P: -r/-m too (F4)
     if name in ("gh", "npm", "pnpm", "yarn", "pip", "pip3"):
         return fetch_targets(name, args)                  # clones and installs with a fixed output location (F9)
     if name == "find":
-        paths, names = find_parts(args)
-        return [(p, {"tree": names}) for p in (paths or [["."]])] if any(text(a) == "-delete" for a in args) else []
+        paths, acts, files = find_parts(args)
+        dels = [(p, {"tree": bounds(acts, ("-delete",))}) for p in (paths or [["."]])] \
+            if any(w == "-delete" for _, w, _ in acts) else []
+        return dels + [(f, {}) for f in files]
     if name == "tar":
         first = text(args[0]) if args else ""
         _, f = operands(args, "CfbFgKLNTVX", ("--directory", "--file"), words=True)
@@ -1441,8 +1762,11 @@ def fetch_targets(name, args):
         return []
     if name in ("npm", "pnpm", "yarn"):
         ops, f = operands(args, "C", ("--prefix", "--cwd", "--location"), words=True)
-        if f.get("-g") or f.get("--global") or text(_word(f.get("--location")) or [""]) == "global":
-            return []                                     # a global install lands outside the project
+        on = [f.get("-g"), f.get("--global")]             # --global=false is no global install, nor is one the
+        if any(v is True or (text(v) or "").lower() in ("true", "1", "yes") for v in on if v) \
+                or text(_word(f.get("--location")) or [""]) == "global":   # gate cannot read
+            pre = _word(f.get("--prefix"))                # a global install lands outside the project, or under
+            return [(pre, {})] if pre is not None else []   # its --prefix
         verb = text(ops[0]) if ops else None
         bare = name == "yarn" and not ops and not any(k in f for k in ("-v", "--version", "-h", "--help"))
         if bare or verb in NPM_WRITES:                    # bare `yarn` installs
