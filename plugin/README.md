@@ -66,8 +66,10 @@ tracked in git (default **no**), and the commit author (default: **your** git id
 no Claude co-author trailers — `gate-commit-author` enforces it). The harness saves the
 answers in `docs/agents/defaults.md`.
 
-Run data lives at one fixed path, `.agentic/` (transcripts, budget, token ledger, gate
-log, state), defined once in `bin/_paths.sh` and always git-ignored. When FINAL-GATE
+Run data lives in `.aladdin/` (transcripts, budget, token ledger, gate log, state),
+resolved in `bin/_paths.sh` / `bin/_paths.py` and never committed: `.aladdin/.gitignore`
+keeps only `config.yaml`. A project that still has `.agentic/` keeps using it until
+`aloop layout migrate`. When FINAL-GATE
 passes the harness writes `docs/agents/sprintN/stats.md` (tasks, attempts, gate blocks,
 budget stops, re-plans, tokens for the sprint / session / project, human messages) and
 `docs/agents/NEXT.md`; it shows you the totals and asks for `/clear`, and the
@@ -79,7 +81,7 @@ totals any time.
 From a marketplace (this repo ships `.claude-plugin/marketplace.json` at its root):
 
 ```
-/plugin marketplace add adeelahmad/agentic-agile
+/plugin marketplace add adeelahmad/aloop
 /plugin install aloop@aloop-marketplace
 ```
 
@@ -93,11 +95,11 @@ ledger, sprint stats and the post-`/clear` handoff. Run the installer from a clo
 from `aloop --root` once installed anywhere):
 
 ```bash
-git clone https://github.com/adeelahmad/agentic-agile && cd your-project
+git clone https://github.com/adeelahmad/aloop && cd your-project
 
 # Codex — Codex reads this repo's .claude-plugin manifests + hooks/hooks.json natively
 /path/to/aloop/plugin/bin/aloop install codex      # .codex/agents/*.toml + ~/.local/bin/aloop
-codex plugin marketplace add adeelahmad/agentic-agile
+codex plugin marketplace add adeelahmad/aloop
 codex plugin add aloop@aloop-marketplace
 #   then in Codex: /hooks → trust the aloop hooks (Codex runs only trusted hooks)
 
@@ -109,14 +111,14 @@ codex plugin add aloop@aloop-marketplace
 `--global` installs into `~/.codex` / `~/.config/opencode` instead of the project;
 `--uninstall` removes what was generated; `aloop install status` shows what's where.
 
-| Capability | Claude Code | Codex | OpenCode |
-|---|---|---|---|
-| Hooks | `hooks/hooks.json` | the same file (native) | plugin → the same scripts |
-| Agents | `agents/*.md` | generated `.codex/agents/*.toml` | generated `.opencode/agents/*.md` |
-| Worker isolation | `isolation: "worktree"` | `aloop task-worktree` + `aloop bind` (hook-enforced) | same (plugin rewrites into the worktree) |
-| Tools on PATH | plugin `bin/` | `~/.local/bin/aloop` | plugin `shell.env` |
-| Token source | transcripts | rollouts (`.jsonl`/`.zst`) | plugin-written usage log |
-| Hard stop | PostToolUse `continue:false` | same | `session.abort` |
+| Capability | Claude Code | Codex | OpenCode | DeepSeek Harness (dsh) |
+|---|---|---|---|---|
+| Hooks | `hooks/hooks.json` | the same file (native) | plugin → the same scripts | native plugin `hosts/dsh/aloop.mjs` → the same scripts |
+| Agents | `agents/*.md` | generated `.codex/agents/*.toml` | generated `.opencode/agents/*.md` | agent presets `aloop-<role>` in the generated `aloop` profile |
+| Worker isolation | `isolation: "worktree"` | `aloop task-worktree` + `aloop bind` (hook-enforced) | same (plugin rewrites into the worktree) | same, dispatched with `cwd: <worktree>` (hook-enforced: dsh cannot rewrite a call) |
+| Tools on PATH | plugin `bin/` | `~/.local/bin/aloop` | plugin `shell.env` | `~/.local/bin/aloop` |
+| Token source | transcripts | rollouts (`.jsonl`/`.zst`) | plugin-written usage log | plugin-written usage log |
+| Hard stop | PostToolUse `continue:false` | same | `session.abort` | `agent.cancel` |
 
 Models: Codex agents use the session's model at `high` (planning) / `medium` (workers)
 reasoning effort unless `MODEL_*_CODEX` is set; OpenCode agents use
@@ -124,6 +126,41 @@ reasoning effort unless `MODEL_*_CODEX` is set; OpenCode agents use
 (all in `docs/agents/defaults.md`; `aloop init --apply` re-renders installed hosts).
 Both are covered in CI by `make test-hosts` (Codex hook-runner emulation + OpenCode
 plugin against a mock client).
+
+### DeepSeek Harness (dsh)
+
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (`dsh`, a developer
+preview; tested with `@deepseek-ai/dsh@0.2.1-rc.2`) loads plugins from profiles, so the
+installer writes an `aloop` profile and a native plugin runs the gates:
+
+```bash
+npm install -g @deepseek-ai/dsh@0.2.1-rc.2
+/path/to/aloop/plugin/bin/aloop install dsh        # $DSH_HOME/profiles/aloop + .dsh/skills + ~/.local/bin/aloop
+export DEEPSEEK_API_KEY=sk-...                     # or DEEPSEEK_API_KEY=... in $DSH_HOME/.env
+dsh --profile aloop "Use the aloop skill. Intent: <one line>"
+```
+
+- **Profile** (`$DSH_HOME/profiles/aloop/`, `DSH_HOME` defaults to `~/.dsh`): the 15 roles as
+  agent presets `aloop-<role>` (each role's prompt is its agent file), `subagent` for the
+  execution roles and `subagent_planning` for the planning roles, each with its group's model,
+  and the plugin `hosts/dsh/aloop.mjs`, loaded in place. dsh has no project-scoped plugin
+  layer, so the profile is global and holds the last-rendered models; the skills go to
+  `.dsh/skills` (or `$DSH_HOME/skills` with `--global`).
+- **Models**: the supervisor runs on `$ALOOP_DSH_MODEL` (default `deepseek-v4-pro`; dsh has no
+  `--model` flag); the roles use `deepseek-v4-pro` (strongest/strong) or `deepseek-flash`
+  (economical) unless `MODEL_*_DSH` is set.
+- **Gates**: every block uses one of dsh's own decision points, so `enforce_gate` is native. A
+  tool call is denied with the gate's reason; an invalid artifact write comes back as the
+  gate's feedback; a role's stop gate steers the child back to work before dsh settles it,
+  up to 3 rounds, and a block past them (or a STUCK release) is injected into the supervisor.
+- **Unattended runs**: dsh asks before commands unless `DSH_PERMISSION_MODE=danger-full-access`
+  (no sandbox, no approvals); use that only in a throw-away repo, as `make e2e-live HOST=dsh` does.
+  The profile disables dsh's session-log upload (`session-log-deepseek`); set
+  `DSH_TELEMETRY_DISABLED=1` to stop its telemetry too.
+
+Covered in CI by `make test-hosts`: `dsh-plugin.test.mjs` (the plugin against an emulated
+dsh context) and `dsh-runtime.test.mjs` (the real dsh runtime, pinned, driven by a scripted
+model: no network, no tokens).
 
 ## Invoking it
 
@@ -188,6 +225,8 @@ MIT — see `LICENSE`.
   (the `archivist`) distills it into `docs/agents/memory.md`, which is injected
   (role-scoped) into each `init.md` `# Memory` section.
 - The gates read their per-task contract (`TASK_ID`, `SCOPE_GLOBS`, `SCAFFOLD_SYMBOLS`,
-  `BASE_REF`, `BUDGET_*`) from `.agentic/state/tasks/<TASK_ID>.env` in the main tree,
-  written by the supervisor before dispatch (a worktree `.aladdin/task.env`, or `.agentic/` in a legacy project, must match it). `.agentic/` and `.transcripts/` are git-ignored and never
-  merged.
+  `BASE_REF`, `BUDGET_*`) from `.aladdin/state/tasks/<TASK_ID>.env` in the main tree
+  (`.agentic/state/tasks/` in a legacy project; both are searched), written by the supervisor
+  before dispatch (a worktree `.aladdin/task.env`, or `.agentic/` in a legacy project, must match
+  it). Run data (`.aladdin/`, by its own `.gitignore`, or `.agentic/`) and `.transcripts/` are
+  git-ignored and never merged.

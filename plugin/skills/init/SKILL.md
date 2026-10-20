@@ -13,9 +13,10 @@ disable-model-invocation: true
 
 ## 0. Host
 
-On Claude Code nothing to do. On **Codex** or **OpenCode**, the human runs
-`aloop install codex` / `aloop install opencode` once (it generates the agents, skills
-and — for OpenCode — the plugin; see the aloop skill's host table). If `aloop`
+On Claude Code nothing to do. On **Codex**, **OpenCode** or **DeepSeek Harness** (`dsh`), the
+human runs `aloop install codex` / `aloop install opencode` / `aloop install dsh` once (it
+generates the agents, skills and — for OpenCode and dsh — the plugin; see the aloop skill's
+host table). If `aloop`
 is not found, the plugin isn't installed for this host yet — say so and stop.
 
 ## 1. Project settings — show the defaults, get the human's confirmation
@@ -27,7 +28,7 @@ Run:
 It prints a table of the proposed settings (the current ones if
 `docs/agents/defaults.md` already exists). Present that table to the human **as is**, then
 ask — one question per topic, the default first (Claude Code: `AskUserQuestion`; OpenCode: the
-`question` tool; Codex: ask in chat and wait):
+`question` tool; Codex and dsh: ask in chat and wait):
 
 1. **Limits** — per worker attempt: tokens soft/hard (default 150k / 250k), minutes
    soft/hard (20 / 30), re-plan cap (2). Keep the defaults, or which values?

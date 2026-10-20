@@ -12,6 +12,7 @@ import fcntl
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -68,7 +69,8 @@ class Project:
         return subprocess.run(args, cwd=self.dir, env=env or self.env, capture_output=True, text=True)
 
     def mi(self, *args):
-        return self.run(MI, *args)
+        """`aloop mission …` as a role runs it, with a human who types every grant it asks for (M9.17)."""
+        return F.as_human(lambda: self.run(MI, *args), self.dir, self.env)
 
     def app(self, **state):
         with open(os.path.join(self.dir, "app.json"), "w") as f:
@@ -96,6 +98,10 @@ class Project:
             with self.clock(hours):
                 M.record(self.dir, "state.assessed", self.ref(kind, aid), "state-assessor", sha256=doc["sha256"],
                          state_id=aid, baseline_id=fields.get("baseline_id"))
+        if kind == "goal" and record:                   # as `mission goal derive` records it
+            with self.clock(hours):
+                M.record(self.dir, "goal.derived", self.ref(kind, aid), "mission-planner", goal_id=aid,
+                         sha256=M.digest(doc))
         M.save(M.path_of(self.dir, kind, aid), doc)
         return aid, doc
 
@@ -121,7 +127,10 @@ class Project:
         assert r.returncode == 0, r.stderr
         path = r.stdout.strip()
         rev = json.load(open(path))
-        rev["findings"] = [{"category": c, "tier": tier, "reason": "the test's verdict"} for c in rev["screen"] + ["other"]]
+        gaps = [g["gap_id"] for g in json.load(open(os.path.join(self.dir, rev["subject"]["ref"]))).get("gaps") or []]
+        rev["findings"] = [dict({"category": c, "tier": tier, "reason": "the test's verdict"},
+                                **({"gaps": gaps} if tier == "hard" and len(gaps) > 1 else {}))
+                           for c in rev["screen"] + ["other"]]
         rev["tier"] = tier
         json.dump(rev, open(path, "w"))
         r = self.mi("ethics", "record", path)
@@ -143,7 +152,9 @@ class Project:
             M.now = real
 
     def approve(self, event, subject, doc, hours, **data):
-        """A human approval as `mission … --by` records it: a ledger row (role human), at that time."""
+        """A human approval as `mission … --by` records it: the human's typed line (M9.17), then a ledger
+        row (role human), at that time."""
+        F.say(self.dir, self.env, "%s %s" % (M.grant_verb(event, data), M.code(M.digest(doc))))
         with self.clock(hours):
             return M.approve(self.dir, event, subject, M.digest(doc), "Adeel", **data)
 
@@ -237,6 +248,17 @@ def expect(d, action, rc=None, why=None):
         assert why in d["reason"], "%s: %r not in %r" % (action, why, d["reason"])
 
 
+def granted(p, d, *args):
+    """The human types the line tick's reason names (M9.17), and the command it names records the grant:
+    the hand-off alone is enough to get the human's word, with nothing re-derived."""
+    m = re.search(r"the human replies `([^`]+)`, then `aloop mission ([^`]+)`", d["reason"])
+    assert m, "%s names no reply line: %r" % (d["action"], d["reason"])
+    assert " ".join(args).startswith(m.group(2).split(" --by")[0]), (m.group(2), args)
+    F.say(p.dir, p.env, m.group(1))
+    r = p.run(MI, *args)
+    assert r.returncode == 0, (m.group(1), r.stderr)
+
+
 def cleared(p, hours=0.1):
     """A project through the mission's ethics review, research, a journey and a confirmed baseline."""
     p.review(p.mission_ref(), p.mission_doc(), "clear", hours)
@@ -275,9 +297,9 @@ assert d["roles"] == ["state-assessor", "product-tester"], d["roles"]
 bid = p.baseline(measure=False)
 expect(p.tick(0.08), "BASELINE", 0, "measure it")
 assert p.mi("baseline", "measure", bid).returncode == 0
-d = p.tick(0.09)
-expect(d, "CONFIRM_BASELINE", 3, "is measured")
-assert d["subject"] == p.ref("baseline", bid)
+dc = p.tick(0.09)
+expect(dc, "CONFIRM_BASELINE", 3, "is measured")
+assert dc["subject"] == p.ref("baseline", bid)
 bdoc = p.load("baseline", bid)
 bdoc["status"] = "confirmed"                                               # a status is not a confirmation
 M.save(M.path_of(p.dir, "baseline", bid), bdoc)
@@ -285,7 +307,7 @@ d = p.tick(0.10)
 assert d["action"] == "BASELINE" and "only a measured version" in d["reason"], d
 bdoc["status"] = "measured"
 M.save(M.path_of(p.dir, "baseline", bid), bdoc)
-assert p.mi("baseline", "confirm", bid, "--by", "Adeel").returncode == 0
+granted(p, dc, "baseline", "confirm", bid, "--by", "Adeel")                 # a status is outside its code
 expect(p.tick(0.11), "ASSESS", 0, "no state report")
 assert p.mi("assess").returncode == 0
 d = p.tick(0.12)
@@ -350,8 +372,9 @@ d = p.tick(0.2)
 expect(d, "ASK_CONSENT", 3, "ethics consent --subject mission")
 assert d["subject"] == p.mission_ref()
 p.approve("ethics.consent", p.mission_ref(), p.mission_doc(), 0.3, reason="ok", review=ea, review_sha256="2" * 64)
-expect(p.tick(0.35), "ASK_CONSENT", 3)                                     # it names another version of the review
-p.consent("mission")
+d = p.tick(0.35)
+expect(d, "ASK_CONSENT", 3)                                                # it names another version of the review
+granted(p, d, "ethics", "consent", "--subject", "mission", "--by", "Adeel", "--reason", "fine for this content")
 expect(p.tick(0.4), "RESEARCH", 0)
 p.review(p.mission_ref(), p.mission_doc(), "gray", 0.41)
 expect(p.tick(0.42), "ASK_CONSENT", 3)                                     # every gray review needs its consent
@@ -381,7 +404,7 @@ p.review(p.ref("goal", gid), gdoc, "gray", 1.3)
 d = p.tick(1.4)
 expect(d, "ASK_CONSENT", 3)
 assert d["subject"] == p.ref("goal", gid)
-p.consent(gid)
+granted(p, d, "ethics", "consent", "--subject", gid, "--by", "Adeel", "--reason", "fine for this content")
 expect(p.tick(1.6), "PLAN_INTENTS", 0)
 gdoc = p.load("goal", gid)
 gdoc["status"] = "blocked"
@@ -428,7 +451,9 @@ expect(p.tick(2.0), "APPROVE_PLAN", 3, "sprint 1")
 p.event("plan.approved", 2.1, sprint="S1")
 expect(p.tick(2.2), "WAIT", 4)
 b2 = p.baseline()
-expect(p.tick(2.3), "CONFIRM_BASELINE", 3, "spoon-fed")
+d = p.tick(2.3)
+expect(d, "CONFIRM_BASELINE", 3, "spoon-fed")
+assert "replies `confirm %s %s`" % (b2, M.code(M.digest(p.load("baseline", b2)))) in d["reason"], d["reason"]
 ok("spoon-fed: OFFER_OPTIONS until a ledger goal.approved covers the goal's content; APPROVE_PLAN before the "
    "sprint runs; a replacement baseline waits for the human")
 
@@ -452,7 +477,9 @@ expect(p.tick(0.2), "BASELINE", 0, "apply it")
 assert p.mi("baseline", "apply", b2).returncode == 0
 expect(p.tick(0.3), "ASSESS", 0, "another baseline")                       # the state measured the old version
 b3 = p.baseline("--tolerance", "0.2")
-expect(p.tick(0.4), "CONFIRM_BASELINE", 3, "more drift")
+d = p.tick(0.4)
+expect(d, "CONFIRM_BASELINE", 3, "more drift")
+granted(p, d, "baseline", "confirm", b3, "--by", "Adeel")
 ok("autonomous: a replacement applies after the mission's veto window unless vetoed; then the product is "
    "re-assessed against it; a looser tolerance waits for the human")
 
@@ -845,7 +872,7 @@ assert p.mi("approve", "--by", "Adeel").returncode == 0
 p.review(p.mission_ref(), p.mission_doc(), "clear", 0.25)
 assert p.mi("baseline", "measure", bid).returncode == 2                    # what the gate says
 d2 = p.tick(0.3)
-expect(d2, "BASELINE", 0, "can no longer be measured (the mission changed")
+expect(d2, "BASELINE", 0, "can no longer be measured (the mission's direction")
 assert d2["key"] != d1["key"] and d2["handout"] == 1, (d1["key"], d2["key"])
 b2 = p.baseline()
 expect(p.tick(0.4), "CONFIRM_BASELINE", 3)
@@ -932,7 +959,9 @@ gy = dict(gx, title="refined")
 def pick(doc, hours, eid):
     """A human's goal pick as another branch recorded it (chained to the common head)."""
     row = {"event_id": eid, "ts": iso(p.at(hours)), "event": "goal.approved", "role": "human", "prev": head,
-           "data": {"subject": p.ref("goal", gid), "sha256": M.digest(doc), "by": "Adeel", "reason": ""}}
+           "data": {"subject": p.ref("goal", gid), "sha256": M.digest(doc), "by": "Adeel", "reason": "",
+                    "prompt": {"ts": iso(p.at(hours)), "sha256": "0" * 64, "session": "s",      # the human's line
+                               "line": "approve %s %s" % (gid, M.code(M.digest(doc)))}}}
     row["hash"] = M._row_hash(row)
     return json.dumps(row, sort_keys=True) + "\n"
 
@@ -990,7 +1019,79 @@ expect(d, "DERIVE_GOAL", 0, "crosses a hard line")                        # not 
 assert g2 in d["reason"], d["reason"]
 ok("the loop takes ethics from the gate's verdict: a hard-lined goal's words stay hard under a new id")
 
-# 27) discovery and help: the three areas are found by name
+# 27) goals through `aloop mission goal`, on the real clock: derive → review → intents → next and a sprint per
+#     intent → evaluate (narrowed to the goal) → close → evaluate the whole mission; a goal file nobody derived
+#     is no goal; a goal whose sprints all closed with gaps open, or that crossed a hard line while evaluate
+#     still narrows to it, is the human's
+def later(p):
+    time.sleep(1.05)                                                       # stamps are kept to the second
+    return (time.time() * 1000 - p.t0) / H
+
+
+p = Project().init()
+cleared(p)
+assert p.mi("assess").returncode == 0 and p.mi("evaluate").returncode == 0
+expect(p.tick(later(p)), "DERIVE_GOAL", 0, "aloop mission goal derive")
+fake, _ = p.art("goal", "derived", later(p), record=False)
+expect(p.tick(later(p), "--peek"), "DERIVE_GOAL", 0)                         # not ETHICS_REVIEW of a forged goal
+os.remove(M.path_of(p.dir, "goal", fake))
+r = p.mi("goal", "derive")
+assert r.returncode == 0, r.stderr
+gid = json.load(open(r.stdout.strip()))["goal_id"]
+expect(p.tick(later(p)), "ETHICS_REVIEW", 0)
+p.review(p.ref("goal", gid), p.load("goal", gid), "clear")
+expect(p.tick(later(p)), "PLAN_INTENTS", 0, "aloop mission goal intents %s" % gid)
+assert p.mi("goal", "intents", gid).returncode == 0
+for n in (1, 2):
+    expect(p.tick(later(p)), "SPRINT", 0, "aloop mission goal next %s" % gid)
+    r = p.mi("goal", "next", gid)
+    assert r.returncode == 0, r.stderr
+    p.event("plan.created", later(p), sprint="S%d" % n, intent_id=json.load(open(r.stdout.strip()))["intent_id"])
+    expect(p.tick(later(p)), "WAIT", 4, "sprint %d" % n)
+    p.sprint_closed(n, later(p))
+expect(p.tick(later(p)), "ASSESS", 0, "sprint 2 closed")
+assert p.mi("assess").returncode == 0
+expect(p.tick(later(p)), "EVALUATE", 0)
+assert p.mi("evaluate").returncode == 0                                    # narrowed to the goal: not met
+expect(p.tick(later(p)), "BLOCKED", 2, "M9.50")
+p.app(**PASSING)
+assert p.mi("assess").returncode == 0
+expect(p.tick(later(p)), "EVALUATE", 0)
+r = p.mi("evaluate")
+eid = json.load(open(r.stdout.strip()))["eval_id"]
+d = p.tick(later(p))
+expect(d, "EVALUATE", 0, "aloop mission goal close %s --eval %s" % (gid, eid))
+assert p.mi("goal", "close", gid, "--eval", eid).returncode == 0
+expect(p.tick(later(p)), "EVALUATE", 0, "evaluate the whole mission")
+assert p.mi("evaluate").returncode == 0
+expect(p.tick(later(p)), "RESEARCH", 0, "the goal is met")
+q = Project().init()
+cleared(q)
+assert q.mi("assess").returncode == 0 and q.mi("evaluate").returncode == 0
+r = q.mi("goal", "derive", "--top", "1")
+g2 = json.load(open(r.stdout.strip()))["goal_id"]
+assert q.mi("assess").returncode == 0 and q.mi("evaluate").returncode == 0      # narrowed to g2
+q.review(q.ref("goal", g2), q.load("goal", g2), "hard")
+expect(q.tick(later(q)), "EVALUATE", 0, "hard line")              # M9.29: g2 is retired, the narrowed eval says nothing
+assert q.mi("evaluate").returncode == 0                            # the whole mission: evaluate skips a retired goal
+d = q.tick(later(q))
+expect(d, "DERIVE_GOAL", 0, "aloop mission goal derive")          # the loop moves on, no human needed
+r = q.mi("goal", "derive")
+assert r.returncode == 0, r.stderr
+g3 = json.load(open(r.stdout.strip()))["goal_id"]
+assert g3 != g2 and not {x["gap_id"] for x in q.load("goal", g3)["gaps"]} & {x["gap_id"] for x in q.load("goal", g2)["gaps"]}
+q.review(q.ref("goal", g3), q.load("goal", g3), "hard")
+assert q.mi("evaluate").returncode == 0
+expect(q.tick(later(q)), "BLOCKED", 2, "held by a hard line")     # every gap held: the human changes the mission
+s = Project(mode="spoon-fed").init()
+cleared(s)
+assert s.mi("assess").returncode == 0 and s.mi("evaluate").returncode == 0
+expect(s.tick(later(s)), "OFFER_OPTIONS", 3, "aloop mission goal options")
+ok("goals run through `aloop mission goal` (derive, intents, next, close) and the loop names each command; a "
+   "goal file nobody derived is none; open gaps after every sprint go to the human; a hard-lined goal is retired "
+   "and the loop derives another (M9.29); spoon-fed offers the gap list")
+
+# 28) discovery and help: the three areas are found by name
 p = Project().init()
 listed = p.mi("--list").stdout.split()
 assert {"tick", "due", "cron"} <= set(listed), listed
@@ -1003,5 +1104,122 @@ assert r.stdout.split()[0] in TICK.ROLES, r.stdout
 assert p.mi("due").stdout.startswith(("due:", "not due:"))
 assert p.run(os.path.join(BIN, "aloop"), "mission", "tick", "--peek").stdout.split()[0] in TICK.ROLES
 ok("tick, due and cron are area commands with --help; bare `aloop mission tick` runs")
+
+# 29) lifting a block is the human's own words (M9.17, M9.24): `--force --by` alone asks (3) for the
+#     line to reply and lifts nothing; the human's `lift` line records a mission.lifted ledger row (so
+#     a fresh checkout keeps a lifted 3-failed-goals block lifted); an old line never lifts a later
+#     block, and a lift only the run log has (a FORCE tick with no row) lifts nothing
+def lifts(p):
+    return [r for r in M.ledger_rows(p.dir)[0] if r["event"] == "mission.lifted"]
+
+
+p = Project().init()
+p.review(p.mission_ref(), p.mission_doc(), "clear", 0.1)
+for i in range(3):
+    expect(p.tick(0.2 + i * 0.01), "RESEARCH", 0)
+d = p.tick(0.3)
+expect(d, "BLOCKED", 2, "3 times")
+force = lambda h: p.run(MI, "tick", "--force", "--by", "Adeel", "--now", iso(p.at(h)))  # no one typed a line
+r = force(0.31)
+m = F.ASKED.search(r.stderr)
+assert r.returncode == 3 and m and m.group(1).split()[0] == "lift", (r.returncode, r.stdout, r.stderr)
+line1, code = m.group(1), m.group(1).split()[-1]
+assert not lifts(p) and p.ticks()[-1]["data"].get("action") != "FORCE"
+p.event("mission.tick", 0.32, role="human", action="FORCE", key="FORCE " + d["grant"], grant=d["grant"],
+        by="Adeel", who="human", at=iso(p.at(0.32)))                       # a lift only the run log has
+expect(p.tick(0.33), "BLOCKED", 2, "3 times")
+for said in ("don't " + line1, line1.replace(code, "%08x" % (int(code, 16) ^ 1)), "approve " + line1[5:]):
+    F.say(p.dir, p.env, said)
+    assert force(0.34).returncode == 3, said                               # negated, another code, another verb
+F.say(p.dir, p.env, line1)
+r = force(0.35)
+assert r.returncode == 0 and r.stdout.startswith("FORCE"), (r.stdout, r.stderr)
+(row,) = lifts(p)
+assert row["role"] == "human" and row["data"]["by"] == "Adeel" and row["data"]["prompt"]["line"] == line1, row
+assert not M.ledger_problems(p.dir)
+for i in range(3):
+    expect(p.tick(0.36 + i * 0.01), "RESEARCH", 0)                          # handed out again, 3 more times
+expect(p.tick(0.4), "BLOCKED", 2, "3 times")                               # the same work blocks again
+r = force(0.41)
+m = F.ASKED.search(r.stderr)
+assert r.returncode == 3 and m and m.group(1) != line1, r.stderr           # the old line never lifts it twice
+log = os.path.join(p.dir, ".aladdin", "logs", "events.jsonl")
+lifted = [l for l in open(log) if '"mission.lifted"' in l]
+assert len(lifted) == 1, lifted                                            # the lift's own run-log event
+with open(log, "a") as fh:
+    fh.write(lifted[0])                                                    # a copy of it, replayed
+p.event("mission.tick", 0.42, role="human", action="FORCE", key="FORCE " + d["grant"], grant=d["grant"],
+        lift=row["data"]["sha256"], by="Adeel", who="human", at=iso(p.at(0.42)))   # the old lift's sha, replayed
+expect(p.tick(0.43), "BLOCKED", 2, "3 times")
+u = Project().init()                                                       # a line typed for a block that then
+cleared(u)                                                                 # cleared by itself never lifts the
+for i in range(3):                                                         # next block of the same action
+    expect(u.tick(0.2 + i * 0.01), "ASSESS", 0)
+expect(u.tick(0.3), "BLOCKED", 2, "3 times")
+r = u.run(MI, "tick", "--force", "--by", "Adeel", "--now", iso(u.at(0.31)))
+m = F.ASKED.search(r.stderr)
+assert r.returncode == 3 and m, r.stderr
+F.say(u.dir, u.env, m.group(1))                                            # typed, never used: the report landed
+u.art("state", "recorded", 0.4)
+expect(u.tick(0.5), "EVALUATE", 0)
+u.art("eval", "recorded", 0.6, goal_met=False)
+for i in range(3):
+    expect(u.tick(7 + i * 0.01), "ASSESS", 0, "cadence")
+expect(u.tick(7.1), "BLOCKED", 2, "3 times")
+r = u.run(MI, "tick", "--force", "--by", "Adeel", "--now", iso(u.at(7.11)))
+assert r.returncode == 3 and F.ASKED.search(r.stderr).group(1) != m.group(1), (r.returncode, r.stdout, r.stderr)
+q = Project().init()
+cleared(q)
+q.art("state", "recorded", 1)
+q.art("eval", "recorded", 1.1, goal_met=False)
+for h in (1.2, 1.4, 1.6):
+    g, gd = q.art("goal", "derived", h)
+    q.review(q.ref("goal", g), gd, "hard", h + 0.05)
+expect(q.tick(1.7), "BLOCKED", 2, "3 goals")
+assert q.mi("tick", "--force", "--by", "Adeel", "--now", iso(q.at(1.75))).returncode == 0   # the human typed it
+shutil.rmtree(os.path.join(q.dir, ".aladdin"))                             # a fresh checkout: no run log
+q.review(q.mission_ref(), q.mission_doc(), "clear", 1.8)                   # mission reviews are run data (M9.4)
+expect(q.tick(1.9), "DERIVE_GOAL", 0)                                      # still lifted: the ledger has it
+w = Project().init()
+cleared(w)
+w.art("state", "recorded", 1)
+w.art("eval", "recorded", 1.1, goal_met=False)
+for h in (1.2, 1.4, 1.6):
+    g, gd = w.art("goal", "derived", h)
+    w.review(w.ref("goal", g), gd, "hard", h + 0.05)
+expect(w.tick(1.7), "BLOCKED", 2, "3 goals")
+assert w.mi("tick", "--force", "--by", "Adeel", "--now", iso(w.at(100))).returncode == 0   # a far --now
+for h in (2.0, 2.2, 2.4):
+    g, gd = w.art("goal", "derived", h)
+    w.review(w.ref("goal", g), gd, "hard", h + 0.05)
+expect(w.tick(2.5), "BLOCKED", 2, "3 goals")                               # it lifted those goals, not the future
+ok("lifting a block takes the human's typed `lift` line, recorded in the ledger (a fresh checkout keeps it); "
+   "--by alone, a run-log-only or replayed lift, a negated line, another code, an old line or a line typed for an "
+   "earlier block lift nothing, and a lift of 3 failed goals covers those goals, whatever the clock")
+
+# 30) a hit cap holds on a fresh checkout (M9.24): the stop is a mission.budget_exhausted ledger row for the
+#     mission's content, one per content, so a clone (no run log, no token ledger) stays stopped until the
+#     human raises the cap
+p = Project(budget=("--budget-tokens", "1000")).init()
+cleared(p)
+p.ledger([(0.5, "claude-sonnet-5-5", 600, 0, 0, 500)])
+expect(p.tick(1), "STOP_BUDGET", 3, "1100")
+p.tick(1.1)
+stops = [r for r in M.ledger_rows(p.dir)[0] if r["event"] == "mission.budget_exhausted"]
+assert len(stops) == 1 and stops[0]["role"] == "mission-loop", stops
+assert stops[0]["data"]["sha256"] == M.digest(p.mission_doc()) and stops[0]["data"]["tokens"] == 1100, stops
+shutil.rmtree(os.path.join(p.dir, ".aladdin"))                             # a fresh checkout: no spend on record
+d = p.tick(1.2)
+expect(d, "STOP_BUDGET", 3, "1100")                                        # still stopped: the ledger says so
+assert d["budget"]["tokens"] == 0, d["budget"]
+doc = p.mission_doc()
+doc["budget"]["tokens"] = 5000
+doc["status"] = "draft"
+M.save(M.path_of(p.dir, "mission"), doc)
+assert p.mi("approve", "--by", "Adeel", "--reason", "raise the cap").returncode == 0
+p.review(p.mission_ref(), p.mission_doc(), "clear", 1.3)
+d = p.tick(1.4)
+assert d["action"] != "STOP_BUDGET", d                                     # the raised cap resumes the loop
+ok("a hit cap is a ledger row for the mission's content: a fresh checkout stays stopped until the cap is raised")
 
 print("mission-tick: %d checks passed" % PASS[0])

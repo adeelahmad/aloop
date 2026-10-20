@@ -78,8 +78,8 @@ pycheck: ## Byte-compile the Python hook scripts
 	  && rm -rf plugin/bin/__pycache__ plugin/mission/__pycache__ && echo "python ok"
 
 .PHONY: test-hosts
-test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plugin end-to-end (no network, no tokens)
-	@command -v node >/dev/null && node --check plugin/hosts/opencode/aloop.js
+test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and dsh plugins end-to-end (no network, no tokens)
+	@command -v node >/dev/null && node --check plugin/hosts/opencode/aloop.js && node --check plugin/hosts/dsh/aloop.mjs
 	python3 scripts/test/budget-worktree.test.py
 	python3 scripts/test/budget-soft-telemetry.test.py
 	python3 scripts/test/budget-hard-stop.test.py
@@ -104,6 +104,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/context-boundary.test.py
 	python3 scripts/test/model-routes.test.py
 	python3 scripts/test/host-adapter.test.py
+	python3 scripts/test/dsh-install.test.py
 	python3 scripts/test/portable-config.test.py
 	python3 scripts/test/host-swap.test.py
 	python3 scripts/test/aladdin-cli.test.py
@@ -134,6 +135,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/skill-layout.test.py
 	@for t in scripts/test/mission-*.test.py; do [ -e "$$t" ] || continue; echo "python3 $$t"; python3 "$$t" || exit 1; done
 	@if command -v node >/dev/null; then node scripts/test/opencode-plugin.test.mjs; else echo "node not found — skipped OpenCode test (CI runs it)"; fi
+	@if command -v node >/dev/null; then node scripts/test/dsh-plugin.test.mjs && node scripts/test/dsh-runtime.test.mjs; else echo "node not found — skipped dsh tests (CI runs them)"; fi
 
 .PHONY: conformance
 conformance: ## ROADMAP §6 conformance fixtures on today's gates (needs cargo; no network, no tokens)

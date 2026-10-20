@@ -77,7 +77,23 @@ rules = SKILL[SKILL.index("## Hard rules"):]
 for phrase in ("never write", "docs/agents/mission/", "explicit yes", "--by", "hard line", "never weaken",
                "never gates", "every action comes from", "STOP_BUDGET"):
     assert phrase.lower() in rules.lower(), "the hard rules do not say %r" % phrase
-ok("hard rules: no mission artifact by hand, approvals only on the human's yes, hard lines final, telemetry never gates")
+# M9.17: a grant is the human's typed line, so the supervisor relays the line the command asks for, verbatim
+for phrase in ("they reply", "exact line", "typed", 'the command the ASK names after "then"', "goal approve",
+               "grants nothing"):
+    assert phrase in rules, "the hard rules do not say how a grant is made (M9.17): %r" % phrase
+for src, forms in (("bin/_mission.py", ("they reply  ", "then run this again")),          # what the CLI prints
+                   ("mission/goal.py", ("then aloop mission goal approve",))):
+    text = open(os.path.join(PLUGIN, src)).read()
+    assert all(f in text for f in forms), (src, forms)
+# each grant's row relays the line tick's reason names, never a yes in other words
+tick_src = open(os.path.join(PLUGIN, "mission", "tick.py")).read()
+assert "the human replies `%s %s %s`, then `aloop mission %s`" in tick_src, "tick's grant hand-offs name no reply line"
+for action, verb in (("CONFIRM_MISSION", "approve"), ("CONFIRM_BASELINE", "confirm"), ("ASK_CONSENT", "consent")):
+    row = rows[action]
+    assert "relay" in row.lower() and "`%s <id> <code>`" % verb in row and "typed" in row, (action, row)
+    assert not re.search(r"\byes\b", row), "%s's row still waits for a yes: %r" % (action, row)
+ok("hard rules: no mission artifact by hand, approvals only in the human's own typed line, hard lines final, "
+   "telemetry never gates; each grant row relays its line")
 
 # 6) setting a mission asks the human only for what requirement 1 gives them
 setup = SKILL[SKILL.index("## Setting a mission"):]
@@ -95,7 +111,15 @@ q = json.load(open(os.path.join(SDIR, "evals", "eval_queries.json")))
 assert {x["should_trigger"] for x in q} == {True, False} and len(q) >= 8
 ok("evals/: %d evals and %d trigger queries (both outcomes)" % (len(ev["evals"]), len(q)))
 
-# 8) small: it is re-read on every supervisor call
+# 8) lifting a block (`tick --force`) is one of those typed grants (M9.51): the BLOCKED row names the
+#    human's `lift` line, and the hard rules count a lift among the approvals
+assert "--force" in rows["BLOCKED"] and "`lift …` line" in rows["BLOCKED"], rows["BLOCKED"]
+assert "a lift" in rules
+TICK_SRC = open(os.path.join(PLUGIN, "mission", "tick.py")).read()
+assert '"mission.lifted"' in TICK_SRC and "M.approve(" in TICK_SRC   # the lift is a grant the CLI asks for
+ok("a block is lifted by the human's typed `lift` line (tick --force asks for it, like every grant)")
+
+# 9) small: it is re-read on every supervisor call
 n = len(SKILL.encode())
 assert n <= BUDGET, "SKILL.md is %d bytes (budget %d)" % (n, BUDGET)
 ok("SKILL.md is within its %d-byte budget (%d)" % (BUDGET, n))

@@ -18,7 +18,9 @@ Usage:
         content a human approved. Exit 0 ok · 2 invalid or changed · 3 needs the human
         (draft, or changed since the last approval)
   mission approve --by NAME [--reason TEXT]
-        a human approves the CURRENT content: seal it, record mission.approved (subject + sha256)
+        a human approves the CURRENT content: seal it, record mission.approved (subject + sha256).
+        Only the human's own words grant it: a captured prompt line `approve <mission_id> <code>`
+        (the first 8 hex of the sha256); until one says it, this asks (3) with that line
   mission show [--json]       the mission and whether its content is approved
   mission status [--json]     what exists per artifact kind (the facts `mission tick` reads)
   mission --list              the area commands
@@ -162,10 +164,12 @@ def evaluate(cwd):
             return 2, ["mission.json is content a human approved at %s, but their newest approval covers other "
                        "content: the mission was rolled back" % old[-1]["ts"]], facts
         return 2, ["mission.json says approved but its content has no human approval "
-                   "(changed since it was approved): a human runs `aloop mission approve --by NAME`"], facts
+                   "(changed since it was approved): the human replies `approve %s %s`, then "
+                   "`aloop mission approve --by NAME`" % (doc.get("mission_id"), M.code(sha))], facts
     if doc.get("status") != "approved" or not ev:
         why = "changed since it was sealed" if not facts["sealed"] else "a draft"
-        return 3, ["the mission is %s: the human confirms it (`aloop mission approve --by NAME`)" % why], facts
+        return 3, ["the mission is %s: the human confirms it by replying `approve %s %s`, then "
+                   "`aloop mission approve --by NAME`" % (why, doc.get("mission_id"), M.code(sha))], facts
     return 0, [], facts
 
 
@@ -248,7 +252,20 @@ def run_area(name, argv, cwd):
 
 
 def main(argv):
+    """Every command; a grant the human has not typed yet asks (3) for their words."""
     argv = M.cli_text(argv)
+    try:
+        return dispatch(argv)
+    except M.NeedsHuman as e:
+        print("ASK[%s]: %s" % (argv[0], e), file=sys.stderr)
+        return 3
+    except M.LedgerBroken as e:      # nothing is recorded past a broken ledger
+        print("BLOCK[%s]: %s (restore it: git checkout -- docs/agents/mission/ledger.jsonl)" % (argv[0], e),
+              file=sys.stderr)
+        return 2
+
+
+def dispatch(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip())
         return 0

@@ -284,6 +284,27 @@ ROWS = [
     (SUP, P, "claude plugin validate ./plugin --strict", 0),
     (SUP, P, "claude --version && codex --help", 0),
     (G, T1, "opencode models", 0),
+    (E, P, 'dsh --profile aloop "approve msn_x 1234abcd"', 2),
+    (G, T1, "dsh headless 'run the tests'", 2),
+    (SUP, P, "DSH_HOME=/tmp/d dsh aloop --resume s1", 2),
+    (SUP, P, "dsh plugin --profile aloop add some-plugin", 0),
+    (SUP, P, "dsh --version", 0),
+    # ── round 3 (M9.38): a substitution ends where bash ends it, so what follows runs in the project ──
+    (E, P, "x=$(cd /tmp; cat <<<hi\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(cd /tmp; jq . <<<'{}'\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(cd /tmp; cat <<<hi\n)\ngit commit -am x", 2),
+    (E, P, "x=$(cd /tmp; echo $((1<<2))\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(cd /tmp; (( y = 1 << 3 ))\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(\n  cd /tmp\n  echo $(( 1 << 4 ))\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(cd /tmp # note <<b\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(cd /tmp; echo ${y:-<<EOF}\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(cd /tmp; echo ${y//<</}\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(cd /tmp; echo $[1<<2]\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(cd /tmp; echo ${y:-\"}\"}\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(cat <<A <<B\nA); touch src/a.py", 2),
+    (MP, P, "x=$(cat <<A <<B\nA); aloop mission approve --by h", 2),
+    (E, P, "x=$(cd /tmp; case a in a) true;; esac\n)\ntouch src/a.py", 2),
+    (E, P, "x=$(cd /tmp; echo hi)\ntouch docs/agents/mission/eval/e.json", 0),
 ]
 
 

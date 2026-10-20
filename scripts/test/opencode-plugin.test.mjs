@@ -167,7 +167,11 @@ ok("gate-mission-artifact runs at the evaluator's stop and blocks a run that wro
 // start record that is open while it works; the first task's record never judges (or excuses) the second's work
 const mission = (...a) => sh(join(BIN, "mission"), a, { stdio: ["ignore", "pipe", "pipe"] }).trim().split("\n").pop()
 mission("init", "the best to-do app", "--mode", "autonomous", "--budget-usd", "40")
-mission("approve", "--by", "Ada")
+try { mission("approve", "--by", "Ada") } catch (e) {        // M9.17: the human types the line the ASK names
+  const prompt = /they reply {2}(.+?) {2}\(the code/.exec(e.stderr)[1]
+  sh(join(BIN, "transcripts"), ["prompt"], { input: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "s-human", prompt }) })
+  mission("approve", "--by", "Ada")
+}
 const runOf = (id) => JSON.parse(readFileSync(join(T, ".aladdin/state/mission-runs", `${id}.json`), "utf8"))
 parents.eth = "root"
 await hooks.event({ event: { type: "session.created", properties: { info: { id: "eth", parentID: "root" } } } })

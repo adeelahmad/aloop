@@ -153,6 +153,25 @@ for r in ROLES:
 assert '"gate-mission-scope"' in js and '"gate-mission-artifact", ["start"]' in js
 ok("host install: Codex and OpenCode agents rendered per route group; the OpenCode plugin wires both gates")
 
+DENV = dict(ENV, DSH_HOME=os.path.join(T, "dsh-home"))
+r = sh(os.path.join(BIN, "install"), "dsh", "--project", P0, cwd=P0, env=DENV)
+assert r.returncode == 0, r.stderr
+yml = open(os.path.join(DENV["DSH_HOME"], "profiles", "aloop", "cordis.patch.yml")).read()
+tools = dict(re.findall(r"toolName: (\w+), allowedAgentPresets: \[([^\]]*)\]", yml))
+for r in ROLES:
+    tool = "subagent_planning" if TABLE["roles"][r]["group"] == "planning" else "subagent"
+    assert "aloop-" + r in tools[tool].split(", "), (r, tools)
+    assert ("You are aloop's `%s` role." % r) in yml and "## On DeepSeek Harness" in yml, r
+mjs = open(os.path.join(ROOT, "hosts", "dsh", "aloop.mjs")).read()
+for r in ROLES:
+    assert re.search(r'"?%s"?:\s*"gate-mission-artifact"' % re.escape(r), mjs), r
+assert '["gate-mission-scope", []]' in mjs and '"gate-mission-artifact", ["start"]' in mjs
+sk = os.path.join(P0, ".dsh", "skills", "aloop-mission", "SKILL.md")
+assert os.path.isfile(sk) and "name: aloop-mission" in open(sk).read()
+r = sh(os.path.join(BIN, "install"), "dsh", "--uninstall", "--project", P0, cwd=P0, env=DENV)
+assert r.returncode == 0 and not os.path.exists(os.path.dirname(sk)), (r.stdout, r.stderr)
+ok("host install: dsh presets per route group, the dsh plugin wires both gates, the mission skill comes and goes")
+
 # the mission skill (M9.12, plugin/skills/mission/) reaches OpenCode as `aloop-mission` once it ships;
 # until then the install skips it (checked on the real plugin above)
 IP = os.path.join(T, "install-plugin")
@@ -361,6 +380,17 @@ QD = os.path.join(Q, "docs", "agents", "mission")
 os.makedirs(QD)
 
 
+def grant(event, rel, sha, by="Adeel"):
+    """The human's approval in Q: M9.17 records it only once the human typed the line it names."""
+    sys.path.insert(0, os.path.join(REPO, "scripts", "test", "fixtures"))
+    from mission_fixture import ASKED, say
+    try:
+        return M.approve(Q, event, rel, sha, by=by)
+    except M.NeedsHuman as e:
+        say(Q, ENV, ASKED.search(str(e)).group(1))
+        return M.approve(Q, event, rel, sha, by=by)
+
+
 def hook(agent_type, agent_id, *args, env=None):
     p = {"session_id": "s1", "cwd": Q, "agent_type": agent_type, "agent_id": agent_id,
          "hook_event_name": "SubagentStart" if args else "SubagentStop"}
@@ -462,7 +492,7 @@ assert hook(S, "sa4").returncode == 0
 hook(S, "sa6", "start")
 artifact("state", numbers={"journeys_passed": 8})
 rel = "docs/agents/mission/eval/%s.json" % fd["eval_id"]
-M.approve(Q, "journey.approved", rel, M.digest(fd), by="Adeel")
+grant("journey.approved", rel, M.digest(fd))
 fd["approval"] = {"event": "journey.approved"}
 M.save(fp, fd)
 r = hook(S, "sa6")
@@ -503,7 +533,7 @@ ok("selfcheck <role> judges the role's open run the same way, with no events and
 
 hook(E, "ev10", "start")
 artifact("eval", gaps=[{"gap": "g11"}])
-M.approve(Q, "goal.approved", "docs/agents/mission/goals/gol_x.json", "0" * 64, by="Adeel")   # however it was spelled
+grant("goal.approved", "docs/agents/mission/goals/gol_x.json", "0" * 64)   # however it was spelled
 r = hook(E, "ev10")
 assert r.returncode == 0 and "`goal.approved` (docs/agents/mission/goals/gol_x.json, by Adeel) was recorded while you ran" in r.stderr, r.stderr
 assert [e for e in events() if e["event"] == "gate.passed"][-1]["data"]["human_events"] == [
@@ -512,7 +542,7 @@ hook("aloop:mission-planner", "mp2", "start")
 gp, gd = artifact("goal", eval_id="evl_x", gaps=["g1"])
 assert hook("aloop:mission-planner", "mp2").returncode == 0
 hook("aloop:mission-planner", "mp3", "start")
-M.approve(Q, "goal.approved", "docs/agents/mission/goals/%s.json" % gd["goal_id"], M.digest(gd), by="Adeel")
+grant("goal.approved", "docs/agents/mission/goals/%s.json" % gd["goal_id"], M.digest(gd))
 gd["status"], gd["approval"] = "approved", {"event": "goal.approved"}
 M.save(gp, gd)
 assert gblocked(hook("aloop:mission-planner", "mp3"), "you wrote no artifact")   # the human's approval is not its write
@@ -623,10 +653,11 @@ assert hook(MP, "mp6").returncode == 0
 ok("intents: no role rewrites the human's or intake's intent (intake's own check excuses its fill); a `source: mission`"
    " intent is the Mission Planner's, unless a planner run answers for it")
 
-M.approve(Q, "mission.approved", "docs/agents/mission/mission.json", "0" * 64, by="Adeel")
+grant("mission.approved", "docs/agents/mission/mission.json", "0" * 64)
 rows, _ = M.ledger_rows(Q)
 row = {"event_id": "e" * 32, "ts": M.now(), "event": "journey.approved", "role": "human", "prev": rows[-1]["hash"],
-       "data": {"subject": "docs/agents/mission/journeys/jrn_x.json", "by": "Adeel", "reason": "", "sha256": "0" * 64}}
+       "data": {"subject": "docs/agents/mission/journeys/jrn_x.json", "by": "Adeel", "reason": "", "sha256": "0" * 64,
+                "prompt": {"line": "approve jrn_x 00000000"}}}   # the human's words, captured in another checkout
 row["hash"] = M._row_hash(row)
 with open(M.ledger(Q), "a") as f:                            # a row that came through git: no local event backs it
     f.write(json.dumps(row, sort_keys=True) + "\n")
@@ -641,7 +672,7 @@ open(M.ledger(Q), "w").write(led)
 assert hook(E, "ev18").returncode == 0
 hook(E, "ev19", "start")
 artifact("eval", gaps=[{"gap": "g20"}])
-M.approve(Q, "goal.approved", "docs/agents/mission/goals/gol_y.json", "0" * 64, by="Adeel")   # a CLI append
+grant("goal.approved", "docs/agents/mission/goals/gol_y.json", "0" * 64)   # a CLI append
 assert hook(E, "ev19").returncode == 0
 ok("the ledger is append-only during a run: a removed tail row blocks with or without the run log; an append passes")
 

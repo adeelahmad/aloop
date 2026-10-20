@@ -60,10 +60,21 @@ STATUSES = {
 # human approvals: the event type, and the subject kind it approves
 APPROVAL_EVENTS = {"mission.approved": "mission", "baseline.confirmed": "baseline",
                    "journey.approved": "journey", "goal.approved": "goal", "ethics.consent": "goal",
-                   "telemetry.consent": "telemetry"}
+                   "telemetry.consent": "telemetry", "mission.lifted": "mission"}
+# a human grant counts only with the human's own words (M9.17): a line of a prompt the
+# UserPromptSubmit hook captured (`transcripts prompt`) that says the grant's verb and the code of
+# the content it grants (the first 8 hex of its sha256). A veto needs none: refusing is always safe.
+GRANT_VERBS = {"mission.approved": "approve", "baseline.confirmed": "confirm", "journey.approved": "approve",
+               "goal.approved": "approve", "ethics.consent": "consent", "telemetry.consent": "consent",
+               "mission.lifted": "lift"}
+ACTION_VERBS = ("restore", "retire")    # a grant whose data.action is one of these says that verb
+SUPERSEDE_ACROSS = ("baseline.confirmed",)     # the newest confirmation of any version is the current one
+NEGATION = re.compile(r"\b(?:not|no|never|don'?t|veto\w*|reject\w*|cancel\w*|stop|wait|undo)\b")
 
 # fields left out of the digest: the digest itself and the bookkeeping that changes on approval
 UNHASHED = ("sha256", "status", "approval")
+# what "best" is measured for: a baseline binds these, so a new budget cap or cadence keeps it
+DIRECTION = ("mission_id", "statement", "mode", "constraints")
 
 
 def now():
@@ -108,6 +119,11 @@ def canonical(doc, drop=UNHASHED):
 
 def digest(doc, drop=UNHASHED):
     return hashlib.sha256(canonical(doc, drop)).hexdigest()
+
+
+def direction(mission_doc):
+    """The digest of the mission's direction (DIRECTION): what a baseline is confirmed for."""
+    return digest({k: (mission_doc or {}).get(k) for k in DIRECTION}, drop=())
 
 
 def load(path):
@@ -219,16 +235,19 @@ def problems(doc, kind, path=""):
 
 
 # ── events and approvals ─────────────────────────────────────────────────────────────
-def emit(cwd, event, role="", refs=None, **data):
-    return _events.emit(cwd, event, role=role, refs=refs, **data)
+def emit(cwd, event, role="", refs=None, event_id=None, **data):
+    return _events.emit(cwd, event, role=role, refs=refs, event_id=event_id, **data)
 
 
-# a human decision that is not an approval: a veto, an opt-out
-HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed", "telemetry.revoked")
+# a human decision that is not an approval: a veto, an opt-out, a door opened or closed (M9.30)
+HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed", "telemetry.revoked", "door.authorized", "door.revoked")
 # every record a mission gate decides from: the human decisions, plus what the harness measured,
-# assessed, retired, reviewed (a hard ethics line stays blocked on a fresh checkout) and derived
+# assessed, retired, reviewed (a hard ethics line stays blocked on a fresh checkout), derived, the
+# loop's own stop at a spend cap (a clone stays stopped) and the one-way doors crossed under a
+# once-authorization (M9.30)
 LEDGER_EVENTS = HUMAN_EVENTS + ("baseline.measured", "state.assessed", "journey.retired", "ethics.reviewed",
-                                "ethics.blocked", "goal.derived", "goal.met")
+                                "ethics.blocked", "goal.derived", "goal.met", "mission.budget_exhausted",
+                                "door.crossed")
 
 
 def ledger(cwd=None):
@@ -274,6 +293,10 @@ def ledger_rows(cwd):
         elif prev and row["ts"] < seen[prev]["ts"]:
             bad.append("ledger line %d is dated before the row it follows" % n)
         seen[row["hash"]] = row
+        if row["event"] in GRANT_VERBS and row.get("role") == "human" and not cites(row):
+            bad.append("ledger line %d is a human %s that cites none of the human's own words (no captured "
+                       "prompt line says it)" % (n, row["event"]))
+            continue
         rows.append(row)
     return rows, bad
 
@@ -291,10 +314,11 @@ def ledger_problems(cwd):
     """The ledger's own problems, plus every ledger event the run log recorded on this branch that
     the ledger lost (the run log is shared by every branch of the checkout; another branch's
     ledger never had this branch's rows)."""
+    events = _events.read(cwd)      # the stream first: its writer appends the ledger row before the event
     rows, bad = ledger_rows(cwd)
     have = set(r.get("event_id") for r in rows)
     here = None
-    for e in _events.read(cwd):
+    for e in events:
         d = e.get("data")
         if not isinstance(d, dict) or d.get("ledger") is not True or e.get("event_id") in have:
             continue
@@ -313,28 +337,128 @@ def ledger_block(cwd, area):
 
 
 def record(cwd, event, subject_ref, role, **data):
-    """Append one record a gate decides from to the ledger (and the event stream); returns the row."""
+    """Append one record a gate decides from to the ledger, then to the event stream under the same
+    event_id (so a reader, which reads the stream first, never sees a half-written record as a lost
+    row); returns the row. It is dated no earlier than any row: the newest decision is the latest."""
     if event not in LEDGER_EVENTS:
         raise ValueError("not a ledger event: %r" % event)
     bad = ledger_problems(cwd)
     if bad:
         raise LedgerBroken("; ".join(bad))
     body = dict(data, subject=subject_ref)
-    eid = emit(cwd, event, role=role, refs={"subject": subject_ref}, ledger=True, branch=branch(cwd), **body) \
-        or uuid.uuid4().hex
+    if event in HUMAN_EVENTS:      # a decision (or the veto window's) dates every prompt captured before it
+        body["prompt_log"] = prompt_clock(prompts(cwd))
+    eid, here = uuid.uuid4().hex, branch(cwd)
     rows, _ = ledger_rows(cwd)
-    ts = max([now()] + [r["ts"] for r in rows[-1:]])
+    ts = max([now()] + [r["ts"] for r in rows])
     row = {"event_id": eid, "ts": ts, "event": event, "role": role, "data": body,
            "prev": rows[-1]["hash"] if rows else ""}
     row["hash"] = _row_hash(row)
     os.makedirs(os.path.dirname(ledger(cwd)), exist_ok=True)
     with open(ledger(cwd), "a", encoding="utf-8") as f:
         f.write(json.dumps(row, sort_keys=True) + "\n")
+    emit(cwd, event, role=role, refs={"subject": subject_ref}, event_id=eid, ledger=True, branch=here, **body)
     return row
 
 
+class NeedsHuman(Exception):
+    """A grant the human has not said in their own words yet: ASK (exit 3) with the line to reply."""
+
+
+def code(sha):
+    """The short code a human types to grant exactly this content."""
+    return (sha or "")[:8]
+
+
+def grant_verb(event, data):
+    a = data.get("action")
+    return a if a in ACTION_VERBS else GRANT_VERBS[event]
+
+
+def grants(line, verb, sha):
+    """True when one typed line grants exactly this content: it starts with the verb (after an optional
+    yes or ok), names the content's code (or more of its sha256), and says nothing that undoes it."""
+    s = re.sub(r"^(?:yes|ok|okay|sure)\b[\s,.!:;-]*", "", line.strip().strip("`'\"").strip().lower())
+    hexes = [t for t in re.findall(r"\b[0-9a-f]{8,64}\b", s) if sha and sha.startswith(t)]
+    return bool(re.match(r"%s\b" % re.escape(verb), s)) and bool(hexes) and not NEGATION.search(s)
+
+
+def cites(row):
+    """A human grant's record names a captured prompt line that grants exactly its content."""
+    d, c = row["data"], row["data"].get("prompt")
+    return isinstance(c, dict) and isinstance(c.get("line"), str) and isinstance(d.get("sha256"), str) \
+        and grants(c["line"], grant_verb(row["event"], d), d["sha256"])
+
+
+def prompts(cwd):
+    """The human prompts the UserPromptSubmit hook captured in this checkout (`transcripts prompt`),
+    oldest first: {ts, sha256, session, text}. Run data, so another checkout has its own."""
+    out = []
+    for p in sorted(glob.glob(os.path.join(_paths.home(cwd, "transcripts", make=False), "*", "events.jsonl"))):
+        try:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            continue
+        for ln in lines:
+            if '"prompt"' not in ln:        # the store also holds every tool call's full payload
+                continue
+            try:
+                e = json.loads(ln)
+            except ValueError:
+                continue
+            pl = e.get("payload") if isinstance(e, dict) and e.get("kind") == "prompt" else None
+            if isinstance(pl, dict) and isinstance(pl.get("prompt"), str) and isinstance(e.get("ts"), str):
+                out.append({"ts": e["ts"], "session": str(pl.get("session_id") or ""), "text": pl["prompt"],
+                            "sha256": hashlib.sha256(pl["prompt"].encode("utf-8", "surrogatepass")).hexdigest()})
+    return sorted(out, key=lambda q: q["ts"])     # stable: file order within a second
+
+
+def prompt_clock(qs):
+    """Which prompt log this is (its first prompt) and how many prompts it had: a human decision records
+    it, so a line captured before that decision is known to be older, even within the same second."""
+    return {"id": hashlib.sha256((qs[0]["ts"] + qs[0]["sha256"]).encode()).hexdigest()[:16] if qs else "",
+            "seen": len(qs)}
+
+
+def stale_before(cwd, event, subject_ref, sha, qs):
+    """How many of the captured prompts are too old to grant this: every one captured before a later human
+    decision about the same subject (other content approved, a veto, a revocation) or, for a baseline,
+    before any version's confirmation (the newest one is the current version)."""
+    clock, floor = prompt_clock(qs), 0
+    for r in ledger_rows(cwd)[0]:
+        d = r["data"]
+        if r["event"] not in HUMAN_EVENTS or (r["event"] == event and d.get("subject") == subject_ref
+                                              and d.get("sha256") == sha):
+            continue                       # this very content (a consent per review, a repeat) undoes nothing
+        if d.get("subject") != subject_ref and not (event in SUPERSEDE_ACROSS and r["event"] == event):
+            continue
+        seen = d.get("prompt_log") if isinstance(d.get("prompt_log"), dict) else {}
+        if clock["id"] and seen.get("id") == clock["id"] and isinstance(seen.get("seen"), int):
+            floor = max(floor, seen["seen"])
+        else:   # recorded on another checkout: a prompt from that second or before is older
+            floor = max(floor, sum(1 for q in qs if q["ts"] <= r["ts"]))
+    return floor
+
+
+def provenance(cwd, event, subject_ref, sha, data):
+    """The newest captured prompt line that grants this content, as the record's `prompt`; raises
+    NeedsHuman with the line to reply when there is none. A line older than a later decision about the
+    subject is stale, so an old "approve" never re-grants content that was replaced or vetoed."""
+    verb, qs = grant_verb(event, data), prompts(cwd)
+    for q in reversed(qs[stale_before(cwd, event, subject_ref, sha, qs):]):
+        for line in q["text"].splitlines():
+            if grants(line, verb, sha):
+                return {"ts": q["ts"], "sha256": q["sha256"], "session": q["session"], "line": line.strip()[:200]}
+    name = next((data[k] for k in ("mission_id", "baseline_id", "journey_id", "goal_id", "subject_id", "telemetry_id")
+                 if isinstance(data.get(k), str) and data[k]), os.path.basename(subject_ref))
+    raise NeedsHuman("%s is the human's own decision: they reply  %s %s %s  (the code names exactly this "
+                     "content), then run this again" % (event, verb, name, code(sha)))
+
+
 def record_human(cwd, event, subject_ref, by, reason="", **data):
-    """Record a human decision about one subject; returns its event id."""
+    """Record a human decision about one subject; returns its event id. A grant also cites the
+    captured prompt line that says it (raises NeedsHuman until the human has typed one)."""
     if event not in HUMAN_EVENTS:
         raise ValueError("not a human decision event: %r" % event)
     by, reason = (by or "").strip(), (reason or "").strip()
@@ -342,6 +466,8 @@ def record_human(cwd, event, subject_ref, by, reason="", **data):
         raise ValueError("a human decision names who made it (--by)")
     if "\n" in reason or len(reason) > 200:
         raise ValueError("a reason is one line of at most 200 characters")
+    if event in GRANT_VERBS:
+        data["prompt"] = provenance(cwd, event, subject_ref, data.get("sha256") or "", data)
     return record(cwd, event, subject_ref, "human", by=by, reason=reason, **data)["event_id"]
 
 
@@ -351,6 +477,17 @@ def approve(cwd, event, subject_ref, sha, by, reason="", **data):
     if event not in APPROVAL_EVENTS:
         raise ValueError("not an approval event: %r" % event)
     return record_human(cwd, event, subject_ref, by, reason, sha256=sha, **data)
+
+
+def history(cwd):
+    """The ledger's intact rows, plus the run log's events that are not ledger rows, oldest first:
+    what a reader of past decisions iterates, so a clone decides the same. The ledger is the record:
+    a run-log copy of a row (same event_id) is ignored, whatever it says, and ledger rows keep their
+    file order (their ts never goes back). A reader that decides checks `ledger_problems` first."""
+    rows = ledger_rows(cwd)[0]
+    have = set(r.get("event_id") for r in rows)
+    return sorted(rows + [e for e in _events.read(cwd) if isinstance(e, dict) and e.get("event_id") not in have],
+                  key=lambda e: str(e.get("ts") or ""))
 
 
 def records(cwd, event, subject_ref=None, role=None):

@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose a gate, a host, a language or a mission-layer change.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What goes wrong today, or what you cannot do. Evidence (a live run, a gate log) helps most.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The proposal
+      description: What should change, and which deterministic check would prove it works.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Gates, Planning, Execution, Hosts, Mission layer, Audit and stats, Docs, Other]
+    validations:
+      required: true

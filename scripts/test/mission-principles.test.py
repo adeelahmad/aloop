@@ -172,6 +172,51 @@ check_variant(cases[0][0])
 assert run(MI, "principles", "show", "--mode", "autonomous", "--file", os.path.join(T, "draft.md")).returncode == 2
 ok("check refuses a missing or duplicated variant, unknown ids, a dropped standing principle or pair, overlong text")
 
+# 8) the core principles every aloop agent carries (M9.30), the one-way / two-way door rule first; they
+#    are single-sourced in principles.md, rendered apart from the goal blocks (so editing them never
+#    stales a goal's stamp), and injected at session start in an aloop project
+r = run(MI, "principles", "show", "--core")
+assert r.returncode == 0, r.stderr
+core = r.stdout
+assert core.startswith("Core principles") and len(core) <= P.MAX_CORE and core == P.render_core(), core
+assert "ASK[door]" in core and "aloop mission doors" in core and "Two-way door" in core, core
+assert [c["id"] for c in P.load()["core"]] == list(P.REQUIRED_CORE) and P.REQUIRED_CORE[0] == "doors"
+assert "Core principles" not in auto.stdout and "Two-way door" not in auto.stdout       # not in a goal block
+dl = next(l for l in text.splitlines() if l.startswith("- doors: "))
+ev = next(l for l in text.splitlines() if l.startswith("- evidence: "))
+core_cases = [
+    (text.replace(dl + "\n", ""), "the core principle doors is missing"),
+    (text.replace(ev, "- evidence: " + "x" * (P.MAX_VARIANT + 1)), "longer than"),
+    (text.replace(ev, ev + "\n" + ev), "duplicate core principle evidence"),
+    (text.replace(dl, dl.replace("ASK[door]", "ASK")), "the doors principle names ASK[door] and `aloop mission doors`"),
+    (text.replace(ev, ev + "\n- extra-a: " + "y" * 270 + "\n- extra-b: " + "z" * 270), "core block is longer than"),
+    (text.replace("## Core\n", "## Core\n- Bad Id: text\n"), "unknown line in Core"),
+]
+for new_text, want in core_cases:
+    assert new_text != text, want
+    r = check_variant(new_text)
+    assert r.returncode == 2 and want in r.stderr and "BLOCK[principles]" in r.stderr, (want, r.stderr)
+check_variant(text.replace(ev, "- evidence: Claim only what a test or a source shows."))
+draft = os.path.join(T, "draft.md")
+for mode in P.MODES:   # a core edit leaves both goal blocks, and so every goal's stamp, as they were
+    assert run(MI, "principles", "hash", "--mode", mode, "--file", draft).stdout == run(MI, "principles", "hash", "--mode", mode).stdout
+assert run(MI, "principles", "show", "--core", "--file", draft).stdout != core
+kw = next(p for p in P.load()["principles"] if p["id"] == "know-when-to-ask")
+assert "one-way door" in kw["autonomous"] and "one-way door" in kw["spoon-fed"], kw
+assert "ask whenever" not in kw["spoon-fed"] and "two-way" in kw["spoon-fed"], kw
+SS = os.path.join(BIN, "session-start")
+proj = os.path.join(T, "proj")
+os.makedirs(os.path.join(proj, "docs", "agents"))
+subprocess.run(["git", "init", "-q"], cwd=proj, check=True)
+r = subprocess.run([SS], input=json.dumps({"cwd": proj, "source": "startup"}), env=ENV, capture_output=True, text=True)
+assert r.returncode == 0 and core.strip() in json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"], r.stdout
+bare = os.path.join(T, "bare")
+os.makedirs(bare)
+subprocess.run(["git", "init", "-q"], cwd=bare, check=True)
+r = subprocess.run([SS], input=json.dumps({"cwd": bare, "source": "startup"}), env=ENV, capture_output=True, text=True)
+assert r.returncode == 0 and r.stdout == "", r.stdout                                       # not an aloop project
+ok("core principles: the door rule first, single-sourced, apart from the goal blocks, checked, injected at session start")
+
 # 7) the area is discovered (no shared list edited) and `mission principles --help` is its docstring
 assert "principles" in run(MI, "--list").stdout.split()
 r = run(MI, "principles", "--help")

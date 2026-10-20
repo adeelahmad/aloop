@@ -159,4 +159,31 @@ r = run(TG, "check", SD)
 assert r.returncode == 2 and "C5 (#2): symbol export_rows is not defined in src/report.py" in r.stderr, r.stderr
 ok("a modify of a symbol another task plans in an existing file passes; an unplanned one is still not defined")
 
+# 9) two tasks of one story on the same files with a handful of tests between them are one task
+#    (live runs 44 and 47: a wc-like CLI planned as 7 and 5 tasks of 1-5 tests each; every task
+#    costs a fixed RED/SCAFFOLD/GREEN cycle). Past the soft limit, or once execution started
+#    (plan-ready.md exists: a re-plan never merges a done task), the split stands.
+def tsk(i, n, path="tests/test_report.py"):
+    return {"id": i, "title": i, "summary": "s",
+            "tests": [{"path": path, "fn": "test_%s_%d" % (i.lower(), k), "assert": "a"} for k in range(n)]}
+C6 = dict(C2, change_ref="C6", task="T1", symbol="footer")
+plan = {"story": "S1-01", "tasks": [tsk("T1", 3), tsk("T2", 4)]}
+write(os.path.relpath(os.path.join(SD, "targets.json"), T), json.dumps(dict(plan, targets=[C6, C2])))
+assert run(TG, "render", SD).returncode == 0
+r = run(TG, "check", SD)
+assert r.returncode == 2 and "T1 and T2 change the same files" in r.stderr and "ONE task" in r.stderr, r.stderr
+plan["tasks"] = [tsk("T1", 4), tsk("T2", 5)]
+write(os.path.relpath(os.path.join(SD, "targets.json"), T), json.dumps(dict(plan, targets=[C6, C2])))
+assert run(TG, "render", SD).returncode == 0
+r = run(TG, "check", SD)
+assert r.returncode == 0, r.stderr
+plan["tasks"] = [tsk("T1", 3), tsk("T2", 4)]
+write(os.path.relpath(os.path.join(SD, "targets.json"), T), json.dumps(dict(plan, targets=[C6, C2])))
+assert run(TG, "render", SD).returncode == 0
+write(os.path.relpath(os.path.join(SD, "plan-ready.md"), T), "---\ntype: plan-ready\nstory: S1-01\n---\n")
+r = run(TG, "check", SD)
+assert r.returncode == 0, r.stderr
+os.remove(os.path.join(SD, "plan-ready.md"))
+ok("two small tasks on the same files must be one; past the soft limit or once execution started they may stay split")
+
 print("\n%d checks passed" % PASS[0])

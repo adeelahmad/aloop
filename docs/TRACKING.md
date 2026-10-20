@@ -41,6 +41,8 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.9 | HostAdapter interface extraction, gate equivalence (outer enforcement) | IMPLEMENTED_TESTED | `scripts/test/host-adapter.test.py` |
 | 4.9 | Portable `.aladdin/config.yaml` with migration | IMPLEMENTED_TESTED | `scripts/test/portable-config.test.py` |
 | 4.9 | Host swap: resume a sprint on another host from portable state (`host swap`) | IMPLEMENTED_TESTED | `scripts/test/host-swap.test.py` |
+| 4.9 | DeepSeek Harness (dsh) host: native plugin gates, role presets, worktree confinement, a profile that records the project it serves | IMPLEMENTED_TESTED | `scripts/test/dsh-plugin.test.mjs`, `scripts/test/dsh-runtime.test.mjs`, `scripts/test/dsh-install.test.py` |
+| 4.9 | Measured live run on dsh (`make e2e-live YES=1 HOST=dsh`) | BLOCKED_HOST | needs `DEEPSEEK_API_KEY` |
 | 4.10 | Metrics table (percentiles, breaches, waste, rates, cache, context peak) | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Commits, tests added, time soft limits, semantic context served | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Rotations / compactions | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
@@ -72,16 +74,29 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.10 | State Assessor report and Evaluator gap list | IMPLEMENTED_TESTED | `scripts/test/mission-evaluate.test.py` |
 | M9.11 | Goals become Aladdin intents; lineage reaches the mission | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py` |
 | M9.12 | `/aloop:mission` skill | IMPLEMENTED_TESTED | `scripts/test/mission-skill.test.py` |
-| M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12 |
-| M9.17 | Approvals name the captured human prompt | NOT_IMPLEMENTED | §4.12 |
+| M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12; offline: `scripts/test/mission-e2e.test.py`; open: the live cycle |
+| M9.17 | Approvals name the captured human prompt | IMPLEMENTED_TESTED | `scripts/test/mission-core.test.py` |
 | M9.20 | Mission spend counts mission sessions only | NOT_IMPLEMENTED | §4.12 |
 | M9.21 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |
 | M9.22 | Mission USD meter prices fast mode and server tools | NOT_IMPLEMENTED | §4.12 |
 | M9.23 | Mission loop takes its ethics facts from the ethics verdict | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
-| M9.24 | `--force` grants, ethics reviews and the budget stop are ledger rows | NOT_IMPLEMENTED | §4.12 |
-| M9.25 | A baseline binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
+| M9.24 | `--force` grants, ethics reviews and the budget stop are ledger rows | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
+| M9.25 | A baseline binds the mission's direction, not its budget | IMPLEMENTED_TESTED | `scripts/test/mission-baseline.test.py` |
 | M9.26 | A goal's sprint history is read from committed records | NOT_IMPLEMENTED | §4.12 |
 | M9.27 | The mission loop trusts an eval only when `evaluate check` would | NOT_IMPLEMENTED | §4.12 |
+| M9.28 | The mission loop drives the goal commands and reads goals by their records | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
+| M9.29 | A hard-lined goal stops being the active goal | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py`, `scripts/test/mission-tick.test.py` |
+| M9.30 | Core agent principles; one-way / two-way door rule enforced by a gate | IMPLEMENTED_TESTED | `scripts/test/mission-doors.test.py` |
 | M9.40 | Artifact provenance in the mission loop | NOT_IMPLEMENTED | §4.12 |
 | M9.41 | Concurrent mission role runs are serialized | NOT_IMPLEMENTED | §4.12 |
 | M9.42 | Shared mission role dirs, judge run records and the judge command | NOT_IMPLEMENTED | §4.12 |
+| M9.43 | A goal binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
+| M9.44 | A goal is re-measured between its sprints | NOT_IMPLEMENTED | §4.12 |
+| M9.45 | A journey's runner has a named author | NOT_IMPLEMENTED | §4.12 |
+| M9.46 | `mission due` is the supervisor's, not a role's | NOT_IMPLEMENTED | §4.12 |
+| M9.50 | A goal sprinted with gaps still open gets a next step | NOT_IMPLEMENTED | §4.12 |
+| M9.51 | Lifting a mission block is the human's typed line, kept in the ledger | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
+| M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | NOT_IMPLEMENTED | §4.13 |
+| M10.2 | Secret scan and dependency audit in acceptance; no unplanned dependency | NOT_IMPLEMENTED | §4.13 |
+| M10.3 | Fetched web content is data (no shell for fetching roles, injection eval case) | NOT_IMPLEMENTED | §4.13 |
+| M10.4 | `aloop stop` halts a whole project, honoured by `mission tick` | NOT_IMPLEMENTED | §4.13 |

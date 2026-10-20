@@ -30,6 +30,19 @@ Then flip the task's own row in ROADMAP §4.12 and its row in `docs/TRACKING.md`
   records it and `approved(cwd, event, subject_ref, sha)` returns the subject's **newest** human
   approval when it covers exactly that content (restoring older approved content is a rollback, not
   approved). The approval events are `APPROVAL_EVENTS`.
+- **A grant is the human's own words (M9.17).** An approval, confirmation, restore, retirement or consent
+  records only when a prompt the `UserPromptSubmit` hook captured (`transcripts prompt`, in the
+  checkout's `transcripts/*/events.jsonl`) has a line that starts with its verb (`GRANT_VERBS`, or the
+  record's `action`: `restore`, `retire`) and names the content's code, the first 8 hex of its sha256:
+  `approve msn_… 3f2a9c1b` (lifting a loop block: `lift msn_… <code>`, M9.51). Until then the command asks (exit 3) with that exact line, so the role relays
+  it and runs again once the human has replied. A negated line ("don't approve …"), another code or verb,
+  and a line captured before a later decision about the subject grant nothing: other content granted, a
+  veto or a revocation, and for a baseline any version's confirmation (so an old "approve" or "restore"
+  never rolls back). Every human decision records `prompt_log: {id, seen}` (how many prompts this
+  checkout had captured), which orders a line against it even within one second. The grant carries
+  `prompt: {ts, sha256, session, line}`, and a human grant row whose line does not grant its content is a
+  ledger problem. A veto and the mission's own records (an autonomous veto window) need no words.
+  `--by` only names who. `telemetry.revoked` is a human decision the ledger accepts (`M.record_human`).
 - `status` is outside the digest, so it proves nothing: a gate reads what an artifact *is* from the
   ledger (`records`, `newest`, `covered`) and reports a status field that disagrees.
 - Exit codes, like every aloop check: `0` pass · `2` block (with `BLOCK[<area>]:` lines on
@@ -47,7 +60,7 @@ A gate checks structure and evidence, never whether a judgment is right.
   draft or changed since its newest approval.
 - **The ledger** `docs/agents/mission/ledger.jsonl` holds every record a gate decides from
   (`LEDGER_EVENTS`: the human decisions, `baseline.measured`, `journey.retired`, `ethics.reviewed`,
-  `ethics.blocked`, `goal.derived`, `goal.met`), committed with the artifacts.
+  `ethics.blocked`, `goal.derived`, `goal.met`, `door.crossed`), committed with the artifacts.
   `M.record(cwd, event, subject, role, **data)` appends one (and emits the event); `M.record_human` /
   `M.approve` are the human-only forms. The event stream is git-ignored run data, so a fresh checkout
   reads the ledger only. Each row carries the hash of the row it follows: an edited, removed,
@@ -57,12 +70,18 @@ A gate checks structure and evidence, never whether a judgment is right.
   `M.LedgerBroken` rather than chain a row past a broken one. Recovery is
   `git checkout -- docs/agents/mission/ledger.jsonl`. `mission init` marks it `merge=union`.
   **Not detectable here:** a forged row appended with a valid hash, and, on a checkout without the run
-  log, the newest rows removed. M9.9 denies roles direct writes to the ledger and M9.17 ties each human
-  record to a captured prompt.
+  log, the newest rows removed. M9.9 denies roles direct writes to the ledger and to the prompt log.
+- `M.history(cwd)` is the ledger's intact rows plus the run-log events that are not ledger rows, oldest
+  first: a reader of past decisions (ethics verdicts, hard lines) iterates it, so a fresh clone decides
+  the same. A run-log copy of a ledger row is ignored, and a reader that decides checks
+  `M.ledger_problems` first (`ethics.verdict` is `broken` while the ledger has any).
 - A confirmation record carries the journeys it froze (`data.journeys`), and a retirement record its
   replacement (`replaced_by`, `replaced_by_sha256`): `journeys.pins` and `journeys.lifecycle` read
   those records, so hiding or editing a file never unfreezes, unpins or un-retires a journey.
   `baseline.current` is the version the newest `baseline.confirmed` record names.
+- A baseline is confirmed for the mission's direction, not its caps: `direction_sha256` is
+  `M.direction(mission)` over `DIRECTION` (`mission_id`, `statement`, `mode`, `constraints`), so a new
+  budget, deadline or cadence keeps it once the mission is approved again (M9.25).
 - `plugin/mission/_runner.py` runs a pinned script: each `pinned` tool's probe must print its
   version, then the command's last stdout line is the result
   `{"steps": {id: bool}, "metrics": {id: number|bool}}` (NaN and Infinity are refused). The files the
@@ -122,9 +141,23 @@ A gate checks structure and evidence, never whether a judgment is right.
   newest file before normalizing it). `record_authority` also approves the latest plan:
   record a goal's authority only after its sprint's `ids freeze`. `aladdin "<intent>"` refuses a
   bare intent containing `/`; use `aladdin run`.
+- **M9.30 doors.** `doors.json` is the catalogue (anything unlisted is two-way; `{DEF}` is the default
+  branch, `{DRY}` "not a dry run or a help page"); `doors.py` reads Bash as the shell does (with
+  `plugin/bin/_shellread.py`, the scope gate's reader; `views`: each command with the directory it acts on and
+  the stdin it is fed), matches an action by program and arguments, reads the human's `door.authorized` / `door.revoked` ledger rows
+  (`HUMAN_EVENTS`), and runs as the PreToolUse hook `mission doors hook` (deny JSON, fails closed with
+  exit 2). A gate that knows an action is a one-way door can call `doors.verdict(cwd, tool, input)`.
+  The core principles live in `principles.md` `## Core`, rendered by `principles.render_core()`.
 - **M9.17 approvals.** Any session can run `mission approve --by anyone` or `events authority`, or
   append a well-formed ledger row; an approval has to cite a captured human prompt before it means a
   human approved.
+- **M9.17 approvals (done; what M9.9 must close).** A grant cites a captured prompt line, but the prompt log
+  is run data any shell can append to, the hook's own command (`transcripts prompt`) reads its payload from
+  stdin, and a headless session a role starts (`claude -p`, `codex exec`, `opencode run`) fires
+  `UserPromptSubmit` too. M9.9 denies roles writes under `.aladdin/transcripts/` and
+  `docs/agents/mission/ledger.jsonl`, running `transcripts prompt`, and a Bash command that starts a host
+  session with a grant line.
+  `events authority` (the sprint's `human.approval`) still trusts `--initiated-by`.
 - **Rivals (M9.1 → M9.10).** A baseline's `rivals` are claim refs today; the Product Tester's values per
   benchmark and metric belong in a keyed object so `evaluate` can compare against them.
 - **M9.6 telemetry.** `journeys.GA4_RESERVED_NAMES` is the one reserved-name list (the union of both
@@ -151,7 +184,9 @@ loop to move on records them:
 | the baseline | as `baseline.py` decides it: `current` (the newest `baseline.confirmed` row), `measured_ok`, `vetoed`, `evaluate`; a replacement applies after the mission's `veto_window_h` from its `baseline.measured` row |
 | journeys defined | a journey that `journeys.lifecycle` does not call retired |
 | a state report or eval | its `baseline_id` (another than the current one: re-assess, re-evaluate) and the eval's boolean `goal_met` |
-| a goal's progress | status `derived` → `approved` → `active` (intents handed to Aladdin) → `met` · `retired` · `blocked` |
+| a goal's progress | a goal is one a `goal.derived` (or `goal.approved`) ledger row covers at its content, closed by its `goal.met` row; status `derived` → `approved` → `active` (`goal intents` handed it to Aladdin) · `retired` · `blocked`; an eval narrowed to it (`goal_id`) decides its close |
+| a stop at a spend cap | a `mission.budget_exhausted` ledger row (role mission-loop) for the mission's content, written once by the first `STOP_BUDGET` tick (M9.24): a clone stays stopped until a raised cap changes the content |
+| a lifted block | a `mission.lifted` ledger row (role human, `--by`, the human's typed `lift <mission> <code>` line) whose code digests `{mission_id, block, lift, occurrence}`: the block's key, how many lifts of it the ledger has, and which block it was (the handout tick that tripped a repeat; the newest of 3 failed goals, which is how far that reset reaches); `tick --force` records it (M9.51). A repeat restarts at the row's own run-log event (its first copy only); the 3-failed-goals count at its `occurrence` |
 | a goal's sprints | `intent.received` {goal_id, intent_id} → `plan.created` {sprint: "S<N>", intent_id}; with no linked intent, the sprints planned since the loop handed out its `SPRINT`. Closes: `.aladdin/state/sprints.json`; `plan.approved` (spoon-fed) |
 
 Time is the ms in each harness id, so artifacts order exactly; an event stamp kept to the second

@@ -1,7 +1,7 @@
 {
   "name": "aloop-marketplace",
   "owner": { "name": "Adeel Ahmad" },
-  "description": "Agentic agile planning + autonomous TDD execution for Claude Code, Codex and OpenCode, with deterministic hook gates.",
+  "description": "Aladdin's Loop: one line of intent becomes planned, test-first, gate-verified code on Claude Code, Codex and OpenCode. Models explore; gates decide.",
   "plugins": [
     {
       "name": "aloop",
@@ -9,8 +9,8 @@
       "displayName": "Aladdin (aloop)",
       "description": "Two-stage planning + two-phase TDD execution with deterministic hook gates, per-task transcripts, and a memory-producing retrospective.",
       "author": { "name": "Adeel Ahmad" },
-      "homepage": "https://github.com/adeelahmad/agentic-agile",
-      "repository": "https://github.com/adeelahmad/agentic-agile",
+      "homepage": "https://github.com/adeelahmad/aloop",
+      "repository": "https://github.com/adeelahmad/aloop",
       "license": "MIT",
       "category": "development",
       "keywords": ["agile","tdd","orchestration","hooks","sub-agents","worktrees","determinism","gates","retrospective","memory"],

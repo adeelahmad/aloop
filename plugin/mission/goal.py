@@ -18,7 +18,8 @@ Usage:
         write goals/<goal_id>.json from the latest recorded eval of the whole mission (no active goal)
         whose goal is not met, once the mission is approved and its ethics check passes; the goal
         names its targets [{journey_id, criterion_id}], which `mission evaluate` narrows to while
-        it is active; records goal.derived in the ledger (and goal.approved on a pick)
+        it is active; records goal.derived in the ledger, and on a pick goal.approved once the human
+        typed its line (until then it asks, 3, with the line and `goal approve GOAL_ID`)
   mission goal check GOAL_ID [--json]
         the gate before intents: seal, the content goal.derived recorded, the mission unchanged and
         approved, the eval unchanged, the principles stamp well formed (an older block is stale, kept as provenance), mission and goal ethics, and in spoon-fed mode a human
@@ -295,9 +296,15 @@ def cmd_derive(cwd, o):
         E.report(rc, ebad)
         return rc
     if edoc.get("goal_id"):
-        report(["eval %s is narrowed to goal %s's targets (it was active): a new goal comes from an eval of the "
-                "whole mission (close goal %s, then mission evaluate)" % (edoc["eval_id"], edoc["goal_id"], edoc["goal_id"])],
-               [])
+        gdoc, _ = M.load(M.path_of(cwd, "goal", edoc["goal_id"]))
+        if isinstance(gdoc, dict) and EV.retired(cwd, gdoc):
+            report(["eval %s is narrowed to goal %s, which an ethics hard line has retired: run mission evaluate "
+                    "(with no active goal it covers the whole mission), then derive from it"
+                    % (edoc["eval_id"], edoc["goal_id"])], [])
+        else:
+            report(["eval %s is narrowed to goal %s's targets (it was active): a new goal comes from an eval of the "
+                    "whole mission (close goal %s, then mission evaluate)"
+                    % (edoc["eval_id"], edoc["goal_id"], edoc["goal_id"])], [])
         return 2
     if edoc["goal_met"]:
         report(["the evaluation %s says the goal is met: go back to research and raise the bar (new journeys "
@@ -339,7 +346,13 @@ def cmd_derive(cwd, o):
              gaps=[g["gap_id"] for g in chosen], mode=mode, autonomy=doc["autonomy"],
              principles_sha256=doc["principles"]["sha256"])
     if mode == "spoon-fed":
-        rc = approve(cwd, gid, o["by"], "picked from eval %s" % edoc["eval_id"])
+        try:
+            rc = approve(cwd, gid, o["by"], "picked from eval %s" % edoc["eval_id"])
+        except M.NeedsHuman as e:     # the pick is derived; its approval is the human's typed line (M9.17)
+            print(path)
+            print("ASK[goal]: %s" % str(e).replace("then run this again", "then aloop mission goal approve %s --by NAME"
+                                                     % gid), file=sys.stderr)
+            return 3
         if rc:
             return rc
     print(path)
