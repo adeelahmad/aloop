@@ -27,15 +27,22 @@ never grades its own work, and the role is fixed so every model does this job th
 - Install and run rivals only in a scratch dir outside the project, inside the mission's
   constraints (e.g. no paid SaaS) and its budget. A rival a constraint rules out is recorded as
   not run, with the constraint named.
+- What it learns by trying a rival by hand (a pinned version's release page, a run's output) goes
+  in its own research report: `aloop mission research new "<title>" --question … --role
+  product-tester`, then `research archive` and `research claim` like the Scout. The report's
+  `role` field names it as the report's owner; the Scout's reports are never its to change.
 - A confirmed baseline version is frozen. When it is invalid (a pinned version is gone, the
-  script was wrong), measure the replacement and file it with `baseline propose` and the evidence.
+  script was wrong), propose the replacement with `aloop mission baseline new --supersedes <id>
+  --evidence <rsr_…#cN>` and measure it (`baseline measure`).
 
 ## Writes
-It writes only `docs/agents/mission/baseline/`. gate-mission-scope refuses every other path in
-the project (source, mission.json, other roles' dirs, a task worktree); a scratch dir outside the
-project is fine. At stop, gate-mission-artifact refuses a change to another role's files (the
-State Assessor writes in `baseline/` too, and its files are its own), and a deleted artifact
-(retire it with its area command instead).
+It writes only `docs/agents/mission/baseline/` and its own reports in
+`docs/agents/mission/research/` (`--role product-tester`). gate-mission-scope refuses every other
+path in the project (source, mission.json, other roles' dirs, a task worktree); a scratch dir
+outside the project is fine. At stop, gate-mission-artifact refuses a change to another role's
+files (the State Assessor writes in `baseline/` too, and the Scout in `research/`: a report
+belongs to the role its `role` field names), and a deleted artifact (retire it with its area
+command instead).
 
 ## Tools
 Everything is on PATH, never search for it: `aloop mission` (`aloop mission --list` names the
@@ -48,7 +55,8 @@ plugin's own files (its bin/, schemas/, mission/ code, skills): `aloop mission <
 
 ## Hard limits
 - Never writes source, tests, mission.json, a journey or anything outside
-  `docs/agents/mission/baseline/`; never installs a rival inside the project.
+  `docs/agents/mission/baseline/` and its own research reports; never installs a rival inside the
+  project.
 - Never edits a confirmed baseline version, not even to fix a typo; a replacement is proposed
   with evidence and the old version stays archived.
 - Never records a number it did not get from a scripted run (not from memory, a vendor's page or

@@ -2,32 +2,48 @@
 """gate-mission-artifact — a mission role's artifact passes its check when the role stops (ROADMAP §4.12, M9.9).
 
   gate-mission-artifact start   SubagentStart of a mission role: record what exists under
-                                docs/agents/mission/ and docs/agents/intents/ (<run-data>/state/mission-runs/<agent_id>.json)
+                                docs/agents/mission/ and docs/agents/intents/, whose each file says it is, the
+                                ledger's bytes (<run-data>/state/mission-runs/<agent_id>.json)
   gate-mission-artifact         SubagentStop of a mission role, or `aloop selfcheck <role>`: judge what this run wrote
 
-Each of the six roles writes schema-checked artifacts in its own paths (plugin/mission/roles.json). At
-its stop the run's changes (the files now against the start record) must show:
+Each of the six roles writes schema-checked artifacts in its own paths (plugin/mission/roles.json); a file
+whose `role` field names a role is that role's (`research new --role product-tester` in the researcher's
+dir). At its stop the run's changes (the files now against the start record) must show:
   1. at least one artifact written in the role's own paths (a role that wrote nothing did not do its job);
+     a record its command writes beside its artifacts (roles.json `records`: a judge run log
+     judges/runs/<rub_id>.jsonl, a usage report telemetry/reports/<id>.json) is its work too;
   2. every artifact it wrote passes the core contract (`_mission.problems`: harness-issued id matching
      the file name, a known status, a sha256 that matches the content, the kind's schema once its area
      ships one) and its area's own check (`mission <area> check`, when plugin/mission/<area>.py exists;
-     exit 3, needs the human, is not the role's to fix and does not block); an intent passes `intent check`;
-  3. no artifact deleted (retire it with its area command: ids are an audit trail);
+     exit 3, needs the human, is not the role's to fix and does not block; nor does a block that names only
+     another role's step (`foreign`) or ledger problems the run started with); a record passes its own
+     (its harness id, its seal) and its area's check; an intent passes `intent check`, and a field of the
+     wrong shape is its problem, never a crash; a check that runs out the gate's time blocks with the same
+     words every round, so the stuck release can end it;
+  3. no artifact deleted (retire it with its area command: ids are an audit trail); a draft at the top of
+     its own dir, which no harness id names, is no artifact and may go;
   4. no change to another role's artifacts. The PreToolUse guard (gate-mission-scope) sees only the
      paths a tool names; this catches a write made inside a command (`mission <area> …` of another
-     role, a script). A content change counts, a human approval of a file (status/approval only) does
-     not, and a path whose owner role had a run overlapping this one is that run's to answer for. A
-     status-only change to another role's artifact counts unless an event of the run explains it: a human event, or
-     one of this role's own area (`baseline apply` freezing its journeys, an ethics hard line blocking its goal),
-     naming the file or an artifact that names its id. docs/agents/intents/ is
-     shared with Aladdin: only an intent with source `mission` is a role's (the Mission Planner's);
-  5. the mission's ledger (docs/agents/mission/ledger.jsonl) still verifies if it changed during the run:
-     only the mission CLI appends to it (M9.17 covers a forged append);
+     role, a script). A content change counts; a path is excused when a run of its owner role answers for
+     it as it is now: a run still open (active within OPEN_RUN_TTL, by its last tool call) that will see the
+     change at its stop, or a passed run that judged exactly these bytes. A status-only change to another
+     role's artifact counts unless the records of the run explain it, with the status it has now: a human's
+     step (an approval's subject; a confirmation's journeys frozen and the version it replaced superseded;
+     a restore's replaced version) or this role's own command (an ethics hard line blocking its goal). The
+     human's step is never the role's write either, in its own paths too. docs/agents/intents/ is shared
+     with Aladdin: an intent with source `mission` is the Mission Planner's handoff (another role writing
+     one blocks, unless a planner run answers for it), and no role rewrites an intent of the human's or
+     intake's that existed at its start (intake's own `intent check` of it during the run excuses its fill);
+  5. the mission's ledger (docs/agents/mission/ledger.jsonl) is append-only during the run: it still starts
+     with exactly the bytes it had at the start (a removed or edited row blocks, with or without the run
+     log), and still verifies if it changed (M9.17 covers a forged append);
   6. a human event (an approval, a consent, `mission.set`) appended to the event log during the run is
      named in a note and in `gate.passed` (`human_events`): the gate cannot tell who ran it, and
      M9.17 binds an approval to the human's own prompt. A human approval of a file is not a write.
 A pass records `artifact.created|updated` per artifact (role, agent id, path, kind, sha256): the
-provenance `mission tick` can trust. A gate checks structure and evidence, never whether a judgment is right.
+provenance `mission tick` can trust; the run record keeps what the pass judged (`judged`), and its next
+task diffs against the files as they are then. A gate checks structure and evidence, never whether a
+judgment is right.
 
 A run with an agent id but no start record is blocked: nothing it wrote can be told apart.
 
@@ -35,6 +51,7 @@ Exit: 0 pass · 2 block (stderr goes back to the role, which keeps working). The
 AGENTIC_STUCK_BLOCKS times in a row (default 3) releases the stop UNVERIFIED (not a pass). Honors
 SKIP_HOOKS=1. Not a mission role, or not an aloop project → 0. A crash once the stop is ours blocks.
 """
+import hashlib
 import importlib.machinery
 import importlib.util
 import json
@@ -79,19 +96,45 @@ def run_check(argv, cwd, deadline):
         return 1, "not run: the gate's %ds for all checks ran out" % CHECKS_S, ""
     try:
         r = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=left)
-    except (OSError, subprocess.TimeoutExpired) as e:
+    except subprocess.TimeoutExpired:            # the same words every round, so the stuck release can fire
+        return 1, "timed out: the gate's %ds for all checks ran out" % CHECKS_S, ""
+    except OSError as e:
         return 1, str(e), ""
     return r.returncode, (r.stderr.strip() or r.stdout.strip()), r.stdout
 
 
-def check_args(spec, kind, doc):
+def check_args(spec, ident, doc):
     """One artifact's arguments to its area's check (roles.json `area_checks`), or None when it lacks one."""
-    subj = doc.get("subject")
-    vals = {"{id}": doc.get(kind + "_id"),
+    subj = (doc or {}).get("subject")
+    vals = {"{id}": ident,
             "{subject}": subj if isinstance(subj, str) else
             ("mission" if subj.get("kind") == "mission" else subj.get("id")) if isinstance(subj, dict) else None}
     out = [vals.get(a, a) for a in spec.get("args", [])]
     return out if all(isinstance(a, str) and a for a in out) else None
+
+
+def record_problems(M, R, kind, path, rel):
+    """(problems, doc) of a record file (roles.json `records`): a JSON record is an object whose `id` field is the
+    harness id its file is named for, whose `refs` are harness ids of their kind, and whose sha256 matches its
+    content (its command sealed it); a log is named for the artifact it records, and its area's check reads it."""
+    spec = R.RECORDS[kind]
+    name = os.path.basename(rel)[:-len(spec["ext"])]
+    issued = lambda v, prefix: isinstance(v, str) and bool(M.ID.match(v)) and v.startswith(prefix + "_")  # noqa: E731
+    if not spec.get("id"):
+        bad = [] if issued(name, spec["prefix"]) else ["%s is not named for a harness id (%s_…)" % (rel, spec["prefix"])]
+        return bad, None
+    doc, err = M.load(path)
+    if not isinstance(doc, dict):
+        return ["%s is not a JSON object (%s)" % (rel, err or "not an object")], None
+    out = []
+    if doc.get(spec["id"]) != name or not issued(name, spec["prefix"]):
+        out.append("%s: %s %r was not issued by the harness for this file (`aloop mission %s` writes it)"
+                   % (rel, spec["id"], doc.get(spec["id"]), spec["area"]))
+    out += ["%s: %s %r is not a harness id (%s_…)" % (rel, k, doc.get(k), prefix)
+            for k, prefix in spec.get("refs", {}).items() if not issued(doc.get(k), prefix)]
+    if doc.get("sha256") != M.digest(doc):
+        out.append("%s: its sha256 does not match its content (changed after its command sealed it)" % rel)
+    return out, doc
 
 
 def intent_problems(path):
@@ -104,7 +147,18 @@ def intent_problems(path):
     doc, err = mod.load(path)
     if doc is None:
         return ["cannot read it: %s" % err], []
-    return mod.problems(doc, path), mod.unanswered(doc)
+    if not isinstance(doc, dict):
+        return ["it is not a JSON object"], []
+    shape = ["%s must be %s" % (k, what) for k, t, what in (("intent_id", str, "a string"),
+                                                           ("provenance", dict, "an object"),
+                                                           ("open_questions", list, "a list"))
+             if doc.get(k) and not isinstance(doc[k], t)]
+    if shape:                                             # a field of the wrong shape is named, never a crash
+        return shape, []
+    try:
+        return mod.problems(doc, path), mod.unanswered(doc)
+    except Exception as e:                                # noqa: BLE001 — the intent's problem, not the gate's
+        return ["cannot check it (%s: %s): a field has the wrong shape" % (type(e).__name__, e)], []
 
 
 def start(p):
@@ -120,7 +174,8 @@ def start(p):
 
 
 def judge(R, M, project, role, run):
-    """(problems, notes, accepted [(rel, kind, doc or None, created)], human events during the run)"""
+    """(problems, notes, accepted [(rel, kind, doc or None, created)], human events during the run, judged
+    {rel: fingerprint now} of every change in the role's own files)"""
     deadline = time.time() + CHECKS_S
     before = run.get("files") if run else None
     now = R.scan(project)
@@ -129,11 +184,19 @@ def judge(R, M, project, role, run):
     problems, notes, accepted, areas = [], [], [], set()
     evs = R.events_since(project, run["events_at"]) if isinstance((run or {}).get("events_at"), int) else []
     humans = [e for e in evs if R.is_human_event(e)]
-    approved = {(e.get("data") or {}).get("subject") for e in humans}
     areas_mine = R.own_areas(role)
-    # what a status cascade can be explained by: an artifact a human event or this role's own command named
-    vouched = set().union(*[R.named_paths(e) for e in evs
-                            if R.is_human_event(e) or str(e.get("event", "")).split(".")[0] in areas_mine])
+    now_roles, now_sources = R.labels(project)
+    was_roles = run.get("roles") if isinstance((run or {}).get("roles"), dict) else now_roles
+    was_sources = run.get("sources") if isinstance((run or {}).get("sources"), dict) else now_sources
+    # what the records of the run say a status-only change is ({path: the statuses they leave, None for any}):
+    # the human's steps (with what their command changed: journeys frozen, a version superseded), and this role's
+    # own commands (an ethics hard line blocking its goal)
+    stepped, vouched = {}, {}
+    for e in evs:
+        human = R.is_human_event(e) or e.get("event") == "baseline.superseded"   # freeze()'s record of a confirmation
+        if human or str(e.get("event", "")).split(".")[0] in areas_mine:
+            for path, st in R.effects(e).items():
+                (stepped if human else vouched).setdefault(path, set()).add(st)
     for e in humans:
         d = e.get("data") or {}
         notes.append("`%s` (%s, by %s) was recorded while you ran. Approvals are the human's: if you ran it, say so in"
@@ -144,52 +207,79 @@ def judge(R, M, project, role, run):
         """Only status/approval changed (the content digest is the same)."""
         return before is not None and rel in before and rel in now and before[rel][1] == now[rel][1]
 
-    def cascade(rel):
-        """A status change the area made for an event of the run: the human's confirmation freezing a baseline's
-        journeys, an applied baseline, an ethics hard line blocking its goal. The event names the file itself, or
-        an artifact whose content names the file's id."""
-        if rel in vouched:
-            return True
-        fid = os.path.splitext(os.path.basename(rel))[0]
-        for v in vouched:
-            if v.endswith(".json") and R.under(v, R.MISSION) and os.path.isfile(os.path.join(project, v)):
-                try:
-                    with open(os.path.join(project, v), encoding="utf-8", errors="replace") as f:
-                        if fid in f.read():
-                            return True
-                except OSError:
-                    continue
-        return False
+    def said(rel, records):
+        """A status-only change the records explain: they name the file, with the status it has now."""
+        if not bookkeeping(rel) or rel not in records:
+            return False
+        doc, _ = M.load(os.path.join(project, rel))
+        return None in records[rel] or (isinstance(doc, dict) and doc.get("status") in records[rel])
 
-    # what this run wrote: new or changed files in its own paths; a human approval of one is not its write
-    changed = sorted(rel for rel in now if own(rel) and (before is None or (before.get(rel) or [None])[0] != now[rel][0])
-                     and not (bookkeeping(rel) and rel in approved))
+    def owned_by(rel):
+        """Whose a file is: the role its `role` field names (as the run found it), else its paths' roles."""
+        return R.owners_of(rel, (was_roles if before is not None and rel in before else now_roles).get(rel))
+
+    # what this run wrote: new or changed files it owns; the human's step (an approval, a freeze) is not its write
+    changed = sorted(rel for rel in now if role in owned_by(rel)
+                     and (before is None or (before.get(rel) or [None])[0] != now[rel][0]) and not said(rel, stepped))
+    judged = {rel: now.get(rel) for rel in set(before or {}) | set(now) if before is not None and role in owned_by(rel)
+              and (before.get(rel) or [None])[0] != (now.get(rel) or [None])[0]}
     if before is not None:
-        others = R.overlapping_roles(project, run)
+        others = R.overlapping_runs(project, run)
+        answered = lambda rel, by: any(o["role"] in by and R.answers(o, rel, now.get(rel)) for o in others)  # noqa: E731
+        normalized = {(e.get("data") or {}).get("intent_id") for e in evs if e.get("event") == "intent.normalized"}
         for rel in sorted(set(before) | set(now)):
+            if R.under(rel, R.INTENTS):
+                if rel not in now or (before.get(rel) or [None])[0] == now[rel][0] or rel.count("/") != 3:
+                    continue                              # a removed intent is intake's or the human's housekeeping
+                was, iid = was_sources.get(rel) if rel in before else None, os.path.basename(rel)[:-5]
+                if rel in before and was != "mission":    # the human's or intake's: intake fills it, no role rewrites it
+                    if iid in normalized:
+                        notes.append("intake's `intent check` normalized %s while you ran; if you changed it, say so in"
+                                     " your final message" % rel)
+                        continue
+                    problems.append("%s changed during your run, and it is the human's intent (source %s), not yours:"
+                                    " no mission role rewrites the human's or intake's intents. Undo that change; if"
+                                    " the intent needs one, say so in your final message" % (rel, was or "?"))
+                elif "mission" in (was, now_sources.get(rel)) and role != "mission-planner" and \
+                        not answered(rel, ["mission-planner"]):
+                    problems.append("%s changed during your run, and it is mission-planner's artifact (a `source:"
+                                    " mission` intent is its handoff to Aladdin), not yours. Undo that change; if a goal"
+                                    " needs an intent, say so in your artifact" % rel)
+                continue
             if not R.under(rel, R.MISSION):
-                continue                                  # intents are Aladdin's too (intake, the human)
-            own_by = R.owners(rel)
-            if not own_by or any(o in others for o in own_by):
-                continue                                  # no owner, or a run of its owner overlapped: that run answers
+                continue
+            own_by = owned_by(rel)
+            if not own_by or answered(rel, own_by):
+                continue                                  # no owner, or a run of its owner answers for it as it is now
             if rel not in now:
+                if role in own_by and R.is_draft(rel):
+                    continue                              # never an artifact (no harness id names it)
                 problems.append("%s was deleted: an artifact is never deleted (ids are an audit trail); retire it with its"
                                 " area command, which sets its status" % rel)
                 continue
-            if own(rel) or before.get(rel, [None])[0] == now[rel][0]:
+            if role in own_by or before.get(rel, [None])[0] == now[rel][0]:
                 continue
             if bookkeeping(rel):
-                if cascade(rel):
+                if said(rel, stepped) or said(rel, vouched):
                     continue                              # the human's step, or this role's own command, made it
                 problems.append("the status of %s changed during your run, and it is %s's artifact, not yours: only its"
                                 " owner (or the human's approval) changes it. Undo that change; if it is needed, say so in"
                                 " your artifact" % (rel, " or ".join(own_by)))
                 continue
+            if own(rel) and rel not in before:            # in its own dir, but its `role` field names another role
+                problems.append("%s names %s as its owner (its `role` field), not you: what you write names you"
+                                " (`--role %s`). Remove it, or say in your final message why %s should write it"
+                                % (rel, " or ".join(own_by), role, " or ".join(own_by)))
+                continue
             problems.append("%s changed during your run, and it is %s's artifact, not yours: a role writes only its own"
                             " (a builder never grades its own work). Undo that change; if it is needed, say so in your"
                             " artifact and its owner is dispatched for it" % (rel, " or ".join(own_by)))
 
-    if before is not None and (before.get(R.LEDGER) or [None])[0] != (now.get(R.LEDGER) or [None])[0]:
+    if before is not None and not R.ledger_kept(project, run.get("ledger")):
+        problems.append("%s was rewritten during your run: it is append-only (`aloop mission` commands add chained"
+                        " rows, and nothing removes or edits one), so this run is not accepted. Say what you ran in"
+                        " your final message" % R.LEDGER)
+    elif before is not None and (before.get(R.LEDGER) or [None])[0] != (now.get(R.LEDGER) or [None])[0]:
         had = run.get("ledger_problems") or []            # the CLI only appends chained rows: an edit breaks the chain
         bad = [x for x in R.ledger_problems(project) if x not in had]
         if bad:
@@ -204,14 +294,14 @@ def judge(R, M, project, role, run):
             return False
         doc, _ = M.load(os.path.join(project, rel))
         return isinstance(doc, dict) and doc.get("source") == "mission"
-    if not any(R.kind_of(rel) or is_intent(rel) for rel in changed) and not problems:
+    if not any(R.kind_of(rel) or R.record_of(rel) or is_intent(rel) for rel in changed) and not problems:
         problems.append("you wrote no artifact in %s during this run. Create it with its area command (`aloop mission"
                         " --list`, `aloop mission <area> --help`), fill it, then run `aloop mission <area> check` and"
                         " `aloop selfcheck %s`. If the area you need is not listed, say so in your final message"
                         % (", ".join("`%s`" % w for w in mine), role))
     for rel in changed:
         path = os.path.join(project, rel)
-        kind = R.kind_of(rel)
+        kind = R.kind_of(rel) or R.record_of(rel)
         if is_intent(rel):
             bad, asks = intent_problems(path)
             if bad:
@@ -223,6 +313,13 @@ def judge(R, M, project, role, run):
             continue
         if not kind:
             continue                                      # data beside the artifacts (an archived snapshot): its area checks it
+        if R.record_of(rel):                              # a judge run log, a usage report: its area's check reads it
+            probs, doc = record_problems(M, R, kind, path, rel)
+            problems += probs
+            if not probs:
+                accepted.append((rel, kind, doc, before is None or rel not in before))
+            areas.add(R.area_of(kind))
+            continue
         doc, err = M.load(path)
         if not isinstance(doc, dict):
             problems.append("%s is not a JSON object (%s)" % (rel, err or "not an object"))
@@ -233,7 +330,8 @@ def judge(R, M, project, role, run):
             notes.append("%s: no %s schema yet (its area is not built), so only the core contract was checked" % (rel, kind))
         if not probs:
             accepted.append((rel, kind, doc, before is None or rel not in before))
-        areas.add(R.KIND_AREAS.get(kind, ""))
+        areas.add(R.area_of(kind))
+    had = (run or {}).get("ledger_problems") or []
     for area in sorted(a for a in areas if a):
         if not os.path.isfile(os.path.join(M.AREAS_DIR, area + ".py")):
             notes.append("area `%s` is not built yet: its check did not run" % area)
@@ -242,8 +340,8 @@ def judge(R, M, project, role, run):
         calls = [[]]
         if spec.get("args"):                              # the area checks one artifact: each one this run wrote
             calls = []
-            for _, kind, doc, _ in accepted:
-                a = check_args(spec, kind, doc) if doc and R.KIND_AREAS.get(kind) == area else None
+            for rel, kind, doc, _ in accepted:
+                a = check_args(spec, R.ident(kind, doc, rel), doc) if R.area_of(kind) == area else None
                 if a is not None and a not in calls:
                     calls.append(a)
         for args in calls:
@@ -259,6 +357,8 @@ def judge(R, M, project, role, run):
             items = facts.get("blocks") or facts.get("problems") or []
             items = [b for b in items if isinstance(b, str)]
             foreign = tuple(spec.get("foreign", ()))
+            lines = items or [x for x in out.splitlines() if x.startswith("BLOCK[")]
+            old = [x for x in lines if any(h in x for h in had)]   # the ledger's problems the run started with
             if rc == 3:
                 notes.append("`%s` needs the human (exit 3); that is the supervisor's next step, not yours" % cmd)
             elif rc == 2 and facts.get("state") in spec.get("verdicts", ()):
@@ -266,10 +366,13 @@ def judge(R, M, project, role, run):
                              % (cmd, facts.get("state")))
             elif rc == 2 and foreign and items and all(b.startswith(foreign) for b in items):
                 notes.append("`%s` waits on another role's step, not yours:\n      %s" % (cmd, "\n      ".join(items)))
+            elif rc == 2 and lines and len(old) == len(lines):
+                notes.append("`%s` blocks only on ledger problems that predate your run: not yours to fix, the"
+                             " supervisor repairs the ledger:\n      %s" % (cmd, "\n      ".join(lines)))
             elif rc != 0:
                 problems.append("`%s` %s (exit %d):\n      %s"
                                 % (cmd, "blocks" if rc == 2 else "failed", rc, out.replace("\n", "\n      ")))
-    return problems, notes, accepted, humans
+    return problems, notes, accepted, humans, judged
 
 
 def log_verdict(_paths, project, role, agent_id, rc, reason, selfcheck, released=""):
@@ -320,7 +423,7 @@ def stop(p, argv):
     selfcheck = os.environ.get("AGENTIC_SELFCHECK") == "1"
     agent_id = p.get("agent_id") or ""
     run = R.load_run(project, agent_id) if agent_id else R.latest_open(project, role)
-    problems, notes, accepted, humans = judge(R, M, project, role, run or {})
+    problems, notes, accepted, humans, judged = judge(R, M, project, role, run or {})
     if not run and agent_id:
         problems.insert(0, "there is no start record for this run (agent %s), so the gate cannot tell what you wrote and"
                            " accepts nothing. Report what you did in your final message; the supervisor re-dispatches"
@@ -368,16 +471,21 @@ def stop(p, argv):
     for rel, kind, doc, created in accepted:
         data = {"kind": kind, "path": rel}
         if doc:
-            data.update({"id": doc.get(kind + "_id", ""), "sha256": M.digest(doc), "status": doc.get("status", "")})
+            data.update({"id": R.ident(kind, doc, rel), "sha256": M.digest(doc), "status": doc.get("status", "")})
+        elif R.record_of(rel):                            # a log: the bytes it holds now
+            try:
+                with open(os.path.join(project, rel), "rb") as f:
+                    data.update({"id": R.ident(kind, None, rel), "sha256": hashlib.sha256(f.read()).hexdigest()})
+            except OSError:
+                pass
         _events.emit(project, "artifact.created" if created else "artifact.updated", agent_id=agent_id, role=role,
                      refs={"artifact": rel}, **data)
     _events.emit(project, "gate.passed", agent_id=agent_id, role=role, refs={"mission": "docs/agents/mission"},
                  gate=GATE, exit=0, artifacts=len(accepted),
                  human_events=[{"event": e.get("event"), "subject": (e.get("data") or {}).get("subject"),
                                 "by": (e.get("data") or {}).get("by")} for e in humans])
-    if run and agent_id:                                  # closed, and the baseline of this agent's next task
-        run.update(stopped=time.time(), files=R.scan(project), events_at=R.events_size(project),
-                   ledger_problems=R.ledger_problems(project))
+    if run and agent_id:                                  # closed, and the baseline of this agent's next task;
+        run.update(R.marks(project), stopped=time.time(), judged=judged)   # what it answered for, as it judged it
         M.save(R.run_file(project, agent_id), run)
     return 0
 

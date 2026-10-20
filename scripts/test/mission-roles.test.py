@@ -100,6 +100,14 @@ for r in ROLES:
     assert "selfcheck %s" % r in body and "gate-mission-artifact" in body and "gate-mission-scope" in body, r
 ok("six persona files: name, model by route group, tools, the fixed sections, their own paths and gates")
 
+BASELINE_VERBS = re.search(r"^Usage:(.*?)^\S", open(os.path.join(ROOT, "mission", "baseline.py")).read(), re.S | re.M).group(1)
+for r in ("product-tester", "state-assessor"):
+    body = open(os.path.join(ROOT, "agents", r + ".md")).read()
+    for verb in re.findall(r"`(?:aloop mission )?baseline ([a-z-]+)", body):
+        assert "mission baseline %s" % verb in BASELINE_VERBS, (r, verb)     # every verb a persona names exists
+    assert "baseline new" in body and "--supersedes" in body, r
+ok("the measuring personas name only baseline verbs the CLI has (a replacement is `baseline new --supersedes`)")
+
 hooks = json.load(open(os.path.join(ROOT, "hooks", "hooks.json")))["hooks"]
 
 
@@ -556,6 +564,152 @@ assert rc == 1 and time.time() - t0 < 4, (rc, out)
 assert ga.run_check(["true"], Q, time.time() - 1)[0] == 1          # nothing runs once the deadline is spent
 ok("a stuck release closes the run; a pass re-baselines it; bad log lines, intent checks and slow checks are handled")
 
+# the second adversarial review's gate findings (each its reproduction, with its allow-control), in a fresh
+# project: no run of the checks above is still open in it to answer for another role's files
+Q = git_repo(os.path.join(T, "mission-proj2"))
+QD = os.path.join(Q, "docs", "agents", "mission")
+os.makedirs(QD)
+a, b = ga.run_check(["sleep", "5"], Q, time.time() + 2)[1], ga.run_check(["sleep", "5"], Q, time.time() + 2.5)[1]
+assert a == b and "timed out" in a, (a, b)                     # a timeout's reason never embeds the time left
+ok("a check that runs out the gate's deadline blocks with the same reason every round, so the stuck release can fire")
+
+MP = "aloop:mission-planner"
+INT = os.path.join(Q, "docs", "agents", "intents")
+os.makedirs(INT)
+hook(MP, "mp4", "start")
+artifact("goal", eval_id="evl_x", gaps=["g1"])
+gol = "gol_%020x" % 7
+mint = dict(ok_intent, intent_id="int_%012x%s" % (int(time.time() * 1000), "1a2b3c4d"), source="mission",
+            provenance={"received_at": M.now(), "goal_id": gol, "gap_id": "g1"})
+bad_mi = os.path.join(INT, mint["intent_id"] + ".json")
+json.dump(dict(mint, provenance="from goal " + gol), open(bad_mi, "w"))
+for i in range(2):
+    r = hook(MP, "mp4")
+    assert gblocked(r, "provenance must be an object") and "the gate itself failed" not in r.stderr, r.stderr
+assert "STUCK" in hook(MP, "mp4").stderr                     # an ordinary block: the stuck release can end it
+assert ga.intent_problems(bad_mi)[0] == ["provenance must be an object"]
+json.dump(mint, open(bad_mi, "w"))
+assert ga.intent_problems(bad_mi) == ([], []), ga.intent_problems(bad_mi)
+ok("a malformed intent field is an ordinary block naming the field (never a gate crash), and the stuck release ends it")
+
+hp = os.path.join(INT, "int_human2.json")                    # the human's intent (source prompt)
+json.dump({"intent_id": "int_human2", "source": "prompt"}, open(hp, "w"))
+was = open(hp).read()
+hook(MP, "mp5", "start")
+artifact("goal", eval_id="evl_x", gaps=["g2"])
+json.dump({"intent_id": "int_human2", "source": "prompt", "want": "dark mode, and rewrite the billing module"}, open(hp, "w"))
+assert gblocked(hook(MP, "mp5"), "docs/agents/intents/int_human2.json changed during your run", "the human's"), hook(MP, "mp5").stderr
+open(hp, "w").write(was)
+assert hook(MP, "mp5").returncode == 0                       # its own goal, the human's intent untouched
+hook(E, "ev15", "start")
+artifact("eval", gaps=[{"gap": "g16"}])
+json.dump({"intent_id": "int_human2", "source": "prompt", "want": "dark mode"}, open(hp, "w"))
+assert gblocked(hook(E, "ev15"), "int_human2.json changed during your run")
+M.emit(Q, "intent.normalized", role="intake", refs={"intent": hp}, intent_id="int_human2", mode="reviewed")
+assert hook(E, "ev15").returncode == 0                       # intake filled it: its `intent check` names the file
+hook(E, "ev16", "start")
+artifact("eval", gaps=[{"gap": "g17"}])
+ev_mi = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "2b3c4d5e"))
+json.dump(dict(mint, intent_id=os.path.basename(ev_mi)[:-5], want="close gap g1 now"), open(ev_mi, "w"))
+assert gblocked(hook(E, "ev16"), "int_", "mission-planner's"), hook(E, "ev16").stderr
+os.remove(ev_mi)
+assert hook(E, "ev16").returncode == 0
+hook(MP, "mp6", "start")                                     # a planner run at the same time answers for it
+hook(E, "ev17", "start")
+artifact("eval", gaps=[{"gap": "g18"}])
+json.dump(dict(mint, intent_id=os.path.basename(ev_mi)[:-5]), open(ev_mi, "w"))
+assert hook(E, "ev17").returncode == 0
+assert hook(MP, "mp6").returncode == 0
+ok("intents: no role rewrites the human's or intake's intent (intake's own check excuses its fill); a `source: mission`"
+   " intent is the Mission Planner's, unless a planner run answers for it")
+
+M.approve(Q, "mission.approved", "docs/agents/mission/mission.json", "0" * 64, by="Adeel")
+rows, _ = M.ledger_rows(Q)
+row = {"event_id": "e" * 32, "ts": M.now(), "event": "journey.approved", "role": "human", "prev": rows[-1]["hash"],
+       "data": {"subject": "docs/agents/mission/journeys/jrn_x.json", "by": "Adeel", "reason": "", "sha256": "0" * 64}}
+row["hash"] = M._row_hash(row)
+with open(M.ledger(Q), "a") as f:                            # a row that came through git: no local event backs it
+    f.write(json.dumps(row, sort_keys=True) + "\n")
+led = open(M.ledger(Q)).read()
+assert not M.ledger_problems(Q)
+hook(E, "ev18", "start")
+artifact("eval", gaps=[{"gap": "g19"}])
+open(M.ledger(Q), "w").write("".join(led.splitlines(True)[:-1]))   # `python3 -c` drops the newest row
+assert not M.ledger_problems(Q)                              # the chain cannot see a removed tail
+assert gblocked(hook(E, "ev18"), "ledger.jsonl was rewritten during your run"), hook(E, "ev18").stderr
+open(M.ledger(Q), "w").write(led)
+assert hook(E, "ev18").returncode == 0
+hook(E, "ev19", "start")
+artifact("eval", gaps=[{"gap": "g20"}])
+M.approve(Q, "goal.approved", "docs/agents/mission/goals/gol_y.json", "0" * 64, by="Adeel")   # a CLI append
+assert hook(E, "ev19").returncode == 0
+ok("the ledger is append-only during a run: a removed tail row blocks with or without the run log; an append passes")
+
+hook(S, "sa7", "start")
+artifact("state", numbers={"journeys_passed": 9})
+hook(E, "ev20", "start")
+artifact("eval", gaps=[{"gap": "the evaluator's own"}])
+assert hook(E, "ev20").returncode == 0                       # it stops first
+fp3, fd3 = artifact("eval", gaps=[{"gap": "the assessor's, written after the evaluator stopped"}])
+assert gblocked(hook(S, "sa7"), "eval/%s.json changed during your run, and it is evaluator's" % fd3["eval_id"])
+os.remove(fp3)
+assert hook(S, "sa7").returncode == 0
+hook(S, "sa8", "start")
+artifact("state", numbers={"journeys_passed": 10})
+fp4, fd4 = artifact("eval", gaps=[{"gap": "the assessor's, written before the evaluator started"}])
+hook(E, "ev21", "start")
+artifact("eval", gaps=[{"gap": "the evaluator's"}])
+assert hook(E, "ev21").returncode == 0
+assert gblocked(hook(S, "sa8"), "eval/%s.json changed during your run" % fd4["eval_id"])   # ev21 never judged it
+os.remove(fp4)
+assert hook(S, "sa8").returncode == 0
+ok("an overlapping run answers only for what it judged: a change after its stop, or one it never saw, is this run's")
+
+RUNS = os.path.join(Q, ".aladdin", "state", "mission-runs")
+
+
+def backdate(aid, mins):
+    rf = os.path.join(RUNS, aid + ".json")
+    d = json.load(open(rf))
+    d["started"] -= mins * 60
+    json.dump(d, open(rf, "w"))
+
+
+MR = "aloop:market-researcher"
+hook(MR, "mr9", "start")
+backdate("mr9", 95)                                          # a long research run, still working
+bp = {"session_id": "s1", "cwd": Q, "agent_type": MR, "agent_id": "mr9", "hook_event_name": "PostToolUse",
+      "tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": ""}
+assert sh(os.path.join(PL, "bin", "budget"), "hook", "post", cwd=Q, inp=json.dumps(bp)).returncode == 0   # its latest call
+hook(E, "ev22", "start")
+artifact("research", claims=[{"claim_id": "c1"}])
+artifact("eval", gaps=[{"gap": "g21"}])
+assert hook(E, "ev22").returncode == 0, hook(E, "ev22").stderr   # mr9 is alive: its report is its own to answer for
+r = sh(os.path.join(PL, "bin", "selfcheck"), "market-researcher", cwd=Q, env=dict(ENV, AGENT_ROLE="market-researcher"))
+assert r.returncode == 0 and "no open run" not in r.stderr, (r.stdout, r.stderr)   # selfcheck judges mr9's own run
+assert hook(MR, "mr9").returncode == 0
+hook(MR, "mr10", "start")
+backdate("mr10", 95)                                         # no tool call for 95 minutes: its stop never came
+hook(E, "ev23", "start")
+rp10, _ = artifact("research", claims=[{"claim_id": "c1"}])
+artifact("eval", gaps=[{"gap": "g22"}])
+assert gblocked(hook(E, "ev23"), "market-researcher"), hook(E, "ev23").stderr
+os.remove(rp10)
+assert hook(E, "ev23").returncode == 0
+ok("a run is open while it works (its last tool call, not its start, decides); one silent past the TTL owns nothing")
+
+dr = os.path.join(QD, "eval", "draft-gaps.json")
+hook(E, "ev24", "start")
+json.dump({"gaps": [{"gap": "g23"}]}, open(dr, "w"))         # a draft kept in its own dir
+for i in range(2):
+    assert gblocked(hook(E, "ev24"), "draft-gaps.json")
+assert "STUCK" in hook(E, "ev24").stderr                     # released, and the draft is left behind
+hook(E, "ev25", "start")
+artifact("eval", gaps=[{"gap": "g24"}])
+os.remove(dr)
+assert hook(E, "ev25").returncode == 0                       # it was never an artifact (no harness id): removing it is no deletion
+ok("a draft beside the artifacts (no harness id in its name) may be removed by a later run of its role")
+
 open(os.path.join(PL, "mission", "roles.json"), "w").write("{ not json")          # a broken role table: a gate bug
 r = hook(E, "ev9")
 assert r.returncode == 2 and "failing closed" in r.stderr, r.stderr
@@ -695,5 +849,215 @@ assert X.load("journey", j3)["status"] == "retired"
 assert r.returncode == 2 and "journeys/%s.json changed during your run" % j3 in r.stderr, r.stderr
 ok("the real ethics, baseline and journeys commands: an ethics check gets its subject and a hard line is the reviewer's"
    " finding; a status its own command cascades passes; another area's status change blocks")
+
+# the second review, on the real areas: the runs above left two blocked runs open (ev2, pt1); release them,
+# as the stuck release would, so no open run answers for another role's files below
+def xstop(agent_type, aid):
+    p = {"session_id": "s1", "cwd": X.dir, "agent_type": agent_type, "agent_id": aid, "hook_event_name": "SubagentStop"}
+    return sh(REAL, cwd=X.dir, inp=json.dumps(p), env=XENV)
+
+
+for at, aid in (("aloop:evaluator", "ev2"), ("aloop:product-tester", "pt1")):
+    assert any("STUCK" in xstop(at, aid).stderr for _ in range(4)), aid
+
+
+def ran(r):
+    assert r.returncode == 0, (r.stdout, r.stderr)
+    return r
+
+
+def report(role="", title="Hands-on"):
+    """A sourced report through the real research commands, as `--role` (default: the researcher's)."""
+    args = ["research", "new", title, "--question", "How fast is a rival's first task, tried by hand?"]
+    rid = os.path.basename(made_path(X.run(*(args + (["--role", role] if role else [])))))[:-5]
+    page = os.path.join(X.dir, "docs", "agents", "mission", "research", "tried.html")
+    with open(page, "w") as f:
+        f.write("<html><body><p>Rival A showed the first task in 4 seconds when we tried it.</p></body></html>")
+    ran(X.run("research", "archive", rid, "https://rival.example/tried", "--file", os.path.relpath(page, X.dir)))
+    os.unlink(page)
+    ran(X.run("research", "claim", rid, "rival A shows a first task in 4s", "--source", "s1", "--quote",
+              "first task in 4 seconds"))
+    return rid
+
+
+PT, MRS = "aloop:product-tester", "aloop:market-researcher"
+r, pt_rid = role_run(PT, "pt2", lambda: report("product-tester"))
+assert r.returncode == 0 and ("product-tester", "research") in {(e["role"], e["data"]["kind"]) for e in X.events("artifact.created")}, r.stderr
+r, (_, wrong) = role_run(PT, "pt3", lambda: (report("product-tester", "Hands-on 2"), report("", "Rivals, as the researcher")))
+assert r.returncode == 2 and "%s.json names market-researcher as its owner" % wrong in r.stderr, r.stderr
+os.remove(M.path_of(X.dir, "research", wrong))
+assert xstop(PT, "pt3").returncode == 0                       # the report its `role` names as its own passes
+r, mr_rid = role_run(MRS, "mr3", lambda: report())
+assert r.returncode == 0, r.stderr
+r, _ = role_run(PT, "pt4", lambda: (report("product-tester", "Hands-on 3"),
+                                    ran(X.run("research", "archive", mr_rid, "https://rival.example/c", "--file", "app.json"))))
+assert r.returncode == 2 and "%s.json changed during your run, and it is market-researcher's" % mr_rid in r.stderr, r.stderr
+assert any("STUCK" in xstop(PT, "pt4").stderr for _ in range(3))
+r, wrong = role_run(MRS, "mr4", lambda: report("product-tester", "Hands-on, as the tester"))
+assert r.returncode == 2 and "%s.json names product-tester as its owner" % wrong in r.stderr, r.stderr
+assert any("STUCK" in xstop(MRS, "mr4").stderr for _ in range(3))
+ok("a research report belongs to the role its `role` field names: the Product Tester's own report passes; a report"
+   " naming another role, or a change to another role's report, blocks")
+
+FAKEJ = os.path.join(T, "fakejudge.py")
+open(FAKEJ, "w").write('import json,sys\nm=sys.argv[sys.argv.index("--model")+1]\nprint(json.dumps({"type":"result",'
+                       '"result":json.dumps({"score":4,"reason":"clear"}),"modelUsage":{m:{"inputTokens":1,"outputTokens":1}}}))\n')
+INP = os.path.join(T, "flow.txt")
+open(INP, "w").write("the add-task flow")
+X.env["ALOOP_JUDGE_CMD"] = "%s %s --model {model}" % (sys.executable, FAKEJ)   # the human's setting, not a role's
+RUNS_F = os.path.join(X.dir, "docs", "agents", "mission", "judges", "runs", rub + ".jsonl")
+r, _ = role_run(E, "ev11", lambda: ran(X.run("judge", "run", rub, "--subject", "todo@1", "--input", INP)))
+assert r.returncode == 0 and any(e["role"] == "evaluator" and e["data"]["path"].endswith("runs/%s.jsonl" % rub)
+                                 for e in X.events("artifact.created")), r.stderr
+
+
+def forged():
+    ran(X.run("judge", "run", rub, "--subject", "todo@2", "--input", INP))
+    open(RUNS_F, "a").write('{"run_id": "%s-r99", "score": 5}\n' % rub)     # a record no judge run wrote
+
+
+r, _ = role_run(E, "ev12", forged)
+assert r.returncode == 2 and "aloop mission judge check %s" % rub in r.stderr, r.stderr
+runs = open(RUNS_F).read().splitlines(True)
+open(RUNS_F, "w").write("".join(runs[:-1]))                 # the forged line removed: what the judge runs wrote
+assert xstop(E, "ev12").returncode == 0
+STRAY = os.path.join(os.path.dirname(RUNS_F), "scratch.jsonl")
+r, _ = role_run(E, "ev13", lambda: open(STRAY, "w").write('{"score": 5}\n'))   # a log no rubric names
+assert r.returncode == 2 and "runs/scratch.jsonl is not named for a harness id (rub_" in r.stderr, r.stderr
+os.remove(STRAY)
+ran(X.run("judge", "run", rub, "--subject", "todo@3", "--input", INP))
+assert xstop(E, "ev13").returncode == 0
+del X.env["ALOOP_JUDGE_CMD"]
+ok("a judge run record (judges/runs/<rub>.jsonl) is the Evaluator's work, checked with `mission judge check <rub>`")
+
+st = lambda kind, i: X.load(kind, i)["status"]   # noqa: E731
+r, j4 = role_run(MRS, "mr5", lambda: X.journey(X.draft(researched.rid, title="Add a task fast")))
+assert r.returncode == 0 and st("journey", j4) == "proposed", r.stderr
+r, b3 = role_run(S, "sa6", lambda: made(X.run("baseline", "new", "--definition", "a first task in 4s",
+                                              "--supersedes", b2["baseline_id"], "--evidence", researched.rid + "#c1")))
+assert r.returncode == 0, r.stderr
+r, _ = role_run(S, "sa7", lambda: ran(X.run("baseline", "measure", b3["baseline_id"])))
+assert r.returncode == 0, r.stderr
+n_ev = len(X.events())
+r, _ = role_run(MRS, "mr6", lambda: ran(X.run("baseline", "confirm", b3["baseline_id"], "--by", "Adeel")))   # the human
+assert st("journey", j4) == "active" and st("baseline", b2["baseline_id"]) == "superseded"
+assert r.returncode == 2 and "you wrote no artifact" in r.stderr, r.stderr      # the freeze is not the researcher's write
+assert not [e for e in X.events()[n_ev:] if e["event"].startswith("artifact.")]
+j5 = X.journey(X.draft(researched.rid, title="Add a task offline"))
+assert xstop(MRS, "mr6").returncode == 0                      # its own journey passes
+J1 = X.path("journey", j1)
+j1_was = open(J1).read()
+
+
+def restore_v2():
+    rec = ran(X.run("baseline", "restore", b2["baseline_id"], "--by", "Adeel"))        # the human
+    d = json.load(open(J1))
+    d["status"] = "retired"
+    M.save(J1, d)                                            # a status no record explains
+    return review("mission", [], "clear")()
+
+
+r, _ = role_run("aloop:ethics-reviewer", "er3", restore_v2)
+assert st("baseline", b3["baseline_id"]) == "superseded" and st("baseline", b2["baseline_id"]) == "confirmed"
+assert r.returncode == 2 and "the status of docs/agents/mission/journeys/%s.json changed" % j1 in r.stderr, r.stderr
+assert "baseline/%s" % b3["baseline_id"] not in r.stderr, r.stderr   # the restore superseded it: the records explain it
+open(J1, "w").write(j1_was)
+assert xstop("aloop:ethics-reviewer", "er3").returncode == 0
+
+
+def proposed_v4():
+    d = made(X.run("baseline", "new", "--definition", "a first task in 3s", "--supersedes", b2["baseline_id"],
+                   "--evidence", researched.rid + "#c1"))
+    ran(X.run("baseline", "measure", d["baseline_id"]))
+    return d
+
+
+r, b4 = role_run(S, "sa8", proposed_v4)
+assert r.returncode == 0, r.stderr
+n_ev = len(X.events())
+
+
+def apply_v4():
+    ran(X.run("baseline", "apply", b4["baseline_id"]))                     # the veto window, run by the supervisor
+    return made(X.run("assess"))
+
+
+r, _ = role_run(S, "sa9", apply_v4)
+assert st("baseline", b2["baseline_id"]) == "superseded" and st("baseline", b4["baseline_id"]) == "confirmed"
+assert r.returncode == 0, r.stderr
+assert [e["data"]["kind"] for e in X.events()[n_ev:] if e["event"].startswith("artifact.")] == ["state"]   # not b2 or b4
+ok("a human's confirm, restore or veto-window apply and its recorded effects (journeys frozen, a version superseded)"
+   " are no role's write and never block it; a status no record explains still blocks")
+
+DR = os.path.join(X.dir, "docs", "agents", "mission", "journeys", "draft-add-task.json")
+
+
+def drafted():
+    json.dump(X.draft(researched.rid, title="Add a task twice"), open(DR, "w"))
+    return ran(X.run("journeys", "new", "--from", os.path.relpath(DR, X.dir)))
+
+
+r, _ = role_run(MRS, "mr7", drafted)
+assert r.returncode == 2 and "draft-add-task.json" in r.stderr, r.stderr
+assert any("STUCK" in xstop(MRS, "mr7").stderr for _ in range(3))     # released: the draft is left behind
+r, _ = role_run(MRS, "mr8", lambda: (X.journey(X.draft(researched.rid, title="Add a task by voice")), os.remove(DR)))
+assert r.returncode == 0, r.stderr
+ok("a draft a released run left in a role's dir (not an artifact: no harness id) may be removed by its next run")
+
+led = open(M.ledger(X.dir)).read()
+open(M.ledger(X.dir), "w").write("".join(led.splitlines(True)[:-1]))      # a bad recovery lost the newest row
+assert M.ledger_problems(X.dir)
+r, _ = role_run(MRS, "mr9", lambda: X.journey(X.draft(researched.rid, title="Add a task from the keyboard")))
+assert r.returncode == 0 and "predate your run" in r.stderr, r.stderr   # not its to fix: the supervisor repairs it
+open(M.ledger(X.dir), "w").write(led)
+assert not M.ledger_problems(X.dir)
+ok("an area check that blocks only on ledger problems that predate the run is a note, not the role's block")
+
+FAKE_GA = subprocess.Popen([sys.executable, os.path.join(REPO, "scripts", "test", "fixtures", "fake-ga.py")],
+                           stdout=subprocess.PIPE, text=True)
+atexit.register(FAKE_GA.kill)
+GA = {"ALADDIN_GA_BASE": "http://127.0.0.1:%s" % FAKE_GA.stdout.readline().strip(), "ALADDIN_GA_ACCESS_TOKEN": "fake-token",
+      "TZ": "Europe/Stockholm", "NO_PROXY": "127.0.0.1", "no_proxy": "127.0.0.1"}
+X.env.update(GA)
+XENV.update(GA)
+r, _ = role_run(S, "sa10", lambda: ran(X.run("telemetry", "init", "--uri", "https://todo.example")))
+assert r.returncode == 0, r.stderr
+ran(X.run("telemetry", "consent", "--by", "Adeel"))                         # the human
+r, _ = role_run(S, "sa11", lambda: (ran(X.run("telemetry", "setup")), ran(X.run("telemetry", "debug-hit"))))
+assert r.returncode == 0 and "waits on another role's step" in r.stderr and "not emitted" in r.stderr, r.stderr
+n_ev = len(X.events())
+r, _ = role_run(S, "sa12", lambda: (ran(X.run("telemetry", "report")), ran(X.run("telemetry", "report", "--realtime"))))
+assert r.returncode == 0, r.stderr
+assert [e["data"]["kind"] for e in X.events()[n_ev:] if e["event"] == "artifact.created"] == ["telemetry_report"] * 2
+
+
+def edited_report():
+    p = ran(X.run("telemetry", "report", "--realtime")).stdout.strip().splitlines()[-1]
+    d = json.load(open(os.path.join(X.dir, p)))
+    d["results"] = {"realtime": {"rows": [{"activeUsers": "900"}]}}
+    json.dump(d, open(os.path.join(X.dir, p), "w"))                      # numbers changed after the command sealed them
+    return p
+
+
+r, rp = role_run(S, "sa13", edited_report)
+assert r.returncode == 2 and rp in r.stderr and "sha256" in r.stderr, r.stderr
+os.remove(os.path.join(X.dir, rp))
+ran(X.run("telemetry", "report", "--realtime"))
+assert xstop(S, "sa13").returncode == 0
+
+
+def renamed_report():
+    p = os.path.join(X.dir, ran(X.run("telemetry", "report", "--realtime")).stdout.strip().splitlines()[-1])
+    q = os.path.join(os.path.dirname(p), M.new_id("telemetry") + ".json")
+    os.rename(p, q)                                          # a sealed report under another id's name
+    return q
+
+
+r, q = role_run(S, "sa14", renamed_report)
+assert r.returncode == 2 and "report_id" in r.stderr and "was not issued by the harness for this file" in r.stderr, r.stderr
+os.remove(q)
+ran(X.run("telemetry", "report", "--realtime"))
+assert xstop(S, "sa14").returncode == 0
+ok("telemetry: instrumentation the builders owe is a note at the assessor's stop; a sealed usage report is its work")
 
 print("\n%d checks passed" % PASS[0])

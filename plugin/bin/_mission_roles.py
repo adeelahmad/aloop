@@ -26,8 +26,8 @@ MISSION = "docs/agents/mission/"
 INTENTS = "docs/agents/intents/"
 LEDGER = MISSION + "ledger.jsonl"   # appended only by the mission CLI (_mission.record)
 RUN_DATA = (".aladdin/", ".agentic/", ".transcripts/")
-OPEN_RUN_TTL = 90 * 60        # an open run older than this (its stop never came) owns nothing: a role's
-                              # hard time box (budget ROLE_PROFILES, 60 min) plus a grace
+OPEN_RUN_TTL = 90 * 60        # an open run with no activity for this long (its stop never came) owns nothing:
+                              # budget only observes a mission role's time box, so its last tool call decides
 
 
 def table():
@@ -39,6 +39,7 @@ T = table()
 ROLES = tuple(T["roles"])
 KIND_AREAS = T["kind_areas"]
 AREA_CHECKS = T.get("area_checks", {})
+RECORDS = T.get("records", {})
 # the mission layer's event prefixes: only its own commands and gates emit them (never `events emit` by hand)
 MISSION_EVENTS = frozenset(["mission", "artifact"] + list(M.LAYOUT) + list(KIND_AREAS.values()))
 HUMAN_VERBS = frozenset(T["human_verbs"])
@@ -65,10 +66,48 @@ def owners(rel):
     return [r for r in ROLES if any(under(rel, p) for p in writes(r))]
 
 
+def owners_of(rel, field):
+    """The roles a file belongs to: the role its `role` field names (`research new --role product-tester`)
+    when that role may write it, else every role whose paths hold it."""
+    by = owners(rel)
+    return [field] if field in by else by
+
+
 def kind_of(rel):
     """The artifact kind of docs/agents/mission/<dir>/<id>.json (a top-level artifact file), else None."""
     m = re.match(r"^docs/agents/mission/([a-z]+)/([^/]+)\.json$", rel)
     return DIR_KIND.get(m.group(1)) if m else None
+
+
+def record_of(rel):
+    """The record kind of a file a role's command writes beside its artifacts (roles.json `records`: a judge
+    run log, a usage report), else None."""
+    for kind, spec in RECORDS.items():
+        name = rel[len(spec["path"]):] if rel.startswith(spec["path"]) else ""
+        if name.endswith(spec["ext"]) and "/" not in name and len(name) > len(spec["ext"]):
+            return kind
+    return None
+
+
+def area_of(kind):
+    """The area whose `check` judges an artifact or record kind."""
+    return KIND_AREAS.get(kind) or (RECORDS.get(kind) or {}).get("area") or ""
+
+
+def ident(kind, doc, rel):
+    """An artifact's id (its `<kind>_id`, a record's `id` field), or a log's file name: the id of the artifact
+    it records (judges/runs/<rub_id>.jsonl)."""
+    spec = RECORDS.get(kind)
+    if spec and not spec.get("id"):
+        return os.path.basename(rel)[:-len(spec["ext"])]
+    return (doc or {}).get(spec["id"] if spec else kind + "_id", "")
+
+
+def is_draft(rel):
+    """A file at the top of an artifact dir that no harness id names (a draft, a saved page): never an
+    artifact, so removing it deletes no id from the audit trail."""
+    m = re.match(r"^docs/agents/mission/[a-z]+/([^/]+)$", rel)
+    return bool(m) and not (m.group(1).endswith(".json") and M.ID.match(m.group(1)[:-5]))
 
 
 # ── classifying a target path ────────────────────────────────────────────────────────
@@ -149,6 +188,45 @@ def scan(project):
     return out
 
 
+def labels(project):
+    """({path: the mission role its `role` field names}, {intent path: its `source`}) of the top-level JSON
+    under docs/agents/mission/<dir>/ and docs/agents/intents/: who each file says it belongs to."""
+    roles, sources = {}, {}
+    for pat in (os.path.join(project, MISSION, "*", "*.json"), os.path.join(project, INTENTS, "*.json")):
+        for p in glob.glob(pat):
+            d, _ = M.load(p)
+            rel = os.path.relpath(p, project).replace(os.sep, "/")
+            if not isinstance(d, dict):
+                continue
+            if rel.startswith(INTENTS):
+                sources[rel] = d.get("source") if isinstance(d.get("source"), str) else ""
+            elif d.get("role") in ROLES:
+                roles[rel] = d["role"]
+    return roles, sources
+
+
+def ledger_mark(project):
+    """{size, sha256} of the ledger's bytes now, None when there is none: the CLI only appends to it."""
+    try:
+        with open(os.path.join(project, LEDGER), "rb") as f:
+            raw = f.read()
+    except OSError:
+        return None
+    return {"size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+
+
+def ledger_kept(project, mark):
+    """True when the ledger still starts with exactly the bytes `mark` recorded (it was only appended to)."""
+    if not isinstance(mark, dict):
+        return True
+    try:
+        with open(os.path.join(project, LEDGER), "rb") as f:
+            raw = f.read(int(mark.get("size") or 0))
+    except OSError:
+        return False
+    return len(raw) == int(mark.get("size") or 0) and hashlib.sha256(raw).hexdigest() == mark.get("sha256")
+
+
 def runs_dir(project):
     return _paths.home(project, "state/mission-runs")
 
@@ -211,6 +289,23 @@ def named_paths(e):
     return {v for v in vals if isinstance(v, str) and v}
 
 
+def effects(e):
+    """{path: the status its step leaves, None for any} of the files a recorded step changes, as its record says:
+    the paths it names; a baseline confirmation's journeys (frozen: active) and the version a restore replaced, the
+    one a `baseline.superseded` record names (superseded); the goal an ethics hard line blocks (blocked)."""
+    ev, d = e.get("event"), e.get("data") or {}
+    out = {p: "superseded" if ev == "baseline.superseded" else None for p in named_paths(e)}
+    if ev == "ethics.blocked" and under(str(d.get("subject")), MISSION + M.LAYOUT["goal"] + "/"):
+        out[d["subject"]] = "blocked"
+    if ev == "baseline.confirmed":
+        for j in d.get("journeys") if isinstance(d.get("journeys"), list) else []:
+            if isinstance(j, dict) and isinstance(j.get("journey_id"), str):
+                out.setdefault(MISSION + "%s/%s.json" % (M.LAYOUT["journey"], j["journey_id"]), "active")
+        if isinstance(d.get("replaces"), str) and d["replaces"]:
+            out.setdefault(MISSION + "%s/%s.json" % (M.LAYOUT["baseline"], d["replaces"]), "superseded")
+    return out
+
+
 def ledger_problems(project):
     """The ledger's problems now (_mission.ledger_problems), so a stop blames a run only for new ones."""
     try:
@@ -219,9 +314,16 @@ def ledger_problems(project):
         return ["cannot verify the ledger: %s" % e]
 
 
+def marks(project):
+    """What a stop diffs against: every file's fingerprint, who the files say they belong to, the event log's
+    size, the ledger's bytes and its problems."""
+    roles, sources = labels(project)
+    return {"files": scan(project), "roles": roles, "sources": sources, "events_at": events_size(project),
+            "ledger": ledger_mark(project), "ledger_problems": ledger_problems(project)}
+
+
 def record_start(project, agent_id, role):
-    rec = {"agent_id": agent_id, "role": role, "started": time.time(), "files": scan(project),
-           "events_at": events_size(project), "ledger_problems": ledger_problems(project)}
+    rec = dict(marks(project), agent_id=agent_id, role=role, started=time.time())
     M.save(run_file(project, agent_id), rec)
     return rec
 
@@ -231,30 +333,53 @@ def load_run(project, agent_id):
     return d if isinstance(d, dict) else None
 
 
+def seen(project, d):
+    """When a run last showed activity: its start, or its newest tool call (bin/budget's PostToolUse hook rewrites
+    the agent's budget state on every call, on each host), whichever is later."""
+    t = float(d.get("started") or 0)
+    try:
+        aid = re.sub(r"[^A-Za-z0-9_.-]", "_", d.get("agent_id") or "")
+        t = max(t, os.path.getmtime(os.path.join(_paths.home(project, "budget", make=False), aid + ".json")))
+    except (OSError, TypeError):
+        pass
+    return t
+
+
+def alive(project, d, now=None):
+    """A run that started, has not stopped, and was active within OPEN_RUN_TTL."""
+    return not d.get("stopped") and (now or time.time()) - seen(project, d) < OPEN_RUN_TTL
+
+
 def open_runs(project, now=None):
-    """Mission role runs that started and have not stopped (within OPEN_RUN_TTL)."""
-    now = now or time.time()
+    """Mission role runs that started and have not stopped (active within OPEN_RUN_TTL)."""
     out = []
     for p in glob.glob(os.path.join(runs_dir(project), "*.json")):
         d, _ = M.load(p)
-        if isinstance(d, dict) and not d.get("stopped") and now - float(d.get("started") or 0) < OPEN_RUN_TTL:
+        if isinstance(d, dict) and alive(project, d, now):
             out.append(d)
     return out
 
 
-def overlapping_roles(project, run, now=None):
-    """The roles of other runs that overlapped `run`: still open, or stopped after it started."""
-    now = now or time.time()
+def overlapping_runs(project, run, now=None):
+    """The other runs that overlapped `run`: still open (and alive), or stopped after it started."""
     since = float(run.get("started") or 0)
-    out = set()
+    out = []
     for p in glob.glob(os.path.join(runs_dir(project), "*.json")):
         d, _ = M.load(p)
         if not isinstance(d, dict) or d.get("agent_id") == run.get("agent_id") or not d.get("role"):
             continue
-        stopped = d.get("stopped")
-        if (stopped and float(stopped) >= since) or (not stopped and now - float(d.get("started") or 0) < OPEN_RUN_TTL):
-            out.add(d["role"])
+        if (d.get("stopped") and float(d["stopped"]) >= since) or alive(project, d, now):
+            out.append(d)
     return out
+
+
+def answers(d, rel, fp):
+    """True when run `d` answers for `rel` as it is now (fingerprint `fp`, None when deleted): an open run judges
+    at its stop what changed since its start; a passed run judged what its pass recorded (`judged`), so a change
+    after it, or one it never saw, is not its; a released run owns nothing."""
+    if not d.get("stopped"):
+        return (d.get("files") or {}).get(rel) != fp
+    return not d.get("released") and rel in (d.get("judged") or {}) and d["judged"][rel] == fp
 
 
 def latest_open(project, role):
