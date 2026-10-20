@@ -27,7 +27,8 @@
      "category": {"enum": ["illegal", "deceptive", "harmful", "user-data", "notifications", "engagement", "third-party", "outreach", "security", "other"]},
      "tier": {"enum": ["clear", "gray", "hard"]},
      "reason": {"type": "string", "minLength": 1},
-     "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}}
+     "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}},
+     "gaps": {"type": "array", "items": {"type": "string", "minLength": 1}}
     }
    }
   },

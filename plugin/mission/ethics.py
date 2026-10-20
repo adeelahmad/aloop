@@ -9,7 +9,9 @@ Ethics is reviewed when the mission is set and each time a goal is derived, in t
 The reviewer (a model) judges; this gate checks structure and evidence: a recorded review of
 exactly the current content, every topic the fixed screen matched addressed by a finding,
 the tier no lower than the worst finding, a screened hard-line topic never cleared outright,
-and a later review never lowering the tier of the same content.
+and a later review never lowering the tier of the same content. A hard line holds the goal for
+good, and the words of the gaps it is about (a hard finding in a goal of several gaps names
+them: "gaps": [gap_id, …]), so no goal derived later takes them again.
 
 Usage:
   mission ethics new --subject mission|<goal_id>
@@ -61,7 +63,7 @@ CATEGORIES = {
                   r"\bimpersonat", r"\bphish", r"\bastroturf", r"\bmislead", r"\bdecepti", r"\bdeceiv",
                   r"\bhidden (?:fees?|charges?|costs?|subscriptions?)\b", r"\bbait[- ]and[- ]switch\b",
                   r"\bsock ?puppets?\b", r"\bclickbait\b", r"\b(?:secretly|covertly)\b", r"\bdeep ?fakes?\b",
-                  r"\b(?:cancel\w*|unsubscrib\w*|opt[- ]outs?|delet\w*) " + W + r"{0,3}(?:hard|harder|difficult) to find\b",
+                  r"\b(?:cancel|unsubscrib|opt[- ]out|delet)[\w-]* " + W + r"{0,3}(?:hard|harder|difficult) to find\b",
                   r"\b(?:hard|harder|difficult) to (?:cancel|unsubscribe|opt[- ]out|delete|leave)\b",
                   r"\b(?:hid(?:e|es|ing|den)|bur(?:y|ies|ying|ied)) (?:the |a |an )?(?:unsubscribe|cancel\w*|opt[- ]outs?|"
                   r"delete)\b",
@@ -152,13 +154,22 @@ def word_key(text):
     return hashlib.sha256(t.encode("utf-8", "surrogatepass")).hexdigest() if t else None
 
 
-def word_keys(kind, doc):
-    """A goal's own words: its statement and each gap's summary. A goal derived again from the same gaps
-    repeats them whatever its id, refs, sizes or eval, so a hard line follows them (a mission has one file)."""
+def goal_gaps(doc):
+    """{gap_id: summary} of a goal (M9.11: each gap names its gap_id and a one-line summary)."""
+    gaps = doc.get("gaps") if isinstance(doc, dict) and isinstance(doc.get("gaps"), list) else []
+    return {str(g.get("gap_id")): g.get("summary") for g in gaps if isinstance(g, dict) and g.get("gap_id")}
+
+
+def word_keys(kind, doc, only=None):
+    """A goal's own words: its statement and each gap's summary (only=gap ids: just those gaps'). A goal
+    derived again from the same gaps repeats them whatever its id, measurements or eval, so a hard line
+    follows them (a mission has one file)."""
     if kind != "goal" or not isinstance(doc, dict):
         return []
-    gaps = doc.get("gaps") if isinstance(doc.get("gaps"), list) else []
-    xs = [doc.get("statement")] + [g.get("summary") for g in gaps if isinstance(g, dict)]
+    gaps = goal_gaps(doc)
+    xs = [s for g, s in gaps.items() if only is None or g in only]
+    if only is None or len(gaps) <= 1:
+        xs.append(doc.get("statement"))
     return sorted({k for k in map(word_key, xs) if k})
 
 
@@ -224,8 +235,9 @@ def binding(cwd, kind, sid):
 
 
 # ── a review's own rules (beyond the schema and the core contract) ───────────────────
-def rules(rev, matched):
-    """Problems of a review against the topics the screen matched in its subject."""
+def rules(rev, matched, subject=None):
+    """Problems of a review against the topics the screen matched in its subject (and, for a goal of
+    several gaps, the gaps each hard finding is about: a hard line holds those gaps, not their neighbours)."""
     out = []
     findings = rev.get("findings") if isinstance(rev.get("findings"), list) else []
     findings = [f for f in findings if isinstance(f, dict)]
@@ -244,11 +256,27 @@ def rules(rev, matched):
         elif c in HARD_LINE and max(rank(f.get("tier")) for f in mine) < rank("gray"):
             out.append("%s is a hard-line topic the screen matched (%r): a review cannot clear it; gray at "
                        "least, so the human sees it" % (c, phrase))
+    gaps = goal_gaps(subject)
+    for i, f in enumerate(findings):
+        named = f.get("gaps") if isinstance(f.get("gaps"), list) else []
+        for g in named:
+            if g not in gaps:
+                out.append("findings[%d].gaps: %r is not a gap of this goal (%s)" % (i, g, ", ".join(gaps) or "none"))
+        if f.get("tier") == "hard" and len(gaps) > 1 and not named:
+            out.append("findings[%d] is hard in a goal of %d gaps: it names the gaps it is about (gaps: [gap_id, …]), "
+                       "so the hard line holds those and not the others" % (i, len(gaps)))
     return out
 
 
-def review_problems(cwd, rev, path, matched):
-    return M.problems(rev, "ethics", path) + (rules(rev, matched) if isinstance(rev, dict) else [])
+def hard_keys(kind, doc, rev):
+    """The word keys a hard review fixes: the gaps its hard findings name (a goal of one gap: that gap
+    and the statement)."""
+    named = {g for f in rev.get("findings", []) if f.get("tier") == "hard" for g in (f.get("gaps") or [])}
+    return word_keys(kind, doc, only=named or None)
+
+
+def review_problems(cwd, rev, path, matched, subject=None):
+    return M.problems(rev, "ethics", path) + (rules(rev, matched, subject) if isinstance(rev, dict) else [])
 
 
 # ── the verdict ──────────────────────────────────────────────────────────────────────
@@ -315,7 +343,7 @@ def verdict(cwd, kind, sid):
                        "or change the content and review it again" % eid)
             continue
         try:
-            bad += ["review %s: %s" % (eid, x) for x in review_problems(cwd, rev, p, matched)]
+            bad += ["review %s: %s" % (eid, x) for x in review_problems(cwd, rev, p, matched, doc)]
         except UnicodeError:
             bad.append("review %s holds text that is not valid Unicode" % eid)
             continue
@@ -406,7 +434,7 @@ def cmd_record(cwd, path):
         return 2
     rev.pop("sha256", None)
     try:
-        bad = review_problems(cwd, rev, path, screen(text_of(doc)))
+        bad = review_problems(cwd, rev, path, screen(text_of(doc)), doc)
         if not bad:
             M.seal(rev)
     except UnicodeError:
@@ -427,7 +455,7 @@ def cmd_record(cwd, path):
             cats = [c for c in list(CATEGORIES) + ["other"]
                     if any(f["category"] == c and f["tier"] == "hard" for f in rev["findings"])]
             M.emit(cwd, "ethics.blocked", role="ethics-reviewer", refs=refs, ethics_id=eid, subject=cur["ref"],
-                   sha256=cur["sha256"], text_sha256=words, categories=cats, kind=kind, words=word_keys(kind, doc))
+                   sha256=cur["sha256"], text_sha256=words, categories=cats, kind=kind, words=hard_keys(kind, doc, rev))
     print("[ethics] %s recorded: tier %s for %s" % (eid, rev["tier"], cur["ref"]), file=sys.stderr)
     rc, bad, facts = verdict(cwd, kind, sid)
     if facts.get("state") == "hard" and kind == "goal" and doc.get("status") != "blocked":

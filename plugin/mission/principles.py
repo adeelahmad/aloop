@@ -187,8 +187,13 @@ def verify(st, path=None, stale_ok=False):
     other = [m for m in MODES if m != st["mode"] and cur[m] == st["sha256"]]
     if other:
         return ["the principles stamp's sha256 is the %s block, not the %s one (mode mismatch)" % (other[0], st["mode"])]
-    return [] if stale_ok else ["the principles changed since this stamp (sha256 %s, now %s)"
-                                % (st["sha256"][:12], cur[st["mode"]][:12])]
+    if not stale_ok:
+        return ["the principles changed since this stamp (sha256 %s, now %s)" % (st["sha256"][:12], cur[st["mode"]][:12])]
+    missing = [i for i in REQUIRED if i not in st["ids"]]   # an older block still carried the standing set
+    if missing or st["ids"][:1] != [REQUIRED[0]]:
+        return ["the principles stamp's ids lack the standing set (%s) or do not start with %s"
+                % (", ".join(missing) or "order", REQUIRED[0])]
+    return []
 
 
 def stale(st, path=None):

@@ -109,7 +109,8 @@ assert any("ids" in x for x in P.verify(dict(st, ids=[])))      # the stamp name
 assert P.verify(dict(st, sha256="ab" * 32), stale_ok=True) == []
 assert P.stale(dict(st, sha256="ab" * 32)) and not P.stale(st)
 assert any("mode" in x for x in P.verify(dict(st, mode="spoon-fed"), stale_ok=True))
-for b in (dict(st, sha256="nope"), dict(st, ids="x"), {"mode": "autonomous"}):
+for b in (dict(st, sha256="nope"), dict(st, ids="x"), {"mode": "autonomous"},
+          dict(st, sha256="ab" * 32, ids=st["ids"][1:]), dict(st, sha256="ab" * 32, ids=st["ids"][1:] + st["ids"][:1])):
     assert P.verify(b, stale_ok=True), b
 ok("stamp(mode) = {mode, sha256, ids}; verify() names a changed block, a wrong mode, a missing field")
 
