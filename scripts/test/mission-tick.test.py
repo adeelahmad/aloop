@@ -1226,6 +1226,8 @@ doc = p.mission_doc()
 doc["budget"]["tokens"] = 5000
 doc["status"] = "draft"
 M.save(M.path_of(p.dir, "mission"), doc)
+while M.now() <= M.ledger_rows(p.dir)[0][-1]["ts"]:                      # the clone's human types after the last record:
+    time.sleep(0.05)                                                       # a line from its second counts as older
 assert p.mi("approve", "--by", "Adeel", "--reason", "raise the cap").returncode == 0
 p.review(p.mission_ref(), p.mission_doc(), "clear", 1.3)
 d = p.tick(1.4)
