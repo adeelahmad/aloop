@@ -71,6 +71,19 @@ assert.ok(readFileSync(join(T, ".aladdin/transcripts/global.jsonl"), "utf8").inc
 await hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "1" }, { args: { filePath: join(T, "docs/agents/sprint1/s1-01-x/init.md"), content: "x" } })
 await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "2" }, { args: { filePath: join(T, "src/main.rs"), content: "x" } }),
   /may not write production source/, "gate-supervisor-scope blocks the supervisor")
+// a plugin gets the model's raw arguments, extra keys included (OpenCode 1.19: the AI SDK input is
+// not validated before tool.execute.before), so tool_input holds each tool's declared ones only
+await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "2a" },
+  { args: { filePath: join(T, "src/main.rs"), content: "x", agent_type: "green-worker", agent_id: "w1" } }),
+  /may not write production source/, "an `agent_type` argument does not make the supervisor a dispatched agent")
+await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "2b" },
+  { args: { filePath: join(T, "src/main.rs"), content: "x", file_path: join(T, "docs/agents/sprint1/s1-01-x/init.md") } }),
+  /may not write production source/, "a `file_path` argument does not hide the path OpenCode writes (filePath)")
+await hooks["tool.execute.after"]({ tool: "edit", sessionID: "root", callID: "2c",
+  args: { filePath: join(T, "docs/agents/sprint1/s1-01-x/init.md"), oldString: "a", newString: "b", agent_type: "green-worker", cwd: "/" } }, { output: "", metadata: {} })
+const rec = readFileSync(join(T, ".aladdin/transcripts/session/events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).at(-1)
+assert.deepEqual(rec.payload.tool_input, { file_path: join(T, "docs/agents/sprint1/s1-01-x/init.md"), old_string: "a", new_string: "b", replace_all: false })
+assert.ok(!("agent_type" in rec.payload) && rec.payload.cwd === T, JSON.stringify(rec.payload)); ok("tool_input is built from the tool's declared arguments (Claude-shaped), nothing else")
 
 // commit authorship
 await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "3" },
@@ -154,6 +167,9 @@ assert.ok(!existsSync(join(T, ".aladdin/state/mission-runs/bld.json")))
 ok("a mission sub-agent's start records what exists once its role is known (a builder's never)")
 await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m1" }, { args: { filePath: join(T, "src/app.py"), content: "x" } }),
   /BLOCK\[mission-scope\].*evaluator writes only/s, "gate-mission-scope: an evaluator never writes source")
+await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m1b" },
+  { args: { filePath: join(T, "src/app.py"), content: "x", file_path: join(T, "docs/agents/mission/eval/e.json") } }),
+  /BLOCK\[mission-scope\]/, "gate-mission-scope judges the path OpenCode writes, not a `file_path` argument beside it")
 await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "msn", callID: "m2" }, { args: { command: "echo x > src/app.py" } }),
   /BLOCK\[mission-scope\]/, "gate-mission-scope judges the evaluator's bash too")
 await hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m3" }, { args: { filePath: join(T, "docs/agents/mission/eval/e.json"), content: "{}" } })
@@ -162,6 +178,28 @@ const msnOut = { title: "", output: "evaluated", metadata: { sessionId: "msn" } 
 await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "m4", args: {} }, msnOut)
 assert.ok(/BLOCKED after 3 fix rounds/.test(msnOut.output) && /BLOCK\[mission-artifact\]/.test(msnOut.output), msnOut.output)
 ok("gate-mission-artifact runs at the evaluator's stop and blocks a run that wrote no artifact")
+
+// an intake that stops to ask the human (ROADMAP §4.9): released at once as NEEDS-HUMAN with its questions in
+// the task result, never re-prompted for rounds it cannot use; a malformed Intent Contract is still re-prompted
+writeFileSync(join(T, "docs/agents/sprint1/intake.md"), "# Intent\nWhat: a parser\n## Constraints\n## Failure scenarios\n## Success scenarios\n## Connections\n")
+const ic = sh(join(BIN, "intent"), ["new", "--source", "prompt", "--raw", "a semver parser"]).trim()
+const contract = { ...JSON.parse(readFileSync(ic, "utf8")), actor: "dev", want: "parse semver", why: "releases", constraints: ["std only"],
+  success_scenarios: ["1.2.3 parses"], failure_scenarios: ["bad input errors"], connections: ["none"], done_looks_like: "parse() works",
+  open_questions: [{ question: "accept a leading v (v1.2.3)?", class: "ask" }] }
+writeFileSync(ic, JSON.stringify(contract))
+parents.itk = "root"
+await hooks.event({ event: { type: "session.created", properties: { info: { id: "itk", parentID: "root" } } } })
+await hooks["chat.message"]({ sessionID: "itk", agent: "intake" }, { message: {}, parts: [{ type: "text", text: "intake" }] })
+const askOut = { title: "", output: "one question needs the human", metadata: { sessionId: "itk" } }
+before = calls.prompt.length
+await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "i1", args: {} }, askOut)
+assert.ok(/NEEDS-HUMAN — released UNVERIFIED/.test(askOut.output) && /accept a leading v/.test(askOut.output) && calls.prompt.length === before, askOut.output)
+ok("an intake whose contract only waits on the human is released at once; the task result says NEEDS-HUMAN with its questions")
+writeFileSync(ic, JSON.stringify({ ...contract, want: "" }))
+const badOut = { title: "", output: "done", metadata: { sessionId: "itk" } }
+await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "i2", args: {} }, badOut)
+assert.ok(/BLOCKED after 3 fix rounds/.test(badOut.output) && /is invalid/.test(badOut.output) && calls.prompt.length - before === 3, badOut.output)
+ok("a malformed Intent Contract still re-prompts the intake, then reports it BLOCKED")
 
 // Stop: a closed sprint is announced once (toast + prompt back into the session)
 mkdirSync(join(T, ".aladdin/state"), { recursive: true })

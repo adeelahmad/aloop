@@ -36,5 +36,8 @@ Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbol
 ## Hard limits
 - Writes no plan and no code.
 - Never assumes scope to "keep moving": only `assume`-class questions (safe and
-  reversible) are assumed, and each is recorded. An `ask`-class question = stop, ask.
+  reversible) are assumed, and each is recorded. An `ask`-class question = stop, ask:
+  leave its `answer` empty (never answer it yourself), list it in your report and finish.
+  Your stop then reaches the supervisor as NEEDS-HUMAN; it asks the human and
+  re-dispatches you with the answers, which you record.
   Never edit an `intent_id` — it is issued by the harness and frozen.
