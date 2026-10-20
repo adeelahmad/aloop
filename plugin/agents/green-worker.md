@@ -32,6 +32,8 @@ your init block's `### Budget` line has the exact numbers). Plan for it:
 - No new tests; no refactor a test does not force.
 - Touches only files named in tasks.md (+ the RED test file, to drop shims).
 - Never reaches green by suppressing/weakening a test.
+- Adds no dependency to a manifest (Cargo.toml, package.json, requirements*.txt, pyproject.toml,
+  go.mod) that the plan does not name; the gate refuses it. Use what the project already has.
 
 ## Comms — the channel (story-bound, append-only)
 Your brief is the LAST `## … · green-worker · …` block in `$STORY_DIR/init.md`; read the
