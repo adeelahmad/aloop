@@ -100,10 +100,24 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
   const bound = (id) => {
     try { return JSON.parse(readFileSync(join(homeDir, "state", "agents", `${safe(id)}.json`), "utf8")).worktree || "" } catch { return "" }
   }
-  const toolInput = (tool, a) =>
-    tool === "bash" ? { command: a.command, workdir: a.workdir }
-      : tool === "apply_patch" ? { command: a.patchText || "" }
-        : { file_path: a.filePath, ...a }
+  // Claude-shaped tool_input, built from each tool's declared arguments only (OpenCode 1.19's
+  // schemas): a plugin gets the model's raw arguments, extra keys included, and a gate must never
+  // read a field the model made up (an `agent_type`, or a `file_path` beside the filePath OpenCode
+  // writes). Any other tool's arguments travel as one JSON string.
+  const toolInput = (tool, a) => {
+    const str = (v) => (typeof v === "string" ? v : undefined)
+    const num = (v) => (typeof v === "number" ? v : undefined)
+    switch (tool) {
+      case "bash": return { command: str(a.command) || "", workdir: str(a.workdir) }
+      case "apply_patch": return { command: str(a.patchText) || "" }
+      case "write": return { file_path: str(a.filePath), content: str(a.content) }
+      case "edit": return { file_path: str(a.filePath), old_string: str(a.oldString), new_string: str(a.newString), replace_all: a.replaceAll === true }
+      case "read": return { file_path: str(a.filePath), offset: num(a.offset), limit: num(a.limit) }
+      case "glob": case "grep": return { pattern: str(a.pattern), path: str(a.path), include: str(a.include) }
+      case "task": return { subagent_type: str(a.subagent_type), description: str(a.description), prompt: str(a.prompt) || "" }
+      default: return { arguments: JSON.stringify(a) }
+    }
+  }
   // Map a path into the worker's worktree: relative → under wt; project-absolute → same path in wt.
   const intoWt = (p, wt) => {
     if (!p) return p

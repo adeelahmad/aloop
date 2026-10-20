@@ -71,6 +71,19 @@ assert.ok(readFileSync(join(T, ".aladdin/transcripts/global.jsonl"), "utf8").inc
 await hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "1" }, { args: { filePath: join(T, "docs/agents/sprint1/s1-01-x/init.md"), content: "x" } })
 await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "2" }, { args: { filePath: join(T, "src/main.rs"), content: "x" } }),
   /may not write production source/, "gate-supervisor-scope blocks the supervisor")
+// a plugin gets the model's raw arguments, extra keys included (OpenCode 1.19: the AI SDK input is
+// not validated before tool.execute.before), so tool_input holds each tool's declared ones only
+await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "2a" },
+  { args: { filePath: join(T, "src/main.rs"), content: "x", agent_type: "green-worker", agent_id: "w1" } }),
+  /may not write production source/, "an `agent_type` argument does not make the supervisor a dispatched agent")
+await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "2b" },
+  { args: { filePath: join(T, "src/main.rs"), content: "x", file_path: join(T, "docs/agents/sprint1/s1-01-x/init.md") } }),
+  /may not write production source/, "a `file_path` argument does not hide the path OpenCode writes (filePath)")
+await hooks["tool.execute.after"]({ tool: "edit", sessionID: "root", callID: "2c",
+  args: { filePath: join(T, "docs/agents/sprint1/s1-01-x/init.md"), oldString: "a", newString: "b", agent_type: "green-worker", cwd: "/" } }, { output: "", metadata: {} })
+const rec = readFileSync(join(T, ".aladdin/transcripts/session/events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).at(-1)
+assert.deepEqual(rec.payload.tool_input, { file_path: join(T, "docs/agents/sprint1/s1-01-x/init.md"), old_string: "a", new_string: "b", replace_all: false })
+assert.ok(!("agent_type" in rec.payload) && rec.payload.cwd === T, JSON.stringify(rec.payload)); ok("tool_input is built from the tool's declared arguments (Claude-shaped), nothing else")
 
 // commit authorship
 await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "3" },
@@ -154,6 +167,9 @@ assert.ok(!existsSync(join(T, ".aladdin/state/mission-runs/bld.json")))
 ok("a mission sub-agent's start records what exists once its role is known (a builder's never)")
 await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m1" }, { args: { filePath: join(T, "src/app.py"), content: "x" } }),
   /BLOCK\[mission-scope\].*evaluator writes only/s, "gate-mission-scope: an evaluator never writes source")
+await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m1b" },
+  { args: { filePath: join(T, "src/app.py"), content: "x", file_path: join(T, "docs/agents/mission/eval/e.json") } }),
+  /BLOCK\[mission-scope\]/, "gate-mission-scope judges the path OpenCode writes, not a `file_path` argument beside it")
 await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "msn", callID: "m2" }, { args: { command: "echo x > src/app.py" } }),
   /BLOCK\[mission-scope\]/, "gate-mission-scope judges the evaluator's bash too")
 await hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m3" }, { args: { filePath: join(T, "docs/agents/mission/eval/e.json"), content: "{}" } })
