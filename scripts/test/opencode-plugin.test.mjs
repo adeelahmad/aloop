@@ -67,6 +67,10 @@ assert.ok(envOut.env.PATH.startsWith(BIN)); ok("shell.env prepends plugin bin/")
 await hooks["chat.message"]({ sessionID: "root" }, { message: {}, parts: [{ type: "text", text: "build X" }] })
 assert.ok(readFileSync(join(T, ".aladdin/transcripts/global.jsonl"), "utf8").includes('"prompt"')); ok("human prompt captured")
 
+// commit authorship (before the sprint lock: once it is live, the supervisor's commit on main is refused first)
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "3" },
+  { args: { command: 'git commit -m "x\n\nCo-Authored-By: Claude <noreply@anthropic.com>"' } }), /co-author/i, "gate-commit-author blocks Claude trailer")
+
 // supervisor may not write source once a sprint is live (arm the lock via a docs write)
 await hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "1" }, { args: { filePath: join(T, "docs/agents/sprint1/s1-01-x/init.md"), content: "x" } })
 await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "root", callID: "2" }, { args: { filePath: join(T, "src/main.rs"), content: "x" } }),
@@ -84,10 +88,13 @@ await hooks["tool.execute.after"]({ tool: "edit", sessionID: "root", callID: "2c
 const rec = readFileSync(join(T, ".aladdin/transcripts/session/events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l)).at(-1)
 assert.deepEqual(rec.payload.tool_input, { file_path: join(T, "docs/agents/sprint1/s1-01-x/init.md"), old_string: "a", new_string: "b", replace_all: false })
 assert.ok(!("agent_type" in rec.payload) && rec.payload.cwd === T, JSON.stringify(rec.payload)); ok("tool_input is built from the tool's declared arguments (Claude-shaped), nothing else")
+// the supervisor's shell is judged as on every other host: no commit on main, no block in an agent's output.md
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "3a" }, { args: { command: "git add README && git commit -m 'Track README'" } }),
+  /never commits on main/, "gate-supervisor-scope refuses the supervisor's commit on main (bash)")
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "3b" },
+  { args: { command: "echo '## S1-01-T1 · attempt 1 · final-gate' >> docs/agents/sprint1/s1-01-x/output.md" } }),
+  /never writes a block in it/, "gate-supervisor-scope refuses the supervisor's append to an agent's output.md (bash)")
 
-// commit authorship
-await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "3" },
-  { args: { command: 'git commit -m "x\n\nCo-Authored-By: Claude <noreply@anthropic.com>"' } }), /co-author/i, "gate-commit-author blocks Claude trailer")
 
 // worker isolation: must bind first, then commands/edits are confined to its worktree
 await hooks.event({ event: { type: "session.created", properties: { info: { id: "child", parentID: "root" } } } })
@@ -100,6 +107,11 @@ await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "
 const bashArgs = { command: "cargo test" }
 await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "6" }, { args: bashArgs })
 assert.equal(bashArgs.workdir, wt); ok("bound worker's bash runs in its worktree")
+await hooks["tool.execute.before"]({ tool: "bash", sessionID: "root", callID: "6a" }, { args: { command: "git commit -qm wip", workdir: wt } })
+ok("the supervisor's commit in a task worktree (its workdir) is a worker's, not judged as main")
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "6b" },
+  { args: { command: "sed -i s/ATTEMPT=1/ATTEMPT=9/ .aladdin/task.env" } }),
+  /rewrites the supervisor's task contract/, "a role's bash may not rewrite its task contract")
 const writeArgs = { filePath: "tests/a.rs", content: "x" }
 await hooks["tool.execute.before"]({ tool: "write", sessionID: "child", callID: "7" }, { args: writeArgs })
 assert.equal(writeArgs.filePath, join(wt, "tests/a.rs")); ok("bound worker's relative write lands in its worktree")

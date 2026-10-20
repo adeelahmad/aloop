@@ -221,8 +221,11 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
           p = await payload("PreToolUse", input.sessionID, { tool_name: TOOL[input.tool] || input.tool, tool_input: toolInput(input.tool, args) })
         }
       }
+      // a shell runs where its workdir says: the supervisor's commit in a task worktree is a worker's, one in
+      // the main tree is judged (gate-supervisor-scope reads cwd, as Claude Code's Bash payload carries it)
+      if (input.tool === "bash" && typeof args.workdir === "string" && args.workdir) p.cwd = resolve(project, args.workdir)
       const checks = []
-      if (EDITS.has(input.tool)) checks.push(["gate-supervisor-scope", []])
+      if (EDITS.has(input.tool) || input.tool === "bash") checks.push(["gate-supervisor-scope", []])
       if (EDITS.has(input.tool) || input.tool === "bash") checks.push(["gate-mission-scope", []])   // role path guards
       if (input.tool === "bash") checks.push(["gate-commit-author", []])
       checks.push(["budget", ["hook", "pre"]])
