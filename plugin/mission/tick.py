@@ -739,7 +739,8 @@ def goal_rule(f, g, mode, now, cad):
         _, _, why = G.close_problems(f["cwd"], g["doc"], mine["id"])
         if why:
             return act("BLOCKED", "goal %s is met in eval %s, but `mission goal close` refuses (%s): the human looks"
-                       % (g["id"], mine["id"], why[0]), g["ref"], pin=mine["id"])
+                       % (g["id"], mine["id"], why[0]), g["ref"],
+                       pin="%s:%s" % (mine["id"], hashlib.sha256("\n".join(why).encode()).hexdigest()[:12]))
         return act("EVALUATE", "goal %s is met in eval %s: close it (aloop mission goal close %s --eval %s)"
                    % (g["id"], mine["id"], g["id"], mine["id"]), g["ref"])
     sprinted = {iid for _, _, iid in f["plans"]}
@@ -773,16 +774,22 @@ def goal_rule(f, g, mode, now, cad):
 
 
 def goal_refused(f, g, cmd):
-    """BLOCKED naming why `aloop mission goal CMD` refuses goal g (its `goal check`), or None (ROADMAP M9.53):
-    the loop hands out a goal's command only when the gate takes it, so a handout never repeats into a
-    BLOCKED that names no cause."""
-    import goal as G          # noqa: E402 — the gate's own check
-    rc, blocks, asks, _ = G.check(f["cwd"], g["id"])
-    if not rc:
+    """BLOCKED naming why `aloop mission goal CMD` refuses goal g, or None (ROADMAP M9.53): the loop hands
+    out a goal's command only when the gate takes it (`intents`: `goal check`; `next`: that, the goal's
+    status and its next intent's `intent check`), so a handout never repeats into a BLOCKED that names
+    no cause."""
+    import goal as G          # noqa: E402 — the gate's own rule
+    if cmd == "next":
+        n = G.next_intent(f["cwd"], g["id"])
+        rc, probs = n["rc"], n["blocks"] + n["asks"] + ([n["note"]] if n["note"] else [])
+    else:
+        rc, blocks, asks, _ = G.check(f["cwd"], g["id"])
+        probs = blocks + asks
+    if rc not in (2, 3):
         return None
-    return act("BLOCKED", "goal %s fails `aloop mission goal check %s` (%s), so `mission goal %s` refuses it: the "
-                          "human looks" % (g["id"], g["id"], "; ".join((blocks + asks)[:2]), cmd), g["ref"],
-               pin=hashlib.sha256("\n".join(blocks + asks).encode()).hexdigest()[:12])
+    return act("BLOCKED", "goal %s: `mission goal %s` refuses it (%s): the human looks (aloop mission goal check %s)"
+               % (g["id"], cmd, "; ".join(probs[:2]), g["id"]), g["ref"],
+               pin=hashlib.sha256("\n".join(probs).encode()).hexdigest()[:12])
 
 
 def sprint_rule(f, g, n, mode, now, cad):

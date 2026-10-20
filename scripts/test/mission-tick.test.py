@@ -691,14 +691,15 @@ open(lock, "w").write("s\n")
 os.utime(lock, (p.at(1.4) / 1000, p.at(1.4) / 1000))
 expect(p.tick(1.5), "WAIT", 4, "being planned")
 os.remove(lock)
-p.event("intent.received", 1.6, goal_id=gid, intent_id="I1")
-p.event("intent.received", 1.6, goal_id=gid, intent_id="I2")
-p.event("plan.created", 1.7, sprint="S2", intent_id="I1")
+rc, out, err = p.at_clock(1.6, "goal", "intents", gid)                      # real intents: `goal next` checks them
+assert rc == 0, err
+i1, i2 = [json.load(open(f))["intent_id"] for f in out.split()]
+p.event("plan.created", 1.7, sprint="S2", intent_id=i1)
 expect(p.tick(1.8), "WAIT", 4, "sprint 2")
 expect(p.tick(14), "BLOCKED", 2, "no activity")                            # 12h without a sign of life
 p.sprint_closed(2, 14.1)
-expect(p.tick(14.2), "SPRINT", 0, "intent I2")
-p.event("plan.created", 14.3, sprint="S3", intent_id="I2")
+expect(p.tick(14.2), "SPRINT", 0, "intent %s" % i2)
+p.event("plan.created", 14.3, sprint="S3", intent_id=i2)
 p.sprint_closed(3, 15)
 expect(p.tick(15.1), "ASSESS", 0, "sprint 3 closed")
 ok("an active goal's intents are sprinted one by one; a fresh sprint lock waits; 12h without activity is a "
@@ -1449,6 +1450,34 @@ assert "`mission goal intents` refuses it" in d["reason"], d["reason"]
 json.dump(dict(p.load("goal", gid), status="active"), open(M.path_of(p.dir, "goal", gid), "w"))
 assert p.mi("goal", "next", gid).returncode == 2
 expect(p.tick(1.6, "--peek"), "BLOCKED", 2, "`mission goal next` refuses it")
+s = Project().init()                                                       # SPRINT: all of `goal next`'s rule
+cleared(s)
+gid, gdoc = s.goal(1.2)
+s.review(s.ref("goal", gid), gdoc, "clear", 1.2)
+rc, out, err = s.at_clock(1.25, "goal", "intents", gid)
+assert rc == 0, err
+ia, ib = out.split()[:2]
+expect(s.tick(1.3, "--peek"), "SPRINT", 0, "aloop mission goal next %s" % gid)
+gp = M.path_of(s.dir, "goal", gid)
+json.dump(dict(s.load("goal", gid), status="retired"), open(gp, "w"))      # a status no record says
+d = s.tick(1.31, "--peek")
+expect(d, "BLOCKED", 2, "%s is retired, which no ledger record says" % gid)
+json.dump(dict(s.load("goal", gid), status="active"), open(gp, "w"))
+doc = json.load(open(ia))
+json.dump(dict(doc, open_questions=[{"question": "Delete the users' old tasks?", "class": "ask"}]), open(ia, "w"))
+r = s.mi("goal", "next", gid)
+assert r.returncode == 3, (r.returncode, r.stderr)                         # only the human answers it
+d = s.tick(1.32, "--peek")
+expect(d, "BLOCKED", 2, "the human answers it")                            # not SPRINT 3 times, then no cause
+assert os.path.basename(ia)[:-5] in d["reason"], d["reason"]
+json.dump(doc, open(ia, "w"))
+s.event("plan.created", 1.33, sprint="S1", intent_id=json.load(open(ib))["intent_id"])
+s.sprint_closed(1, 1.34)
+os.remove(ia)                                                              # the one left to sprint is gone
+d = s.tick(1.35, "--peek")
+expect(d, "BLOCKED", 2, "cannot read")                                     # named, not SPRINT 3 times
+json.dump(doc, open(ia, "w"))
+expect(s.tick(1.36, "--peek"), "SPRINT", 0, "intent %s is not sprinted yet" % doc["intent_id"])
 q = Project().init()                                                       # the close: `goal close`'s own rule
 cleared(q)
 gid, gdoc = q.goal(1.2, "active")
@@ -1463,6 +1492,7 @@ gp = M.path_of(q.dir, "goal", gid)
 json.dump(dict(q.load("goal", gid), status="retired"), open(gp, "w"))      # a stray status: the close refuses it
 d = q.tick(1.6, "--peek")
 expect(d, "BLOCKED", 2, "`mission goal close` refuses (goal %s is retired: only an active goal closes" % gid)
+assert d["key"] != "BLOCKED %s@%s" % (q.ref("goal", gid), eid), d["key"]  # keyed on the reason, not the eval alone
 json.dump(dict(q.load("goal", gid), status="met"), open(gp, "w"))          # met, with no goal.met record
 expect(q.tick(1.7, "--peek"), "EVALUATE", 0, "aloop mission goal close %s --eval %s" % (gid, eid))
 r = q.mi("goal", "close", gid, "--eval", eid)                              # the record repairs it

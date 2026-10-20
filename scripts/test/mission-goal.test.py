@@ -266,6 +266,16 @@ assert [r["data"]["eval_id"] for r in M.records(p.dir, "goal.met", M.rel(p.dir, 
 assert M.digest(p.load("goal", gid)) == g["sha256"]                      # closing changes only the status
 r = p.run("goal", "close", gid, "--eval", e3["eval_id"])
 assert r.returncode == 0 and len(p.events("goal.met")) == 1, r.stderr   # already met: no second goal.met
+met = p.load("goal", gid)
+json.dump(dict(met, status="active"), open(gpath, "w"))                  # a stop after the record, before the status
+r = p.run("goal", "next", gid)
+assert r.returncode == 2 and "is met (its goal.met record)" in r.stderr, r.stderr   # the record decides
+r = p.run("goal", "close", gid, "--eval", e3["eval_id"])
+assert r.returncode == 0 and p.load("goal", gid)["status"] == "met", r.stderr      # closing again repairs it
+json.dump(dict(met, statement="edited after it was met"), open(gpath, "w"))
+r = p.run("goal", "close", gid, "--eval", e3["eval_id"])
+assert r.returncode == 2 and "sha256 does not match" in r.stderr, r.stderr  # no goal.met covers this content
+json.dump(met, open(gpath, "w"))
 e4 = evaluate(p)                                                          # no active goal: the whole mission again
 assert e4["goal_id"] is None and e4["goal_met"] is True
 r = p.run("goal", "derive", "--eval", e4["eval_id"])
