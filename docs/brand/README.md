@@ -28,9 +28,12 @@ gradients as fills and no coloured glows.
 
 **Contrast** (checked by `check_palette()` in the generator, which exits non-zero on a miss):
 blue on white is 4.51:1, and every `*-dark` text variant on white is at least 4.65:1. The core
-red, green and gold are the design system's exact values and carry graphics, never text. Two tint
-pairs are kept exact at under 4.5:1, so they carry bold titles only: green-dark on its tint
-(4.49:1) and gold-dark on its tint (4.34:1).
+red, green and gold are the design system's exact values and carry no white text. A numbered
+phase disc is white on blue, red-dark or green-dark (4.51, 5.80 and 5.10:1) and ink on gold
+(8.32:1). Two tint pairs are kept exact at under 4.5:1, so they carry bold titles only:
+green-dark on its tint (4.49:1) and gold-dark on its tint (4.34:1). WCAG counts bold text as
+large from 18.66 px, so the OG card's 24 px titles pass; the social preview's 16 px titles are
+just short of AA.
 
 ## The wordmark
 
@@ -72,8 +75,11 @@ The semantic glyphs ● ◆ ✓ ✕ → take their place.
 The social preview is the owner's design. Four changes keep its claims true: the RED card names
 the real agent (`red-worker`), a grey evidence box gives the measured cost (8 intents, each
 under $1 and 15 min in its latest run, from the ledger), the feature list adds the mission
-layer, and the footer no longer breaks words across lines. The genie illustration from the
-earlier infographic is not used; the design system keeps the lamp metaphor light and original.
+layer, and the footer no longer breaks words across lines. One change is for contrast: the red,
+green and gold phase discs take the dark variants or ink, as above. The genie illustration from
+the earlier infographic is not used; the design system keeps the lamp metaphor light and
+original. Arrows and ● ◆ ✓ ≠ ≤ come from pinned Noto faces, and `render.mjs` fails if any text
+falls back to a system font, so the PNGs come out the same on any machine.
 
 ```html
 <link rel="icon" href="brand/favicon.svg" type="image/svg+xml" />

@@ -7,6 +7,7 @@ Fonts (all SIL OFL 1.1) are fetched once from the npm registry (@fontsource) int
 """
 import io
 import os
+import pathlib
 import re
 import subprocess
 import tarfile
@@ -26,8 +27,17 @@ FONTS = {
     "text": DM_SANS + ({"wght": 500, "opsz": 14},),
     "mono": ("@fontsource/jetbrains-mono", "jetbrains-mono-latin-500-normal.woff2", None),
 }
-# The faces the HTML cards (design-system/*.html) use, served to the renderer from the cache.
-WEB_FONTS = [
+# The faces the HTML cards (design-system/*.html) use, served to the renderer from the cache:
+# (family, weight, npm package, file, unicode-range or None). The latin subsets have no arrows,
+# ≠ ≤ or ● ◆ ✓, so pinned Noto faces join every face for those code points only; otherwise
+# Chromium would take them from whatever system font the machine has (render.mjs refuses that).
+# A joining face must repeat its base face's weight exactly, or Chromium does not merge them.
+SYMBOL_FACES = [
+    ("@fontsource-variable/noto-sans-symbols", "noto-sans-symbols-symbols-wght-normal.woff2", "U+2190-2193"),
+    ("@fontsource/noto-sans-symbols-2", "noto-sans-symbols-2-symbols-400-normal.woff2", "U+25C6,U+25CF,U+2713"),
+    ("@fontsource/noto-sans-math", "noto-sans-math-latin-400-normal.woff2", "U+2260,U+2264"),
+]
+BASE_FACES = [
     ("DM Sans", "100 1000") + DM_SANS,
     ("Caveat", "500", "@fontsource/caveat", "caveat-latin-500-normal.woff2"),
     ("Caveat", "700", "@fontsource/caveat", "caveat-latin-700-normal.woff2"),
@@ -35,6 +45,7 @@ WEB_FONTS = [
     ("JetBrains Mono", "500", "@fontsource/jetbrains-mono", "jetbrains-mono-latin-500-normal.woff2"),
     ("JetBrains Mono", "700", "@fontsource/jetbrains-mono", "jetbrains-mono-latin-700-normal.woff2"),
 ]
+WEB_FONTS = [f + (None,) for f in BASE_FACES] + [(fam, wt) + sym for fam, wt, _, _ in BASE_FACES for sym in SYMBOL_FACES]
 
 
 def tokens():
@@ -142,8 +153,9 @@ def ratio(a, b):
 def render_html(page, out, w, h, scale=1):
     """Screenshot design-system/<page> at w x h CSS px with the cached web fonts, via
     render.mjs (node + playwright + Chromium)."""
-    faces = "".join("@font-face{font-family:'%s';font-weight:%s;src:url('file://%s')}" % (fam, wt, fetch(pkg, fn))
-                    for fam, wt, pkg, fn in WEB_FONTS)
+    faces = "".join("@font-face{font-family:'%s';font-weight:%s;src:url('%s')%s}"
+                    % (fam, wt, pathlib.Path(fetch(pkg, fn)).as_uri(), ";unicode-range:" + ur if ur else "")
+                    for fam, wt, pkg, fn, ur in WEB_FONTS)
     with tempfile.NamedTemporaryFile("w", suffix=".css", delete=False) as css:
         css.write(faces)
     try:

@@ -33,17 +33,23 @@ TRACK = -0.03                            # display tracking, em
 
 def check_palette():
     """Every text pair the brand uses, at the WCAG level its usage note names. The core red, green
-    and gold stay exact (the design system's own values) and carry no text: text in those roles
-    uses the *-dark variants, which are checked here."""
+    and gold stay exact (the design system's own values) and carry no white text: text in those
+    roles uses the *-dark variants, white numbers sit on blue, red-dark or green-dark discs, and a
+    gold disc takes ink."""
     pairs = [
+        # ink and links on the canvas
         ("text-primary", "background", 4.5), ("text-strong", "background", 4.5), ("text-secondary", "background", 4.5),
-        ("text-secondary", "surface", 4.5), ("text-muted", "background", 3.0),
-        ("aladdin-blue", "background", 4.5), ("blue-dark", "intent-surface", 4.5), ("red-dark", "red-surface", 4.5),
-        ("gold-dark", "background", 4.5),
+        ("text-secondary", "surface", 4.5), ("text-muted", "background", 3.0), ("aladdin-blue", "background", 4.5),
+        # the *-dark text variants, on white and on their tints
+        ("gold-dark", "background", 4.5), ("blue-dark", "intent-surface", 4.5), ("red-dark", "red-surface", 4.5),
         # 4.49 and 4.34: kept exact, so on their tints these two carry bold titles only (3:1)
         ("green-dark", "green-surface", 3.0), ("gold-dark", "gate-surface", 3.0),
-        ("text-on-color", "aladdin-blue", 4.5), ("term-fg", "term-bg", 4.5), ("term-muted", "term-bg", 4.5),
-        ("term-red", "term-bg", 4.5), ("term-green", "term-bg", 4.5), ("term-gold", "term-bg", 4.5), ("term-blue", "term-bg", 4.5),
+        # text on colour: the on-blue variant and the numbered phase discs
+        ("text-on-color", "aladdin-blue", 4.5), ("text-on-color", "red-dark", 4.5), ("text-on-color", "green-dark", 4.5),
+        ("text-on-color", "text-secondary", 4.5), ("text-primary", "aladdin-gold", 4.5),
+        # the terminal palette (the site's dark mode and code blocks)
+        ("term-fg", "term-bg", 4.5), ("term-muted", "term-bg", 4.5), ("term-red", "term-bg", 4.5),
+        ("term-green", "term-bg", 4.5), ("term-gold", "term-bg", 4.5), ("term-blue", "term-bg", 4.5),
     ]
     bad = []
     for fg, bg, lim in pairs:
@@ -117,9 +123,10 @@ def wordmark(x, baseline, size, word_color, colors):
     asc, desc = L.line_metrics("display")
     bar_top = baseline + ((1 - asc + desc) / 2 + 1 / 6) * size
     bar_h = 0.125 * size
+    bar_w = adv + TRACK * size  # CSS letter-spacing follows the last letter too, so the word box ends here
     body = ('<path transform="translate(%g %g)" d="%s" fill="%s"/>' % (x, baseline, p, word_color)
-            + loop_bar(x, bar_top, adv, bar_h, colors))
-    return body, (x + min(bx0, 0), baseline + by0, x + max(bx1, adv), bar_top + bar_h)
+            + loop_bar(x, bar_top, bar_w, bar_h, colors))
+    return body, (x + min(bx0, 0), baseline + by0, x + max(bx1, bar_w), bar_top + bar_h)
 
 
 def wordmark_svg(word_color, colors, ground=None):

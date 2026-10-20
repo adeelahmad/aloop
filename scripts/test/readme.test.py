@@ -3,7 +3,8 @@
     python3 scripts/test/readme.test.py
 Checks the section order, that every `aladdin` / `aloop <tool>` command it names exists in
 plugin/bin, that the install lines name the real marketplace and plugin, that every relative
-link resolves, and that every demo time/cost figure is one ROADMAP §0 records.
+link resolves, that every demo time/cost figure is one ROADMAP §0 records, and that it carries
+no emoji (the brand's design system replaces them with ● ◆ ✓ ✕ →).
 """
 import json
 import os
@@ -81,5 +82,15 @@ assert m and int(m.group(1)) == n, "README says %s suites, the Makefile runs %d"
 for g in sorted(set(t for t in re.findall(r"scripts/test/(\S+\.test\.py)", make) if "*" in t)):
     assert "`%s`" % g in readme, "README does not name the Makefile's glob of suites %r" % g
 ok("the README's offline suite count is the Makefile's (%d, plus its globbed suites)" % n)
+
+# 7) no emoji: the Aladdin design system (docs/brand/README.md) uses the glyphs ● ◆ ✓ ✕ → instead.
+# Emoji_Presentation code points: everything from U+1F000 up, the BMP ones listed here, and U+FE0F.
+BMP_EMOJI = ("\u231a\u231b\u23e9-\u23ec\u23f0\u23f3\u25fd\u25fe\u2614\u2615\u2648-\u2653\u267f\u2693\u26a1"
+             "\u26aa\u26ab\u26bd\u26be\u26c4\u26c5\u26ce\u26d4\u26ea\u26f2\u26f3\u26f5\u26fa\u26fd\u2705"
+             "\u270a\u270b\u2728\u274c\u274e\u2753-\u2755\u2757\u2795-\u2797\u27b0\u27bf\u2b1b\u2b1c\u2b50\u2b55")
+emoji = [(i, c) for i, l in enumerate(readme.splitlines(), 1)
+         for c in re.findall("[\U0001F000-\U0010FFFF%s\ufe0f]" % BMP_EMOJI, l)]
+assert not emoji, "emoji in README.md (line, char): %r" % emoji
+ok("no emoji (brand surfaces use the design system's glyphs)")
 
 print("\n%d checks passed" % PASS[0])

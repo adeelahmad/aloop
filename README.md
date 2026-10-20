@@ -190,7 +190,7 @@ opt-in) informs goals and is never a gate.
 | Roles and gates | the six fixed roles, their model routes, and two gates (role path guards, artifact checks) | ✓ shipped |
 | Goals → intents | the top gaps become a goal, one Intent Contract per gap, handed to Aladdin | ✓ shipped |
 | Loop and skill | `tick`, a zero-token `due`, the cron line, budget caps, `/aloop:mission` | ✓ shipped |
-| End to end | an offline scripted mission cycle in CI, then a live one | ⏳ next |
+| End to end | an offline scripted mission cycle in CI, then a live one | → next |
 
 ## Agent principles
 
