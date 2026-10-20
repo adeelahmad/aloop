@@ -577,7 +577,8 @@ for c in plan["answers"]["constraints"]:
     assert c in prompt, c
 assert any(c.startswith("Measure the product only with %s as it is (one journey; its docstring names the steps and the pin)" % RUNNER)
            for c in plan["answers"]["constraints"]), plan["answers"]["constraints"]
-assert any("No rival product is installed or run" in c and "ruled out by this constraint" in c for c in plan["answers"]["constraints"])
+assert any("No rival product is installed or run, and the baseline lists none" in c and "ruled out by this constraint" in c
+           for c in plan["answers"]["constraints"])
 assert any("at most 3 sources" in c for c in plan["answers"]["constraints"])
 assert BY in prompt and "Decline the cron" in prompt and plan["by"] == BY
 assert not [ln for ln in lines if re.match(r"^\W*(?:(?:yes|ok|okay|sure)\W+)?(?:approve|confirm|consent|restore|retire|veto)\b",
@@ -1353,18 +1354,37 @@ block("pytest's output passes only when every test ran and passed: none skipped,
 
 def t_seed_test_kept():
     """The seed's test file may gain tests, as a RED worker appends them (the second live run did), but never lose,
-    edit or reorder what the seed had, or gain a module-level statement that could patch what its test reads."""
+    edit or reorder what the seed had, rebind a name it binds, or gain code that runs at import (a module-level
+    statement, a decorator, a default, an annotation or a class body that is not plain), which could patch what its
+    test reads."""
     seed = open(os.path.join(FIX, "tests", "test_todo.py")).read()
     added = "\n\ndef test_an_added_task_is_in_the_list():\n    t = TodoList()\n    t.add('x')\n    assert 'x' in t.tasks()\n"
     assert D.seed_test_kept(seed, seed) and D.seed_test_kept(seed, seed + added)
-    assert D.seed_test_kept(seed, "import pytest\n" + seed + added + "\n\nclass TestMore:\n    def test_y(self):\n        pass\n")
+    param = "\n\n@pytest.mark.parametrize('t', ['a', 'b'])\ndef test_p(t, n=1):\n    assert t\n"
+    assert D.seed_test_kept(seed, "import pytest\n" + seed + added + param +
+                            "\n\nclass TestMore:\n    \"\"\"More.\"\"\"\n\n    def test_y(self):\n        pass\n")
     for bad in (seed.replace("== []", "is not None"), seed + "\nTodoList.tasks = lambda self: []\n",
                 seed + added.replace("def test_an", "x = 1\n\n\ndef test_an"), added, seed + "def broken(:\n",
-                seed.split("\n", 1)[1] + "\n" + seed.split("\n", 1)[0] + "\n"):      # the last one: reordered
+                seed.split("\n", 1)[1] + "\n" + seed.split("\n", 1)[0] + "\n",          # reordered
+                # what runs at import or rebinds a name the seed's test reads: each could pass it without the product
+                seed + "\n\ndef test_a_new_list_is_empty():\n    assert True\n",
+                seed + "\nfrom collections import UserList as TodoList\n",
+                seed + "\n\nclass TodoList:\n    def tasks(self):\n        return []\n",
+                seed + "\n\n@(lambda f: setattr(TodoList, 'tasks', lambda s: []) or f)\ndef test_y():\n    pass\n",
+                seed + "\n\ndef test_y(a=setattr(TodoList, 'tasks', lambda s: [])):\n    pass\n",
+                seed + "\n\ndef test_y(a: setattr(TodoList, 'tasks', None)):\n    pass\n",
+                seed + "\n\nclass TestX(type(setattr(TodoList, 'tasks', None))):\n    pass\n",
+                seed + "\n\nclass TestX:\n    TodoList.tasks = None\n"):
         assert not D.seed_test_kept(seed, bad), bad
+    tp = os.path.join(H.repo, "tests", "test_todo.py")       # check_product reads it: the seed's file, appended to
+    with doctored(tp, text=added):
+        assert D.check_product(hctx())[0], D.check_product(hctx())
+    with doctored(tp, text="\n\ndef test_a_new_list_is_empty():\n    assert True\n"):
+        assert not D.check_product(hctx())[0], D.check_product(hctx())
 
 
-block("the seed's test file only gains tests: an edit, a reorder, a removal or a module-level statement is a change",
+block("the seed's test file only gains tests: an edit, a reorder, a removal, a rebound name or code run at import "
+      "is a change, and check_product reads it so",
       t_seed_test_kept)
 
 

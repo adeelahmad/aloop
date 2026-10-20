@@ -36,11 +36,15 @@ assert r.returncode == 2 and r.stdout == "", (r.returncode, r.stdout, r.stderr)
 assert "steps needs at least 1" in r.stderr and "source_refs needs at least 1" in r.stderr, r.stderr
 assert "nothing written" in r.stderr and "--from" in r.stderr, r.stderr
 titled = p.draft(rid, steps=[dict(s, title=s.pop("action")) for s in p.draft(rid)["steps"]])   # the live run's draft
-for d in (titled, p.draft(rid, source_refs=[rid + "#c9"]), p.draft(rid, runner={"command": ["python3", "tools/journey.py"]})):
+inline = dict(titled, runner={"command": ["python3", "-c", "print(1)"], "pinned": PIN, "timeout_s": 60})
+for d, want in ((titled, ["$.steps[0].action is missing"]), (p.draft(rid, source_refs=[rid + "#c9"]), ["c9"]),
+                (p.draft(rid, runner={"command": ["python3", "tools/journey.py"]}), ["runner.pinned"]),
+                (inline, ["runs inline code", "$.steps[0].action is missing"])):     # every problem at once
     dp = os.path.join(p.dir, "d1.json")
     json.dump(d, open(dp, "w"))
     r = p.run("journeys", "new", "--from", dp)
     assert r.returncode == 2 and r.stdout == "" and "nothing written" in r.stderr, (r.returncode, r.stdout, r.stderr)
+    assert all(w in r.stderr for w in want) and r.stderr.count("runs inline code") <= 1, (want, r.stderr)
 assert not glob.glob(os.path.join(jdir, "*.json")) and not p.events("journey.proposed"), os.listdir(jdir)
 jid = p.journey(p.draft(rid, journey_id="jrn_00000000000000000000", status="active"))
 doc = p.load("journey", jid)

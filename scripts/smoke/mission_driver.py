@@ -1322,13 +1322,66 @@ def check_no_crash(c):
         n, CRASH, len(paths), c.gates["stuck_releases"])
 
 
-KEPT_ADDS = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+def _plain(e):
+    """An expression that runs no code: a literal, a name, an attribute of one, or a container of them."""
+    if isinstance(e, (ast.Constant, ast.Name)):
+        return True
+    if isinstance(e, ast.Attribute):
+        return _plain(e.value)
+    if isinstance(e, ast.UnaryOp) and isinstance(e.op, (ast.USub, ast.UAdd)):
+        return _plain(e.operand)
+    if isinstance(e, (ast.Tuple, ast.List, ast.Set)):
+        return all(_plain(x) for x in e.elts)
+    if isinstance(e, ast.Dict):
+        return all(k is None or _plain(k) for k in e.keys) and all(_plain(v) for v in e.values)
+    return False
+
+
+def _pytest_deco(e):
+    """A decorator that is pytest's own (`pytest.mark.parametrize(...)`), called with plain arguments only."""
+    f = e.func if isinstance(e, ast.Call) else e
+    while isinstance(f, ast.Attribute):
+        f = f.value
+    plain_args = not isinstance(e, ast.Call) or (all(_plain(a) for a in e.args) and
+                                                 all(_plain(k.value) for k in e.keywords))
+    return isinstance(f, ast.Name) and f.id == "pytest" and plain_args
+
+
+def _def_ok(n):
+    """A def whose decorators, defaults and annotations run no code of their own at import."""
+    a = n.args
+    exprs = a.defaults + [d for d in a.kw_defaults if d is not None] + [n.returns] + \
+        [x.annotation for x in a.posonlyargs + a.args + a.kwonlyargs + [a.vararg, a.kwarg] if x is not None]
+    return all(_pytest_deco(d) for d in n.decorator_list) and all(e is None or _plain(e) for e in exprs)
+
+
+def _added_ok(n, bound):
+    """An added top-level statement that runs no code at import and rebinds no name the seed's file binds."""
+    if isinstance(n, (ast.Import, ast.ImportFrom)):
+        return not {(x.asname or x.name).split(".")[0] for x in n.names} & bound
+    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return n.name not in bound and _def_ok(n)
+    if isinstance(n, ast.ClassDef):
+        body_ok = all(isinstance(b, ast.Pass) or (isinstance(b, ast.Expr) and isinstance(b.value, ast.Constant)) or
+                      (isinstance(b, (ast.FunctionDef, ast.AsyncFunctionDef)) and _def_ok(b)) for b in n.body)
+        return n.name not in bound and not n.decorator_list and all(_plain(b) for b in n.bases) and \
+            all(_plain(k.value) for k in n.keywords) and body_ok
+    return False
+
+
+def _binds(node):
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return {(x.asname or x.name).split(".")[0] for x in node.names}
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return {node.name}
+    return {t.id for t in ast.walk(node) if isinstance(t, ast.Name) and isinstance(t.ctx, ast.Store)}
 
 
 def seed_test_kept(seed_src, now_src):
     """True when the test file only gained tests: every top-level statement of the seed's is still there, unchanged and
-    in order, and each one added is an import, a def or a class (a module-level statement could patch what the seed's
-    test reads). A RED worker appends its tests to the existing file."""
+    in order, and each one added is an import, a def or a class that runs no code at import (its decorators are
+    pytest's, its defaults, annotations and bases plain) and rebinds no name the seed's file binds: anything else could
+    patch or replace what the seed's test reads. A RED worker appends its tests to the existing file."""
     try:
         old, new = ast.parse(seed_src), ast.parse(now_src)
     except (SyntaxError, ValueError):
@@ -1339,7 +1392,8 @@ def seed_test_kept(seed_src, now_src):
             i += 1
         else:
             added.append(n)
-    return i == len(want) and all(isinstance(n, KEPT_ADDS) for n in added)
+    bound = set().union(*[_binds(n) for n in old.body]) if old.body else set()
+    return i == len(want) and all(_added_ok(n, bound) for n in added)
 
 
 def check_product(c):

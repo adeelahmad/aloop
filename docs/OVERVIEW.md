@@ -129,7 +129,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 - The door rule (ROADMAP §4.12, M9.30): every agent gets the core principles at session start, and a
   PreToolUse gate stops a one-way door (a push to the default branch, a release, a deploy, a secret, …)
   until the human records an authorization; two-way doors pass without a question.
-- The mission run, `make e2e-mission YES=1 [DRY=1]`: one live mission cycle on a seeded to-do repo, where the script types only the first message and the grant lines it checked on disk; the harness is tested at zero tokens in CI. Measured: mission 2 reached GOAL MET in 4 sessions and one sprint for $1.80 (22/24 checks; the open miss is M9.70), see `docs/evidence/README.md` (ROADMAP M9.13).
+- The mission run, `make e2e-mission YES=1 [DRY=1]`: one live mission cycle on a seeded to-do repo, where the script types only the first message and the grant lines it checked on disk; the harness is tested at zero tokens in CI. Measured: mission 2 reached GOAL MET in 4 sessions and one sprint for $1.80 (22/24 checks; the open miss is M9.87), see `docs/evidence/README.md` (ROADMAP M9.13).
 - One measured real run (*TheNoteBook*, a Go backend): ~17K LOC, 322 tests, 74 commits in 6
   sprints for ~1.55M output tokens, 76% of it on Sonnet. See the
   [README](../README.md#evidence).

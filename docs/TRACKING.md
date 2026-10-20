@@ -102,14 +102,14 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.53 | The mission loop hands out a goal's commands only when `goal check` passes | NOT_IMPLEMENTED | §4.12 |
 | M9.54 | Scope gate reader residuals (computed cd, failed cd, loop cd accumulation) | NOT_IMPLEMENTED | §4.12 |
 | M9.55 | One goal in flight, picked by one clock | NOT_IMPLEMENTED | §4.12 |
-| M9.63 | A gate's budget release is marked in the gate log | NOT_IMPLEMENTED | §4.12 |
-| M9.64 | The live run's post-run checks run the repo's code on a throwaway clone | NOT_IMPLEMENTED | §4.12 |
-| M9.65 | The gates run tests with their own bytecode cache | NOT_IMPLEMENTED | §4.12 |
-| M9.66 | `mission.set` names who set the mission | NOT_IMPLEMENTED | §4.12 |
-| M9.67 | `run-summary --kind mission` replaces the smoke summary | NOT_IMPLEMENTED | §4.12 |
-| M9.68 | `journeys new` writes only a complete journey | IMPLEMENTED_TESTED | `scripts/test/mission-journeys.test.py` |
-| M9.69 | A grant's `by` is bound to the human who typed its line | NOT_IMPLEMENTED | §4.12 |
-| M9.70 | A task worktree keeps the files a live journey's runner pins | NOT_IMPLEMENTED | §4.12 |
+| M9.80 | A gate's budget release is marked in the gate log | NOT_IMPLEMENTED | §4.12 |
+| M9.81 | The live run's post-run checks run the repo's code on a throwaway clone | NOT_IMPLEMENTED | §4.12 |
+| M9.82 | The gates run tests with their own bytecode cache | NOT_IMPLEMENTED | §4.12 |
+| M9.83 | `mission.set` names who set the mission | NOT_IMPLEMENTED | §4.12 |
+| M9.84 | `run-summary --kind mission` replaces the smoke summary | NOT_IMPLEMENTED | §4.12 |
+| M9.85 | `journeys new` writes only a complete journey | IMPLEMENTED_TESTED | `scripts/test/mission-journeys.test.py` |
+| M9.86 | A grant's `by` is bound to the human who typed its line | NOT_IMPLEMENTED | §4.12 |
+| M9.87 | A task worktree keeps the files a live journey's runner pins | NOT_IMPLEMENTED | §4.12 |
 | M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | NOT_IMPLEMENTED | §4.13 |
 | M10.2 | No unplanned dependency (GREEN) and no credential (GREEN, final gate) | IMPLEMENTED_TESTED | `scripts/test/supply-chain.test.py` |
 | M10.2b | The stack's dependency audit in the final gate's matrix | NOT_IMPLEMENTED | §4.13 |

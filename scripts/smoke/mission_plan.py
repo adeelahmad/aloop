@@ -322,7 +322,7 @@ def run_events(repo):
 
 def budget_released(events):
     """(task, attempt) of every attempt bin/budget stopped at its hard limit. _gatelib's budget_release lets its
-    SubagentStop gate exit 0 with no `released` field, so the gate log alone shows a pass (ROADMAP M9.63)."""
+    SubagentStop gate exit 0 with no `released` field, so the gate log alone shows a pass (ROADMAP M9.80)."""
     out = set()
     for e in events:
         ids = e.get("ids") if isinstance(e.get("ids"), dict) else {}
