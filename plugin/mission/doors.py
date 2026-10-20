@@ -35,6 +35,7 @@ human command). An agent never runs `doors authorize` or writes the ledger (forg
 and `authorize` refuses a shell an agent host runs (CLAUDECODE set).
 """
 import contextlib
+import functools
 import hashlib
 import itertools
 import json
@@ -72,9 +73,9 @@ TAG = re.compile(r"\[door:([^\]\s]*)\]")
 WRAPPERS = {"sudo", "doas", "env", "nohup", "time", "command", "exec", "nice", "timeout", "stdbuf", "caffeinate", "ionice"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
 ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
-# {DRY} in a pattern: the command is not a dry run or a help page (`--dry-run=none|false` is a real run;
-# an option after a bare `--` is an argument)
-DRY = r"(?!(?:(?!\s--(?:\s|$)).)*(?:^|\s)--(?:dry-run(?:=(?!(?:none|false)(?:\s|$))\S+)?|help)(?:\s|$))"
+# {DRY} in a pattern: the command is not a dry run or a help page, read from its words (dry()), so a
+# value like --body "x --help" is not one
+DRY = "{DRY}"
 GIT_PAIRED = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"}
 SCHEMA = {
     "type": "object", "required": ["version", "doors", "two_way_examples"],
@@ -90,6 +91,7 @@ SCHEMA = {
                 "bash": {"type": "array", "items": {"type": "object", "additionalProperties": False, "properties": {
                     "prog": {"type": "string"}, "args": {"type": "string"}, "flag": {"type": "string"},
                     "env": {"type": "string"}, "writes": {"type": "string"}, "config": {"type": "string"},
+                    "code": {"type": "string"}, "files": {"type": "string"},
                     "when": {"enum": ["on-default-branch", "main-worktree"]}}}},
                 "tools": {"type": "array"}, "paths": {"type": "array", "items": {"type": "string"}},
                 "plugin_paths": {"type": "array", "items": {"type": "string"}},
@@ -118,7 +120,7 @@ def load(path=None):
 
     def rx(s, where):
         try:
-            return re.compile(s.replace("{DEF}", default).replace("{DRY}", DRY))
+            return re.compile(s.replace("{DEF}", default).replace(DRY, ""))
         except re.error as e:
             bad.append("%s: %r does not compile (%s)" % (where, s, e))
             return None
@@ -131,9 +133,10 @@ def load(path=None):
         d["_bash"] = []
         for j, b in enumerate(d.get("bash") or []):
             if not set(b) - {"when"}:
-                bad.append("%s bash[%d]: a pattern names at least one of prog, args, flag, env, writes, config"
+                bad.append("%s bash[%d]: a pattern names at least one of prog, args, flag, env, writes, config, code, files"
                            % (where, j))
-            d["_bash"].append({k: (rx(v, "%s bash[%d].%s" % (where, j, k)) if k != "when" else v) for k, v in b.items()})
+            d["_bash"].append(dict({k: (rx(v, "%s bash[%d].%s" % (where, j, k)) if k != "when" else v) for k, v in b.items()},
+                                   _dry=any(DRY in v for k, v in b.items() if k != "when")))
         d["_tools"] = []
         for j, t in enumerate(d.get("tools") or []):
             t = {"tool": t} if isinstance(t, str) else t
@@ -183,6 +186,7 @@ def action_sha(tool, inp):
 
 
 UNKNOWN = "\0unknown"   # a directory the gate cannot resolve (a variable, `cd -`): its git state is assumed
+TOP = "\0top"           # $(git rev-parse --show-toplevel): the checkout's top, resolved per project
 DEPTH = 8               # nested shells, evals, substitutions and find -exec read; deeper is unreadable (fails closed)
 
 
@@ -197,7 +201,7 @@ def render(parts):
         elif p[0] == "var":
             out.append("~" if p[1] == "HOME" and p[2] is None else "$" + p[1])
         elif p[0] == "cmd":
-            out.append("$(…)")
+            out.append(TOP if " ".join(p[1].split()) == "git rev-parse --show-toplevel" else "$(…)")
         elif p[0] == "proc":
             out.append("<(…)")
         else:
@@ -206,7 +210,14 @@ def render(parts):
 
 
 def chdir(cur, arg):
-    """The directory a `cd ARG` (or `git -C ARG`) moves to, relative to the call's cwd ("" = it)."""
+    """The directory a `cd ARG` (or `git -C ARG`) moves to, relative to the call's cwd ("" = it):
+    `$PWD` is where it is, `$(git rev-parse --show-toplevel)` the checkout's top, `$CLAUDE_PROJECT_DIR`
+    the project's."""
+    if arg is not None and arg.startswith(TOP):
+        return arg
+    for var, base in (("$PWD", cur), ("$CLAUDE_PROJECT_DIR", os.environ.get("CLAUDE_PROJECT_DIR") or UNKNOWN)):
+        if arg is not None and re.match(re.escape(var) + r"(?:/|$)", arg):
+            return UNKNOWN if base == UNKNOWN else os.path.join(base, arg[len(var) + 1:]) if arg[len(var):] else base
     if cur == UNKNOWN or arg is None or arg == "-" or re.search(r"[$`*?]", arg):
         return UNKNOWN
     arg = os.path.expanduser(arg or "~")
@@ -214,26 +225,31 @@ def chdir(cur, arg):
 
 
 def views(cmd, depth=0, cur=""):
-    """Every (prog, args, env, writes, dir) a command line runs, read by the shell reader the scope gate
-    uses (plugin/bin/_shellread.py): one per simple command, one per wrapper (sudo, env, timeout, xargs,
-    find -exec, …) around it, the commands inside `sh -c`, `eval`, a command substitution, and a heredoc,
-    here-string or pipe that feeds a shell or python, each with the directory it runs in (`cd DIR`,
+    """Every (prog, args, env, writes, dir; a python's code) a command line runs, read by the shell reader
+    the scope gate uses (plugin/bin/_shellread.py): one per simple command, one per wrapper (sudo, env,
+    timeout, xargs, find -exec, …) around it, the commands inside `sh -c`, `eval`, a script a shell runs, a
+    command substitution, and the stdin that feeds a shell or python (the last heredoc, here-string or
+    `<` on fd 0, else the pipe, into a subshell too), each with the directory it runs in (`cd DIR`,
     `pushd`/`popd`, `git -C DIR`; a subshell's `cd` stays in the subshell). Deeper than DEPTH is a
     ValueError: a gate that cannot read the whole command fails closed."""
     if depth > DEPTH:
         raise ValueError("the command nests shells, evals or substitutions deeper than the door gate reads (%d)" % DEPTH)
-    out, stack, dirs, fed = [], [], [], None
+    out, stack, dirs, fed, group = [], [], [], None, None
     for c in R.read(cmd):
         if c in ("(", ")"):
-            if c == "(":
-                stack.append(cur)
+            if c == "(":                    # a pipe into a subshell feeds the commands inside it
+                stack.append((cur, group))
+                group = fed if fed is not None else group
             elif stack:
-                cur = stack.pop()
+                cur, group = stack.pop()
             fed = None
             continue
         for sub in c.subs:
             out += views(sub, depth + 1, cur)
         vs = simple(c, depth, cur)
+        for v in vs:                        # what ended it (`&&`: the next runs only if it succeeded)
+            v.setdefault("end", c.end)
+            v.setdefault("depth", depth)
         prog = vs[0]["prog"] if vs else ""
         if prog in ("cd", "pushd"):
             if prog == "pushd":
@@ -241,9 +257,10 @@ def views(cmd, depth=0, cur=""):
             cur = chdir(cur, next((a for a in vs[0]["args"] if not a.startswith("-")), ""))
         elif prog == "popd":
             cur = dirs.pop() if dirs else UNKNOWN
-        own = [w.body for _, _, w in c.redirs if w.body is not None] + \
-              [render(w.parts) for op, _, w in c.redirs if op == "<<<"]
-        stdin = own[-1] if own else fed
+        stdin = fed if fed is not None else group
+        for op, fd, w in c.redirs:          # the last redirect of fd 0 wins, left to right
+            if fd in ("", "0") and op in ("<<", "<<-", "<<<", "<", "<&", "<>"):
+                stdin = w.body if op in ("<<", "<<-") else render(w.parts) if op == "<<<" else None
         if stdin is not None and vs:
             out += feed(vs, stdin, depth)
         fed = stdout(vs, stdin) if c.end in ("|", "|&") else None
@@ -253,20 +270,46 @@ def views(cmd, depth=0, cur=""):
 
 def stdout(vs, stdin):
     """The text a command writes to the pipe, when the gate can know it: echo's and printf's words, and
-    cat passing its own heredoc, here-string or pipe through."""
+    cat or tee passing its own heredoc, here-string or pipe through."""
     if not vs:
         return None
     v = vs[-1]
     args = [a for a in v["args"] if a != STDIN]
     if v["prog"] == "echo":
+        esc = False
         while args and re.fullmatch(r"-[neE]+", args[0]):
+            esc = esc or "e" in args[0]
             args = args[1:]
-        return " ".join(args)
+        return unescape(" ".join(args)) if esc else " ".join(args)
     if v["prog"] == "printf" and args:
-        return "\n".join(args[1:]) if "%" in args[0] else args[0].replace("\\n", "\n")
-    if v["prog"] == "cat" and not [a for a in args if not a.startswith("-") or a == "-"][1:]:
+        return printf(args[0], args[1:])
+    if v["prog"] == "cat" and not [a for a in args if not a.startswith("-") or a == "-"][1:] or v["prog"] == "tee":
         return stdin
     return None
+
+
+ESCAPES = {"n": "\n", "t": "\t", "\\": "\\", "a": "\a", "r": "\r", "e": "\x1b", "0": "\0"}
+
+
+def unescape(t):
+    return re.sub(r"\\(.)", lambda m: ESCAPES.get(m.group(1), "\\" + m.group(1)), t)
+
+
+def printf(fmt, args):
+    """printf FORMAT ARGS: the format repeated while arguments remain (%s, %b, %d, %%; escapes)."""
+    out, args = [], list(args)
+    while True:
+        used = [0]
+
+        def conv(m):
+            if m.group(1) == "%":
+                return "%"
+            used[0] += 1
+            a = args.pop(0) if args else ""
+            return unescape(a) if m.group(1) == "b" else a
+        out.append(unescape(re.sub(r"%[-+ #0-9.]*([%sbdiqc])", conv, fmt)))
+        if not args or not used[0]:
+            return "".join(out)
 
 
 SHELL_PAIRED = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
@@ -286,7 +329,7 @@ def reads_stdin(v):
         if a == "--":
             return shell and i + 1 == len(args)
         if not a.startswith(("-", "+")) or a == "+":
-            return False                                  # a script operand
+            return a in STDIN_FILES                       # a script operand
         if re.match(r"^-[A-Za-z]*c" if shell else r"^-[A-Za-z]*[cm]", a) and not a.startswith("--"):
             return False
         if shell and re.match(r"^-[A-Za-z]*s", a) and not a.startswith("--"):
@@ -296,20 +339,19 @@ def reads_stdin(v):
 
 
 def feed(vs, text, depth):
-    """What a command's stdin runs: a shell reading its stdin runs the text, and a python reading its
-    program from stdin gets it as an argument (python3 - <<'EOF' … EOF)."""
+    """What a command's stdin runs: a shell reading its stdin runs the text, and a python gets it as code
+    (python3 - <<'EOF' … EOF, or -c that execs its stdin)."""
     out = []
     for v in vs:
-        if not reads_stdin(v):
-            continue
-        if v["prog"] in SHELLS:
+        if "code" in v:                     # python: its stdin is code it may run (exec(sys.stdin.read()))
+            v["code"] = (v["code"] + "\n" + text).lstrip("\n")
+        elif reads_stdin(v):
             out += [dict(x, env=x["env"] + v["env"]) for x in views(text, depth + 1, v["dir"])]
-        else:
-            v["args"] = v["args"] + [text]
     return out
 
 
 STDIN = "{stdin}"   # the arguments xargs or parallel adds from stdin: unseen, so any flag may be among them
+STDIN_FILES = ("/dev/stdin", "/dev/fd/0", "/proc/self/fd/0")
 PYTHON = re.compile(r"python[\d.]*")
 XARGS_PAIRED = {"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--delimiter",
                 "--arg-file", "--max-lines", "--max-chars", "--eof", "-j", "--jobs"}   # -i, -l, -e take no separate value
@@ -342,8 +384,19 @@ def chain(words, env, writes, depth, cur):
             continue
         prog = os.path.basename(words[0])
         rest = words[1:]
-        if PYTHON.fullmatch(prog) and rest and not rest[0].startswith("-"):
-            prog, rest = os.path.basename(rest[0]), rest[1:]
+        code = None
+        if PYTHON.fullmatch(prog):          # python [options] (-c CODE | -m MOD | SCRIPT | -) …
+            j, code = 0, ""
+            while j < len(rest) and rest[j].startswith("-") and rest[j] != "-":
+                m = re.match(r"^-[bBdEhiIOqsSuvVxP]*([cm])(.*)$", rest[j])
+                if m:
+                    if m.group(1) == "c":
+                        code = m.group(2) or (rest[j + 1] if j + 1 < len(rest) else "")
+                    break
+                j += 2 if rest[j] in PY_PAIRED else 1
+            else:
+                if j < len(rest) and rest[j] != "-" and rest[j] not in STDIN_FILES:
+                    prog, rest, code = os.path.basename(rest[j]), rest[j + 1:], None   # python SCRIPT: the script runs
         if prog == "tee":
             writes = writes + [w for w in rest if not w.startswith("-")]
         if prog == "git":
@@ -362,6 +415,8 @@ def chain(words, env, writes, depth, cur):
             rest = []           # `command -v X` looks X up; it runs nothing
         out.append({"prog": prog, "args": rest + ([STDIN] if stdin_args is True else []), "env": list(env),
                     "writes": list(writes), "dir": cur, "config": list(config)})
+        if code is not None:
+            out[-1]["code"] = code
         if prog in SHELLS:      # sh -c [options] STRING: the first operand after the options is the command
             j, has_c, script = 0, False, None
             while j < len(rest):
@@ -376,6 +431,10 @@ def chain(words, env, writes, depth, cur):
                 j += 2 if a in SHELL_PAIRED else 1
             if has_c and script is not None:
                 out += [dict(v, env=v["env"] + env) for v in views(script, depth + 1, cur)]
+            elif script is not None and j < len(rest):
+                words = rest[j + 1:] if rest[j] in ("--", "-") else rest[j:]    # bash SCRIPT ARGS: the script runs
+                if words and words[0] != "-" and words[0] not in STDIN_FILES:
+                    continue
             break
         if prog == "eval":
             out += views(" ".join(rest), depth + 1, cur)
@@ -438,8 +497,8 @@ def chain(words, env, writes, depth, cur):
 class Context:
     """What an action is checked against: the project, the git state its `when` conditions read."""
 
-    def __init__(self, cwd, assume_when=False):
-        self.cwd, self.assume, self._git = cwd, assume_when, {}
+    def __init__(self, cwd, assume_when=False, forced=False):
+        self.cwd, self.assume, self.forced, self._git = cwd, assume_when, forced, {}
 
     def git(self, *args):
         if args not in self._git:
@@ -447,8 +506,16 @@ class Context:
             self._git[args] = r.stdout.strip() if r.returncode == 0 else ""
         return self._git[args]
 
-    def when(self, cond, default):
-        if self.assume or not cond:
+    def when(self, cond, default, branch=None):
+        if self.forced or not cond:
+            return True
+        if cond == "on-default-branch" and branch is not None:
+            names, live = branch
+            if any(n == UNKNOWN or default.fullmatch(n) for n in names):
+                return True
+            if not live:
+                return False
+        if self.assume:
             return True
         if cond == "on-default-branch":
             return bool(self.git("symbolic-ref", "--short", "-q", "HEAD")) and \
@@ -468,10 +535,129 @@ def contexts(cwd, assume_when):
 
     def at(where):
         if where not in made:
-            full = os.path.join(cwd, where) if where != UNKNOWN else ""
-            made[where] = Context(full or cwd, assume_when or not (full and os.path.isdir(full)))
+            full = resolve(cwd, where) if where != UNKNOWN else ""
+            made[where] = Context(full or cwd, assume_when or not (full and os.path.isdir(full)), assume_when)
         return made[where]
     return at
+
+
+@functools.lru_cache(maxsize=8)
+def toplevel(cwd):
+    r = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def resolve(cwd, where):
+    """The absolute directory of a view's `dir` (TOP: the checkout's top, from git; "" when there is none)."""
+    if where.startswith(TOP):
+        if not toplevel(cwd):
+            return ""
+        where = toplevel(cwd) + where[len(TOP):]
+    return os.path.normpath(os.path.join(cwd, os.path.expanduser(where)))
+
+
+def branches(cwd, vs):
+    """Each view's branch when an earlier command of the line switched its checkout (git checkout -b,
+    switch, worktree add): `git switch -c x && git push -u origin HEAD` pushes x, whatever the hook's
+    HEAD; `git checkout main && … git push` pushes main. A branch is (names, live): live when the
+    checkout's own HEAD may still be the one (the switch could fail and a `;` or `||` runs on). None:
+    the checkout's own HEAD decides."""
+    made, since = {}, []
+    for v in vs:
+        key = None if v["dir"] == UNKNOWN else os.path.normpath(v["dir"] or ".")
+        v["branch"] = made.get(key) if key else None
+        a, name, at = v["args"], None, key
+        if v["prog"] == "git" and key and a[:1] in (["checkout"], ["switch"]):
+            ops, j = [], 1
+            while j < len(a):
+                if a[j] in ("-b", "-B", "-c", "-C", "--orphan") and j + 1 < len(a):
+                    name, j = a[j + 1], j + 2
+                    continue
+                if a[j] == "--":
+                    ops.append(None)          # paths follow: a checkout of files
+                    break
+                if a[j] in ("-d", "--detach"):
+                    name = "\0detached"
+                elif not a[j].startswith("-"):
+                    ops.append(a[j])
+                j += 1
+            if not name and len(ops) == 1 and ops[0] is not None and (
+                    a[0] == "switch" or not os.path.exists(os.path.join(resolve(cwd, v["dir"] or ".") or cwd, ops[0]))):
+                name = UNKNOWN if re.search(r"[$`*?]", ops[0]) or ops[0] == "-" else ops[0]
+        elif v["prog"] == "git" and key and a[:2] == ["worktree", "add"]:
+            ops, j = [], 2
+            while j < len(a):
+                if a[j] in ("-b", "-B") and j + 1 < len(a):
+                    name, j = a[j + 1], j + 2
+                    continue
+                if a[j] == "--reason" and j + 1 < len(a):
+                    j += 2
+                    continue
+                if a[j] == "--detach":
+                    name = "\0detached"
+                elif not a[j].startswith("-"):
+                    ops.append(a[j])
+                j += 1
+            at = chdir(v["dir"], ops[0]) if ops else UNKNOWN
+            at = None if at == UNKNOWN else os.path.normpath(at)
+            name = (name or (ops[1] if len(ops) > 1 else os.path.basename(ops[0].rstrip("/")))) if at else None
+        if name and at:
+            made[at] = ({name}, v.get("end") != "&&") if v.get("end") == "&&" or at not in made else \
+                (made[at][0] | {name}, True)
+            since.append(v.get("depth", 0))
+        elif since and v.get("end") != "&&" and v.get("depth", 0) <= min(since):
+            made = {k: (n, True) for k, (n, _) in made.items()}     # a failed switch reaches what follows
+    return vs
+
+
+def dry(args):
+    """A dry run or a help page: a whole word --help, --dry-run or --dry-run=X (not none or false), before
+    a bare `--`."""
+    for a in args:
+        if a == "--":
+            return False
+        if a in ("--help", "--dry-run") or a.startswith("--dry-run=") and a[10:] not in ("none", "false"):
+            return True
+    return False
+
+
+# the run's own records, matched by name where a command's directory is unknown (cd "$X" && rm events.jsonl)
+GUARDED = ("docs/agents/mission/ledger.jsonl", ".aladdin/logs/events.jsonl", ".agentic/logs/events.jsonl")
+
+
+def placed(cwd, top, v, path):
+    """A path a command names as its patterns read it: resolved where the command runs, relative to the
+    project `top` or this checkout when inside one (`cd docs/agents && … mission/ledger.jsonl` is the
+    ledger; /tmp/x/.aladdin is not the run's home). Where the gate cannot resolve it, a name a guarded
+    record ends with is that record."""
+    if path.startswith("-") or path in (STDIN, "") or "\n" in path or len(path) > 4096:
+        return path
+    if re.match("(?:%s|\\$PWD|\\$CLAUDE_PROJECT_DIR)(?:/|$)" % re.escape(TOP), path):
+        where = chdir(v["dir"], path)
+    elif v["dir"] == UNKNOWN or re.search(r"[$`]", path):
+        where = UNKNOWN
+    else:
+        where = path if os.path.isabs(path) or path.startswith("~") or not v["dir"] else v["dir"] + "/" + path
+    if where == UNKNOWN:
+        x = os.path.normpath(path)
+        return next((g for g in GUARDED if not os.path.isabs(x) and (g == x or g.endswith("/" + x))), path)
+    full = resolve(cwd, where)
+    if not full:
+        return path
+    for root in (top, toplevel(os.path.abspath(cwd))):     # the project, else this checkout (a worktree)
+        r = os.path.relpath(os.path.realpath(full), os.path.realpath(root)) if root else ".."
+        if not r.startswith(".."):
+            return r
+    return full
+
+
+def place(cwd, vs):
+    """Each view's operands and writes as placed() reads them (files, placed_writes)."""
+    top = os.path.realpath(_paths.project(cwd))
+    for v in vs:
+        v["files"] = [placed(cwd, top, v, a) for a in v["args"] if not a.startswith("-")]
+        v["placed_writes"] = [placed(cwd, top, v, w) for w in v["writes"]]
+    return vs
 
 
 def bash_hits(d, v, ctx, default):
@@ -480,17 +666,23 @@ def bash_hits(d, v, ctx, default):
             continue
         if "args" in b and not b["args"].search(" ".join(v["args"])):
             continue
+        if "files" in b and not any(b["files"].search(f) for f in v.get("files", [])):
+            continue
+        if b.get("_dry") and dry(v["args"]):
+            continue
+        if "code" in b and not b["code"].search(v.get("code") or ""):
+            continue
         if "flag" in b and not any(b["flag"].fullmatch(a) or (a == STDIN and d["grant"] != "never") for a in v["args"]):
             continue
         if "env" in b and not any(b["env"].fullmatch(e) for e in v["env"]):
             continue
-        if "writes" in b and not any(b["writes"].search(w) for w in v["writes"]):
+        if "writes" in b and not any(b["writes"].search(w) for w in v["writes"] + v.get("placed_writes", [])):
             continue
         if "config" in b and not any(b["config"].fullmatch(c) for c in v["config"]):
             continue
-        if ("prog" in b or "args" in b or "flag" in b) and not v["prog"]:
+        if ("prog" in b or "args" in b or "flag" in b or "code" in b or "files" in b) and not v["prog"]:
             continue
-        if ctx(v["dir"]).when(b.get("when"), default):
+        if ctx(v["dir"]).when(b.get("when"), default, v.get("branch")):
             return True
     return False
 
@@ -512,7 +704,7 @@ def classify(cwd, tool, inp, cat=None, assume_when=False):
     default = re.compile("(?:%s)" % cat.get("default_branch", "main|master"))
     ctx = contexts(cwd, assume_when)
     inp = inp if isinstance(inp, dict) else {}
-    vs = views(str(inp.get("command", ""))) if tool == "Bash" else []
+    vs = place(cwd, branches(cwd, views(str(inp.get("command", ""))))) if tool == "Bash" else []
     path = inp.get("file_path") or inp.get("notebook_path") if tool in EDITS else None
     proj_rel, plug_rel = rel_path(cwd, path) if isinstance(path, str) and path else ([], None)
     out = []
@@ -563,6 +755,14 @@ def _authorization(cwd, d, sha, now=None):
     now = now or M.now()
     rows = decisions(cwd, d["id"])
     used = {r["data"].get("authorization") for r in rows if r["event"] == "door.crossed"}
+    # a revoke only the run log has carries the run log's clock, while a ledger row's time is clamped to
+    # the newest row (a branch whose clock ran ahead can push it into the future): compare the two on the
+    # run log's clock, where the authorization's copy has its real time; a tie closes
+    clock = {e.get("event_id"): e.get("ts") for e in _events.read(cwd) if isinstance(e.get("ts"), str)}
+    late = [r["ts"] for r in rows if r["event"] == "door.revoked" and r.get("role") == "human" and "hash" not in r]
+
+    def opens(r):
+        return None if any(t >= clock.get(r["event_id"], r["ts"]) for t in late) else r
     for r in rows:
         if r.get("role") != "human":
             continue
@@ -572,10 +772,10 @@ def _authorization(cwd, d, sha, now=None):
             continue
         if r["data"].get("action_sha256"):
             if r["data"]["action_sha256"] == sha and r["event_id"] not in used:
-                return r
+                return opens(r)
             continue
         if d["grant"] == "standing":
-            return r
+            return opens(r)
     return None
 
 

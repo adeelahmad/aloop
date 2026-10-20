@@ -191,7 +191,7 @@
     },
     {
      "prog": "gcloud",
-     "args": "^{DRY}.*\\bdeploy\\b"
+     "args": "^{DRY}(?:.*\\s)?deploy(?:\\s|$)(?!(?:\\S+\\s+)?(?:list|describe|get-iam-policy|export)(?:\\s|$))"
     },
     {
      "prog": "aws",
@@ -206,7 +206,9 @@
      "fly deploy",
      "vercel --prod",
      "kubectl apply --dry-run=none -f k8s/",
-     "terraform \\\n  apply -auto-approve"
+     "terraform \\\n  apply -auto-approve",
+     "gcloud --project p app deploy",
+     "gcloud run jobs deploy j --image x"
     ]
    }
   },
@@ -271,7 +273,7 @@
     {
      "prog": "npm|pnpm|yarn",
      "flag": "-g|--global",
-     "args": "^(?:-\\S+\\s+)*(?:i|in|install|isntall|add|un|uninstall|unlink|remove|rm|r|update|up|upgrade|link|ln|config\\s+(?:set|delete|edit)|set)(?:\\s|$)"
+     "args": "^(?:(?:--(?:loglevel|prefix|registry|reporter|dir|filter|workspace|userconfig|globalconfig|cache|location|tag|otp)|-[Cw])\\s+\\S+\\s+|-\\S+\\s+)*(?:i|in|ins|inst|insta|instal|install|isnt|isnta|isntal|isntall|add|un|uninstall|unlink|remove|rm|r|update|up|upgrade|udpate|link|ln|it|cit|install-test|install-ci-test|clean-install|ci|rb|rebuild|prune|dedupe|ddp|config\\s+(?:set|delete|edit)|set)(?:\\s|$)"
     },
     {
      "prog": "yarn",
@@ -290,7 +292,10 @@
      "yarn global add pnpm",
      "npm -g install pnpm",
      "pnpm add -g pnpm",
-     "npm i -g"
+     "npm i -g",
+     "npm -g --loglevel warn install pnpm",
+     "npm -g ins pnpm",
+     "pnpm --reporter silent add -g pnpm"
     ]
    }
   },
@@ -492,7 +497,7 @@
    "why": "only the human authorizes a one-way door or approves; an agent asks",
    "bash": [
     {
-     "prog": "aloop",
+     "prog": "aloop|aladdin|agentic",
      "args": "^mission\\s+doors\\s+(?:authorize|revoke)\\b"
     },
     {
@@ -506,29 +511,44 @@
      "writes": "(?:^|/)\\.(?:aladdin|agentic)/logs/events\\.jsonl$"
     },
     {
-     "prog": "sed|perl",
-     "flag": "-[A-Za-z]*i.*",
-     "args": "(?:^|/|\\s)docs/agents/mission/ledger\\.jsonl\\b"
+     "prog": "sed",
+     "flag": "-[^-\\sefl]*i.*|--in-place(?:=.*)?",
+     "files": "(?:^|/)docs/agents/mission/ledger\\.jsonl$"
     },
     {
-     "prog": "rm|truncate|shred|mv",
-     "args": "(?:^|/|\\s)\\.(?:aladdin|agentic)(?:/logs(?:/events\\.jsonl)?)?/?(?:\\s|$)"
+     "prog": "perl",
+     "flag": "-[^-\\sMmIeEFxdDC]*i.*",
+     "files": "(?:^|/)docs/agents/mission/ledger\\.jsonl$"
     },
     {
-     "prog": "sed|perl",
-     "flag": "-[A-Za-z]*i.*",
-     "args": "(?:^|/|\\s)\\.(?:aladdin|agentic)(?:/logs(?:/events\\.jsonl)?)?/?(?:\\s|$)"
+     "prog": "rm|truncate|shred",
+     "files": "^\\.(?:aladdin|agentic)(?:/logs(?:/(?:events\\.jsonl|[^/]*[*?][^/]*))?)?$"
+    },
+    {
+     "prog": "mv",
+     "args": "^(?!(?:-\\S+\\s+)*\\.agentic/?\\s+\\.aladdin/?$)",
+     "files": "^\\.(?:aladdin|agentic)(?:/logs(?:/(?:events\\.jsonl|[^/]*[*?][^/]*))?)?$"
+    },
+    {
+     "prog": "sed",
+     "flag": "-[^-\\sefl]*i.*|--in-place(?:=.*)?",
+     "files": "^\\.(?:aladdin|agentic)(?:/logs(?:/(?:events\\.jsonl|[^/]*[*?][^/]*))?)?$"
+    },
+    {
+     "prog": "perl",
+     "flag": "-[^-\\sMmIeEFxdDC]*i.*",
+     "files": "^\\.(?:aladdin|agentic)(?:/logs(?:/(?:events\\.jsonl|[^/]*[*?][^/]*))?)?$"
     },
     {
      "prog": "cp|ln|install",
-     "args": "(?:^|/|\\s)\\.(?:aladdin|agentic)/logs/events\\.jsonl$"
+     "files": "^\\.(?:aladdin|agentic)/logs/events\\.jsonl$"
     },
     {
-     "prog": "aloop|mission",
+     "prog": "aloop|aladdin|agentic|mission",
      "args": "^(?:mission\\s+)?(?:doors\\s+)?\\{stdin\\}"
     },
     {
-     "prog": "aloop",
+     "prog": "aloop|aladdin|agentic",
      "args": "^mission\\s+doors\\s+\\S*[$`*?]"
     },
     {
@@ -541,7 +561,7 @@
     },
     {
      "prog": "python[\\d.]*",
-     "args": "record_human\\s*\\(|(?s:(?=.*door\\.(?:authorized|revoked)).*\\b(?:emit|record\\w*|write\\w*|append)\\s*\\()"
+     "code": "\\brecord_human\\b(?!\\s*\\)(?!\\s*\\())|\\A(?s:(?=.*door\\.(?:authorized|revoked)).*(?:\\b(?:emit|record(?!s\\s*\\()\\w*|dump)|(?<!stdout\\.)(?<!stderr\\.)\\bwrite\\w*)\\s*\\()"
     }
    ],
    "paths": [
@@ -561,7 +581,19 @@
      "rm .aladdin/logs/events.jsonl",
      "sed -i /door.revoked/d .aladdin/logs/events.jsonl",
      "printf 'authorize\\n' | xargs -I{} aloop mission doors {} x --by me --reason r",
-     "python3 - <<'EOF'\nimport _events\n_events.emit('.', 'door.authorized', role='human', subject='door:x')\nEOF"
+     "python3 - <<'EOF'\nimport _events\n_events.emit('.', 'door.authorized', role='human', subject='door:x')\nEOF",
+     "env -u CLAUDECODE aladdin mission doors authorize push-default-branch --by me --reason r",
+     "bash plugin/bin/aloop mission doors authorize x --by me --reason r",
+     "python3 -u plugin/bin/mission doors revoke x --by me --reason r",
+     "cd docs/agents && echo x >> mission/ledger.jsonl",
+     "cd docs/agents && sed -i s/a/b/ mission/ledger.jsonl",
+     "sed --in-place /door.revoked/d .aladdin/logs/events.jsonl",
+     "cd .aladdin/logs && rm events.jsonl",
+     "rm .aladdin/logs/*.jsonl",
+     "python3 -c \"import _mission as M; f = M.record_human; f('.', 'door.authorized', 'door:x', 'me')\"",
+     "python3 -c 'import sys; exec(sys.stdin.read())' <<'EOF'\nimport _mission as M\nM.record_human('.', 'door.authorized', 'door:x', 'me')\nEOF",
+     "perl -0777pi -e 's/a/b/' .aladdin/logs/events.jsonl",
+     "python3 - <<'EOF'\nimport _events\nev = 'door.authorized'\n_events.emit('.', ev, role='human', subject='door:x')\nEOF"
     ],
     "paths": [
      "docs/agents/mission/ledger.jsonl",
@@ -666,7 +698,17 @@
    "gh secret set --help",
    "git commit -m \"$(cat <<'EOF'\nfix: run \"make | npm publish\" no more\nEOF\n)\"",
    "cat >> out.md <<'EOF' && python3 -m pytest -q\nThe door.authorized row is checked.\nEOF",
-   "cat .aladdin/logs/events.jsonl | jq -c .event"
+   "cat .aladdin/logs/events.jsonl | jq -c .event",
+   "python3 - <<'EOF'\nimport json\nauth = []\nfor l in open('docs/agents/mission/ledger.jsonl'):\n    e = json.loads(l)\n    if e['event'] == 'door.authorized':\n        auth.append(e)\nprint(len(auth))\nEOF",
+   "python3 -c \"import _mission as M; help(M.record_human)\"",
+   "perl -Mstrict -ne 'print if /door.denied/' .aladdin/logs/events.jsonl",
+   "rm -rf /tmp/fixture/.aladdin",
+   "mv .agentic .aladdin",
+   "gcloud deploy releases list --delivery-pipeline=web --region=us-central1",
+   "gh secret set TOKEN --help",
+   "perl -Ilib -ne 'print if /door/' .aladdin/logs/events.jsonl",
+   "gcloud functions describe deploy-notifier --region=us-central1",
+   "python3 -c \"import _mission as M; print(len(M.records('.', 'door.authorized')))\""
   ],
   "tools": [
    "Read",

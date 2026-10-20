@@ -79,11 +79,40 @@ def subs_of(parts):
     return out
 
 
+def delimiter(raw):
+    """A heredoc's delimiter as the shell takes it: the word as written, quotes removed and nothing
+    expanded (`<<$X` ends at a line `$X`, `<<"E O"` at `E O`)."""
+    out, i, n = [], 0, len(raw)
+    while i < n:
+        c = raw[i]
+        if c == "\\":
+            out.append(raw[i + 1:i + 2])
+            i += 2
+        elif c == "'" or (c == "$" and raw.startswith("$'", i)):
+            i += 1 if c == "'" else 2
+            k = raw.find("'", i)
+            k = n if k < 0 else k
+            out.append(raw[i:k])
+            i = k + 1
+        elif c == '"' or (c == "$" and raw.startswith('$"', i)):
+            i += 1 if c == '"' else 2
+            while i < n and raw[i] != '"':
+                if raw[i] == "\\" and raw[i + 1:i + 2] in ('"', "\\", "$", "`"):
+                    i += 1
+                out.append(raw[i:i + 1])
+                i += 1
+            i += 1
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
 class Lexer:
     def __init__(self, src):
         self.s, self.i, self.n = src, 0, len(src)
         self.toks, self.heredocs, self.dbr = [], [], False
-        self._endc = (0, 0)
+        self._endc, self._closed = (0, 0), {}
 
     # ── helpers ──
     def at_start(self):
@@ -92,49 +121,118 @@ class Lexer:
             return True
         k, v = self.toks[-1][0], self.toks[-1][1]
         if k == "op":
-            return v != ")"
+            return True                                   # also after a case pattern's `)`
         return k == "word" and not v.quoted and v.text() in STARTS
 
     def close(self, j, depth=1, arith=False):
-        """Index just past the `)` that closes an opening at depth `depth`, from j; quotes,
-        backticks, nested parens and (outside arithmetic, where << shifts) heredoc bodies
-        respected. The end of the text if it never closes."""
-        s, pending = self.s, []
-        while j < self.n:
+        """close() remembered: a nested $((…)) is tried as arithmetic, then as a substitution, so
+        without it a deep nest is read in exponential time."""
+        key = (j, depth, arith)
+        if key not in self._closed:
+            self._closed[key] = self._close(j, depth, arith)
+        return self._closed[key]
+
+    def _close(self, j, depth=1, arith=False):
+        """Index just past the `)` that closes an opening at depth `depth`, from j. Read as the shell
+        does: quotes, backticks, `#` comments, ${…}, $[…], a nested $(…) or $((…)) (arithmetic only
+        when it closes with `))`, else a substitution of a subshell, as bash falls back), `case`
+        patterns (their `)` closes nothing) and, outside arithmetic (where << shifts), heredoc
+        bodies. The end of the text if it never closes."""
+        s, n, pending, cases, begin = self.s, self.n, [], [], j
+        while j < n:
             c = s[j]
             if c == "\\":
                 j += 2
                 continue
-            if c == "<" and not arith and s.startswith("<<", j) and not s.startswith("<<<", j):
+            if c == "#" and not arith and (j == begin or s[j - 1] in " \t\n;&|()"):
+                e = s.find("\n", j)
+                j = n if e < 0 else e
+                continue
+            if c == "<" and not arith and s.startswith("<<<", j):
+                j += 3
+                continue
+            if c == "<" and not arith and s.startswith("<<", j):
                 strip = s.startswith("<<-", j)
                 sub = Lexer(s)
                 sub.i = j + (3 if strip else 2)
-                while sub.i < self.n and s[sub.i] in " \t":
+                while sub.i < n and s[sub.i] in " \t":
                     sub.i += 1
-                delim = "".join(p for p in sub.word().parts if isinstance(p, str))
-                if delim:
-                    pending.append((delim, strip))
+                w = sub.word()
+                if w.raw:
+                    pending.append((delimiter(w.raw), strip))
                 j = max(sub.i, j + 2)
                 continue
             if c == "\n" and pending:
-                j = self._skip_bodies(j + 1, pending)
+                j, closed = self._skip_bodies(j + 1, pending)
                 pending = []
+                if closed:                                # a body ended at `DELIM)`: j is that `)`
+                    depth -= 1
+                    if depth == 0:
+                        return j + 1
+                    j += 1
                 continue
             if c == "'":
                 k = s.find("'", j + 1)
-                j = self.n if k < 0 else k + 1
+                j = n if k < 0 else k + 1
                 continue
             if c == '"':
-                j += 1
-                while j < self.n and s[j] != '"':
-                    j += 2 if s[j] == "\\" else 1
-                j += 1
+                j = self._dq_end(j + 1)
                 continue
             if c == "`":
                 j += 1
-                while j < self.n and s[j] != "`":
+                while j < n and s[j] != "`":
                     j += 2 if s[j] == "\\" else 1
                 j += 1
+                continue
+            if c == "$" and j + 1 < n:
+                nx = s[j + 1]
+                if nx == "(":
+                    j = self._sub_end(j)
+                    continue
+                if nx == "{":
+                    j = self._brace_end(j + 2)
+                    continue
+                if nx == "[":
+                    j = self._bracket_end(j + 2)
+                    continue
+                if nx == "'":                             # $'…': backslash escapes a quote
+                    j += 2
+                    while j < n and s[j] != "'":
+                        j += 2 if s[j] == "\\" else 1
+                    j += 1
+                    continue
+                j += 2 if nx in SPECIAL else 1
+                continue
+            if c == "(" and s.startswith("((", j) and not arith:
+                k = self.close(j + 2, 1, arith=True)
+                if k < n and s[k] == ")":                 # (( … )): arithmetic
+                    j = k + 1
+                    continue
+            m = NAME.match(s, j) if not arith and (j == begin or s[j - 1] in " \t\n;&|()") else None
+            if m:
+                word = m.group()
+                if m.end() == n or s[m.end()] in META:
+                    top = cases[-1] if cases else None
+                    if word == "case" and top != "word" and self._cmd_pos(j, begin):
+                        cases.append("word")
+                    elif word == "in" and top == "word":
+                        cases[-1] = "pattern"
+                    elif word == "esac" and top in ("pattern", "body"):
+                        cases.pop()
+                j = m.end()
+                continue
+            if cases and cases[-1] == "pattern" and c in "()":
+                if c == ")":
+                    cases[-1] = "body"
+                j += 1
+                continue
+            if cases and cases[-1] == "body" and c == ";" and s.startswith(";;", j):
+                cases[-1] = "pattern"
+                j += 3 if s.startswith(";;&", j) else 2
+                continue
+            if cases and cases[-1] == "body" and s.startswith(";&", j):
+                cases[-1] = "pattern"
+                j += 2
                 continue
             if c == "(":
                 depth += 1
@@ -143,10 +241,94 @@ class Lexer:
                 if depth == 0:
                     return j + 1
             j += 1
-        return self.n
+        return n
+
+    def _cmd_pos(self, j, begin):
+        """Is the word at j where a command starts (so `case` is the reserved word)?"""
+        k = j - 1
+        while k >= begin and self.s[k] in " \t":
+            k -= 1
+        if k < begin or self.s[k] in ";&|(\n":
+            return True
+        m = re.search(r"(?:^|[\s;&|()])([A-Za-z!{]+)$", self.s[begin:k + 1])
+        return bool(m) and m.group(1) in STARTS
+
+    def _sub_end(self, j):
+        """Past a $(…) or $((…)) that starts at j (its `$`)."""
+        s, n = self.s, self.n
+        if s.startswith("$((", j):
+            k = self.close(j + 3, 1, arith=True)
+            if k < n and s[k] == ")":
+                return k + 1
+        return self.close(j + 2)
+
+    def _dq_end(self, j):
+        """Past the `"` that closes a double-quoted string whose text starts at j; its $(…), ${…} and
+        `…` are read whole (a `"` inside them does not close it)."""
+        s, n = self.s, self.n
+        while j < n and s[j] != '"':
+            c = s[j]
+            if c == "\\":
+                j += 2
+            elif c == "$" and s.startswith("$(", j):
+                j = self._sub_end(j)
+            elif c == "$" and s.startswith("${", j):
+                j = self._brace_end(j + 2)
+            elif c == "`":
+                j += 1
+                while j < n and s[j] != "`":
+                    j += 2 if s[j] == "\\" else 1
+                j += 1
+            else:
+                j += 1
+        return j + 1
+
+    def _brace_end(self, j):
+        """Past the `}` that closes a ${ whose text starts at j (nested ${…}, $(…) and quotes read whole)."""
+        s, n, depth = self.s, self.n, 1
+        while j < n:
+            c = s[j]
+            if c == "\\":
+                j += 2
+                continue
+            if c == "'":
+                k = s.find("'", j + 1)
+                j = n if k < 0 else k + 1
+                continue
+            if c == '"':
+                j = self._dq_end(j + 1)
+                continue
+            if c == "$" and s.startswith("$(", j):
+                j = self._sub_end(j)
+                continue
+            if c == "$" and s.startswith("${", j):
+                depth += 1
+                j += 2
+                continue
+            if c == "}":
+                depth -= 1
+                if depth == 0:
+                    return j + 1
+            j += 1
+        return n
+
+    def _bracket_end(self, j):
+        """Past the `]` that closes a $[ (arithmetic) whose text starts at j."""
+        s, n, depth = self.s, self.n, 1
+        while j < n:
+            if s[j] == "[":
+                depth += 1
+            elif s[j] == "]":
+                depth -= 1
+                if depth == 0:
+                    return j + 1
+            j += 1
+        return n
 
     def _skip_bodies(self, j, pending):
-        """Past the heredoc bodies that start at j; inside $( … ) a body also ends at `DELIM)`."""
+        """(past the heredoc bodies that start at j, whether one ended at `DELIM)`). Inside $( … ) a
+        body also ends at `DELIM)`: the `)` closes the substitution there (j is it), and the bodies
+        still pending would start after it, outside: the rest of that line is commands again."""
         s = self.s
         for delim, strip in pending:
             while j < self.n:
@@ -158,10 +340,9 @@ class Lexer:
                     j = min(e + 1, self.n)
                     break
                 if t.startswith(delim) and t[len(delim):].lstrip(" \t").startswith(")"):
-                    j = e - len(t[len(delim):].lstrip(" \t"))
-                    break
+                    return e - len(t[len(delim):].lstrip(" \t")), True
                 j = min(e + 1, self.n)
-        return j
+        return j, False
 
     def backtick(self):
         s, j, out = self.s, self.i + 1, []
@@ -178,8 +359,12 @@ class Lexer:
     def dollar(self, w):
         s, i = self.s, self.i
         nxt = s[i + 1] if i + 1 < self.n else ""
-        if s.startswith("$((", i):
-            self.i = self.close(i + 3, 2, arith=True)
+        k = self.close(i + 3, 1, arith=True) if s.startswith("$((", i) else 0
+        if k and k < self.n and s[k] == ")":
+            self.i = k + 1                                # $(( … )): arithmetic (else a $( ( … ) … ))
+            w.add(UNKNOWN)
+        elif nxt == "[":
+            self.i = self._bracket_end(i + 2)             # $[ … ]: arithmetic
             w.add(UNKNOWN)
         elif nxt == "(":
             j = self.close(i + 2)
@@ -397,6 +582,12 @@ class Lexer:
                 j = s.find("\n", self.i)
                 self.i = self.n if j < 0 else j
                 continue
+            if self.dbr and s.startswith("]]", self.i) and (self.i + 2 == self.n or s[self.i + 2] in META):
+                w = Word()
+                w.lit("]]")
+                w.raw, self.i, self.dbr = "]]", self.i + 2, False
+                self.toks.append(("word", w))
+                continue
             if self.dbr:
                 w = self.word(stop=" \t\r\n")
                 self.toks.append(("word", w))
@@ -404,10 +595,11 @@ class Lexer:
                     self.dbr = False
                 continue
             if s.startswith("((", self.i) and self.at_start():
-                j = self.close(self.i + 2, 2, arith=True)
-                self.toks.append(("arith", s[self.i:j]))
-                self.i = j
-                continue
+                k = self.close(self.i + 2, 1, arith=True)
+                if k < self.n and s[k] == ")":
+                    self.toks.append(("arith", s[self.i:k + 1]))
+                    self.i = k + 1
+                    continue
             m = REDIR.match(s, self.i)
             if m and not (m.group(2) in ("<", ">") and s.startswith("(", m.end())):
                 self.i = m.end()
@@ -415,8 +607,8 @@ class Lexer:
                     self.i += 1
                 w = self.word()
                 op = m.group(2)
-                if op in ("<<", "<<-"):
-                    self.heredocs.append(("".join(p for p in w.parts if isinstance(p, str)), op == "<<-", w.quoted, w))
+                if op in ("<<", "<<-") and w.raw:
+                    self.heredocs.append((delimiter(w.raw), op == "<<-", w.quoted, w))
                 self.toks.append(("redir", op, m.group(1) or "", w))
                 continue
             op = next((o for o in OPS if s.startswith(o, self.i)), None)
@@ -446,13 +638,19 @@ def read(src):
             out.append(cur)
         cur = Cmd()
 
-    for tok in Lexer(src).run():
+    try:
+        toks = Lexer(src).run()
+    except RecursionError:
+        raise ValueError("the command nests substitutions deeper than the shell reader reads") from None
+    for k, tok in enumerate(toks):
         kind = tok[0]
         if kind == "word":
             w = tok[1]
             t = None if w.quoted else w.text()
             cur.subs += subs_of(w.parts)
             if mode == "header":                          # for NAME in …: a list, not a command
+                if t == "do":
+                    mode = None                           # for NAME do …: the body starts
                 continue
             if mode == "case":                            # case WORD in
                 if t == "in":
@@ -470,6 +668,9 @@ def read(src):
             after_time = False
             if start and t in RESERVED:
                 after_time = t == "time"
+                nxt = toks[k + 2] if k + 2 < len(toks) else ("",)
+                if t == "coproc" and (nxt == ("op", "(") or nxt[0] == "word" and nxt[1].text() == "{"):
+                    skip_name = True                      # coproc NAME { …; }: NAME names it, it does not run
                 continue
             if start and t in ("for", "select"):
                 mode = "header"

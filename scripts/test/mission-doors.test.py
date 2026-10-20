@@ -574,7 +574,113 @@ assert ask_in(s1, "Intake: should exports include archived tasks? Recommended: n
 shutil.rmtree(w.dir, ignore_errors=True)
 ok("state: ledger before stream, stream read first (no transient lost row); a fresh decision is newest; closed sprint ends live")
 
-# 20) list and the area's docstring
+# 20) round 3: the shell as bash reads it ([[ … ]] then an operator, a heredoc's literal delimiter, a pipe
+#     into a subshell, the last redirect of stdin, $(( … ) …) and (( … ) …) that are not arithmetic, case
+#     patterns, comments and ${…} inside $( … )), a python fed code on stdin, the other entry points, paths
+#     read where the command runs, branch switches earlier in the line, and the reads that only mention a door
+R3 = (("[[ -n x ]]&&git push origin main", "push-default-branch"), ("[[ -d .git ]]; git push origin main", "push-default-branch"),
+      ("[[ -n x ]];echo x >> docs/agents/mission/ledger.jsonl", "forge-human-record"),
+      ("if [[ -f x ]]; then echo '{}' > .claude/settings.json; fi", "change-agent-settings"),
+      ("[[ -n x ]]; SKIP_HOOKS=1 git commit -m x", "bypass-gate"), ("[[ -n x ]]|npm publish", "publish-release"),
+      ("cat <<$X\nbody\n$X\ngit push origin main", "push-default-branch"), ("cat <<\"$X\"\nbody\n$X\nnpm publish", "publish-release"),
+      ("cat <<*\nbody\n*\nnpm publish", "publish-release"), ("cat <<~\nbody\n~\nnpm publish", "publish-release"),
+      ("cat <<${X}\nbody\n${X}\nnpm publish", "publish-release"), ("cat <<E{a,b}\nbody\nE{a,b}\nnpm publish", "publish-release"),
+      ("cat <<$X >/dev/null\nbody\n$X\nSKIP_HOOKS=1 git commit -m x", "bypass-gate"),
+      ("echo git push origin main | (bash)", "push-default-branch"), ("echo npm publish | ( bash )", "publish-release"),
+      ("bash <<<'true' <<EOF\ngit push origin main\nEOF", "push-default-branch"),
+      ("bash <<EOF 3<<<x\nnpm publish\nEOF", "publish-release"),
+      ("python3 -c 'import sys; exec(sys.stdin.read())' <<'EOF'\nimport _mission as M\nM.record_human('.', 'door.authorized', "
+       "'door:x', 'me')\nEOF", "forge-human-record"),
+      ("python3 /dev/stdin <<'EOF'\nimport _mission as M\nM.record_human('.', 'door.authorized', 'door:x', 'me')\nEOF",
+       "forge-human-record"),
+      ("bash /dev/stdin <<'EOF'\nnpm publish\nEOF", "publish-release"),
+      ("x=$((true) && npm publish)", "publish-release"), ("echo $((echo a); npm publish)", "publish-release"),
+      ("((echo a); npm publish)", "publish-release"), ("((cd sub); git push origin main)", "push-default-branch"),
+      ("x=$((npm publish) )", "publish-release"), ("((( 1 )) && npm publish)", "publish-release"),
+      ("echo $(case x in x) npm publish;; esac)", "publish-release"),
+      ("echo \"$(case x in x) npm publish;; esac)\"", "publish-release"),
+      ("echo \"$(# )\nnpm publish\n)\"", "publish-release"), ("echo \"$(echo ${x:-)} ; npm publish)\"", "publish-release"),
+      ("x=$(cat <<A <<B\nA); git push origin main", "push-default-branch"),
+      ("x=$(cat <<A <<B\nA); mission doors authorize publish-release --by A --reason r", "forge-human-record"),
+      ("env -u CLAUDECODE aladdin mission doors authorize push-default-branch --by me --reason r", "forge-human-record"),
+      ("agentic mission doors authorize x --by me --reason r", "forge-human-record"),
+      ("bash plugin/bin/aloop mission doors authorize x --by me --reason r", "forge-human-record"),
+      ("python3 -u plugin/bin/mission doors authorize x --by me --reason r", "forge-human-record"),
+      ("set -- a; for i do npm publish; done", "publish-release"), ("coproc P { npm publish; }; wait", "publish-release"),
+      ("case a in a) ((1<<2));; esac\nnpm publish", "publish-release"), ("echo $[1<<2]\nnpm publish", "publish-release"),
+      ("printf '%s %s\\n' npm publish | bash", "publish-release"), ("echo -e 'true\\nnpm publish' | bash", "publish-release"),
+      ("echo 'npm publish' | tee /dev/null | bash", "publish-release"),
+      ("python3 -c \"import _mission as M; f = M.record_human; f('.', 'door.authorized', 'door:x', 'me')\"", "forge-human-record"),
+      ("python3 -c \"import _mission as M; getattr(M, 'record_human')('.', 'door.authorized', 'door:x', 'me')\"",
+       "forge-human-record"),
+      ("python3 -c \"from _mission import record_human as r; r('.', 'door.authorized', 'door:x', 'me')\"", "forge-human-record"),
+      ("cd docs/agents && echo x >> mission/ledger.jsonl", "forge-human-record"),
+      ("cd docs && echo x >> agents/mission/ledger.jsonl", "forge-human-record"),
+      ("cd docs/agents && sed -i s/a/b/ mission/ledger.jsonl", "forge-human-record"),
+      ("sed -i s/a/b/ .aladdin/worktrees/T1/docs/agents/mission/ledger.jsonl", "forge-human-record"),   # a worktree's ledger
+      ("cd .aladdin/logs && rm events.jsonl", "forge-human-record"), ("cd .aladdin && rm logs/events.jsonl", "forge-human-record"),
+      ("rm .aladdin/logs/*.jsonl", "forge-human-record"), ("rm -f .aladdin/logs/events.json*", "forge-human-record"),
+      ("sed --in-place /door.revoked/d .aladdin/logs/events.jsonl", "forge-human-record"),
+      ("sed --in-place s/a/b/ docs/agents/mission/ledger.jsonl", "forge-human-record"),
+      ("rm -rf $PWD/.aladdin", "forge-human-record"), ("D=x; cd \"$D\" && rm events.jsonl", "forge-human-record"),
+      ("npm -g --loglevel warn install pnpm", "system-change"), ("npm --prefix /usr/local -g install pnpm", "system-change"),
+      ("npm --registry https://r.example -g i evil", "system-change"), ("pnpm --reporter silent add -g pnpm", "system-change"),
+      ("npm -g ins pnpm", "system-change"), ("npm -g isnt pnpm", "system-change"), ("npm -g udpate", "system-change"),
+      ("npm -g install-test pnpm", "system-change"), ("npm -g rebuild", "system-change"), ("npm -g dedupe", "system-change"),
+      ("gh secret set TOKEN --body \"abc --help\"", "credentials-and-secrets"),
+      ("kubectl create secret generic s --from-literal=\"k=v --dry-run\"", "credentials-and-secrets"),
+      ("gcloud run deploy api --image x", "production-deploy"), ("gcloud --project p app deploy", "production-deploy"),
+      ("echo npm publish | (true; bash)", "publish-release"), ("echo npm publish | (cd x && bash)", "publish-release"),
+      ("perl -0777pi -e 's/a/b/' .aladdin/logs/events.jsonl", "forge-human-record"),
+      ("python3 - <<'EOF'\nimport _events\nev = 'door.authorized'\n_events.emit('.', ev, role='human', subject='door:x')\nEOF",
+       "forge-human-record"))
+for cmd, want in R3:
+    assert want in doors_of(cmd), (cmd, doors_of(cmd))
+for cmd in ("perl -Mstrict -ne 'print if /door.denied/' .aladdin/logs/events.jsonl",
+            "perl -Ilib -ne 'print if /door/' .aladdin/logs/events.jsonl",
+            "gcloud deploy releases list --delivery-pipeline=web --region=us-central1",
+            "gcloud functions describe deploy-notifier --region=us-central1",
+            "rm -rf /tmp/fixture/.aladdin", "cd /tmp/fixture && rm -rf .aladdin", "mv .agentic .aladdin",
+            "python3 - <<'EOF'\nimport json, sys\nfor l in open('.aladdin/logs/events.jsonl'):\n"
+            "    if json.loads(l)['event'] in ('door.authorized', 'door.revoked'):\n        sys.stdout.write(l)\nEOF",
+            "python3 - <<'EOF'\nauth = []\nfor l in open('docs/agents/mission/ledger.jsonl'):\n"
+            "    if 'door.authorized' in l:\n        auth.append(l)\nprint(len(auth))\nEOF",
+            "npm test -- -g 'install works'", "python3 -c \"import _mission as M; print(len(M.records('.', 'door.authorized')))\""):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+body = "import json\nrows = []\n" + "rows.append({'id': 0, 'name': 'task 0', 'tags': ['a', 'b']})\n" * 4000
+t0 = __import__("time").time()
+assert doors_of("python3 - <<'EOF'\n" + body + "json.dump(rows, open('t.json', 'w'))\nEOF") == []
+assert doors_of("python3 -c %s" % json.dumps(body)) == []
+assert __import__("time").time() - t0 < 2                     # 240 KB of python twice: linear, far under the 8 s deadline
+for cmd, want in (("git checkout -b fix/typo && git commit -qam 'fix: typo' && git push -u origin HEAD", []),   # p is on main
+                  ("git switch -c feat/y && git push -u origin HEAD", []),
+                  ("git worktree add ../feat-z -b feat/z && cd ../feat-z && git push -u origin HEAD", []),
+                  ("git switch -c feat/y; git push -u origin HEAD", ["push-default-branch"]),   # the switch may fail
+                  ("cd \"$(git rev-parse --show-toplevel)\" && git push -u origin HEAD", ["push-default-branch"])):
+    assert doors_of(cmd, assume=False) == want, (cmd, doors_of(cmd, assume=False))
+subprocess.run(["git", "switch", "-q", "-c", "feat3"], cwd=p.dir, check=True)
+for cmd, want in (("cd \"$(git rev-parse --show-toplevel)\" && git push -u origin HEAD", []),
+                  ("git -C \"$(git rev-parse --show-toplevel)\" push -u origin HEAD", []),
+                  ("git checkout main && git merge --ff-only feat3 && git push", ["push-default-branch"])):
+    assert doors_of(cmd, assume=False) == want, (cmd, doors_of(cmd, assume=False))
+subprocess.run(["git", "switch", "-q", "main"], cwd=p.dir, check=True)
+f = Project(mode="spoon-fed")
+real = M.now
+M.now = lambda: "2030-01-01T00:00:00Z"                         # a row from a branch whose clock ran ahead
+M.record_human(f.dir, "door.revoked", D.subject("publish-release"), "A", "r")
+M.now = real
+M.record_human(f.dir, "door.authorized", D.subject("production-deploy"), "A", "r", grant="standing", until="",
+               action_sha256="")                               # its ledger time is clamped to 2030
+deploy = D.door(f.dir, "production-deploy")
+assert D.authorization(f.dir, deploy, "") is not None
+_events.emit(f.dir, "door.revoked", role="human", ledger=True, branch="other", subject=D.subject("production-deploy"),
+             by="A", reason="r")                               # revoked on another branch: only the run log has it
+assert D.authorization(f.dir, deploy, "") is None, "a later revoke on the run log's clock closes the door"
+shutil.rmtree(f.dir, ignore_errors=True)
+ok("round 3: [[ ]] and heredoc delimiters, subshell pipes, stdin order, arithmetic fallbacks, entry points, placed paths, "
+   "branch switches; reads pass")
+
+# 21) list and the area's docstring
 r = p.run("doors", "list", "--json")
 lst = json.loads(r.stdout)
 pd = next(d for d in lst["doors"] if d["id"] == "publish-release")
