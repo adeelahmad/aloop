@@ -97,6 +97,10 @@ class Project:
             with self.clock(hours):
                 M.record(self.dir, "state.assessed", self.ref(kind, aid), "state-assessor", sha256=doc["sha256"],
                          state_id=aid, baseline_id=fields.get("baseline_id"))
+        if kind == "goal" and record:                   # as `mission goal derive` records it
+            with self.clock(hours):
+                M.record(self.dir, "goal.derived", self.ref(kind, aid), "mission-planner", goal_id=aid,
+                         sha256=M.digest(doc))
         M.save(M.path_of(self.dir, kind, aid), doc)
         return aid, doc
 
@@ -122,7 +126,10 @@ class Project:
         assert r.returncode == 0, r.stderr
         path = r.stdout.strip()
         rev = json.load(open(path))
-        rev["findings"] = [{"category": c, "tier": tier, "reason": "the test's verdict"} for c in rev["screen"] + ["other"]]
+        gaps = [g["gap_id"] for g in json.load(open(os.path.join(self.dir, rev["subject"]["ref"]))).get("gaps") or []]
+        rev["findings"] = [dict({"category": c, "tier": tier, "reason": "the test's verdict"},
+                                **({"gaps": gaps} if tier == "hard" and len(gaps) > 1 else {}))
+                           for c in rev["screen"] + ["other"]]
         rev["tier"] = tier
         json.dump(rev, open(path, "w"))
         r = self.mi("ethics", "record", path)
@@ -995,7 +1002,69 @@ expect(d, "DERIVE_GOAL", 0, "crosses a hard line")                        # not 
 assert g2 in d["reason"], d["reason"]
 ok("the loop takes ethics from the gate's verdict: a hard-lined goal's words stay hard under a new id")
 
-# 27) discovery and help: the three areas are found by name
+# 27) goals through `aloop mission goal`, on the real clock: derive → review → intents → next and a sprint per
+#     intent → evaluate (narrowed to the goal) → close → evaluate the whole mission; a goal file nobody derived
+#     is no goal; a goal whose sprints all closed with gaps open, or that crossed a hard line while evaluate
+#     still narrows to it, is the human's
+def later(p):
+    time.sleep(1.05)                                                       # stamps are kept to the second
+    return (time.time() * 1000 - p.t0) / H
+
+
+p = Project().init()
+cleared(p)
+assert p.mi("assess").returncode == 0 and p.mi("evaluate").returncode == 0
+expect(p.tick(later(p)), "DERIVE_GOAL", 0, "aloop mission goal derive")
+fake, _ = p.art("goal", "derived", later(p), record=False)
+expect(p.tick(later(p), "--peek"), "DERIVE_GOAL", 0)                         # not ETHICS_REVIEW of a forged goal
+os.remove(M.path_of(p.dir, "goal", fake))
+r = p.mi("goal", "derive")
+assert r.returncode == 0, r.stderr
+gid = json.load(open(r.stdout.strip()))["goal_id"]
+expect(p.tick(later(p)), "ETHICS_REVIEW", 0)
+p.review(p.ref("goal", gid), p.load("goal", gid), "clear")
+expect(p.tick(later(p)), "PLAN_INTENTS", 0, "aloop mission goal intents %s" % gid)
+assert p.mi("goal", "intents", gid).returncode == 0
+for n in (1, 2):
+    expect(p.tick(later(p)), "SPRINT", 0, "aloop mission goal next %s" % gid)
+    r = p.mi("goal", "next", gid)
+    assert r.returncode == 0, r.stderr
+    p.event("plan.created", later(p), sprint="S%d" % n, intent_id=json.load(open(r.stdout.strip()))["intent_id"])
+    expect(p.tick(later(p)), "WAIT", 4, "sprint %d" % n)
+    p.sprint_closed(n, later(p))
+expect(p.tick(later(p)), "ASSESS", 0, "sprint 2 closed")
+assert p.mi("assess").returncode == 0
+expect(p.tick(later(p)), "EVALUATE", 0)
+assert p.mi("evaluate").returncode == 0                                    # narrowed to the goal: not met
+expect(p.tick(later(p)), "BLOCKED", 2, "M9.50")
+p.app(**PASSING)
+assert p.mi("assess").returncode == 0
+expect(p.tick(later(p)), "EVALUATE", 0)
+r = p.mi("evaluate")
+eid = json.load(open(r.stdout.strip()))["eval_id"]
+d = p.tick(later(p))
+expect(d, "EVALUATE", 0, "aloop mission goal close %s --eval %s" % (gid, eid))
+assert p.mi("goal", "close", gid, "--eval", eid).returncode == 0
+expect(p.tick(later(p)), "EVALUATE", 0, "evaluate the whole mission")
+assert p.mi("evaluate").returncode == 0
+expect(p.tick(later(p)), "RESEARCH", 0, "the goal is met")
+q = Project().init()
+cleared(q)
+assert q.mi("assess").returncode == 0 and q.mi("evaluate").returncode == 0
+r = q.mi("goal", "derive")
+g2 = json.load(open(r.stdout.strip()))["goal_id"]
+q.review(q.ref("goal", g2), q.load("goal", g2), "hard")
+assert q.mi("assess").returncode == 0 and q.mi("evaluate").returncode == 0
+expect(q.tick(later(q)), "BLOCKED", 2, "M9.29")
+s = Project(mode="spoon-fed").init()
+cleared(s)
+assert s.mi("assess").returncode == 0 and s.mi("evaluate").returncode == 0
+expect(s.tick(later(s)), "OFFER_OPTIONS", 3, "aloop mission goal options")
+ok("goals run through `aloop mission goal` (derive, intents, next, close) and the loop names each command; a "
+   "goal file nobody derived is none; open gaps after every sprint, or a hard line evaluate still narrows to, "
+   "go to the human; spoon-fed offers the gap list")
+
+# 28) discovery and help: the three areas are found by name
 p = Project().init()
 listed = p.mi("--list").stdout.split()
 assert {"tick", "due", "cron"} <= set(listed), listed

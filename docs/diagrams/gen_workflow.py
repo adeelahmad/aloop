@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate docs/diagrams/workflow.svg — the agentic-agile sprint loop as it actually runs.
+"""Generate docs/diagrams/workflow.svg — the aloop sprint loop as it actually runs.
 
     python3 docs/diagrams/gen_workflow.py
 
@@ -78,7 +78,7 @@ def stage(x, y, w, h, n, title, sub, color, lines, foot=None):
 # ── canvas ──────────────────────────────────────────────────────────────────
 add('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" width="%d" height="%d" role="img" '
     'aria-labelledby="t d">' % (W, H, W, H))
-add('<title id="t">agentic-agile — the deterministic sprint loop</title>')
+add('<title id="t">aloop — the deterministic sprint loop</title>')
 add('<desc id="d">Init, human-gated planning, an orchestrator that dispatches time-boxed TDD workers in '
     'isolated worktrees, hook-enforced gates, final gate with harness-written stats and handoff, clear '
     'context, repeat. Runs on Claude Code, Codex and OpenCode.</desc>')
@@ -92,7 +92,7 @@ add("</defs>")
 rect(0, 0, W, H, fill=BG, stroke=BG, r=0, sw=0)
 
 # ── header ──────────────────────────────────────────────────────────────────
-text(48, 64, "agentic-agile", size=40, weight=800)
+text(48, 64, "aloop", size=40, weight=800)
 text(48, 94, "You state the intent. Deterministic hooks — not model goodwill — drive every sprint to done.",
      size=16, fill=MUTED)
 x = 48
@@ -116,11 +116,11 @@ xs = [40, 286, 532, 778, 1092, 1338]
 ws = [222, 222, 222, 290, 222, 222]
 
 stage(xs[0], Y, ws[0], SH, 1, "Init", "human confirms · once", C["init"], [
-    ("m", "/agentic-agile:init"), ("sp", ""),
+    ("m", "/aloop:init"), ("sp", ""),
     ("b", "tokens 150k / 250k"), ("b", "time 20 / 30 min"), ("b", "models per role"),
     ("b", ".gitignore → .agentic/"), ("b", "docs/agents/ tracked? (no)"), ("b", "commit author = you"),
     ("h", "written by the harness"), ("m", "docs/agents/defaults.md"),
-], foot="agentic init --apply")
+], foot="aloop init --apply")
 
 stage(xs[1], Y, ws[1], SH, 2, "Plan", "human-gated · Opus 5.5", C["plan"], [
     ("b", "retrospective → memory"), ("b", "intake (5-part intent)"), ("b", "standards (gate matrix)"),
@@ -173,7 +173,7 @@ stage(xs[5], Y, ws[5], SH, 6, "Clear", "fresh context · repeat", C["clear"], [
     ("b", "Stop hook shows totals"), ("b", "you run /clear"), ("b", "SessionStart loads"),
     ("b", "  NEXT.md into context"), ("b", "next sprint plans"), ("b", "  from disk, not memory"),
     ("h", "tokens (ledger)"), ("m", "sprint · session"), ("m", "whole project"),
-], foot="agentic stats show")
+], foot="aloop stats show")
 
 # forward arrows between stages
 for i in range(5):
@@ -221,7 +221,7 @@ text(842, ty + 32, "State on disk — the repo is the memory", size=16, weight=7
 col1 = [("docs/agents/", C["plan"]), ("defaults.md", TXT), ("NEXT.md", TXT), ("memory.md", TXT),
         ("sprintN/stories.md · plan.md", TXT), ("sprintN/sNN-*/tasks · validate · plan", TXT),
         ("sprintN/execution.log · stats.md", TXT)]
-col2 = [(".agentic/  (always git-ignored)", C["clear"]), ("transcripts/  full capture", TXT),
+col2 = [(".aladdin/  (run data, git-ignored)", C["clear"]), ("transcripts/  full capture", TXT),
         ("budget/  one file per attempt", TXT), ("ledger/  tokens per session", TXT),
         ("logs/gates.jsonl  every verdict", TXT), ("worktrees/  one per task", TXT), ("state/  sprint closes · locks", TXT)]
 for ci, col in enumerate((col1, col2)):
@@ -249,7 +249,7 @@ for i, (ev, col, items) in enumerate(hooks):
     for j, it in enumerate(items):
         text(x0 + 16, hy + 100 + j * 19, "· " + it, size=12.5, fill=TXT)
 
-text(W / 2, H - 16, "tools on PATH as `agentic <tool>` · md-db + ctx-symbols auto-built · commits authored by you · open source (MIT)",
+text(W / 2, H - 16, "tools on PATH as `aloop <tool>` · md-db + ctx-symbols auto-built · commits authored by you · open source (MIT)",
      size=12, fill=DIM, anchor="middle")
 add("</svg>")
 

@@ -4,7 +4,7 @@
   "description": "Two-stage agile planning (interactive, human-gated) + two-phase TDD execution (autonomous, hook-enforced), with md-db/KDL artifact validation, ctx-symbols structure checks, per-task transcripts, and a planning retrospective that distills durable memory. Runs on Claude Code, Codex and OpenCode.",
   "author": { "name": "Adeel Ahmad" },
   "license": "MIT",
-  "homepage": "https://github.com/adeelahmad/agentic-agile",
-  "repository": "https://github.com/adeelahmad/agentic-agile",
+  "homepage": "https://github.com/adeelahmad/aloop",
+  "repository": "https://github.com/adeelahmad/aloop",
   "keywords": ["agile","tdd","orchestration","hooks","sub-agents","worktrees","md-db","ctx-symbols","transcripts","retrospective","memory","codex","opencode"]
 }

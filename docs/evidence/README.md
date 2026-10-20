@@ -10,9 +10,10 @@ real host session (Claude Code, or Codex/OpenCode with `HOST=`) with the approva
 command.
 
 **Reproduce:** install the plugin, then run the command in the last column (spends about a
-dollar, 11–22 minutes). The run leaves `summary.json`, `summary.md` and a ready-to-paste row in
-its run dir; add the row here. Intents: `semver` (one story), `slugify` (one story, Python) and `wordfreq` (two dependent
-stories). `HOST=codex` / `HOST=opencode` run the loop on those hosts (`aloop install <host>` into the
+dollar; the latest passing run of each intent took 7–16 minutes). The run leaves `summary.json`,
+`summary.md` and a ready-to-paste row in its run dir; add the row here. Intents: `semver` (one
+story), `wordfreq` (two dependent stories), `slugify` (Python), `roman` (Go), `camel` (JS),
+`extend` and `modify` (brownfield Rust) and `cli` (a Rust binary). `HOST=codex` / `HOST=opencode` run the loop on those hosts (`aloop install <host>` into the
 run repo, then `codex exec --json` / `opencode run --format json`); their CLIs print no cost line, so
 the cost cell reads — and the intent cell names the host. What each run found and fixed is in ROADMAP M0.8.
 
