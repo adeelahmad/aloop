@@ -58,7 +58,8 @@ e1 = made(p.run("evaluate"))
 assert e1["goal_met"] is False and e1["regressions"] == 0 and e1["goal_id"] is None
 assert [(g["gap_id"], g["kind"]) for g in e1["gaps"]] == [(j1 + "#fast", "open"), (j1 + "#all", "open")], e1["gaps"]
 assert e1["gaps"][0]["distance"] == 0.8 and e1["earned"] == []
-assert p.events("eval.completed")[-1]["data"]["gaps"] == 2
+ec = p.events("eval.completed")[-1]["data"]
+assert ec["gaps"] == 2 and ec["eval_id"] == e1["eval_id"] and ec["sha256"] == e1["sha256"] == M.digest(e1), ec
 p.app(seconds_to_first_task=11.0, working_steps=["open", "add"], tasks_shown=0)     # slower: j2's ok10 passed at baseline
 s2 = made(p.run("assess"))
 e2 = made(p.run("evaluate", s2["state_id"]))
@@ -76,8 +77,10 @@ ok("mission evaluate: open gaps by distance, a regression comes first, earned cr
 
 # 3) the active goal's targets narrow the gap list; a regression elsewhere still counts
 gid = M.new_id("goal")
-p.save("goal", gid, {"goal_id": gid, "status": "active", "created_at": M.now(),
-                     "targets": [{"journey_id": j1, "criterion_id": "fast"}]})
+gdoc = {"goal_id": gid, "status": "active", "created_at": M.now(), "targets": [{"journey_id": j1, "criterion_id": "fast"}]}
+p.save("goal", gid, gdoc)
+assert A.latest(p.dir) and made(p.run("evaluate"))["goal_id"] is None          # a status field activates nothing
+M.record(p.dir, "goal.derived", M.rel(p.dir, p.path("goal", gid)), "mission", sha256=M.digest(gdoc), goal_id=gid)
 p.app(seconds_to_first_task=4.0, working_steps=["open", "add"], tasks_shown=0)
 e5 = made(p.run("evaluate", made(p.run("assess"))["state_id"]))
 assert e5["goal_id"] == gid and e5["goal_met"] is True and e5["gaps"] == [], e5["gaps"]
@@ -103,6 +106,8 @@ assert r.returncode == 2 and "sha256 does not match" in r.stderr, r.stderr
 del st["runs"][1]["journeys"][j2]
 M.seal(st)
 p.save("state", e6["state_id"], st)
+assert "no state.assessed record for this content" in p.run("assess", "check", e6["state_id"]).stderr   # re-sealed
+M.record(p.dir, "state.assessed", M.rel(p.dir, p.path("state", e6["state_id"])), "state-assessor", sha256=st["sha256"])
 assert "run 2 skipped journeys %s" % j2 in p.run("assess", "check", e6["state_id"]).stderr
 ok("evaluate check recomputes the gap list (a re-sealed edit is caught); assess check finds a skipped or edited run")
 
@@ -114,13 +119,21 @@ flaky = p.load("state", A.latest(p.dir)[1]["state_id"])
 assert flaky["agreed"] is False and flaky["disagreements"]
 r = p.run("evaluate", flaky["state_id"])
 assert r.returncode == 2 and "its runs disagree" in r.stderr, r.stderr
+kept = p.load("eval", e6["eval_id"])
+moved = dict(kept, state_id=flaky["state_id"])        # a gap list re-pointed at the flaky state
+M.seal(moved)
+p.save("eval", e6["eval_id"], moved)
+r = p.run("evaluate", "check", e6["eval_id"])
+assert r.returncode == 2 and "its runs disagree" in r.stderr, r.stderr
+p.save("eval", e6["eval_id"], kept)
 os.remove(os.path.join(p.dir, "flaky"))
-ok("a state whose runs disagree is recorded (agreed: false) and refused by evaluate")
+ok("a state whose runs disagree is recorded (agreed: false) and refused by evaluate and evaluate check")
 
 # 6) judged metrics: filled from the judges area when it scores them, else pending
 jd = p.load("journey", j1)
 judged = dict(jd, metrics=jd["metrics"] + [{"id": "ux", "name": "delight", "unit": "1-5", "direction": "higher",
-                                           "query": {"kind": "judge", "rubric": "rub_" + "1" * 20}, "source_refs": [rid + "#c1"]}],
+                                           "query": {"kind": "judge", "rubric": "rub_" + "1" * 20, "rubric_sha256": "a" * 64},
+                                           "source_refs": [rid + "#c1"]}],
               pass_criteria=jd["pass_criteria"] + [{"id": "delight", "metric": "ux", "op": ">=", "value": 4}])
 import journeys as J  # noqa: E402
 rec = {"steps": {"open": True, "add": True, "see": True}, "metrics": {"secs": 1}}
@@ -132,15 +145,107 @@ assert runs[0]["journeys"][j1]["passed"] is True and runs[0]["journeys"][j1]["me
 assert A.judged(p.dir, b) == {}          # no judges area yet: judged metrics stay pending
 import types  # noqa: E402
 fake = types.ModuleType("judge")
-fake.verdict = lambda cwd, rub, subject: {"verdict": "pass" if subject == j1 else "incomplete", "score": 5 if subject == j1 else None,
-                                          "run_ids": ["r1", "r2", "r3"]}
+fake.verdict = lambda cwd, rub, subject, rubric_sha256=None: {
+    "verdict": "pass" if subject == j1 and rubric_sha256 == "a" * 64 else "blocked",
+    "score": 5 if subject == j1 else None, "run_ids": ["r1", "r2", "r3"]}
 sys.modules["judge"] = fake
 judged_b = dict(b, journeys=[{"journey_id": j1, "sha256": M.digest(judged)}])
 assert A.judged(p.dir, judged_b) == {j1: {"ux": {"value": 5, "refs": ["r1", "r2", "r3"]}}}
-fake.verdict = lambda cwd, rub, subject: {"verdict": "inconclusive", "score": None, "run_ids": []}
+fake.verdict = lambda cwd, rub, subject: {"verdict": "pass", "score": 5, "run_ids": []}
+assert A.judged(p.dir, judged_b) == {}                   # a judge that cannot check the pin: still pending
+fake.verdict = lambda cwd, rub, subject, rubric_sha256=None: {"verdict": "inconclusive", "score": None, "run_ids": []}
 assert A.judged(p.dir, judged_b) == {}                   # no agreed score: still pending
+fake.verdict = lambda cwd, rub, subject, rubric_sha256=None: {"verdict": "pass", "score": 10 ** 400, "run_ids": []}
+assert A.judged(p.dir, judged_b) == {}                   # a score no float holds is not a score
 del sys.modules["judge"]
 p.save("journey", j1, jd)
-ok("judged metrics stay pending until the judges area agrees a score (subject: the journey id), then re-scored")
+ok("judged metrics stay pending until the judges area agrees a score for the pinned rubric (subject: the journey id)")
+
+# 7) the gap list is computed from the journeys the baseline froze: an edited or hidden journey blocks
+p2 = Project(veto_window_h=0)
+r2 = p2.research(["c1"])
+k1 = p2.journey(p2.draft(r2))
+b2 = made(p2.run("baseline", "new", "--definition", "a first task in under 5 seconds"))
+assert p2.run("baseline", "measure", b2["baseline_id"]).returncode == 0
+assert p2.run("baseline", "confirm", b2["baseline_id"], "--by", "Adeel").returncode == 0
+st = made(p2.run("assess"))
+ev = made(p2.run("evaluate", st["state_id"]))
+assert ev["goal_met"] is False and p2.run("evaluate", "check", ev["eval_id"]).returncode == 0
+kd = p2.load("journey", k1)
+p2.save("journey", k1, dict(kd, pass_criteria=[c for c in kd["pass_criteria"] if c["id"] != "fast"]))
+r = p2.run("evaluate", st["state_id"])
+assert r.returncode == 2 and "is not the content baseline %s froze" % b2["baseline_id"] in r.stderr, r.stderr
+r = p2.run("evaluate", "check", ev["eval_id"])
+assert r.returncode == 2 and "is not the content baseline" in r.stderr, r.stderr
+kp = p2.path("journey", k1)
+os.rename(kp, kp + ".aside")
+r = p2.run("evaluate", st["state_id"])
+assert r.returncode == 2 and "journey %s is gone" % k1 in r.stderr, r.stderr
+os.rename(kp + ".aside", kp)
+p2.save("journey", k1, kd)
+assert p2.run("evaluate", "check", ev["eval_id"]).returncode == 0
+ok("evaluate reads the journeys as the baseline froze them: an edited or hidden journey blocks, never GOAL MET")
+
+# 8) every input is the content its record covers: state, baseline, goal; no shape or size crashes
+p3 = Project(veto_window_h=0)
+r3 = p3.research(["c1"])
+m1 = p3.journey(p3.draft(r3))
+b3 = made(p3.run("baseline", "new", "--definition", "a first task in under 5 seconds"))
+assert p3.run("baseline", "measure", b3["baseline_id"]).returncode == 0
+assert p3.run("baseline", "confirm", b3["baseline_id"], "--by", "Adeel").returncode == 0
+s3 = made(p3.run("assess"))
+assert M.newest(p3.dir, "state.assessed", M.rel(p3.dir, p3.path("state", s3["state_id"])))["data"]["sha256"] == s3["sha256"]
+e3 = made(p3.run("evaluate", s3["state_id"]))
+forged = dict(s3, state_id=M.new_id("state"))
+for run in forged["runs"]:
+    run["journeys"][m1]["passed"] = True
+M.seal(forged)
+p3.save("state", forged["state_id"], forged)
+r = p3.run("assess", "check", forged["state_id"])
+assert r.returncode == 2 and "no state.assessed record for this content" in r.stderr, r.stderr
+r = p3.run("evaluate", forged["state_id"])
+assert r.returncode == 2 and "no state.assessed record" in r.stderr, r.stderr
+ed = p3.load("eval", e3["eval_id"])
+doc = dict(ed, metrics=[dict(m, trend="better") for m in ed["metrics"]])
+M.seal(doc)
+p3.save("eval", e3["eval_id"], doc)
+r = p3.run("evaluate", "check", e3["eval_id"])
+assert r.returncode == 2 and "metrics does not follow" in r.stderr, r.stderr
+p3.save("eval", e3["eval_id"], ed)
+bd = p3.load("baseline", b3["baseline_id"])
+bad_b = json.loads(json.dumps(bd))
+for run in bad_b["measurements"]["runs"]:
+    run["journeys"][m1]["criteria"] = []
+p3.save("baseline", b3["baseline_id"], bad_b)
+r = p3.run("evaluate", s3["state_id"])
+assert r.returncode == 2 and "baseline %s is not the content its confirmation covers" % b3["baseline_id"] in r.stderr, r.stderr
+p3.save("baseline", b3["baseline_id"], {k: v for k, v in bd.items() if k != "journeys"})
+r = p3.run("evaluate", s3["state_id"])
+assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+p3.save("baseline", b3["baseline_id"], bd)
+gp = p3.path("goal", M.new_id("goal"))
+for targets, want in ((["%s#fast" % m1], "targets must be"), (5, "targets must be"), ([{"journey_id": m1}], "targets must be"),
+                      ([{"journey_id": m1, "criterion_id": "fastt"}], "which baseline %s does not freeze" % b3["baseline_id"])):
+    g = {"goal_id": os.path.basename(gp)[:-5], "status": "active", "created_at": M.now(), "targets": targets}
+    M.save(gp, g)
+    M.record(p3.dir, "goal.derived", M.rel(p3.dir, gp), "mission", sha256=M.digest(g))
+    r = p3.run("evaluate", s3["state_id"])
+    assert r.returncode == 2 and want in r.stderr and "Traceback" not in r.stderr, (targets, r.returncode, r.stderr[-300:])
+os.remove(gp)
+p3.app(seconds_to_first_task=9.0, working_steps=["open", "add"], tasks_shown=10 ** 400)
+r = p3.run("assess")
+assert r.returncode == 2 and "finite number" in r.stderr and "Traceback" not in r.stderr, r.stderr
+st = p3.load("state", s3["state_id"])
+for bad_run in ({"journeys": "x", "benchmarks": {}}, {"journeys": {m1: "x"}, "benchmarks": {}},
+                {"journeys": {m1: dict(st["runs"][0]["journeys"][m1], criteria=["x"])}, "benchmarks": {}}):
+    bad_s = dict(st, runs=[bad_run, bad_run])
+    M.seal(bad_s)
+    p3.save("state", s3["state_id"], bad_s)
+    for args in (["assess", "check", s3["state_id"]], ["evaluate", s3["state_id"]], ["evaluate", "check", e3["eval_id"]]):
+        r = p3.run(*args)
+        assert r.returncode == 2 and "Traceback" not in r.stderr, (bad_run, args, r.returncode, r.stderr[-300:])
+p3.save("state", s3["state_id"], st)
+assert p3.run("evaluate", "check", e3["eval_id"]).returncode == 0
+ok("a state needs its assess record, a baseline its confirmation, a goal its record and real targets; no shape crashes")
 
 print("mission-evaluate: %d checks passed" % PASS[0])

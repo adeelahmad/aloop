@@ -232,6 +232,10 @@ def problems(sdir, targets, root, doc=None):
         tasks = set(HEAD.findall(open(os.path.join(sdir, "tasks.md")).read())) if os.path.exists(
             os.path.join(sdir, "tasks.md")) else set()
     planned = {t.get("path") for t in targets if t.get("operation") == "create"}
+    # A symbol another target plans may be modified by a later task (live run 46: T2 extended
+    # src/main.rs with parse_args, T3 modified it; 4 planner blocks "not defined").
+    planned_syms = {(t.get("path"), t.get("planned_symbol"), t.get("change_ref")) for t in targets
+                    if t.get("planned_symbol")}
     for i, t in enumerate(targets):
         ref = t.get("change_ref", "")
         where = "%s (#%d)" % (ref or "target", i)
@@ -269,7 +273,8 @@ def problems(sdir, targets, root, doc=None):
             p.append("%s: %s targets %s, which is neither in the tree nor planned" % (where, op, path))
         elif exists and t.get("symbol"):
             line, _ = locate(root, path, t["symbol"])
-            if line is None:
+            if line is None and not any(pp == path and ps == t["symbol"] and pr != ref
+                                        for pp, ps, pr in planned_syms):
                 p.append("%s: symbol %s is not defined in %s" % (where, t["symbol"], path))
         elif op in NEEDS_REAL and not t.get("symbol") and not t.get("planned_symbol"):
             p.append("%s: %s needs a symbol (or a planned_symbol for extend)" % (where, op))
@@ -287,6 +292,9 @@ def resolve(t, root):
                                                         t.get("planned_symbol", ""), t.get("reason", ""))
     if t.get("symbol"):
         line, be = locate(root, t["path"], t["symbol"])
+        if line is None:                         # a symbol an earlier task plans (check allows only that)
+            return "%s %s %s %s (planned, shadow) — %s" % (t["change_ref"], t["operation"], t["path"],
+                                                            t["symbol"], t.get("reason", ""))
         return "%s %s %s:%s %s [%s] — %s" % (t["change_ref"], t["operation"], t["path"], line, t["symbol"], be,
                                              t.get("reason", ""))
     return "%s %s %s %s (new symbol in an existing file) — %s" % (

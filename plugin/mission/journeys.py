@@ -52,9 +52,12 @@ GA4_RESERVED_NAMES = frozenset((
     "app_store_subscription_cancel", "app_store_subscription_convert", "app_store_subscription_renew",
     "app_update", "app_upgrade", "dynamic_link_app_open", "dynamic_link_app_update", "dynamic_link_first_open",
     "error", "first_open", "first_visit", "in_app_purchase", "notification_dismiss", "notification_foreground",
-    "notification_open", "notification_receive", "os_update", "screen_view", "session_start", "user_engagement"))
+    "notification_open", "notification_receive", "os_update", "screen_view", "session_start", "user_engagement",
+    # also refused by the telemetry area (M9.6), which imports this list
+    "app_install", "notification_send", "session_start_with_rollout"))
 GATING = ("script", "judge")       # metric kinds a pass criterion may use
 LOOSER = {"<=": 1, "<": 1, ">=": -1, ">": -1}   # sign of a value change that loosens the criterion
+TIGHTER = {("<=", "<"), (">=", ">")}             # (old op, new op): the new one accepts less at the same value
 
 
 def jpath(cwd, jid):
@@ -111,10 +114,10 @@ def unretired(doc):
 
 
 def retired(cwd, path, doc):
-    """The journey.retired record that covers exactly this content, or None (a status field or a
-    retirement block alone proves nothing: neither is a record)."""
-    rec = M.newest(cwd, "journey.retired", M.rel(cwd, path))
-    return rec if rec and isinstance(doc.get("retirement"), dict) and rec["data"].get("sha256") == M.digest(doc) else None
+    """The journey.retired record of this journey, or None. The record decides: a status field or
+    a retirement block alone proves nothing, and editing a retired file never un-retires it
+    (problems() reports the edit)."""
+    return M.newest(cwd, "journey.retired", M.rel(cwd, path)) if path else None
 
 
 def pins(cwd):
@@ -123,20 +126,23 @@ def pins(cwd):
     and that plus every journey that replaced a pinned one, at the content its retirement recorded.
     Weakening or dropping a pinned journey needs a human."""
     frozen = {}
-    for _, b, _ in sorted(M.covered(cwd, "baseline", "baseline.confirmed"), key=lambda x: x[2]["ts"]):
-        for j in b.get("journeys") or []:
+    for rec in M.records(cwd, "baseline.confirmed"):     # the records' list: an edited baseline file unfreezes nothing
+        js = rec["data"].get("journeys")
+        if not isinstance(js, list):                      # a record written before confirmations carried it
+            b, _ = M.load(os.path.join(_paths.project(cwd), str(rec["data"].get("subject", ""))))
+            js = b.get("journeys") if isinstance(b, dict) else []
+        for j in js or []:
             if isinstance(j, dict) and isinstance(j.get("journey_id"), str):
                 frozen.setdefault(j["journey_id"], j.get("sha256"))
     pinned = dict(frozen)
-    docs = [(p, d) for p, d in all_journeys(cwd) if isinstance(d.get("journey_id"), str)]
+    rets = M.records(cwd, "journey.retired")             # the records, so hiding a file unpins nothing
     grew = True
     while grew:
         grew = False
-        for p, d in docs:
-            r = d.get("retirement") if isinstance(d.get("retirement"), dict) else {}
-            nxt = r.get("replaced_by")
-            if d["journey_id"] in pinned and isinstance(nxt, str) and nxt not in pinned and retired(cwd, p, d):
-                pinned[nxt] = r.get("replaced_by_sha256")
+        for r in rets:
+            jid, nxt = r["data"].get("journey_id"), r["data"].get("replaced_by")
+            if isinstance(jid, str) and jid in pinned and isinstance(nxt, str) and nxt not in pinned:
+                pinned[nxt] = r["data"].get("replaced_by_sha256")
                 grew = True
     return frozen, pinned
 
@@ -145,24 +151,57 @@ def lifecycle(cwd, path, doc, frozen=None):
     """What the records say a journey is: retired, active (a confirmed baseline froze it) or proposed."""
     if retired(cwd, path, doc):
         return "retired"
-    return "active" if doc.get("journey_id") in (pins(cwd)[0] if frozen is None else frozen) else "proposed"
+    jid = doc.get("journey_id")
+    return "active" if isinstance(jid, str) and jid in (pins(cwd)[0] if frozen is None else frozen) else "proposed"
+
+
+INLINE = ("-c", "-e", "--eval", "--command")       # flags that run code given in argv instead of a pinned file
 
 
 def runner_files(cwd, runner):
-    """{path: sha256} of the project files the runner's command names, plus any it lists in
-    `files`: the script is part of the measurement, so editing it is a new journey version."""
+    """({path: sha256}, problems) of the project files the runner's command names, plus any it
+    lists in `files`: the script is part of the measurement, so editing it is a new journey
+    version. A link (its target can change), inline code or a script outside the project could
+    change what is measured without changing a pinned file, so each is refused."""
     top = os.path.realpath(_paths.project(cwd))
-    names = [c for c in runner.get("command") or [] if isinstance(c, str)]
-    listed = runner.get("files") or []
-    names += [n for n in listed if isinstance(n, str)] if isinstance(listed, (list, dict)) else []
-    out, bad = {}, []
-    for n in names:
-        p = os.path.realpath(os.path.join(top, n))
-        if os.path.isfile(p) and p.startswith(top + os.sep):
+    cmd, listed, bad = runner.get("command"), runner.get("files"), []
+    if not isinstance(cmd, list) or not all(isinstance(c, str) for c in cmd):
+        return {}, ["runner.command must be an argv list of strings"]
+    if listed is not None and not isinstance(listed, (list, dict)):
+        return {}, ["runner.files must be a list of project paths"]
+    listed = [n for n in listed or [] if isinstance(n, str)]
+    bad += ["runner runs inline code (%s): put it in a project script, which is then pinned" % a for a in cmd[1:] if a in INLINE]
+    out = {}
+    for i, n in enumerate(cmd + listed):
+        p = os.path.abspath(os.path.join(top, n))
+        if not os.path.lexists(p):
+            if i >= len(cmd):
+                bad.append("runner.files names %s, which is not a file in the project" % n)
+            continue
+        if not p.startswith(top + os.sep):      # the program itself (/usr/bin/python3) is a tool, pinned by version
+            if i > 0 and os.path.isfile(p):
+                bad.append("runner names %s, outside the project: copy it into the project, where it is pinned" % n)
+        elif os.path.islink(p) or os.path.realpath(p) != p:
+            bad.append("runner names a symlink %s: name the script itself, so its content is what is pinned" % n)
+        elif os.path.isfile(p):
             out[os.path.relpath(p, top)] = _runner.file_sha(p)
-        elif n in listed:
-            bad.append("runner.files names %s, which is not a file in the project" % n)
     return out, bad
+
+
+def rubric_problems(cwd, mid, q):
+    """A judged metric pins its rubric's content (query.rubric_sha256), so a weaker rubric (a lower
+    pass mark, a dropped criterion) is a change to this journey that its approval does not cover."""
+    rdoc, _ = M.load(M.path_of(cwd, "rubric", q["rubric"]))
+    sha = M.digest(rdoc) if isinstance(rdoc, dict) else ""
+    if not q.get("rubric_sha256"):
+        return ["metric %s does not pin its rubric's content (query.rubric_sha256%s)"
+                % (mid, " = " + sha if sha else "")]
+    if not sha:
+        return ["metric %s names rubric %s, which does not exist" % (mid, q["rubric"])]
+    if q["rubric_sha256"] != sha:
+        return ["metric %s: rubric %s changed since this journey pinned it (re-pin it in a new journey version)"
+                % (mid, q["rubric"])]
+    return []
 
 
 def problems(cwd, path, doc, pin=None):
@@ -188,6 +227,8 @@ def problems(cwd, path, doc, pin=None):
         q = m["query"]
         if q.get("kind") == "judge" and not q.get("rubric"):
             out.append("metric %s is judged but names no rubric (query.rubric)" % m["id"])
+        elif q.get("kind") == "judge":
+            out += rubric_problems(cwd, m["id"], q)
         if q.get("kind") == "ga4" and not (q.get("report") or {}).get("metrics"):
             out.append("metric %s reads GA4 but its query.report names no metrics" % m["id"])
         out += ref_problems(cwd, m["source_refs"], "metric %s" % m["id"])
@@ -213,6 +254,14 @@ def problems(cwd, path, doc, pin=None):
     files = doc["runner"].get("files") or {}
     if not all(isinstance(v, str) and re.match(r"^[0-9a-f]{64}$", v) for v in files.values()):
         out.append("runner.files maps each path to the sha256 the harness pinned (mission journeys new)")
+    else:
+        want, fbad = runner_files(cwd, dict(doc["runner"], files=list(files)))
+        out += fbad
+        out += ["runner.files does not pin %s, which the command runs" % n for n in sorted(set(want) - set(files))]
+        if not files and not fbad:
+            out.append("runner.files is empty: the command names no project script, so nothing pins what it measures")
+        if not retired(cwd, path, doc):          # a retired journey is no longer measured
+            out += _runner.file_problems(files, _paths.project(cwd))
     if doc.get("supersedes"):
         old, _ = load(cwd, doc["supersedes"])
         if not isinstance(old, dict):
@@ -224,6 +273,9 @@ def problems(cwd, path, doc, pin=None):
     if jid in pinned and M.digest(unretired(doc)) != pinned[jid]:
         out.append("journey %s changed after it was %s: propose a new journey that supersedes it" % (
             jid, "frozen by a confirmed baseline" if jid in frozen else "recorded as a replacement"))
+    rec = retired(cwd, path, doc)
+    if rec and rec["data"].get("sha256") != M.digest(doc):
+        out.append("journey %s changed after it was retired (its journey.retired record covers other content)" % jid)
     life = lifecycle(cwd, path, doc, frozen)
     if doc.get("status") != life:
         out.append("journey %s says %s but its records say %s (the status field is not a record)"
@@ -394,16 +446,16 @@ def weakenings(old, new):
         elif c.get("steps") == "all":
             if n.get("steps") != "all":
                 out.append("criterion %s no longer requires every step" % c["id"])
-        elif n.get("metric") != c.get("metric") or n.get("op") != c.get("op"):
+        elif n.get("metric") != c.get("metric") or (n.get("op") != c.get("op") and (c.get("op"), n.get("op")) not in TIGHTER):
             out.append("criterion %s checks %s %s instead of %s %s" % (c["id"], n.get("metric"), n.get("op"),
                                                                        c.get("metric"), c.get("op")))
         elif n.get("value") != c.get("value"):
-            sign = LOOSER.get(c["op"])
-            looser = sign is None or not isinstance(n.get("value"), (int, float)) or \
+            sign = LOOSER.get(c.get("op"))
+            looser = sign is None or not all(isinstance(x, (int, float)) for x in (n.get("value"), c.get("value"))) or \
                 (n["value"] - c["value"]) * sign > 0
             if looser:
-                out.append("criterion %s is looser: %s %s %s instead of %s" % (c["id"], c["metric"], c["op"],
-                                                                            n.get("value"), c["value"]))
+                out.append("criterion %s is looser: %s %s %s instead of %s" % (c["id"], c.get("metric"), n.get("op"),
+                                                                            n.get("value"), c.get("value")))
     if new.get("runner") != old.get("runner"):
         out.append("the runner changed (command, pins or timeout): the old measurements no longer compare")
     return out
@@ -527,14 +579,20 @@ def cmd_list(cwd):
     return 0
 
 
-def parse(argv, multi=("evidence",)):
-    """Options and positionals; a multi-value flag takes every value up to the next --flag."""
-    o, pos, k = {}, [], None
+def parse(argv, multi=("evidence",), known=None):
+    """Options and positionals: --k=v is --k v; a multi-value flag takes every value up to the next
+    --flag; a flag outside `known` is listed in o["_unknown"], so the caller refuses it (exit 64)
+    instead of acting on less than the human typed."""
+    o, pos, k, args = {}, [], None, []
     for a in argv:
+        args += a.split("=", 1) if a.startswith("--") and "=" in a else [a]
+    for a in args:
         if a == "--json":
             o["json"], k = True, None
         elif a.startswith("--"):
             k = a[2:].replace("-", "_")
+            if known is not None and k not in known:
+                o.setdefault("_unknown", []).append(a)
             if k in multi:
                 o.setdefault(k, [])
         elif k in multi:
@@ -546,8 +604,22 @@ def parse(argv, multi=("evidence",)):
     return o, pos
 
 
+def unknown_flags(o, area):
+    """Exit 64 with one line per flag the area does not know (0 when there is none)."""
+    for a in o.get("_unknown", []):
+        print("mission %s: unknown flag %s (mission %s --help)" % (area, a, area), file=sys.stderr)
+    return 64 if o.get("_unknown") else 0
+
+
+FLAGS = ("from", "title", "persona", "evidence", "replaced_by", "by", "reason")
+
+
 def main(argv, cwd):
-    cmd, (o, pos) = argv[0], parse(argv[1:])
+    cmd, (o, pos) = argv[0], parse(argv[1:], known=FLAGS)
+    if unknown_flags(o, "journeys"):
+        return 64
+    if cmd in ("approve", "retire") and M.ledger_block(cwd, "journeys"):
+        return 2      # nothing decides from a broken ledger
     if cmd == "new":
         return cmd_new(cwd, o)
     if cmd == "check":
