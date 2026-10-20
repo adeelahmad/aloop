@@ -35,13 +35,22 @@ open(os.path.join(P, "docs", "agents", "mission", "mission.json"), "w").write("{
 open(os.path.join(P, "src", "app.py"), "w").write("x = 1\n")
 T1 = os.path.join(P, ".aladdin", "worktrees", "T1")
 subprocess.run(["git", "worktree", "add", "-q", "-b", "agentic/T1", T1], cwd=P, check=True, capture_output=True)
+# T2: a builder's worktree on a branch that tracks docs/agents/mission/ (the tracked layout), so a removal that
+# reaches it through an ancestor ("." included) has something to reach
+T2 = os.path.join(P, ".aladdin", "worktrees", "T2")
+subprocess.run(["git", "worktree", "add", "-q", "-b", "agentic/T2", T2], cwd=P, check=True, capture_output=True)
+for f in ("eval/evl_1.json", "ledger.jsonl", "mission.json"):
+    os.makedirs(os.path.dirname(os.path.join(T2, "docs", "agents", "mission", f)), exist_ok=True)
+    open(os.path.join(T2, "docs", "agents", "mission", f), "w").write("{}\n")
+for c in (["add", "-A"], ["commit", "-q", "-m", "mission"]):
+    subprocess.run(["git"] + c, cwd=T2, check=True, capture_output=True)
 
 E, S, PT, MP, ER = ("aloop:evaluator", "aloop:state-assessor", "aloop:product-tester", "aloop:mission-planner",
                     "aloop:market-researcher")
 G, SUP = "aloop:green-worker", ""
 MISSION = os.path.join(BIN, "mission")
 
-# (agent, cwd: P or T1, command, rc)
+# (agent, cwd: P, T1 or T2, command, rc)
 ROWS = [
     # ── the mission CLI behind an interpreter, a shell string, eval or xargs ──
     (MP, P, "python3 %s approve --by human" % MISSION, 2),
@@ -522,7 +531,7 @@ ROWS = [
     (S, P, "aladdin make the list faster", 2),
     (PT, P, "intent new --source prompt --raw x", 2),
     (MP, P, "aloop intent new --source mission --goal gol_x --gap g1 && aladdin intent check x.json", 0),
-    (E, P, "aladdin status; aloop intent check docs/agents/intents/int_x.json; aladdin --help; aladdin run", 0),
+    (E, P, "aladdin status; aloop intent summary docs/agents/intents/int_x.json; aladdin --help; aladdin run", 0),
     (E, P, "aladdin mission evaluate check evl_x", 0),
     # ── M9.42: the judge command is the supervisor's to set, never a role's or a builder's ──
     (E, P, "ALOOP_JUDGE_CMD='python3 /tmp/j.py --model {model}' aloop mission judge run rub_x --subject s", 2),
@@ -548,6 +557,175 @@ ROWS = [
     (E, P, "x=( a b c ); echo ${x[@]}", 0),
     (E, P, "x=( $(ls docs) ); echo ${#x[@]}", 0),
     (E, P, "time -p -- ls", 0),
+    # round 4: the rules
+    # ── find -exec: {} is a match under EVERY start path, and the text around it is kept (F5 regression) ──
+    (E, P, "find docs/agents/mission/eval src -name '*.py' -exec touch {}.x \\;", 2),
+    (E, P, "find -L docs/agents/mission/eval src -exec cp {} {}.bak \\;", 2),
+    (E, P, "find /tmp/x src -execdir touch result.bak \\;", 2),
+    (E, P, "find docs/agents/mission/eval -maxdepth 0 -exec cp /tmp/evil.py {}/../../../../src/app.py \\;", 2),
+    (E, P, "find docs/agents/mission/eval -name '*.json' -exec cp {} /tmp/bak/{} \\;", 0),
+    (E, P, "find docs/agents/mission/eval -name '*.json' -exec mv {} {}.old \\;", 0),
+    (PT, P, "find /tmp/rival src -name '*.log' -exec cat {} +; find /tmp/a /tmp/b -execdir touch r.bak \\;", 0),
+    # ── a {} is a match, not the start dir: find's -name tests bound what a removal of it reaches (over-block) ──
+    (SUP, P, "find . -type d -name node_modules -prune -exec rm -rf {} +", 0),
+    (SUP, P, "find . -name '*.log' -exec mv {} /tmp/logs/ \\;", 0),
+    (SUP, P, "rm -rf build dist; find . -name __pycache__ -prune -exec rm -rf {} +", 0),
+    (G, T2, "find . -name __pycache__ -exec rm -rf {} +; find . -name '*.orig' -exec rm {} +", 0),
+    (SUP, P, "find . -exec rm -rf {} +", 2),
+    (SUP, P, "find . -name '*.json' -exec rm {} +", 2),
+    (G, T2, "find . -name mission -exec rm -rf {} +", 2),
+    (SUP, P, "find docs -name '*.json' -exec mv {} /tmp/ \\;", 2),
+    # ── -o, ! and -not: find's -name tests no longer bound a removal (F5) ──
+    (SUP, P, "find . -name '*.pyc' -o -name '*.json' -delete", 2),
+    (SUP, P, "find . \\( -name '*.pyc' -o -name '*.json' \\) -delete", 2),
+    (SUP, P, "find . ! -name '*.pyc' -delete", 2),
+    (SUP, P, "find . -not -name '*.pyc' -type f -delete", 2),
+    (SUP, P, "find . -name '*.pyc' -delete; find . -name '*.pyc' -exec test ! -s {} \\; -print", 0),
+    # ── "." is the mission dir's ancestor in a builder's worktree too (F5) ──
+    (G, T2, "find . -name '*.json' -delete", 2),
+    (G, T2, "find . -type f -delete", 2),
+    (G, T2, "rm -rf .", 2),
+    (G, T1, "rm -rf .", 2),
+    (G, T2, "rsync -a --delete /tmp/clean/ ./", 2),
+    (G, T2, "find . -name '*.pyc' -delete; rm -rf build dist node_modules", 0),
+    (SUP, P, "rm -rf .aladdin/worktrees/T2 && git worktree prune", 0),
+    # ── an extract into the mission dir's parent: an archive's mission/ lands over it (F5) ──
+    (SUP, P, "tar xzf /tmp/snap.tgz -C docs/agents", 2),
+    (SUP, P, "unzip -o /tmp/snap.zip -d docs/agents", 2),
+    (G, T2, "cd docs/agents && tar xzf /tmp/snap.tgz", 2),
+    (SUP, P, "tar xzf /tmp/fixtures.tgz -C docs/agents/sprint1 && unzip -o /tmp/f.zip -d docs/agents/intents", 0),
+    # ── the supervisor's git: a removal that reaches the mission dir (F5 through git) ──
+    (SUP, P, "git rm -r -q docs/agents/mission", 2),
+    (SUP, P, "git rm docs/agents/mission/eval/evl_1.json", 2),
+    (SUP, P, "git rm -r --cached docs", 2),
+    (SUP, P, "git clean -fdx", 2),                                             # docs/agents/ is untracked here
+    (SUP, P, "git clean -fd", 2),
+    (SUP, P, "git stash -u --all", 2),
+    (SUP, P, "git stash push --include-untracked", 2),
+    (SUP, P, "git clean -fdx src; git clean -n; git stash; git rm -q src/old.py; git checkout -- docs/agents/mission/ledger.jsonl", 0),
+    (G, T2, "git clean -fdx; git stash -u", 0),                               # tracked there: clean and stash leave it
+    # ── a builder's pathspecs: through an ancestor, without `--`, and with pathspec magic (F11) ──
+    (G, T1, "git rm -r -q docs", 2),
+    (G, T1, "git rm -r -q docs/agents", 2),
+    (G, T1, "git rm -r -q .", 2),
+    (G, T1, "git checkout main -- docs/agents/", 2),
+    (G, T1, "git checkout main -- .", 2),
+    (G, T1, "git restore --source=main docs/", 2),
+    (G, T1, "git restore -s main -- .", 2),
+    (G, T1, "git checkout main docs/agents/mission/eval/evl_1.json", 2),
+    (G, T1, "git reset main docs/agents/mission/eval", 2),
+    (G, T1, "git stash push docs/agents/mission/eval", 2),
+    (G, T1, "git rm -r ':(glob)docs/agents/mission/**'", 2),
+    (G, T1, "git rm -r ':/docs/agents/mission'", 2),
+    (G, T1, "git mv docs/agents /tmp/agents", 2),
+    (G, T1, "git checkout -- .; git restore .; git reset -- .; git reset HEAD -- .; git checkout HEAD -- src", 0),
+    (G, T1, "git checkout main -- src/ && git restore --source=main src/app.py && git rm -r -q src/old", 0),
+    (G, T1, "git checkout feature; git stash push -m wip src/app.py; git rm -r ':!docs' src; git reset --hard origin/main", 0),
+    # ── mv -t and zip -m remove their sources; zip writes its archive (F6) ──
+    (S, P, "mv -t /tmp docs/agents/mission/ledger.jsonl", 2),
+    (E, P, "mv --target-directory=/tmp src/app.py", 2),
+    (E, P, 'mv -t "$WORK" docs/agents/mission/state/a.json', 2),
+    (E, P, "zip -m /tmp/s.zip src/app.py", 2),
+    (E, P, "zip -r src/x.zip /tmp/a", 2),
+    (E, P, "mv -t /tmp/b docs/agents/mission/eval/a.json; zip -r /tmp/s.zip src", 0),
+    # ── git merge-file writes its first file (F10) ──
+    (E, P, "git merge-file src/app.py /tmp/b /tmp/o", 2),
+    (E, P, "git merge-file -p src/app.py /tmp/b /tmp/o > /tmp/m.py", 0),
+    # ── clones, downloads and installs into the cwd (F9) ──
+    (PT, P, "gh repo fork rival/app --clone", 2),
+    (PT, P, "gh gist clone abc123", 2),
+    (PT, P, "gh run download 123 -R rival/app", 2),
+    (PT, P, "yarn", 2),
+    (PT, P, "pnpm add rival", 2),
+    (E, P, "pip install -t src/vendor rival", 2),
+    (PT, P, "gh pr checkout 12", 2),
+    (PT, P, "gh repo fork rival/app --clone=false; gh gist clone abc123 /tmp/g; gh run download 123 -D /tmp/run", 0),
+    (PT, P, "cd /tmp/r && yarn && bun install; pip install --user rival; yarn global add rival", 0),
+    # ── over-blocks: a wget that saves nothing, gh -O, a global npm install, pip wheel -w, format-patch --stdout ──
+    (ER, P, "wget --spider https://e.com/a.pdf", 0),
+    (ER, P, "wget --version", 0),
+    (ER, P, "wget --help | head", 0),
+    (ER, P, "wget -S --spider https://e.com 2>&1 | grep HTTP", 0),
+    (ER, P, "wget -o src/wget.log -O /tmp/a.pdf https://e.com/a.pdf", 2),
+    (PT, P, "gh release download v1 -R rival/app -O /tmp/x.tgz", 0),
+    (PT, P, "gh release download v1 -R rival/app -O src/x.tgz", 2),
+    (PT, P, "npm install -g rival@1.2.3; npm i --global rival; pnpm add -g rival", 0),
+    (PT, P, "pip wheel -w /tmp/w rival; pip wheel --wheel-dir=/tmp/w rival", 0),
+    (PT, P, "pip wheel rival", 2),
+    (E, P, "git format-patch -1 HEAD --stdout > /tmp/x.patch", 0),
+    (E, P, "git format-patch --stdout HEAD~1 | head", 0),
+    (E, P, "git format-patch -1 HEAD -o src/patches", 2),
+    # ── over-blocks: isort's read-only flags, dos2unix -n's input file, unzip with no archive ──
+    (S, P, "isort --check-only src/; isort -c src/; isort --diff src/", 0),
+    (S, P, "dos2unix -n src/a.py /tmp/a.py", 0),
+    (PT, P, "unzip", 0),
+    (E, P, "dos2unix -n /tmp/a src/a.py", 2),
+    (E, P, "isort src/", 2),
+    # ── in-place tools: the files they really rewrite (F12) ──
+    (E, P, "cat /tmp/x | sponge -a src/x", 2),
+    (E, P, "yq -i '.x = 1' src/c.yaml /tmp/other.yaml", 2),
+    (E, P, "ex src/app.py <<< '%s/a/b/g|x'", 2),
+    (E, P, "vim +'%s/a/b/g' +wq src/app.py", 2),
+    (E, P, "nvim --headless +'%s/a/b/g' +wq src/app.py", 2),
+    (E, P, "ruff check --fix", 2),
+    (E, P, "ruff format", 2),
+    (E, P, "gofmt -l -w src/", 2),
+    (E, P, "black -l 100 src/", 2),
+    (E, P, "eslint --fix src/", 2),
+    (E, P, "clang-format -i src/a.c", 2),
+    (E, P, "npx prettier@3 --write src/", 2),
+    (E, P, "pnpm dlx prettier --write src", 2),
+    (E, P, "npm exec -- prettier --write src", 2),
+    (E, P, "mktemp --tmpdir=src x.XXXX", 2),
+    (E, P, "split /tmp/big", 2),
+    (S, P, "gofmt -l src/; black --check -l 100 src/; ruff format --check; ruff check; eslint src/; clang-format --dry-run src/a.c", 0),
+    (S, P, "cat /tmp/x | sponge -a /tmp/y; yq '.x' src/c.yaml; vim --version; mktemp --tmpdir x.XXXX; split -l 9 /tmp/big /tmp/p_", 0),
+    (S, P, "npx prettier@3 --check src/; pnpm dlx prettier --check src; cd docs/agents/mission/state && ruff check --fix", 0),
+    # ── `aladdin <tool>` runs that aloop tool, and the aloop re-dispatch chain is followed (real-areas F5, X1, F19) ──
+    (E, P, "aladdin stats show", 0),
+    (E, P, "aladdin sweep docs/agents/sprint1", 0),
+    (E, P, "aladdin capabilities; aladdin ids; aladdin config get x", 0),
+    (E, P, "aladdin -x; aladdin --list; aloop aladdin status; aloop aloop mission status", 0),
+    (E, P, "aladdin intent new --source prompt --raw x", 2),
+    (E, P, "aloop aladdin intent new --source prompt --raw x", 2),
+    (G, T1, "aloop aladdin mission evaluate", 2),
+    (G, T1, "aloop aloop mission evaluate", 2),
+    (E, P, "aloop aloop events decide acceptance --reason ok --role human", 2),
+    (E, P, "agentic aladdin 'add dark mode'", 2),
+    # ── intake is the planner's: no other role checks or normalizes an intent, and no agent emits intake's events ──
+    (E, P, "aloop intent check docs/agents/intents/int_x.json", 2),
+    (S, P, "intent normalize docs/agents/intents/int_x.json", 2),
+    (ER, P, "aladdin intent check docs/agents/intents/int_x.json --mode autonomous", 2),
+    (E, P, "aloop events emit intent.normalized --role intake", 2),
+    (G, T1, "aloop events emit intent.received --role intake", 2),
+    (E, P, "aloop intent summary docs/agents/intents/int_x.json; intent --help", 0),
+    (MP, P, "aloop intent check docs/agents/intents/int_x.json --mode autonomous; intent normalize x.json", 0),
+    # ── M9.42: setting the judge command blocks; naming it as data does not ──
+    (G, T1, "git commit -m \"$(cat <<'EOF'\nM9.42: pin ALOOP_JUDGE_CMD to the supervisor\nEOF\n)\"", 0),
+    (G, T1, "bash -c 'grep -rn ALOOP_JUDGE_CMD plugin | wc -l'", 0),
+    (G, T1, "python3 -c 'import sys; print(\"ALOOP_JUDGE_CMD\" in open(\"plugin/mission/judge.py\").read())'", 0),
+    (G, T1, "python3 -c 'import os; print(os.environ.get(\"ALOOP_JUDGE_CMD\", \"\"))'", 0),
+    (E, P, "read -r line < /tmp/x; printf -v out '%s' \"$line\"; declare -n ref=out; mapfile -t rows < /tmp/x", 0),
+    (E, P, "echo x | xargs -I{} env ALOOP_JUDGE_CMD={} aloop mission judge run rub_x", 2),
+    (E, P, "set -a; read -r ALOOP_JUDGE_CMD <<< 'python3 /tmp/j.py --model {model}'; aloop mission judge run rub_x", 2),
+    (E, P, "set -a; printf -v ALOOP_JUDGE_CMD '%s' 'x {model}'; aloop mission judge run rub_x", 2),
+    (E, P, "declare -n r=ALOOP_JUDGE_CMD; r='x {model}'; export r; aloop mission judge run rub_x", 2),
+    (G, T1, "mapfile -t ALOOP_JUDGE_TIMEOUT < /tmp/t", 2),
+    (G, T1, "let ALOOP_JUDGE_TIMEOUT=9", 2),
+    (E, P, "perl -e '$ENV{ALOOP_JUDGE_CMD}=\"x {model}\"; exec qw(aloop mission judge run rub_x)'", 2),
+    (E, P, "awk 'BEGIN{ENVIRON[\"ALOOP_JUDGE_CMD\"]=\"x\"; system(\"aloop mission judge run rub_x\")}'", 2),
+    (G, T1, "python3 -c 'import os; os.putenv(\"ALOOP_JUDGE_CMD\", \"x\")'", 2),
+    (G, T1, "python3 -c 'import os, subprocess; subprocess.run([\"aloop\"], env={**os.environ, \"ALOOP_JUDGE_CMD\": \"x\"})'", 2),
+    (G, T1, "bash -c 'export ALOOP_JUDGE_TIMEOUT=1; aloop mission status'", 2),
+    # ── the bounds that keep judging linear (hook timeout 15 s): a find too large, a climb too deep, too many asks ──
+    (G, T1, "find %s %s" % (" ".join("d%d" % i for i in range(400)), " ".join("-exec touch {}/a%d \\;" % i
+                                                                             for i in range(300))), 2),
+    (SUP, P, "find %s %s" % (" ".join("d%d" % i for i in range(20)), " ".join("-exec touch {}/a%d \\;" % i
+                                                                            for i in range(5))), 0),
+    (SUP, P, "find src -exec cp /tmp/x {}%s/a \\;" % ("/.." * 33), 2),
+    (G, T1, "find src -exec cp /tmp/x {}%s/a \\;" % ("/.." * 32), 0),
+    (G, T2, "; ".join("git clean -fd -e a%d ." % i for i in range(17)), 2),
+    (G, T2, "; ".join("git clean -fd -e a%d ." % i for i in range(16)) + "; git clean -fd -e a0 .", 0),
 ]
 
 
@@ -570,5 +748,10 @@ for b in bad:
 assert not bad, "%d of %d rows wrong" % (len(bad), len(ROWS))
 print("ok - %d Bash commands judged as a shell reads them (%d blocked, %d allowed)"
       % (len(ROWS), sum(1 for r in ROWS if r[3] == 2), sum(1 for r in ROWS if r[3] == 0)))
-print("\n1 checks passed")
+
+# Python 3.13 deprecates a positional maxsplit; a later Python would raise, and the gate would fail closed on every export
+r = run(E, P, "export FOO=1; declare -x BAR=2")
+assert r.returncode == 0 and "Warning" not in r.stderr, r.stderr
+print("ok - an export is judged without a Python warning")
+print("\n2 checks passed")
 sys.exit(0)
