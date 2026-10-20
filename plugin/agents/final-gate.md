@@ -13,8 +13,8 @@ matrix is green with zero suppressions and every plan-ready.md fully ticked.
 
 ## Mandate
 - Run the full cross-cutting gate matrix from standards.md, zero exceptions.
-- Zero test suppressions, as the gate defines them: `#[ignore]`, `.skip(`, `xit(`,
-  `#[cfg(not(test))]` in Rust; `@pytest.mark.skip`, `@pytest.mark.xfail`, `pytest.skip(`,
+- Zero test suppressions, as the gate defines them: `#[ignore]` (with or without a reason),
+  `#[cfg(not(test))]` in Rust (an iterator's `.skip(n)` is not one); `@pytest.mark.skip`, `@pytest.mark.xfail`, `pytest.skip(`,
   `@unittest.skip`, `t.Skip(`, `.skip(`, `xit(`, `xdescribe(` in Python, Go and JS/TS.
   `selfcheck final-gate` runs that check; its verdict is the answer.
   Do not fail the sprint on any other pattern: an `#[allow(dead_code)]` in `tests/common/`
