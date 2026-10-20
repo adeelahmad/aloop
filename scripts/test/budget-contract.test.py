@@ -13,7 +13,11 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+from plan_fixture import approve_plan  # noqa: E402
 
 BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin")
 T = tempfile.mkdtemp(prefix="aloop-contract-")
@@ -91,6 +95,7 @@ open(os.path.join(story, "init.md"), "w").write(kept)
 assert budget("S1-01-T1", "--role", "red-worker", "--story", story).returncode == 0 and ini(story) == kept
 ok("init.md gets its 'type: init' frontmatter: created, or put on top of a file without one; never rewritten")
 
+approve_plan(T, ENV, 1)     # the human's go on sprint 1 (M0.9)
 gate = subprocess.run([os.path.join(BIN, "gate-dispatch")], cwd=T, env=ENV, capture_output=True, text=True, input=json.dumps(
     {"session_id": "s", "cwd": T, "tool_name": "Agent", "tool_input": {
         "subagent_type": "aloop:red-worker", "prompt": "TASK_ID: S1-01-T2\nDo RED.", "isolation": "worktree", "model": "haiku"}}))

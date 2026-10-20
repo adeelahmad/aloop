@@ -10,12 +10,16 @@ import atexit
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+from plan_fixture import approve_plan  # noqa: E402
 
 GATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin", "gate-dispatch")
 T = tempfile.mkdtemp(prefix="aloop-dispatch-")
 atexit.register(shutil.rmtree, T, ignore_errors=True)
-ENV = {k: v for k, v in os.environ.items() if k != "SKIP_HOOKS"}
+ENV = {k: v for k, v in os.environ.items() if k not in ("SKIP_HOOKS", "AGENTIC_HOST")}
 n = 0
 
 
@@ -40,6 +44,7 @@ os.makedirs(os.path.join(T, ".aladdin", "state", "tasks"))
 os.makedirs(os.path.join(T, "docs", "agents"))
 open(os.path.join(T, "docs", "agents", "defaults.md"), "w").write(
     "---\ntype: agentic-defaults\n---\n```conf\nAGENTIC_MODEL_PLANNING=haiku\nAGENTIC_MODEL_WORKER=haiku\n```\n")
+approve_plan(T, ENV, 1)     # the human approved sprint 1's plan (M0.9; plan-approval.test.py checks that gate)
 
 r = run("aloop:green-worker", "TASK_ID: S1-01-T1\nDo GREEN.")
 assert r.returncode == 2 and "S1-01-T1.env" in r.stderr, r

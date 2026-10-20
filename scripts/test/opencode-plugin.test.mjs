@@ -7,6 +7,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import assert from "node:assert/strict"
+import { approvePlan } from "./fixtures/plan-fixture.mjs"
 
 const ROOT = join(fileURLToPath(import.meta.url), "..", "..", "..", "plugin")
 const BIN = join(ROOT, "bin")
@@ -217,6 +218,17 @@ const badOut = { title: "", output: "done", metadata: { sessionId: "itk" } }
 await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "i2", args: {} }, badOut)
 assert.ok(/BLOCKED after 3 fix rounds/.test(badOut.output) && /is invalid/.test(badOut.output) && calls.prompt.length - before === 3, badOut.output)
 ok("a malformed Intent Contract still re-prompts the intake, then reports it BLOCKED")
+// dispatch (the task tool) runs gate-dispatch: the TASK_ID line, the task contract, then the human's plan
+// approval (ROADMAP M0.9); OpenCode names no model per call (the agent file pins it)
+const task = (id, prompt, sessionID = "root") => hooks["tool.execute.before"]({ tool: "task", sessionID, callID: id },
+  { args: { subagent_type: "green-worker", description: "GREEN", prompt } })
+await throws(() => task("d1", "go green"), /BLOCK\[dispatch\].*TASK_ID: <id>/s, "OpenCode task: a worker dispatch without its TASK_ID line is refused")
+mkdirSync(join(T, ".aladdin/state/tasks"), { recursive: true })
+writeFileSync(join(T, ".aladdin/state/tasks/S1-01-T2.env"), `TASK_ID=S1-01-T2\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=${join(T, "docs/agents/sprint1/s1-01-x")}\n`)
+await throws(() => task("d2", "TASK_ID: S1-01-T2\nGREEN"), /has not approved the plan of S1/, "OpenCode task: no worker is dispatched before the human approves the sprint's plan")
+approvePlan(T, BIN)
+await task("d3", "TASK_ID: S1-01-T2\nGREEN"); ok("OpenCode task: after the human's typed approval the dispatch is admitted")
+await task("d4", "TASK_ID: S2-01-T1\nGREEN", "child"); ok("OpenCode task: a sub-agent's own task call is not gate-dispatch's")
 
 // Stop: a closed sprint is announced once (toast + prompt back into the session)
 mkdirSync(join(T, ".aladdin/state"), { recursive: true })

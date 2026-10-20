@@ -47,7 +47,10 @@ The model can ignore a skill; it cannot ignore an exit code.
    - `standards` produces a cited coding standard;
    - `planner` writes the sprint contract and, per story, the semantic plan `targets.json`
      (tasks, tests, change targets) from which `tasks.md` / `validate.md` / `plan.md` are rendered.
-   The supervisor then **stops for approval**.
+   The supervisor then **stops for approval**, and that stop is a gate: `gate-dispatch` starts no
+   worker until the human types the `approve SN <code>` line naming this exact plan, and a changed plan
+   needs a new line; or they grant the sprint autonomy (`autonomous SN <code>`, or an approved
+   autonomous mission), which covers its re-plans (M0.9).
 3. **Execution** — human absent. For each task, a worker runs in its own git worktree:
    - **RED** writes tests that must fail *by assertion* and touch no production code;
    - **SCAFFOLD** creates each planned symbol exactly once, as a stub;
@@ -75,7 +78,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 | Pipeline source | [`plugin/pipeline/`](../plugin/pipeline/) | Per activity: `persona.md`, `init.template.md`, `artifacts.md`, `gate.md` |
 | Hook wiring | [`plugin/hooks/hooks.json`](../plugin/hooks/hooks.json) | SessionStart, PreToolUse, PostToolUse, SubagentStart/Stop, Stop, UserPromptSubmit (transcript capture and the natural-language auto-trigger, `intent-trigger`) |
 | Gates | [`plugin/bin/gate-*`](../plugin/bin/README.md) | 18 gates (15 bash; `gate-commit-author` and the mission layer's `gate-mission-scope` role path guards and `gate-mission-artifact` stop check in Python), 16 wired to hooks (`gate-plan-shape` and `gate-ledger-format` are standalone checkers); exit `0` pass, `2` block with reason |
-| Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `aladdin` / `aloop` (entry points), `intent`, `budget` (time box, envelope, breach classes), `sweep` (the orchestrator loop), `targets` (semantic plan, shadow workspace, render), `ids`, `events` (audit stream, lineage, trace), `stats` (ledger, metrics, handoff), `models` / `host` / `config` (routes, HostAdapter, portable config), `transcripts`, `intent-trigger` (natural-language auto-trigger), `run-summary` (a live run's measured record for `docs/evidence/`), `install`, `aloop-init`, worktree helpers |
+| Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `aladdin` / `aloop` (entry points), `intent`, `budget` (time box, envelope, breach classes), `stop` (one stop for the whole project, M10.4), `deps` and `secrets` (the supply-chain and secret gates, M10.2), `sweep` (the orchestrator loop), `targets` (semantic plan, shadow workspace, render), `ids`, `events` (audit stream, lineage, trace), `stats` (ledger, metrics, handoff), `models` / `host` / `config` (routes, HostAdapter, portable config), `transcripts`, `intent-trigger` (natural-language auto-trigger), `run-summary` (a live run's measured record for `docs/evidence/`), `install`, `aloop-init`, worktree helpers |
 | Schemas | [`plugin/schemas/*.kdl`](../plugin/schemas/) | What `md-db validate` enforces on every planning and comms artifact |
 | `ctx-symbols` | [`plugin/tools/ctx-symbols/`](../plugin/tools/ctx-symbols/) | Rust, tree-sitter symbol resolver (Rust, Python, JS/TS, Go): count, locate, conflicts |
 | `md-db` | [`plugin/tools/md-db/`](../plugin/tools/md-db/) | Vendored Rust markdown-as-database validator (AGPL-3.0 subtree) |

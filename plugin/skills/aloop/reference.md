@@ -68,6 +68,10 @@ again. Instead:
 4. **Re-validate:** `gate-stage2-complete docs/agents/sprintN` must pass again. Log
    `replan SN-NN complete Tn`.
 5. **Resume** the sprint: dispatch the new tasks (from RED) and continue the loop.
+   Reviewed mode: the re-plan changed the plan, so `gate-dispatch` blocks every dispatch of the
+   sprint until the human approves the new plan: run `events authority … --sprint N` again and
+   relay the `approve SN <code>` line it asks for (ROADMAP M0.9). An autonomous grant for the
+   sprint covers its re-plans.
 
 ### Breach classes (classify before you split)
 
@@ -148,7 +152,8 @@ All of these are on PATH — call them by bare name.
 - Real isolation = the global store is never staged into the worktree. The read-only
   chmod is the softer "not yours to write" signal (defeatable, but it errors loudly).
 - Retention: everything is kept (no auto-compaction). `transcripts prune` is a manual,
-  opt-in cap (`AGENTIC_TRANSCRIPTS_KEEP=<n>`) if disk gets tight.
+  opt-in cap (`AGENTIC_TRANSCRIPTS_KEEP=<n>`) if disk gets tight; it keeps the human's prompts,
+  which their grants cite.
 
 ## Worktree hygiene (bin/worktree-hygiene)
 - SubagentStart (exec roles) sparse-checkout-excludes `docs/agents/` from the new

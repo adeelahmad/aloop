@@ -8,7 +8,11 @@ lineage query for a task: worktree → limits/gates → merged or discarded.
 import json
 import os
 import subprocess
+import sys
 import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+from mission_fixture import as_human  # noqa: E402
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
 BIN = os.path.join(ROOT, "bin")
@@ -97,8 +101,14 @@ ok("events lineage / query answer from the stream alone")
 # 6) authority + decisions: a decision without an authority is refused; with one it links
 r = run(EV, "decide", "split", "--task", "S1-02-T3", "--reason", "too large")
 assert r.returncode == 64 and "no authority" in r.stderr, r.stderr
-auth = sh(EV, "authority", "--initiated-by", "adeel", "--mode", "autonomous", "--scope", "sprint 1 as approved",
-          "--override", "TOKENS_HARD=300000")
+AUTH = (EV, "authority", "--initiated-by", "adeel", "--mode", "autonomous", "--scope", "sprint 1 as approved",
+        "--override", "TOKENS_HARD=300000")
+assert run(*AUTH).returncode == 64                         # autonomy names its sprint (M0.9)
+assert run(*AUTH, "--sprint", "1").returncode == 3         # and is the human's typed line
+os.makedirs(os.path.join(T, "docs", "agents"), exist_ok=True)   # an aloop project: its hook captures the human's prompts
+r = as_human(lambda: run(*AUTH, "--sprint", "1"), T, ENV)
+assert r.returncode == 0, r.stderr
+auth = r.stdout.strip()
 assert run(EV, "authority", "--initiated-by", "x", "--mode", "yolo", "--scope", "s").returncode == 64
 a = json.load(open(os.path.join(T, ".aladdin", "state", "authority.json")))
 assert a["event_id"] == auth and a["autonomy_mode"] == "autonomous" and a["overrides"] == {"TOKENS_HARD": "300000"}

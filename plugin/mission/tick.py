@@ -14,6 +14,7 @@
 The loop is IBM's autonomic MAPE-K over docs/agents/mission/: monitor (ASSESS), analyze
 (EVALUATE), plan (DERIVE_GOAL, PLAN_INTENTS), execute (SPRINT). Actions, first match wins:
 
+  STOPPED           human               the human stopped the project (`aloop stop`, M10.4); they clear it
   SET_MISSION       human               no mission, or mission.json is invalid
   CONFIRM_MISSION   human               the mission's current content has no human approval
   STOP_BUDGET       human               spend since the mission was set reached a cap, or the deadline passed
@@ -84,6 +85,7 @@ sys.path.insert(0, HERE)
 import _events  # noqa: E402
 import _mission as M  # noqa: E402
 import _paths  # noqa: E402
+import _stop  # noqa: E402
 import baseline as B  # noqa: E402
 import ethics as E  # noqa: E402
 import evaluate as EV  # noqa: E402
@@ -91,7 +93,7 @@ import journeys as J  # noqa: E402
 
 NO_ARGS = True            # `mission tick` with no arguments runs (plugin/bin/mission run_area)
 ROLES = {
-    "SET_MISSION": ("human", []), "CONFIRM_MISSION": ("human", []), "STOP_BUDGET": ("human", []),
+    "STOPPED": ("human", []), "SET_MISSION": ("human", []), "CONFIRM_MISSION": ("human", []), "STOP_BUDGET": ("human", []),
     "ETHICS_REVIEW": ("role", ["ethics-reviewer"]), "BLOCKED": ("human", []), "ASK_CONSENT": ("human", []),
     "RESEARCH": ("role", ["market-researcher"]), "DEFINE_JOURNEYS": ("role", ["market-researcher"]),
     "BASELINE": ("role", ["state-assessor", "product-tester"]), "CONFIRM_BASELINE": ("human", []),
@@ -479,6 +481,11 @@ def act(action, reason, subject="", next_check=None, grant=None, pin=None, bind=
 def rules(f):
     now, mode, cad = f["now"], f["mission"].get("mode"), f["cadence"]
     rc, probs, _ = f["check"]
+    stopped = _stop.read(f["cwd"])
+    if stopped:
+        return act("STOPPED", "the human stopped the project (%s, at %s): nothing runs until they resume it "
+                              "with `aloop stop --clear` in their own terminal"
+                   % (stopped.get("reason") or "no reason given", stopped.get("at") or "?"), pin=stopped.get("at"))
     if not f["mission_exists"]:
         return act("SET_MISSION", 'no mission yet: the human sets one (aloop mission init "<mission>" --mode … '
                                   "--budget-usd N)")

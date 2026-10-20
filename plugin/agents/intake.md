@@ -27,6 +27,10 @@ planning start on an ambiguous scope.
   security-sensitive or changes the intent → ask the human, record the `answer`),
   `spike` (unknown but testable → name the `spike_task`). Then `intent check <file>`;
   `intent summary <file>` gives the lines for the approval summary.
+  A mission sprint already has its contract: when `aloop mission goal next` handed one off (the
+  newest `docs/agents/intents/int_*.json` has `"source": "mission"` and no plan yet), review that file
+  and `intent check` it; never `intent new` over it, or the plan no longer serves the mission's
+  intent and its autonomy does not cover the sprint (ROADMAP M0.9).
 
 ## Tools
 Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbols`,

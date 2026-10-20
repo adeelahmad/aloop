@@ -22,6 +22,7 @@ import { tmpdir } from "node:os"
 import { delimiter, dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import assert from "node:assert/strict"
+import { approvePlan } from "./fixtures/plan-fixture.mjs"
 
 const HERE = join(fileURLToPath(import.meta.url), "..")
 const ROOT = join(HERE, "..", "..", "plugin")
@@ -71,6 +72,7 @@ mkdirSync(join(P, ".aladdin/state/tasks"), { recursive: true })
 // time soft limit 0 min: the soft-stop is due at the worker's first metered tool call
 writeFileSync(join(P, ".aladdin/state/tasks/S1-01-T1.env"), `TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=${story}\nBUDGET_TIME_SOFT_MIN=0\n`)
 const wt = sh(join(BIN, "task-worktree"), ["add", "S1-01-T1"]).trim()
+approvePlan(P, BIN, 1, env)             // the human's go on sprint 1 (M0.9): gate-dispatch admits nothing before it
 
 const red = "TASK_ID: S1-01-T1\nYour worktree: " + wt + ". First command: `aloop bind " + wt + "`."
 // the Scout's sourced report, with the harness's own commands: a saved page archived, one claim quoting it
