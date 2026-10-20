@@ -683,17 +683,17 @@ ok("cadence: re-assess mid-sprint, act at the close; a met goal raises the bar a
 p = Project().init()
 cleared(p)
 gid, gdoc = active_goal(p, 1.2, at=(1, 1.1))
+rc, out, err = p.at_clock(1.25, "goal", "intents", gid)                     # real intents: `goal next` checks them
+assert rc == 0, err
+i1, i2 = [json.load(open(f))["intent_id"] for f in out.split()]
 p.event("plan.created", 0.5, sprint="S1")                                  # an older sprint is not this goal's
-expect(p.tick(1.3), "SPRINT", 0, "no sprint was planned")
+expect(p.tick(1.3), "SPRINT", 0, "intent %s is not sprinted yet" % i1)
 lock = os.path.join(p.dir, ".aladdin", "state", "sprint.lock")
 os.makedirs(os.path.dirname(lock), exist_ok=True)
 open(lock, "w").write("s\n")
 os.utime(lock, (p.at(1.4) / 1000, p.at(1.4) / 1000))
 expect(p.tick(1.5), "WAIT", 4, "being planned")
 os.remove(lock)
-rc, out, err = p.at_clock(1.6, "goal", "intents", gid)                      # real intents: `goal next` checks them
-assert rc == 0, err
-i1, i2 = [json.load(open(f))["intent_id"] for f in out.split()]
 p.event("plan.created", 1.7, sprint="S2", intent_id=i1)
 expect(p.tick(1.8), "WAIT", 4, "sprint 2")
 expect(p.tick(14), "BLOCKED", 2, "no activity")                            # 12h without a sign of life
@@ -1455,11 +1455,23 @@ s = Project().init()                                                       # SPR
 cleared(s)
 gid, gdoc = s.goal(1.2)
 s.review(s.ref("goal", gid), gdoc, "clear", 1.2)
+gp = M.path_of(s.dir, "goal", gid)
+json.dump(dict(s.load("goal", gid), status="active"), open(gp, "w"))      # active, with no intent recorded
+r = s.mi("goal", "next", gid)
+assert r.returncode == 1 and "no intent of %s is recorded" % gid in r.stderr, (r.returncode, r.stderr)
+d = s.tick(1.22, "--peek")
+expect(d, "BLOCKED", 2, "no intent of %s is recorded" % gid)               # nothing to hand out: not SPRINT 3 times
+json.dump(dict(s.load("goal", gid), status="derived"), open(gp, "w"))
 rc, out, err = s.at_clock(1.25, "goal", "intents", gid)
 assert rc == 0, err
 ia, ib = out.split()[:2]
+normalized = lambda: [e for e in s.events() if e["event"] == "intent.normalized"]  # noqa: E731
+n0 = len(normalized())
 expect(s.tick(1.3, "--peek"), "SPRINT", 0, "aloop mission goal next %s" % gid)
-gp = M.path_of(s.dir, "goal", gid)
+expect(s.tick(1.3), "SPRINT", 0, "aloop mission goal next %s" % gid)
+assert s.due(1.3)["action"] == "SPRINT"
+assert len(normalized()) == n0, normalized()                              # a decision is no intake: `ids freeze`
+                                                                           # links a plan to the newest intent.normalized
 json.dump(dict(s.load("goal", gid), status="retired"), open(gp, "w"))      # a status no record says
 d = s.tick(1.31, "--peek")
 expect(d, "BLOCKED", 2, "%s is retired, which no ledger record says" % gid)
@@ -1471,6 +1483,10 @@ assert r.returncode == 3, (r.returncode, r.stderr)                         # onl
 d = s.tick(1.32, "--peek")
 expect(d, "BLOCKED", 2, "the human answers it")                            # not SPRINT 3 times, then no cause
 assert os.path.basename(ia)[:-5] in d["reason"], d["reason"]
+json.dump(dict(doc, open_questions=[{"question": "Keep the old list?", "class": ["ask"]}]), open(ia, "w"))
+r = s.mi("goal", "next", gid)                                              # a contract of the wrong shape
+assert r.returncode == 2 and "fails on it" in r.stderr, (r.returncode, r.stderr)  # named, not "every intent has a plan"
+expect(s.tick(1.325, "--peek"), "BLOCKED", 2, "the planner fixes it")
 json.dump(doc, open(ia, "w"))
 s.event("plan.created", 1.33, sprint="S1", intent_id=json.load(open(ib))["intent_id"])
 s.sprint_closed(1, 1.34)

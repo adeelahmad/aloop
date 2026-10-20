@@ -165,16 +165,18 @@ def load(path):
         return None, str(e)
 
 
-def cmd_check(cwd, path, mode="reviewed"):
+def verdict(cwd, path, mode="reviewed"):
+    """`intent check` without its event: (exit 0 · 2 · 3, the contract), the reasons on stderr. `mission
+    tick` and `due` ask it in process, so a decision that records nothing emits no `intent.normalized`."""
     doc, err = load(path)
     if doc is None:
         print("BLOCK[intent]: cannot read %s: %s" % (path, err), file=sys.stderr)
-        return 2
+        return 2, None
     bad = problems(doc, path)
     for b in bad:
         print("BLOCK[intent]: %s" % b, file=sys.stderr)
     if bad:
-        return 2
+        return 2, doc
     if doc.get("source") == "mission":
         prov = doc["provenance"]
         rec = [e for e in _events.read(cwd) if e.get("event") == "intent.received"
@@ -183,17 +185,24 @@ def cmd_check(cwd, path, mode="reviewed"):
         if d.get("source") != "mission" or (d.get("goal_id"), d.get("gap_id")) != (prov["goal_id"], prov.get("gap_id")):
             print("BLOCK[intent]: provenance (goal %s, gap %s) is not what its intent.received recorded (goal %s, gap %s)"
                   % (prov["goal_id"], prov.get("gap_id"), d.get("goal_id"), d.get("gap_id")), file=sys.stderr)
-            return 2
+            return 2, doc
         rc = mission_gate(cwd, prov["goal_id"], prov.get("gap_id"), mode)
         if rc:
-            return rc
+            return rc, doc
     asks = unanswered(doc)
     if asks:
         for q in asks:
             print("ASK[intent]: %s" % one_line(q), file=sys.stderr)
         print("intent: %d question(s) need the human (irreversible, security-sensitive or intent-changing) — "
               "%s mode does not proceed past them." % (len(asks), mode), file=sys.stderr)
-        return 3
+        return 3, doc
+    return 0, doc
+
+
+def cmd_check(cwd, path, mode="reviewed"):
+    rc, doc = verdict(cwd, path, mode)
+    if rc:
+        return rc
     _events.emit(cwd, "intent.normalized", role="intake", refs={"intent": path}, intent_id=doc["intent_id"], mode=mode)
     print("[intent] %s ok (%s mode)" % (doc["intent_id"], mode), file=sys.stderr)
     return 0

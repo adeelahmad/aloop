@@ -776,8 +776,8 @@ def goal_rule(f, g, mode, now, cad):
 def goal_refused(f, g, cmd):
     """BLOCKED naming why `aloop mission goal CMD` refuses goal g, or None (ROADMAP M9.53): the loop hands
     out a goal's command only when the gate takes it (`intents`: `goal check`; `next`: that, the goal's
-    status and its next intent's `intent check`), so a handout never repeats into a BLOCKED that names
-    no cause."""
+    status, a next intent at all and its `intent check`), so a handout never repeats into a BLOCKED that
+    names no cause."""
     import goal as G          # noqa: E402 — the gate's own rule
     if cmd == "next":
         n = G.next_intent(f["cwd"], g["id"])
@@ -785,7 +785,7 @@ def goal_refused(f, g, cmd):
     else:
         rc, blocks, asks, _ = G.check(f["cwd"], g["id"])
         probs = blocks + asks
-    if rc not in (2, 3):
+    if not rc:
         return None
     return act("BLOCKED", "goal %s: `mission goal %s` refuses it (%s): the human looks (aloop mission goal check %s)"
                % (g["id"], cmd, "; ".join(probs[:2]), g["id"]), g["ref"],

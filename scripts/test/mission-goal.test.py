@@ -268,8 +268,19 @@ r = p.run("goal", "close", gid, "--eval", e3["eval_id"])
 assert r.returncode == 0 and len(p.events("goal.met")) == 1, r.stderr   # already met: no second goal.met
 met = p.load("goal", gid)
 json.dump(dict(met, status="active"), open(gpath, "w"))                  # a stop after the record, before the status
+log = open(_events.path(p.dir)).read().splitlines(True)
+s2 = [x for x in log if json.loads(x).get("event") == "plan.created" and json.loads(x)["data"].get("sprint") == "S2"]
+assert len(s2) == 1, s2
+open(_events.path(p.dir), "w").writelines(x for x in log if x not in s2)  # its second intent is unplanned again
 r = p.run("goal", "next", gid)
 assert r.returncode == 2 and "is met (its goal.met record)" in r.stderr, r.stderr   # the record decides
+after = open(_events.path(p.dir)).read().splitlines(True)
+open(_events.path(p.dir), "w").writelines(log + after[len(log) - 1:])
+lp, ledger = M.ledger(p.dir), open(M.ledger(p.dir)).read()
+open(lp, "w").write("".join(x for x in ledger.splitlines(True) if not ('"goal.derived"' in x and gid in x)))
+r = p.run("goal", "close", gid, "--eval", e3["eval_id"])
+assert r.returncode == 2 and "the ledger lost goal.derived" in r.stderr, r.stderr  # the ledger, not "never derived"
+open(lp, "w").write(ledger)
 r = p.run("goal", "close", gid, "--eval", e3["eval_id"])
 assert r.returncode == 0 and p.load("goal", gid)["status"] == "met", r.stderr      # closing again repairs it
 json.dump(dict(met, statement="edited after it was met"), open(gpath, "w"))

@@ -46,7 +46,9 @@ Usage:
   mission goal show GOAL_ID [--json]
         the goal, its check, and the principles block it carries
 """
+import contextlib
 import glob
+import io
 import json
 import os
 import re
@@ -516,14 +518,16 @@ def cmd_intents(cwd, gid):
 
 
 def next_intent(cwd, gid):
-    """What `goal next` does, with nothing handed out (ROADMAP M9.53): the whole rule `mission tick` asks
-    before SPRINT. A dict: rc 0 and the intent's path, 1 when every intent has a plan, or 2/3 with why
-    it refuses (`goal check`, a goal.met record, a status other than active, or the next intent's own
-    `intent check`, whose output is `detail`)."""
-    out = {"rc": 0, "path": None, "blocks": [], "asks": [], "note": "", "detail": ""}
+    """What `goal next` does, with nothing handed out or recorded (ROADMAP M9.53): the whole rule
+    `mission tick` asks before SPRINT. A dict: rc 0 and the intent's path, 1 with `note` when there is
+    none to hand out, or 2/3 with why it refuses (`goal check`, a goal.met record, a status other than
+    active, or the next intent's own `intent check`, whose output is `detail`). The check runs in
+    process, without its event, so `tick --peek` and `due` emit no `intent.normalized`."""
+    out = {"rc": 0, "path": None, "blocks": [], "asks": [], "note": "", "detail": "", "mode": None}
     rc, blocks, asks, facts = check(cwd, gid)
     if rc:
         return dict(out, rc=rc, blocks=blocks, asks=asks)
+    out["mode"] = facts["autonomy"]
     if any(r["data"].get("sha256") == facts["sha256"] for r in M.records(cwd, "goal.met", facts["path"])):
         return dict(out, rc=2, blocks=["goal %s is met (its goal.met record): it hands out no more intents" % gid])
     if facts["status"] in ("derived", "approved"):
@@ -544,33 +548,44 @@ def next_intent(cwd, gid):
     first = {iid for _, iid in queue}
     queue += [(os.path.join(_paths.docs(cwd), "intents", "%s.json" % iid), iid)
               for iid in goal_intent_ids(cwd, gid) if iid not in first]
+    tool = intent_tool()
     for p, iid in queue:
         if iid in planned:
             continue
-        r = subprocess.run([os.path.join(BIN, "intent"), "check", p, "--mode", facts["autonomy"]], cwd=cwd,
-                           capture_output=True, text=True)
-        if not r.returncode:
-            return dict(out, path=p, detail=r.stderr)
-        first_line = next((x.strip() for x in r.stderr.splitlines() if x.strip()), "")
-        return dict(out, rc=r.returncode, path=p, detail=r.stderr,
+        err = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(err):
+                rc, _ = tool.verdict(cwd, p, facts["autonomy"])
+        except (Exception, SystemExit) as e:     # a contract of the wrong shape: the check names it, never "all planned"
+            rc = 2
+            err.write("BLOCK[intent]: `intent check` fails on it: %s: %s\n" % (type(e).__name__, e))
+        if not rc:
+            return dict(out, path=p, detail=err.getvalue())
+        rc = 3 if rc == 3 else 2
+        first_line = next((x.strip() for x in err.getvalue().splitlines() if x.strip()), "")
+        return dict(out, rc=rc, path=p, detail=err.getvalue(),
                     note="%s's next intent %s does not pass `intent check` (%s): %s%s"
-                    % (gid, iid, M.rel(cwd, p), "the human answers it" if r.returncode == 3 else "the planner fixes it",
+                    % (gid, iid, M.rel(cwd, p), "the human answers it" if rc == 3 else "the planner fixes it",
                        ": " + first_line if first_line else ""))
-    return dict(out, rc=1)
+    if not queue:
+        return dict(out, rc=1, note="no intent of %s is recorded (no intent.received names it): `mission goal "
+                                    "intents %s` hands them out" % (gid, gid))
+    return dict(out, rc=1, note="every intent of %s has a plan; when its sprints close, evaluate: `mission goal "
+                                "close` if it is met, else `mission goal retire`" % gid)
 
 
 def cmd_next(cwd, gid):
     n = next_intent(cwd, gid)
-    sys.stderr.write(n["detail"])
-    report(n["blocks"], n["asks"])
-    if n["note"]:
-        print("[goal] %s" % n["note"], file=sys.stderr)
-    if n["rc"] == 1:
-        print("[goal] every intent of %s has a plan; when its sprints close, evaluate: `mission goal close` if it is "
-              "met, else `mission goal retire`" % gid, file=sys.stderr)
     if n["rc"]:
+        sys.stderr.write(n["detail"])
+        report(n["blocks"], n["asks"])
+        if n["note"]:
+            print("[goal] %s" % n["note"], file=sys.stderr)
         return n["rc"]
     p = n["path"]
+    rc = intent_tool().cmd_check(cwd, p, n["mode"])      # intake's own check, now with its intent.normalized
+    if rc:
+        return rc
     others = [os.path.getmtime(x) for x in glob.glob(os.path.join(os.path.dirname(p), "int_*.json")) if x != p]
     t = max(others + [time.time()]) + 0.01
     os.utime(p, (t, t))     # gate-intake re-checks the newest intent file: the one handed off
@@ -619,6 +634,8 @@ def cmd_close(cwd, gid, eid):
     if not isinstance(g, dict) or g.get("goal_id") != gid:
         report(["no goal %s" % gid], [])
         return 2
+    if M.ledger_block(cwd, "goal"):             # a broken ledger first: its lost goal.derived is not "never derived"
+        return 2
     try:
         bad = list(M.problems(g, "goal", gpath))
     except ValueError as e:
@@ -626,8 +643,6 @@ def cmd_close(cwd, gid, eid):
     bad = bad or derived_problems(cwd, g)       # sealed, as derived: before anything is read as met
     if bad:
         report(bad, [])
-        return 2
-    if M.ledger_block(cwd, "goal"):
         return 2
     if any(r["data"].get("sha256") == M.digest(g) for r in M.records(cwd, "goal.met", M.rel(cwd, gpath))):
         if g["status"] != "met":                 # a stop after the record: the record decides, the status follows
