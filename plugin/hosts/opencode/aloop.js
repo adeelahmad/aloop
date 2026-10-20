@@ -22,7 +22,8 @@
 //   SubagentStart      event session.created (child session) → host-adapter, transcripts
 //                      stage-in; the core principles go into its system prompt; gate-tooling
 //                      on the worker's first tool call (role known);
-//                      a mission role's gate-mission-artifact start on its first chat.message
+//                      a mission role's gate-mission-artifact start on its first chat.message (and on
+//                      the first of each task the parent continues it for)
 //   SubagentStop       tool.execute.after of the `task` tool → the role's gate; a block is
 //                      sent back to the sub-agent (it keeps working) up to 3 rounds, then
 //                      reported in the task result, as a STUCK or NEEDS-HUMAN release is
@@ -194,6 +195,9 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
     const gate = GATES[role]
     for (let round = 0; gate && round <= GATE_ROUNDS; round++) {
       const res = run(gate, [], p, bound(childID) || project)
+      // A mission role's run closes at a pass or a stuck release: the parent may continue this child (the
+      // task tool's session_id), and its next task is a new run with its own start record
+      if (res.code === 0 && gate === "gate-mission-artifact") s.missionStart = false
       // A release (stuck on one block, or waiting on the human's answers) exits 0 but is NOT a pass:
       // hand the supervisor the reason as a release, never as a silent success.
       const rel = res.code === 0 && releaseOf(res.stderr, role)
@@ -232,7 +236,8 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       if (!active()) return
       if (s.parentID) {
         // A mission role's SubagentStart: record what exists once its role is known (its first message
-        // comes before its first tool call); the stop gate diffs against it
+        // comes before its first tool call); the stop gate diffs against it. A gate's re-prompt inside
+        // subagentStop is the same run; the first message of a continued task after a pass is a new one
         if (GATES[s.agent] === "gate-mission-artifact" && !s.missionStart) {
           s.missionStart = true
           run("gate-mission-artifact", ["start"], await payload("SubagentStart", input.sessionID))

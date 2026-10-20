@@ -16,7 +16,7 @@ import _paths
 
 SCHEMA = "aladdin.event/1"
 EVENT_TYPES = {
-    "intent.received", "intent.normalized", "plan.created", "plan.approved", "plan.revised",
+    "intent.received", "intent.normalized", "plan.created", "plan.approved", "plan.revised", "plan.gated",
     "sprint.started", "sprint.token_soft_limit", "sprint.admission_closed", "sprint.rolled_over",
     "sprint.context_handoff", "context.compacted", "context.rotated",
     "task.created", "task.dispatched", "task.completed", "task.retry", "task.time_soft_preempt",
