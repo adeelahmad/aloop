@@ -13,7 +13,7 @@
    "type": "array",
    "items": {
     "type": "object",
-    "required": ["source_id", "url", "title", "retrieved_at", "media_type", "bytes", "sha256", "snapshot"],
+    "required": ["source_id", "url", "title", "retrieved_at", "media_type", "bytes", "sha256", "snapshot", "via"],
     "additionalProperties": false,
     "properties": {
      "source_id": {"type": "string", "pattern": "^s[1-9][0-9]*$"},
@@ -23,7 +23,10 @@
      "media_type": {"type": "string", "minLength": 1},
      "bytes": {"type": "integer", "minimum": 1, "maximum": 5242880},
      "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-     "snapshot": {"type": "string", "pattern": "^research/snapshots/[0-9a-f]{64}$"}
+     "snapshot": {"type": "string", "pattern": "^research/snapshots/[0-9a-f]{64}$"},
+     "via": {"enum": ["fetch", "file"]},
+     "final_url": {"type": "string", "pattern": "(?i)^https?://\\S+$"},
+     "file": {"type": "string", "minLength": 1}
     }
    }
   },

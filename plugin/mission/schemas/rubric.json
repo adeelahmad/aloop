@@ -2,7 +2,7 @@
  "title": "rubric — an LLM judge's pinned setup (ROADMAP §4.12, M9.5): docs/agents/mission/judges/<rubric_id>.json",
  "type": "object",
  "required": ["rubric_id", "title", "question", "criteria", "scale", "pass", "model", "runs", "agree", "tolerance",
-              "sources", "status", "created_at"],
+              "sources", "status", "created_at", "sha256"],
  "additionalProperties": false,
  "properties": {
   "rubric_id": {"type": "string", "pattern": "^rub_"},
