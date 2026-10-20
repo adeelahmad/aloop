@@ -281,7 +281,11 @@ class Lexer:
                 self.i = j
                 continue
             if c == "(" and w.assign is not None and w.plain and w.text() == w.assign + "=":
-                self.i = self.close(self.i + 1)       # an array: a=( … )
+                j = self.close(self.i + 1)            # an array: a=( … ); its substitutions still run
+                for t in Lexer(s[self.i + 1:j - 1]).run():
+                    for sub in subs_of(t[1].parts) if t[0] == "word" else []:
+                        w.add(("cmd", sub))
+                self.i = j
                 w.add(UNKNOWN)
                 continue
             if c in stop:

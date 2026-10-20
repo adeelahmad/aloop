@@ -314,6 +314,13 @@ PYTHON = re.compile(r"python[\d.]*")
 XARGS_PAIRED = {"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--delimiter",
                 "--arg-file", "--max-lines", "--max-chars", "--eof", "-j", "--jobs"}   # -i, -l, -e take no separate value
 WRITES = (">", ">>", ">|", "&>", "&>>", "<>")
+WRAPPER_PAIRED = {     # the options of a wrapper that take a separate value
+    "sudo": {"-u", "-g", "-p", "-h", "-C", "-D", "-r", "-t", "-U", "-T", "--user", "--group", "--prompt", "--host",
+             "--close-from", "--chdir", "--role", "--type", "--other-user", "--command-timeout"},
+    "doas": {"-u", "-C"}, "nice": {"-n", "--adjustment"}, "timeout": {"-s", "-k", "--signal", "--kill-after"},
+    "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"}, "caffeinate": {"-t", "-w"},
+    "ionice": {"-c", "-n", "-p", "-P", "-u", "--class", "--classdata", "--pid", "--pgid", "--uid"},
+    "exec": {"-a"}, "time": {"-f", "-o", "--format", "--output"}}
 
 
 def simple(c, depth, cur=""):
@@ -330,6 +337,9 @@ def chain(words, env, writes, depth, cur):
     while words and ASSIGN.match(words[0]):
         env.append(words.pop(0))
     while words:
+        if words[0] == "--":    # the end of a wrapper's options (sudo -u root -- CMD, time -p -- CMD)
+            words = words[1:]
+            continue
         prog = os.path.basename(words[0])
         rest = words[1:]
         if PYTHON.fullmatch(prog) and rest and not rest[0].startswith("-"):
@@ -352,11 +362,20 @@ def chain(words, env, writes, depth, cur):
             rest = []           # `command -v X` looks X up; it runs nothing
         out.append({"prog": prog, "args": rest + ([STDIN] if stdin_args is True else []), "env": list(env),
                     "writes": list(writes), "dir": cur, "config": list(config)})
-        if prog in SHELLS:
-            for j, a in enumerate(rest):
-                if re.match(r"^-[A-Za-z]*c[A-Za-z]*$", a) and j + 1 < len(rest):
-                    out += [dict(v, env=v["env"] + env) for v in views(rest[j + 1], depth + 1, cur)]
+        if prog in SHELLS:      # sh -c [options] STRING: the first operand after the options is the command
+            j, has_c, script = 0, False, None
+            while j < len(rest):
+                a = rest[j]
+                if a in ("--", "-"):
+                    script = rest[j + 1] if j + 1 < len(rest) else None
                     break
+                if not a.startswith(("-", "+")):
+                    script = a
+                    break
+                has_c = has_c or bool(re.match(r"^-[A-Za-z]*c[A-Za-z]*$", a))
+                j += 2 if a in SHELL_PAIRED else 1
+            if has_c and script is not None:
+                out += [dict(v, env=v["env"] + env) for v in views(script, depth + 1, cur)]
             break
         if prog == "eval":
             out += views(" ".join(rest), depth + 1, cur)
@@ -393,19 +412,25 @@ def chain(words, env, writes, depth, cur):
         if prog not in WRAPPERS:
             break
         words = rest
-        if prog == "env":   # env [-i] [-u NAME] [NAME=VALUE]… COMMAND
-            while words and (words[0].startswith("-") or ASSIGN.match(words[0])):
-                if words[0] in ("-u", "--unset", "-C", "--chdir", "-S"):
+        if prog == "env":   # env [-i] [-u NAME] [-S STRING] [NAME=VALUE]… COMMAND
+            while words and (words[0].startswith("-") and words[0] != "--" or ASSIGN.match(words[0])):
+                o = words[0]
+                if o in ("-S", "--split-string") or o.startswith(("-S", "--split-string=")):
+                    split = words[1] if o in ("-S", "--split-string") and len(words) > 1 else \
+                        o.split("=", 1)[1] if o.startswith("--") else o[2:]
+                    words = split.split() + words[2 if o in ("-S", "--split-string") else 1:]
+                    continue
+                if o in ("-u", "--unset", "-C", "--chdir"):
                     words = words[2:]
                     continue
-                if ASSIGN.match(words[0]):
-                    env.append(words[0])
+                if ASSIGN.match(o):
+                    env.append(o)
                 words = words[1:]
         else:               # sudo -u USER …, timeout -s KILL 5 …, nice -n 5 …: skip options and their values
-            while words and words[0].startswith("-"):
-                words = words[2:] if words[0] in ("-u", "-g", "-n", "-s", "-k", "-p", "-o", "-e", "-i", "-c") \
-                    and prog not in ("command", "exec", "nohup", "time") else words[1:]
-            if prog == "timeout" and words:
+            paired = WRAPPER_PAIRED.get(prog, ())
+            while words and words[0].startswith("-") and words[0] != "--":
+                words = words[2:] if words[0] in paired else words[1:]
+            if prog == "timeout" and words and words[0] != "--":
                 words = words[1:]   # the duration
     return out
 

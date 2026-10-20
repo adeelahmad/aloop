@@ -428,7 +428,13 @@ for cmd, want in (("V=$(cat VERSION); git push origin main", "push-default-branc
                   ("printf '%s\\n' 'npm publish' | sh", "publish-release"),
                   ("git checkout -- . 2>/dev/null", "discard-local-work"),
                   ("git restore . 2>&1", "discard-local-work"),
-                  ("SKIP_HOOKS=1 bash <<'EOF'\nmake\nEOF", "bypass-gate")):
+                  ("SKIP_HOOKS=1 bash <<'EOF'\nmake\nEOF", "bypass-gate"),
+                  ("x=( $(npm publish) )", "publish-release"), ('local x=( "$(npm publish)" )', "publish-release"),
+                  ("declare -a x=( `npm publish` ); echo ok", "publish-release"),
+                  ("time -p -- npm publish", "publish-release"), ("sudo -u root -- git push origin main", "push-default-branch"),
+                  ("sh -c -e 'npm publish'", "publish-release"), ("bash -o pipefail -c 'npm publish'", "publish-release"),
+                  ("env -S 'npm publish'", "publish-release"), ("exec -a foo npm publish", "publish-release"),
+                  ("sudo -s npm publish", "publish-release"), ("/usr/bin/time -f %e npm publish", "publish-release")):
     assert want in doors_of(cmd), (cmd, doors_of(cmd))
 for cmd in ("git commit -m \"$(cat <<'EOF'\ndocs: say \"cd x; SKIP_HOOKS=1 make\" is a wall\nEOF\n)\"",
             "git commit -m \"$(cat <<'EOF'\nfeat: classify \"a | git push --force origin x\"\nEOF\n)\"",
