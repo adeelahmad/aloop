@@ -316,6 +316,7 @@ const qstory = join(Q, "docs/agents/sprint1/s1-01-x")
 mkdirSync(qstory, { recursive: true })
 mkdirSync(join(Q, ".aladdin/state/tasks"), { recursive: true })
 writeFileSync(join(Q, ".aladdin/state/tasks/S1-01-T1.env"), `TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=${qstory}\n`)
+approvePlan(Q, BIN, 1, env)             // the second project's own human go (M0.9): approval never carries across projects
 const q = await session(Q, "fake-q", {
   supervisor: [
     { tools: [{ name: "subagent", input: { agent_preset: "aloop-red-worker", description: "RED S1-01-T1", prompt: "TASK_ID: S1-01-T1\nWrite the failing tests." } },
