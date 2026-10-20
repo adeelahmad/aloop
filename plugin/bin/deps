@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""deps — dependencies a change adds to the project's manifests (ROADMAP M10.2).
+
+Package installs are the usual supply-chain entry, so GREEN may add a dependency only when the
+approved plan names it. This reads each manifest at the base and in the working tree and lists
+the names that are new. Parsed without third-party libraries (no tomllib: macOS ships 3.9).
+
+Manifests: Cargo.toml ([dependencies], [dev-dependencies], [build-dependencies], their
+target-specific forms and [dependencies.NAME] tables), package.json (dependencies,
+devDependencies, peerDependencies, optionalDependencies), requirements*.txt, pyproject.toml
+([project] dependencies and optional-dependencies, [tool.poetry.*dependencies]), go.mod (require).
+
+Usage:
+  deps added --base REF [--root DIR]                 one `manifest<TAB>name` per new dependency
+  deps unplanned --base REF --story DIR [--root DIR] the new ones the story's plan does not name
+                                                     (tasks.md, targets.json, plan.md,
+                                                     validate.md, the sprint's stories.md);
+                                                     exit 2 if any
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+NAME = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9_.\-]*)")
+DEP_SECTION = re.compile(r"^(?:target\..+\.)?(?:dev-|build-)?dependencies$")
+
+
+def cargo(text):
+    names, section = set(), ""
+    for line in text.splitlines():
+        s = line.split("#", 1)[0].strip()
+        if s.startswith("["):
+            section = s.strip("[] ")
+            m = re.match(r"^(?:target\..+\.)?(?:dev-|build-)?dependencies\.([A-Za-z0-9_\-]+)$", section)
+            if m:
+                names.add(m.group(1))
+            continue
+        if DEP_SECTION.match(section) and "=" in s:
+            names.add(s.split("=", 1)[0].strip().strip('"'))
+    return names
+
+
+def package_json(text):
+    try:
+        doc = json.loads(text)
+    except ValueError:
+        return set()
+    names = set()
+    for k in ("dependencies", "devDependencies", "peerDependencies", "optionalDependencies"):
+        if isinstance(doc.get(k), dict):
+            names |= set(doc[k])
+    return names
+
+
+def requirement(spec):
+    spec = spec.split("#", 1)[0].strip()
+    if not spec or spec.startswith("-"):
+        return None
+    m = NAME.match(spec)
+    return m.group(1).lower() if m else None
+
+
+def requirements(text):
+    return {n for n in map(requirement, text.splitlines()) if n}
+
+
+def pyproject(text):
+    names, section, in_list = set(), "", False
+    for line in text.splitlines():
+        s = line.split("#", 1)[0].strip()
+        if s.startswith("[") and not in_list:
+            section = s.strip("[] ")
+            continue
+        if in_list or (section in ("project", "project.optional-dependencies") and re.match(r"^[\w\-]+\s*=\s*\[", s)):
+            body = s.split("=", 1)[1] if not in_list else s
+            specs = [a or b for a, b in re.findall(r'"([^"]+)"|\'([^\']+)\'', body)]
+            names |= {n for n in map(requirement, specs) if n}
+            in_list = "]" not in body
+            continue
+        if re.match(r"^tool\.poetry\.(?:.+\.)?dependencies$", section) and "=" in s:
+            n = s.split("=", 1)[0].strip().strip('"').lower()
+            if n != "python":
+                names.add(n)
+    return names
+
+
+def gomod(text):
+    names, block = set(), False
+    for line in text.splitlines():
+        s = line.split("//", 1)[0].strip()
+        if s.startswith("require ("):
+            block = True
+        elif block and s == ")":
+            block = False
+        elif block and s:
+            names.add(s.split()[0])
+        elif s.startswith("require "):
+            names.add(s.split()[1])
+    return names
+
+
+def parser(path):
+    base = os.path.basename(path)
+    if base == "Cargo.toml":
+        return cargo
+    if base == "package.json":
+        return package_json
+    if base == "pyproject.toml":
+        return pyproject
+    if base == "go.mod":
+        return gomod
+    if re.match(r"^requirements.*\.txt$", base):
+        return requirements
+    return None
+
+
+def git(root, *args):
+    r = subprocess.run(["git", "-C", root] + list(args), capture_output=True, text=True)
+    return r.stdout if r.returncode == 0 else None
+
+
+def manifests(root):
+    tracked = (git(root, "ls-files") or "").splitlines() + \
+        (git(root, "ls-files", "--others", "--exclude-standard") or "").splitlines()
+    skip = ("node_modules/", "target/", ".git/", "vendor/")
+    return sorted({p for p in tracked if parser(p) and not any(x in "/" + p for x in ["/" + s for s in skip])})
+
+
+def added(root, base):
+    out = []
+    for p in manifests(root):
+        parse = parser(p)
+        try:
+            now = parse(open(os.path.join(root, p)).read())
+        except OSError:
+            continue
+        before = git(root, "show", "%s:%s" % (base, p))
+        was = parse(before) if before is not None else set()
+        out += [(p, n) for n in sorted(now - was)]
+    return out
+
+
+def plan_text(story):
+    parts = []
+    for f in ("tasks.md", "targets.json", "plan.md", "validate.md"):
+        try:
+            parts.append(open(os.path.join(story, f)).read())
+        except OSError:
+            pass
+    try:
+        parts.append(open(os.path.join(os.path.dirname(os.path.abspath(story)), "stories.md")).read())
+    except OSError:
+        pass
+    return "\n".join(parts)
+
+
+def named(name, text):
+    return re.search(r"(?<![A-Za-z0-9_\-])%s(?![A-Za-z0-9_\-])" % re.escape(name), text, re.I) is not None
+
+
+def main(argv):
+    if not argv or argv[0] not in ("added", "unplanned"):
+        print(__doc__, file=sys.stderr)
+        return 64
+    opts = dict(zip(argv[1::2], argv[2::2]))
+    base, root = opts.get("--base"), opts.get("--root") or os.getcwd()
+    if not base:
+        print("deps: --base REF is required", file=sys.stderr)
+        return 64
+    new = added(root, base)
+    if argv[0] == "added":
+        for p, n in new:
+            print("%s\t%s" % (p, n))
+        return 0
+    if not opts.get("--story"):
+        print("deps: unplanned needs --story DIR", file=sys.stderr)
+        return 64
+    text = plan_text(opts["--story"])
+    bad = [(p, n) for p, n in new if not named(n, text)]
+    for p, n in bad:
+        print("%s\t%s" % (p, n))
+    return 2 if bad else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
