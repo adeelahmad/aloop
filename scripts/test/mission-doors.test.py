@@ -1082,6 +1082,98 @@ shutil.rmtree(demo, ignore_errors=True)
 shutil.rmtree(os.path.dirname(far), ignore_errors=True)
 os.unlink(os.path.join(p.dir, "h"))
 
+# 21d) the fourth M9.31 review. A copy option that takes no value (rsync --checksum, install --strip) is no
+#      prefix of one that does; a glob source names the files it matches now; a contents or glob copy into a
+#      run-record directory forges it; ln -n replaces a linked settings directory; a name the gate cannot see,
+#      copied into the project, a checkout or ~, is no settings change; trailing flags neither widen nor slow a copy
+evil, fake = tempfile.mkdtemp(), tempfile.mkdtemp()
+for d, n in ((evil, "settings.json"), (evil, "config.toml"), (fake, "events.jsonl"), (fake, "ledger.jsonl")):
+    open(os.path.join(d, n), "w").write("{}")
+for cmd in ("rsync -a --checksum E/settings.json .claude/settings.json", "rsync -a --partial E/ .codex/",
+            "rsync -a --backup E/settings.json .claude/", "rsync -a --group E/settings.json .claude/settings.json",
+            "install --strip E/settings.json .claude/settings.json", "cp E/*.json .claude/", "mv E/*.json .claude/",
+            "cp -t .claude E/*.json", "install -m 644 E/*.json .claude/", "cp E/*.toml .codex/", "cp E/s* .claude/",
+            "cp \"$f\" .claude/", "cd \"$REPO\" && rm -rf ./.codex", "cd \"$REPO\" && cp -r /tmp/x/. ./.claude/",
+            "cd - && rm -rf ./.claude", "rm -rf \"$(pwd)/.claude\"", "rm -rf \"$REPO/.claude\"", "cd \"$REPO\" && mv /tmp/x ./.claude"):
+    assert "change-agent-settings" in doors_of(cmd.replace("E/", evil + "/")), (cmd, doors_of(cmd.replace("E/", evil + "/")))
+for cmd in ("rsync -a --compress F/events.jsonl .aladdin/logs/events.jsonl", "cp F/* .aladdin/logs/", "rsync -a F/ .aladdin/logs/",
+            "cp -r F/. docs/agents/mission/", "cp -a F/. .aladdin/logs", "mv F/* docs/agents/mission/", "cp -t .aladdin/logs F/*",
+            "cp F/*.jsonl docs/agents/mission/", "cp -r \"$SRC\"/. docs/agents/mission/", "cp \"$f\" .aladdin/logs/"):
+    assert "forge-human-record" in doors_of(cmd.replace("F/", fake + "/")), (cmd, doors_of(cmd.replace("F/", fake + "/")))
+lnr = tempfile.mkdtemp()
+subprocess.run(["git", "init", "-q", lnr], check=True)
+os.makedirs(os.path.join(lnr, "shared", "claude"))
+os.symlink("shared/claude", os.path.join(lnr, ".claude"))
+for cmd in ("ln -sfn ../evil/claude .claude", "ln -snf ../evil/claude .claude", "ln --no-dereference -sf ../evil/claude .claude"):
+    assert "change-agent-settings" in doors_of(cmd, cwd=lnr), (cmd, doors_of(cmd, cwd=lnr))
+assert doors_of("ln -sf ../notes/README.md .claude", cwd=lnr) == []                 # a link inside it, by its own name
+for cmd in ("cp \"$f\" .", "cp \"$OUT/bundle.js\" ./", "mv \"$tmp\" .", "find /tmp/gen -name '*.py' -exec cp {} . \\;",
+            "ls dist/*.whl | xargs cp -t .", "ls /tmp/gen/*.py | xargs -I{} cp {} .", "ln -s \"$(pwd)/scripts/hook.sh\" .",
+            "cp ${BUILD}/app .", "install -m 755 \"$BIN\" .", "cp -r \"$SRC\" .", "cp \"$f\" ~/",
+            "rsync -a .claude/settings.json .codex/config.toml host:/bak/ --progress",
+            "rsync -a .claude/settings.json .codex/config.toml /tmp/bak/ --progress",
+            "rsync -a package.json .claude/settings.json host:/bak/ -z", "cp README.md .claude/settings.json /tmp/bak/ -v"):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+    assert doors_of(cmd, cwd=gwt) == [], (cmd, doors_of(cmd, cwd=gwt))             # a worktree's root too
+files = " ".join("src/file%04d.py" % i for i in range(600))
+for cmd in ("mv %s build/ -f" % files, "cp %s build/ -v" % files, "cp %s build/ --verbose" % files):
+    t0 = time.time()
+    assert doors_of(cmd) == [] and time.time() - t0 < 3, (cmd[:20], time.time() - t0)
+assert "change-agent-settings" in doors_of("cp /tmp/s .claude/settings.json --unknown-flag x")   # a value it may take
+ok("copies: no-value options, glob sources, record directories, ln -n over a link, unseen names, trailing flags")
+
+# a `cd` after `||` keeps where the left side left it; OLDPWD follows a cd that may not run; `cd X || { …; exit; }`
+# and `&& (…) &&` keep the list in X; a subshell keeps its OLDPWD; a wrapped cd (nohup, env, flock) moves no shell
+gwt2 = os.path.join(g.dir, "home", "feat2-wt")
+subprocess.run(["git", "worktree", "add", "-q", gwt2, "-b", "feat2"], cwd=g.dir, check=True)
+R, W, W2 = g.dir, gwt, gwt2
+for cmd, at, want in (
+        ("cd R || cd W2; git push origin HEAD", W, "push-default-branch"),
+        ("cd R 2>/dev/null || cd /tmp; git push origin HEAD", W, "push-default-branch"),
+        ("cd R || cd W2 || exit 1; git push origin HEAD", W, "push-default-branch"),
+        ("cd R || cd W2; git reset --hard", W, "discard-local-work"),
+        ("cd W; [ -d nosuch ] && cd nosuch; cd -; git push origin HEAD", R, "push-default-branch"),
+        ("cd W; if [ -d nosuch ]; then cd nosuch; fi; cd -; git push origin HEAD", R, "push-default-branch"),
+        ("cd W\n[ -d nosuch ] && cd nosuch\ncd -\ngit push origin HEAD", R, "push-default-branch"),
+        ("cd W || { git push origin HEAD; }", R, "push-default-branch"),            # the group runs where the cd failed
+        ("cd W || { echo no; }; git push origin HEAD", R, "push-default-branch"),
+        ("nohup cd /tmp; git push origin HEAD", R, "push-default-branch"), ("env cd /tmp; git push origin HEAD", R, "push-default-branch"),
+        ("timeout 5 cd /tmp; git push origin HEAD", R, "push-default-branch"),
+        ("flock /tmp/l cd /tmp; git push origin HEAD", R, "push-default-branch"),
+        ("setsid cd /; git push origin HEAD", R, "push-default-branch")):
+    cmd = cmd.replace("W2", W2).replace("R ", R + " ").replace("W;", W + ";").replace("W\n", W + "\n").replace("W ", W + " ")
+    assert want in denied(hook(g, "Bash", {"command": cmd}, cwd=at)), cmd
+for cmd, at in (("cd W 2>/dev/null || cd W2 && git push -u origin HEAD", R),
+                ("cd W || { echo no worktree; exit 1; }; git push -u origin HEAD", R),
+                ("cd W || {\n  echo no worktree >&2\n  exit 1\n}\ngit push -u origin HEAD", R),
+                ("bash <<'SH'\ncd W || { echo no; exit 1; }\ngit push -u origin HEAD\nSH", R),
+                ("cd W || { return 1; }; git push origin HEAD", R), ("cd W || { exit 1; }\ngit reset --hard origin/feat", R),
+                ("git fetch && cd W && (make test) && git push -u origin HEAD", R),
+                ("git fetch && cd W && (cd sub && make) && git push -u origin HEAD", R),
+                ("git fetch && cd W && (make test) && git reset --hard origin/feat", R),
+                ("cd R; (cd sub && make); cd -; git push origin HEAD", W), ("cd R; (cd sub; make); cd - >/dev/null; git push origin HEAD", W),
+                ("builtin cd W; git push origin HEAD", R), ("time cd W; git push origin HEAD", R)):
+    cmd = cmd.replace("W2", W2).replace("R;", R + ";").replace("W ", W + " ").replace("W;", W + ";")
+    assert hook(g, "Bash", {"command": cmd}, cwd=at).stdout == "", cmd
+# candidate directories are carried into nested reads, not multiplied by them
+nest = "make test"
+for i in range(5):
+    nest = "[ -d a ] && cd a; [ -d b ] && cd b; [ -d c ] && cd c; echo \"$(%s)\"" % nest
+t0 = time.time()
+assert doors_of(nest) == [] and time.time() - t0 < 3, time.time() - t0
+ok("directories: cd after ||, OLDPWD of a cd that may not run, || { exit; } guards, && (…) &&, wrapped cds")
+
+for tool, inp, want in (("mcp__ms365__send-shared-mailbox-draft", {}, "send-external-message"),
+                        ("mcp__gmail__send_saved_draft", {}, "send-external-message"),
+                        ("mcp__outlook__send_existing_draft", {}, "send-external-message"),
+                        ("mcp__workspace-mcp__manage_drive_access", {"action": "grant_batch"}, "visibility-or-sharing")):
+    assert ids(tool, inp) == [want], (tool, ids(tool, inp))
+for tool in ("mcp__slack__slack_send_message_draft", "mcp__gmail__create_draft", "mcp__outlook__create_mail_draft"):
+    assert ids(tool, {}) == [], (tool, ids(tool, {}))
+ok("MCP: a tool that sends a draft sends; one that writes a draft does not; Drive grant_batch shares")
+for x in (evil, fake, lnr):
+    shutil.rmtree(x, ignore_errors=True)
+
 # MCP names: Composio's VERBS_A_ form, kebab-case tools, scheduled messages, a verb before the service, GitLab and
 # Bitbucket merges, Google Workspace's Drive access tools; drafts and reads pass
 for tool, inp, want in (

@@ -229,8 +229,8 @@
     }
    ],
    "tools": [
-    "(?i)^(?:mcp__(?:[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[\\w-]*?__(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?|[\\w-]+?__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9]*[_-])|(?!mcp__)[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9-]*_(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?)(?:(?:chat[_-]?)?(?:send|reply|forward|post|schedule[_-]?(?:message|post|email|mail|send))|(?:conversations[_-])?add[_-]message)(?!s(?:$|[_-](?!an?[_-]))|ed(?:$|[_-])|ing)(?![\\w-]+[_-]draft$)[\\w-]*$",
-    "(?i)^(?:mcp__[\\w-]+?__|(?!mcp__)[\\w-]+?_)(?:send|reply|forward|post)[_-](?:[\\w-]*?[_-])?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)(?![\\w-]*draft)[\\w-]*$"
+    "(?i)^(?:mcp__(?:[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[\\w-]*?__(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?|[\\w-]+?__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9]*[_-])|(?!mcp__)[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9-]*_(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?)(?:(?:chat[_-]?)?(?:send|reply|forward|post|schedule[_-]?(?:message|post|email|mail|send))|(?:conversations[_-])?add[_-]message)(?!s(?:$|[_-](?!an?[_-]))|ed(?:$|[_-])|ing)(?![\\w-]*(?:message|mail|email)[_-]draft$)[\\w-]*$",
+    "(?i)^(?:mcp__[\\w-]+?__|(?!mcp__)[\\w-]+?_)(?:send|reply|forward|post)[_-](?:[\\w-]*?[_-])?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)(?![\\w-]*(?:message|mail|email)[_-]draft$)[\\w-]*$"
    ],
    "examples": {
     "bash": [
@@ -253,7 +253,9 @@
      "mcp__ms365__send-mail",
      "mcp__slack__slack_schedule_message",
      "mcp__slack__conversations_add_message",
-     "mcp__google-workspace__send_gmail_message"
+     "mcp__google-workspace__send_gmail_message",
+     "mcp__ms365__send-shared-mailbox-draft",
+     "mcp__gmail__send_saved_draft"
     ]
    }
   },
@@ -379,7 +381,7 @@
     {
      "tool": "(?i)^(?:mcp__[\\w-]+?__|(?!mcp__)[\\w-]+?_)manage_\\w*access$",
      "input": {
-      "action": "(?i)grant|update|transfer\\w*"
+      "action": "(?i)(?:grant|update|transfer)\\w*"
      }
     },
     {
@@ -470,11 +472,11 @@
      "writes": "(?:^|/)(?:\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.config/opencode/config\\.json|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
     },
     {
-     "writes": "^(?:~/)?(?:(?:\\.claude|\\.codex(?:/agents)?|\\.opencode(?:/plugins)?|\\.config(?:/opencode(?:/plugins)?)?|\\.dsh(?:/profiles(?:/[^/]+)?)?)(?:/\\*)?/?|\\*)$"
+     "writes": "^(?:(?:~/|\\$[^/]*/)?(?:\\.claude|\\.codex(?:/agents)?|\\.opencode(?:/plugins)?|\\.config(?:/opencode(?:/plugins)?)?|\\.dsh(?:/profiles(?:/[^/]+)?)?)(?:/[*?])?/?|(?:~/)?\\*)$"
     },
     {
      "prog": "rm|unlink|truncate|shred",
-     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.config/opencode/config\\.json|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$|^(?:~/)?(?:\\.claude|\\.codex(?:/agents)?|\\.opencode(?:/plugins)?|\\.config(?:/opencode(?:/plugins)?)?|\\.dsh(?:/profiles(?:/[^/]+)?)?)(?:/\\*)?/?$"
+     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.config/opencode/config\\.json|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$|^(?:~/|\\$[^/]*/)?(?:\\.claude|\\.codex(?:/agents)?|\\.opencode(?:/plugins)?|\\.config(?:/opencode(?:/plugins)?)?|\\.dsh(?:/profiles(?:/[^/]+)?)?)(?:/[*?])?/?$"
     },
     {
      "prog": "ln",
@@ -543,7 +545,12 @@
      "cp -l .claude/settings.json x",
      "cp -a /tmp/dot/. ~",
      "rsync --remove-source-files .claude/settings.json /tmp/bak/",
-     "find /tmp/e -exec cp -t .claude {} +"
+     "find /tmp/e -exec cp -t .claude {} +",
+     "rsync -a --checksum /tmp/evil/settings.json .claude/settings.json",
+     "install --strip /tmp/evil/settings.json .claude/settings.json",
+     "cp -t .claude $SRC",
+     "cd \"$REPO\" && rm -rf ./.claude",
+     "rm -rf \"$(pwd)/.claude\""
     ]
    }
   },
@@ -605,10 +612,10 @@
      "args": "^doors\\s+(?:authorize|revoke)\\b"
     },
     {
-     "writes": "(?:^|/)docs/agents/mission/ledger\\.jsonl$"
+     "writes": "(?:^|/)docs/agents/mission/(?:ledger\\.jsonl|\\*)$"
     },
     {
-     "writes": "(?:^|/)\\.(?:aladdin|agentic)/logs/events\\.jsonl$"
+     "writes": "(?:^|/)\\.(?:aladdin|agentic)/logs/(?:events\\.jsonl|[*?])$"
     },
     {
      "prog": "sed",
@@ -693,7 +700,10 @@
      "python3 -c \"import _mission as M; f = M.record_human; f('.', 'door.authorized', 'door:x', 'me')\"",
      "python3 -c 'import sys; exec(sys.stdin.read())' <<'EOF'\nimport _mission as M\nM.record_human('.', 'door.authorized', 'door:x', 'me')\nEOF",
      "perl -0777pi -e 's/a/b/' .aladdin/logs/events.jsonl",
-     "python3 - <<'EOF'\nimport _events\nev = 'door.authorized'\n_events.emit('.', ev, role='human', subject='door:x')\nEOF"
+     "python3 - <<'EOF'\nimport _events\nev = 'door.authorized'\n_events.emit('.', ev, role='human', subject='door:x')\nEOF",
+     "rsync -a --compress /tmp/fake/events.jsonl .aladdin/logs/events.jsonl",
+     "cp -t .aladdin/logs \"$f\"",
+     "cp -r \"$SRC\"/. docs/agents/mission/"
     ],
     "paths": [
      "docs/agents/mission/ledger.jsonl",
@@ -823,7 +833,11 @@
    "cp notes.md .claude/agents/",
    "cp -r .claude /tmp/claude-backup",
    "cp -r .claude .claude.bak",
-   "rsync -a .claude /tmp/backup/"
+   "rsync -a .claude /tmp/backup/",
+   "cp \"$OUT/bundle.js\" ./",
+   "mv \"$tmp\" .",
+   "cp \"$f\" ~/",
+   "rsync -a package.json .claude/settings.json host:/bak/ -z"
   ],
   "tools": [
    "Read",
