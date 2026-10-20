@@ -1171,6 +1171,89 @@ for tool, inp, want in (("mcp__ms365__send-shared-mailbox-draft", {}, "send-exte
 for tool in ("mcp__slack__slack_send_message_draft", "mcp__gmail__create_draft", "mcp__outlook__create_mail_draft"):
     assert ids(tool, {}) == [], (tool, ids(tool, {}))
 ok("MCP: a tool that sends a draft sends; one that writes a draft does not; Drive grant_batch shares")
+# 21e) the fifth M9.31 review (of the fourth's fixes). Directories: an exit inside `|| { … }` that may not run
+#      keeps the group's cd; past `&&` or a compound `|| Y` is reached from the success path too; a second cd that
+#      may not run keeps where the list stopped; a background list (`cd X && make &`) moves no shell; find -execdir
+#      runs in each match's directory; env -C moves its command
+for cmd, at, want in (
+        ("test -d .git || { cd R || exit 1; }; git push origin HEAD", W, "push-default-branch"),
+        ("[ -f .ok ] || { cd R || exit 1; }; git reset --hard", W, "discard-local-work"),
+        ("cd R || echo staying && git pull --ff-only || { git stash && git reset --hard origin/main; }", W, "discard-local-work"),
+        ("cd R || echo staying && git pull --ff-only || ( git reset --hard origin/main )", W, "discard-local-work"),
+        ("cd R || { echo no main; } && git pull || git reset --hard", W, "discard-local-work"),
+        ("cd W2 || { cd R && false; } || git push origin HEAD", W, "push-default-branch"),
+        ("cd R 2>/dev/null || cd W && npm ci && cd W2; git push origin HEAD", W, "push-default-branch"),
+        ("find /tmp -maxdepth 0 -execdir git push origin HEAD \\;", W, "push-default-branch"),
+        ("env -C R git push origin HEAD", W, "push-default-branch"), ("env --chdir=R git push origin HEAD", W, "push-default-branch"),
+        ("cd W && make & git reset --hard", R, "discard-local-work"),
+        ("cd W && npm run dev & sleep 1; git push origin HEAD", R, "push-default-branch"),
+        ("cd W && (npm run dev) & sleep 1; git push origin HEAD", R, "push-default-branch")):
+    cmd = cmd.replace("W2", W2).replace("R ", R + " ").replace("W ", W + " ")
+    assert want in denied(hook(g, "Bash", {"command": cmd}, cwd=at)), cmd
+for cmd, at in (("cd W || { echo no >&2; exit 1; }; git reset --hard", R), ("env -C W git reset --hard", R),
+                ("cd W2 && npm run dev & sleep 1; git push origin HEAD", W),
+                ("cd W2 2>/dev/null || cd W && npm ci && cd W2; git push origin HEAD", W)):
+    cmd = cmd.replace("W2", W2).replace("W ", W + " ")
+    assert hook(g, "Bash", {"command": cmd}, cwd=at).stdout == "", cmd
+ok("directories: a conditional exit, || after &&, a second conditional cd, background lists, find -execdir, env -C")
+
+# copies: `--` ends the options (no crash); a glob or contents copy also names what the line made before it, and a
+# `*` names dotfiles (dotglob); cp -T and rsync -R `SRC/./` copy SRC's entries; a variable directory is a settings
+# root only for $HOME (`cp -a . "$tmp"` passes); an unseen name into the ledger's directory forges it
+for cmd in ("mv -- build/app.js dist/app.js", "cp -- build/app.js dist/", "cp -r -- build dist", "rsync -a -- src/ dist/",
+            "ln -sf -- a b", "install -m 644 -- a b"):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+assert doors_of("cp -- x .claude/settings.json") == ["change-agent-settings"]
+os.makedirs(os.path.join(p.dir, "build"), exist_ok=True)
+os.makedirs(os.path.join(p.dir, "dist"), exist_ok=True)
+open(os.path.join(p.dir, "build", "app.js"), "w").write("//")
+dot = tempfile.mkdtemp()
+os.makedirs(os.path.join(dot, ".claude"))
+for cmd in ("echo '{}' > build/settings.json && cp build/* .claude/", "echo '{}' > build/settings.json && cp -r build/. .claude",
+            "echo '{}' > build/settings.json && rsync -a build/ .claude/", "cp E/settings.json dist/ && cp -r dist/. .claude/",
+            "shopt -s dotglob; cp -r D/* ~/", "GLOBIGNORE=x; cp -r D/* .", "cp -rT D ~", "rsync -aR D/./ ~/",
+            "cp \"$f\" \"$REPO/.claude/\"", "cp -r \"$SRC\"/. \"$HOME\"/.claude", "rm -rf \"${HOME:?}/.claude\"",
+            "rm -rf \"${REPO:?}/.claude\"", "cp -a \"$SRC\"/. \"$(pwd)\"",
+            "rsync -a E/settings.json .claude/settings.json" + " --stderr e" * 8):
+    cmd = cmd.replace("E/", evil + "/").replace("D/", dot + "/").replace("D ", dot + " ")
+    assert "change-agent-settings" in doors_of(cmd), (cmd, doors_of(cmd))
+for cmd in ("cp -rT F .aladdin/logs", "rsync -aR F/./ .aladdin/logs/", "cp \"$f\" docs/agents/mission/",
+            "mv \"$tmp\" docs/agents/mission/", "cp -t docs/agents/mission \"$f\"", "rm -f \"$(pwd)/.aladdin/logs/events.jsonl\"",
+            "sed -i /door.revoked/d \"$REPO/.aladdin/logs/events.jsonl\"", "rm -rf \"$(pwd)/.aladdin\"",
+            "rm -f \"${REPO:?}/.aladdin/logs/events.jsonl\"", "cd \"$X\" && sed -i /door.revoked/d P/.aladdin/logs/events.jsonl",
+            "cd \"$X\" && rm -rf P/.aladdin"):
+    cmd = cmd.replace("F/", fake + "/").replace("F ", fake + " ").replace("P/", p.dir + "/")
+    assert "forge-human-record" in doors_of(cmd), (cmd, doors_of(cmd))
+for cmd in ("cd \"$X\" && rm -rf P/.claude", "cd \"$(mktemp -d)\" && cp \"$f\" P/.claude/"):
+    assert "change-agent-settings" in doors_of(cmd.replace("P/", p.dir + "/")), cmd
+tree = tempfile.mkdtemp()
+os.makedirs(os.path.join(tree, "plugin"))
+open(os.path.join(tree, "Makefile"), "w").write("all:\n")
+for cmd in ("echo x > build/v.txt && cp build/* .claude/", "echo x > build/v.txt && cp -r build/. .", "cp -r build/* dist/",
+            "cp -rT build out", "mv -T build out", "ln -sfT build out", "rsync -aR src/./lib/ dist/",
+            "tmp=$(mktemp -d) && cp -a . \"$tmp\" && cd \"$tmp\" && npm test", "cp -r . \"$TMPDIR\"", "cp -r .claude \"$tmp\"",
+            "cp \"$f\" docs/agents/mission/research/", "rm -rf \"$(pwd)/dist\"", "rm -rf \"$OUT/.aladdin\"", "rm -rf \"${OUT:?}/dist\"",
+            "cd \"$X\" && rm -rf /tmp/nonexistent-x/.aladdin", "cd \"$(mktemp -d)\" && cp -r TREE/. . && make test",
+            "cd \"$(mktemp -d)\" && rsync -a --exclude .git TREE/ ./"):
+    cmd = cmd.replace("TREE/", tree + "/")
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+# a large directory copied whole is placed by its directory once, not name by name
+big = os.path.join(p.dir, "big")
+os.makedirs(big, exist_ok=True)
+for i in range(3000):
+    open(os.path.join(big, "m%04d.js" % i), "w").close()
+for cmd in ("cp -r big/. out/ && cp -r big/. dist/ && cp -r big/. bak/", "cd src || cd build || cd dist; cp -r ../big/. ../out/",
+            "cp big/* out/"):
+    t0 = time.time()
+    assert doors_of(cmd) == [] and time.time() - t0 < 3, (cmd, time.time() - t0)
+ok("copies: --, what the line staged, dotglob, cp -T and rsync -R /./, $VAR roots, the ledger's directory, absolute paths")
+for tool in ("mcp__gmail__send_mail_draft", "mcp__gmail__send_email_draft", "mcp__outlook__forward_as_draft"):
+    assert ids(tool, {}) == [], (tool, ids(tool, {}))
+for tool in ("mcp__ms365__send-shared-mailbox-draft", "mcp__gmail__send_saved_draft", "mcp__gmail__send_draft"):
+    assert ids(tool, {}) == ["send-external-message"], (tool, ids(tool, {}))
+ok("MCP: a tool that writes a draft (send_mail_draft, forward_as_draft) does not send; one that sends a draft does")
+for x in (dot, tree, big, os.path.join(p.dir, "build"), os.path.join(p.dir, "dist")):
+    shutil.rmtree(x, ignore_errors=True)
 for x in (evil, fake, lnr):
     shutil.rmtree(x, ignore_errors=True)
 

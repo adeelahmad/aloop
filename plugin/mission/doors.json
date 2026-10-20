@@ -229,8 +229,8 @@
     }
    ],
    "tools": [
-    "(?i)^(?:mcp__(?:[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[\\w-]*?__(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?|[\\w-]+?__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9]*[_-])|(?!mcp__)[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9-]*_(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?)(?:(?:chat[_-]?)?(?:send|reply|forward|post|schedule[_-]?(?:message|post|email|mail|send))|(?:conversations[_-])?add[_-]message)(?!s(?:$|[_-](?!an?[_-]))|ed(?:$|[_-])|ing)(?![\\w-]*(?:message|mail|email)[_-]draft$)[\\w-]*$",
-    "(?i)^(?:mcp__[\\w-]+?__|(?!mcp__)[\\w-]+?_)(?:send|reply|forward|post)[_-](?:[\\w-]*?[_-])?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)(?![\\w-]*(?:message|mail|email)[_-]draft$)[\\w-]*$"
+    "(?i)^(?:mcp__(?:[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[\\w-]*?__(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?|[\\w-]+?__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9]*[_-])|(?!mcp__)[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9-]*_(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?)(?:(?:chat[_-]?)?(?:send|reply|forward|post|schedule[_-]?(?:message|post|email|mail|send))|(?:conversations[_-])?add[_-]message)(?!s(?:$|[_-](?!an?[_-]))|ed(?:$|[_-])|ing)(?![\\w-]*(?:message|mail|email|as)[_-]draft$)[\\w-]*$",
+    "(?i)^(?:mcp__[\\w-]+?__|(?!mcp__)[\\w-]+?_)(?:send|reply|forward|post)[_-](?![\\w-]*(?:message|mail|email|as)[_-]draft$)(?:[\\w-]*?[_-])?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[\\w-]*$"
    ],
    "examples": {
     "bash": [
@@ -472,7 +472,7 @@
      "writes": "(?:^|/)(?:\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.config/opencode/config\\.json|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
     },
     {
-     "writes": "^(?:(?:~/|\\$[^/]*/)?(?:\\.claude|\\.codex(?:/agents)?|\\.opencode(?:/plugins)?|\\.config(?:/opencode(?:/plugins)?)?|\\.dsh(?:/profiles(?:/[^/]+)?)?)(?:/[*?])?/?|(?:~/)?\\*)$"
+     "writes": "^(?:(?:~/|\\$\\{?HOME\\}?/)?(?:\\.claude|\\.codex(?:/agents)?|\\.opencode(?:/plugins)?|\\.config(?:/opencode(?:/plugins)?)?|\\.dsh(?:/profiles(?:/[^/]+)?)?)(?:/[*?])?/?|\\$[^/]*/(?:\\.claude|\\.codex(?:/agents)?|\\.opencode(?:/plugins)?|\\.config(?:/opencode(?:/plugins)?)?|\\.dsh(?:/profiles(?:/[^/]+)?)?)/[*?]/?|(?:~/)?\\*)$"
     },
     {
      "prog": "rm|unlink|truncate|shred",
@@ -612,7 +612,7 @@
      "args": "^doors\\s+(?:authorize|revoke)\\b"
     },
     {
-     "writes": "(?:^|/)docs/agents/mission/(?:ledger\\.jsonl|\\*)$"
+     "writes": "(?:^|/)docs/agents/mission/(?:ledger\\.jsonl|[*?])$"
     },
     {
      "writes": "(?:^|/)\\.(?:aladdin|agentic)/logs/(?:events\\.jsonl|[*?])$"

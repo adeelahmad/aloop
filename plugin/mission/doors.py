@@ -42,6 +42,7 @@ ALOOP_AGENT_SHELL set).
 """
 import contextlib
 import functools
+import fnmatch
 import glob
 import hashlib
 import itertools
@@ -215,7 +216,8 @@ def render(parts):
         elif p[0] == "var":
             out.append("~" if p[1] == "HOME" and p[2] is None else "$" + p[1])
         elif p[0] == "cmd":
-            out.append(TOP if " ".join(p[1].split()) == "git rev-parse --show-toplevel" else "$(…)")
+            t = " ".join(p[1].split())
+            out.append(TOP if t == "git rev-parse --show-toplevel" else "$PWD" if t in ("pwd", "pwd -L", "pwd -P") else "$(…)")
         elif p[0] == "proc":
             out.append("<(…)")
         else:
@@ -313,24 +315,27 @@ def views(cmd, depth=0, cur=""):
     out, stack, dirs, fed, group = [], [], [], None, None
     opened, closed, scopes, prev, last = [], None, [], None, None
     maybe, failed, old, gitenv = None, None, (UNKNOWN,), False
+    base = (cur, old, [])                   # where the current and-or list began (`a && b &` runs in a subshell)
     for c in R.read(cmd):
         if isinstance(c, str):
             link = getattr(c, "end", None)          # the list operator after a subshell or compound
+            if c in ("(", "cwd+") and prev not in ("&&", "||"):
+                base = (cur, old, list(dirs))
             inner = cur                     # where it starts: after `cd X ||`, where the cd failed
             if prev == "||" and failed is not None:
                 inner = failed
             elif prev == "||" and maybe is not None:
                 inner = union(maybe, cur)
             if c == "(":                    # a pipe into a subshell feeds the commands inside it
-                stack.append((cur, group, maybe, failed, old, list(dirs)))
+                stack.append((cur, group, maybe, failed, old, list(dirs), base))
                 cur, group, maybe, failed = inner, (fed if fed is not None else group), None, None
                 opened.append(len(out))
             elif c == ")":
                 if stack:
-                    cur, group, maybe, failed, old, dirs[:] = stack.pop()
+                    cur, group, maybe, failed, old, dirs[:], base = stack.pop()
                 closed = opened.pop() if opened else None
             elif c == "cwd+":               # an if, case, loop body or { …; } group: its `cd` may or may not run
-                scopes.append((inner, [], group, maybe, failed, old, cur if prev == "||" else None))
+                scopes.append((inner, [], group, maybe, failed, old, cur if prev == "||" else None, base))
                 cur, group, maybe, failed = inner, (fed if fed is not None else group), None, None
                 opened.append(len(out))
             elif c == "cwd|" and scopes:    # a branch ends: the next one starts where the compound did
@@ -338,7 +343,7 @@ def views(cmd, depth=0, cur=""):
                 cur, old = scopes[-1][0], scopes[-1][5]
             elif c == "cwd-":
                 if scopes:
-                    entry, tails, group, maybe, failed, old0, skip = scopes.pop()
+                    entry, tails, group, maybe, failed, old0, skip, base = scopes.pop()
                     cur = union(entry, *(t for t, _ in tails), cur)
                     old = union(old0, *(o for _, o in tails), old)
                     if skip is not None and last in ("exit", "return"):
@@ -346,12 +351,19 @@ def views(cmd, depth=0, cur=""):
                     elif skip is not None:
                         cur = union(skip, cur)          # `A || { … }`: A succeeded, or the group ran
                 closed = opened.pop() if opened else None
+            if c in (")", "cwd-") and (link == "&&" or c == "cwd-"):
+                failed = None                   # past it, `|| Y` is reached from the success path too
             if c in (")", "cwd-") and maybe is not None and link not in ("&&", "||"):
                 cur, maybe, failed = union(maybe, cur), None, None      # its list ends here
+            if c in (")", "cwd-") and link == "&":
+                cur, old, dirs[:] = base[0], base[1], base[2]           # a background list moves no shell
+                maybe, failed = None, None
             fed, last = None, None
             prev = link if c in (")", "cwd-") and link in ("&&", "||") else None
             continue
         own, closed = (closed if not c.words and not c.assigns else None), None
+        if prev not in ("&&", "||", "|", "|&"):
+            base = (cur, old, list(dirs))
         start = here = cur
         if prev == "||" and failed is not None:
             here = failed                   # `cd X || Y`: Y runs where the cd failed
@@ -380,7 +392,7 @@ def views(cmd, depth=0, cur=""):
             cur, old = moved(mover["prog"], mover["args"], here, old, dirs)
             if prev in ("&&", "||"):        # it may not run: known only along its own list
                 old = union(old0, old)
-                maybe = before if maybe is None else maybe
+                maybe = before if maybe is None else union(maybe, before)
             if prev == "||":                # `A || cd X`: X, or where A left it
                 cur = union(start, cur)
             if c.end == "||":               # `cd X || Y`: Y runs where the cd failed; after it, either
@@ -411,11 +423,16 @@ def views(cmd, depth=0, cur=""):
             out += own_stdin(feed(vs, stdin, depth))
         fed = stdout(vs, stdin) if c.end in ("|", "|&") else None
         out += vs
+        if c.end == "&&":
+            failed = None                   # `cd X || a && b || Y`: Y is reached from X too
         if c.end not in ("&&", "||", "|", "|&"):
             if maybe is not None:
                 cur = union(maybe, cur)
             maybe, failed = None, None
-        prev, last = c.end, prog
+        if c.end == "&" and prev in ("&&", "||", "|", "|&"):
+            cur, old, dirs[:] = base[0], base[1], base[2]   # `cd X && make &`: the whole list is a background job
+        last = prog if prev not in ("&&", "||") and not c.pipe and c.end != "&" else None   # an exit that always runs
+        prev = c.end
     return out
 
 
@@ -543,7 +560,7 @@ COPY_PAIRED = {     # the options of a copy, move, link or install that take a s
               "--only-write-batch", "--max-delete", "--block-size", "--modify-window", "--address", "--outbuf",
               "--info", "--debug", "--stop-after", "--stop-at", "--copy-as", "--remote-option", "--log-format",
               "--compress-level", "--checksum-seed", "--protocol", "--max-alloc", "--cc", "--zc", "--zl",
-              "--early-input"}}
+              "--early-input", "--stderr"}}
 COPY_FLAGS = {      # their long options that take no separate value (a bare --backup, not --backup=CONTROL)
     "cp": {"--archive", "--attributes-only", "--backup", "--copy-contents", "--debug", "--force", "--interactive",
            "--link", "--dereference", "--no-clobber", "--no-dereference", "--preserve", "--parents", "--recursive",
@@ -588,7 +605,7 @@ def copied(prog, args):
     while i < len(args):
         a = args[i]
         if a == "--":
-            ops += args[i + 1:]
+            ops += [(o, False) for o in args[i + 1:]]
             break
         if a.startswith("--"):
             k, eq, v = a.partition("=")
@@ -639,64 +656,81 @@ def copied(prog, args):
     if prog == "ln" and len(ops) == 1:
         return [dict(plan, dest=".", srcs=words, target=True)]     # ln -s TARGET: a link named after it, here
     k, out = len(ops) - 1, []
-    while k >= 1 and len(out) < MAXDESTS:   # the last operand, and before it while it may be an option's value
-        out.append(dict(plan, dest=words[k], srcs=words[:k]))
+    while k >= 1:                           # the last operand, and before it while it may be an option's value
+        out.append(dict(plan, dest=words[k], srcs=words[:k] if len(out) < MAXDESTS else []))
         if not ops[k][1]:
             break
         k -= 1
     return out
 
 
-def copy_writes(cwd, v, plan):
+def copy_writes(cwd, v, plan, made=()):
     """The paths a copy plan writes where its command runs: DEST/NAME for each source when DEST is a
     directory (or -t DIR, or more than one source or a trailing / or a DEST the gate cannot place), else
     DEST itself (the copy becomes DEST); a glob source's NAMEs are the files it names now; a source whose
     contents are copied (SRC/., rsync's SRC/) gives each of its entries (DEST/* when the gate cannot list
     them); a source whose name the gate cannot see ({}, xargs' arguments, a variable) is DEST/?; DEST/SRC
     under --parents or -R; `ln -n` over a link replaces DEST; and the sources a move takes away. A remote
-    rsync destination is not this machine's."""
+    rsync destination is not this machine's. `made`: the absolute paths the line wrote before this command
+    (a directory it filled, a file it staged), listed with what is there now."""
     dest, srcs, rsync = plan["dest"], plan["srcs"], plan["prog"] == "rsync"
     out = list(srcs) if plan["removes"] else []
     if dest is None or rsync and re.match(r"^[^/]*:", dest):
         return out
-    if plan["whole"]:
-        return out + [dest]
+    base = dest.rstrip("/") or "/"
+
+    def entries(f):                                         # a directory's names now and the line's own
+        try:
+            names = os.listdir(f)
+        except OSError:
+            names = None
+        made_here = [m[len(f.rstrip("/")) + 1:].split("/")[0] for m in made if m.startswith(f.rstrip("/") + "/")]
+        return None if names is None and not made_here else sorted(set(names or []) | set(made_here))
+
+    def contents(s):                                        # the entries of SRC/. (rsync SRC/), as copied
+        w = where_of(v, s)
+        f = resolve(cwd, w) if w != UNKNOWN else ""
+        names = entries(f) if f else None
+        if names is None or len(names) > GLOB_SCAN:
+            return [base + "/*"]
+        keep = sorted(n for k, n in enumerate(names) if k < GLOB_MAX or KEEP.search(n))
+        return [base + "/" + n for n in keep[:4 * GLOB_MAX]] + ([base + "/*"] if len(keep) > 4 * GLOB_MAX else [])
+
+    def a_dir(s):                                           # rsync copies a directory into DEST, as DEST/NAME
+        w = where_of(v, s)
+        f = resolve(cwd, w) if w != UNKNOWN else ""
+        return not f or os.path.isdir(f) or any(m.startswith(f.rstrip("/") + "/") for m in made)
+    if plan["whole"]:                                       # cp -T SRCDIR DEST: DEST gets SRCDIR's entries
+        return out + [dest] + [w for s in srcs if plan["prog"] == "cp" and a_dir(s)
+                               for w in contents(s.rstrip("/") + "/.")]
     where = where_of(v, dest)
     full = resolve(cwd, where) if where != UNKNOWN else ""
     if plan.get("nodir") and full and not dest.endswith("/") and os.path.islink(full):
         return out + [dest]                                 # ln -sfn X LINK: the link itself is replaced
     isdir = os.path.isdir(full) if full else None           # None: the gate cannot tell
-    base = dest.rstrip("/") or "/"
 
-    def contents(s):                                        # the entries of SRC/. (rsync SRC/), as copied
-        w = where_of(v, s)
+    def globbed(s):                                         # what the shell's glob names: now, made, dot entries
+        names = [os.path.basename(m.rstrip("/")) for m in matches(cwd, v, s)]
+        head, last = os.path.split(s)
+        w = where_of(v, head or ".") if not re.search(r"[*?\[]", head) else UNKNOWN
         f = resolve(cwd, w) if w != UNKNOWN else ""
-        try:
-            names = os.listdir(f) if f else None
-        except OSError:
-            names = None
-        if names is None or len(names) > GLOB_SCAN:
-            return [base + "/*"]
-        keep = sorted(n for k, n in enumerate(sorted(names)) if k < GLOB_MAX or KEEP.search(n))
-        return [base + "/" + n for n in keep[:4 * GLOB_MAX]] + ([base + "/*"] if len(keep) > 4 * GLOB_MAX else [])
+        if f and re.match(r"[*?\[]", last):                # dotglob or GLOBIGNORE: `*` names dotfiles too
+            names += [n for n in (entries(f) or []) if fnmatch.fnmatch(n, last)
+                      and (n.startswith(".") or not os.path.lexists(os.path.join(f, n)))]
+        return sorted(set(names))
 
     def inside(s):
         if plan["parents"]:
-            s = s.split("/./", 1)[1] if rsync and "/./" in s else s
-            return [base + "/" + s.lstrip("/")]
+            rel = s.split("/./", 1)[1] if rsync and "/./" in s else s
+            return contents(s) if rel.strip("/") in ("", ".") else [base + "/" + rel.lstrip("/")]
         if s.endswith("/.") or rsync and s.endswith("/"):
             return contents(s)
-        if s in v.get("globs", ()) and re.search(r"[*?]", s):  # the shell expands it: each file it names now
-            return [base + "/" + os.path.basename(m.rstrip("/")) for m in matches(cwd, v, s)] or [base + "/?"]
+        if s in v.get("globs", ()) and re.search(r"[*?]", s):  # the shell expands it: each file it names
+            return [base + "/" + n for n in globbed(s)] or [base + "/?"]
         name = os.path.basename(s.rstrip("/"))
         if s in (STDIN, "{}") or re.search(r"[$`]", name):
             return [base + "/?"]                            # a name the gate cannot see
         return [base + "/" + name] if name not in ("", ".", "..") else contents(s + "/.")
-
-    def a_dir(s):                                           # rsync copies a directory into DEST, as DEST/NAME
-        w = where_of(v, s)
-        f = resolve(cwd, w) if w != UNKNOWN else ""
-        return not f or os.path.isdir(f)
     if plan["target"] or isdir:
         return out + [w for s in srcs or [STDIN] for w in inside(s)]
     if isdir is False and len(srcs) == 1 and not dest.endswith("/"):
@@ -816,7 +850,7 @@ def chain(words, env, writes, depth, cur):
                     if inner:
                         if depth >= DEPTH:
                             raise ValueError("find -exec nests deeper than the door gate reads (%d)" % DEPTH)
-                        out += chain(inner, [], [], depth + 1, cur)
+                        out += chain(inner, [], [], depth + 1, (UNKNOWN,) if rest[j] in ("-execdir", "-okdir") else cur)
                     j += len(inner)
                 j += 1
             break
@@ -848,7 +882,13 @@ def chain(words, env, writes, depth, cur):
                         o.split("=", 1)[1] if o.startswith("--") else o[2:]
                     words = split.split() + words[2 if o in ("-S", "--split-string") else 1:]
                     continue
-                if o in ("-u", "--unset", "-C", "--chdir"):
+                if o in ("-C", "--chdir") or o.startswith("--chdir=") or o.startswith("-C") and len(o) > 2:
+                    to = (words[1] if len(words) > 1 else None) if o in ("-C", "--chdir") else \
+                        o.split("=", 1)[1] if o.startswith("--") else o[2:]
+                    cur = union(*((chdir(d, to),) for d in cur))    # env -C DIR: the command runs there
+                    words = words[2:] if o in ("-C", "--chdir") else words[1:]
+                    continue
+                if o in ("-u", "--unset"):
                     words = words[2:]
                     continue
                 if ASSIGN.match(o):
@@ -1024,13 +1064,14 @@ def placed(cwd, top, v, path, kernel=False, here=None):
         return path
     if re.match("(?:%s|\\$PWD|\\$CLAUDE_PROJECT_DIR)(?:/|$)" % re.escape(TOP), path):
         where = chdir(v["dir"], path)
-    elif v["dir"] == UNKNOWN or re.search(r"[$`]", path):
+    elif re.search(r"[$`]", path) or v["dir"] == UNKNOWN and not (os.path.isabs(path) or path.startswith("~")):
         where = UNKNOWN
     else:
         where = path if os.path.isabs(path) or path.startswith("~") or not v["dir"] else v["dir"] + "/" + path
     if where == UNKNOWN:
         x = os.path.normpath(path)        # as written (./.claude is .claude)
-        return next((g for g in GUARDED if not os.path.isabs(x) and (g == x or g.endswith("/" + x))), x)
+        return next((g for g in GUARDED if not os.path.isabs(x) and (g == x or g.endswith("/" + x) or re.fullmatch(
+            r"\$[^/]*/" + re.escape(g), x))), x)
     full = resolve(cwd, where, kernel)
     if not full:
         return path
@@ -1041,6 +1082,7 @@ def placed(cwd, top, v, path, kernel=False, here=None):
     return full
 
 
+NAMED = "\x01name"  # a name placed by its directory's template (place(): DIR/NAME is DIR's forms plus NAME)
 GLOB_MAX = 512      # the files of a glob the gate lists (and any name a host's config or a run record may have)
 GLOB_SCAN = 20000   # past this many, the glob's directory stands for the rest
 KEEP = re.compile(r"(?:^|/)(?:\.[^/]*|[^/]*\.(?:jsonc?|jsonl|toml|ya?ml|m?js))$")
@@ -1048,9 +1090,13 @@ KEEP = re.compile(r"(?:^|/)(?:\.[^/]*|[^/]*\.(?:jsonc?|jsonl|toml|ya?ml|m?js))$"
 
 def where_of(v, path):
     """Where a command's path operand is, as resolve() takes it (UNKNOWN: the gate cannot tell)."""
-    if v["dir"] == UNKNOWN or re.search(r"[$`]", path) or "\n" in path or len(path) > 4096:
+    if re.search(r"[$`]", path) or "\n" in path or len(path) > 4096:
         return UNKNOWN
-    return path if os.path.isabs(path) or path.startswith(("~", TOP)) or not v["dir"] else v["dir"] + "/" + path
+    if os.path.isabs(path) or path.startswith("~"):
+        return path                                         # where it says, wherever the command runs
+    if v["dir"] == UNKNOWN:
+        return UNKNOWN
+    return path if path.startswith(TOP) or not v["dir"] else v["dir"] + "/" + path
 
 
 def matches(cwd, v, path):
@@ -1110,13 +1156,22 @@ def place(cwd, vs):
     """Each view's operands and writes as placed() reads them (files, placed_writes): as written and as the
     kernel walks them, each file a glob names, relative to the project's checkout that holds it and to
     the home directory; a copy's destination as copy_writes() places it."""
-    top, seen, here = os.path.realpath(_paths.project(cwd)), {}, toplevel(os.path.abspath(cwd))
+    top, seen, here, made = os.path.realpath(_paths.project(cwd)), {}, toplevel(os.path.abspath(cwd)), []
 
     def forms(v, a):                        # once per (directory, path): candidate dirs repeat them
         key = (v["dir"], a, a in v.get("globs", ()))
         if key not in seen:
             seen[key] = _forms(v, a)
         return seen[key]
+
+    def named(v, a):                        # DIR/NAME as DIR/<name>'s forms, unless NAME is a link (or special)
+        head, _, name = a.rpartition("/")
+        where = where_of(v, a) if head and name not in ("", ".", "..") and not re.search(r"[*?$`\x01]", name) \
+            and a not in v.get("globs", ()) else UNKNOWN
+        full = resolve(cwd, where) if where != UNKNOWN else ""
+        if not full or os.path.islink(full):
+            return forms(v, a)
+        return [f.replace(NAMED, name) for f in forms(v, head + "/" + NAMED)]
 
     def _forms(v, a):
         out = [placed(cwd, top, v, a, k, here) for k in (False, True)]
@@ -1128,9 +1183,10 @@ def place(cwd, vs):
                 out += [x for x in (checkout_rel(full, top), home_rel(full)) if x and not x.startswith("..")]
         return out
     for v in vs:
-        v["writes"] = list(dict.fromkeys(v["writes"] + [w for p in v.get("copies", ()) for w in copy_writes(cwd, v, p)]))
+        v["writes"] = list(dict.fromkeys(v["writes"] + [w for p in v.get("copies", ()) for w in copy_writes(cwd, v, p, made)]))
         v["files"] = list(dict.fromkeys(x for a in v["args"] if not a.startswith("-") for x in forms(v, a)))
-        v["placed_writes"] = list(dict.fromkeys(x for w in v["writes"] for x in forms(v, w)))
+        v["placed_writes"] = list(dict.fromkeys(x for w in v["writes"] for x in named(v, w)))
+        made += [f for f in (resolve(cwd, w) for w in (where_of(v, w) for w in v["writes"]) if w != UNKNOWN) if f]
     return vs
 
 

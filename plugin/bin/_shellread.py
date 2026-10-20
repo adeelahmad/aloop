@@ -431,9 +431,10 @@ class Lexer:
                 return
             rest = inner[m.end():]
             op = re.match(r":?[-=]", rest)
-            if not rest:
-                w.add(("var", m.group(), None))
-            elif op:
+            if not rest or re.fullmatch(r":?\?[^$`]*", rest):
+                w.add(("var", m.group(), None))           # ${x:?msg}: $x, or the shell stops
+            elif op or re.match(r":?\?", rest):
+                op = op or re.match(r":?\?", rest)
                 sub = Lexer(rest[op.end():])
                 dw = sub.word(stop="")
                 w.add(("var", m.group(), dw.parts))
