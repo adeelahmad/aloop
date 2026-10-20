@@ -20,8 +20,8 @@
 //                      role's first tool call
 //   SubagentStop       the child's own agent/turn-stopping → its role's gate. A block steers the child:
 //                      it keeps working and dsh does not settle it (native, like Claude's exit 2), up
-//                      to maxStopBlocks rounds. A STUCK release or a block past them is injected into
-//                      the supervisor as such, never a silent pass
+//                      to maxStopBlocks rounds. A STUCK or NEEDS-HUMAN release, or a block past them,
+//                      is injected into the supervisor as such, never a silent pass
 //   Stop               agent/turn-stopping of a root agent → transcripts snapshot, stats hook; a
 //                      `decision: block` reason steers the session
 // Roles are agent presets `aloop-<role>` (a child carries its preset in session.header.agentPreset).
@@ -52,7 +52,8 @@ const GATES = {
 const MISSION = new Set(Object.keys(GATES).filter((r) => GATES[r] === "gate-mission-artifact"))
 const DISPATCH = new Set(["subagent", "subagent_planning"])
 const TOOL = { bash: "Bash", write: "Write", edit: "Edit", read: "Read", glob: "Glob", grep: "Grep", subagent: "Agent", subagent_planning: "Agent" }
-const STUCK = /\bSTUCK\b.*NOT verified/
+// a gate's release (exit 0, NOT a pass): the same block N times (STUCK), or questions only the human can answer
+const RELEASE = /\b(STUCK|NEEDS-HUMAN)\b.*NOT verified/
 const TOOLS_NOTE = "aloop tools: call `aloop <tool>` (e.g. `aloop selfcheck`, `aloop stats show`); never search for them."
 
 // A gate runs the worker's own code (its tests), so it gets the environment dsh gives the worker's
@@ -284,9 +285,10 @@ export function apply(ctx, config = {}) {
     const g = GATES[s.role]
     if (g) {
       const res = await run(g, [], p, bound(s) || s.project)
-      // A stuck release (the same block N times) exits 0 but is NOT a pass: hand the supervisor
-      // the reason as a release, never as a silent success.
-      if (res.code === 0 && STUCK.test(res.stderr || "")) s.verdict = { stuck: res.stderr }
+      // A release (stuck on one block, or waiting on the human's answers) exits 0 but is NOT a pass:
+      // hand the supervisor the reason as a release, never as a silent success.
+      const rel = res.code === 0 && RELEASE.exec(res.stderr || "")
+      if (rel) s.verdict = rel[1] === "STUCK" ? { stuck: res.stderr } : { human: res.stderr }
       else if (res.code === 2 || res.error) {
         const why = res.code === 2 ? res.stderr || "blocked" : denyOf(res, g)
         if (s.blocks < MAX && !signal?.aborted) {     // an interrupted child is released, never revived
@@ -313,7 +315,9 @@ export function apply(ctx, config = {}) {
     if (!v || !root) return
     root.inject(msg(v.stuck
       ? `[aloop gate] ${s.role} ${s.id}: STUCK — released UNVERIFIED (not a pass): the sub-agent hit the same block repeatedly:\n${v.stuck}\nDo not merge. Discard its worktree and re-dispatch the task with a Feedback block that addresses the reason, or re-plan.`
-      : `[aloop gate] ${s.role} ${s.id}: BLOCKED ${v.interrupted ? "(interrupted while its gate ran)" : `after ${MAX} fix rounds`} — the sub-agent did not pass its gate:\n${v.blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`))
+      : v.human
+        ? `[aloop gate] ${s.role} ${s.id}: NEEDS-HUMAN — released UNVERIFIED (not a pass): its Intent Contract has questions only the human can answer:\n${v.human}\nAsk the human each one, then re-dispatch ${s.role} with the answers in a ### Feedback block (it records each answer). Do not plan from it until gate-intake passes.`
+        : `[aloop gate] ${s.role} ${s.id}: BLOCKED ${v.interrupted ? "(interrupted while its gate ran)" : `after ${MAX} fix rounds`} — the sub-agent did not pass its gate:\n${v.blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`))
   }
   async function rootStop(s, agent, signal) {
     const p = payload("Stop", s, { stop_hook_active: s.blocks > 0 })

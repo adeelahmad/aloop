@@ -224,6 +224,26 @@ await h.on["agent/turn-stopping"]({ agent: scout, turn: 1, signal: AbortSignal.a
 assert.ok(/market-researcher scout: BLOCKED/.test(textOf(root.injected.at(-1))), textOf(root.injected.at(-1)))
 ok("SubagentStop: a mission role that wrote no artifact is steered back by gate-mission-artifact, then reported BLOCKED")
 
+// an intake that stops to ask the human (ROADMAP §4.9): released at once as NEEDS-HUMAN with its questions,
+// never steered for rounds it cannot use; a malformed Intent Contract is still steered back
+writeFileSync(join(T, "docs/agents/sprint1/intake.md"), "# Intent\nWhat: a parser\n## Constraints\n## Failure scenarios\n## Success scenarios\n## Connections\n")
+const ic = sh(join(BIN, "intent"), ["new", "--source", "prompt", "--raw", "a semver parser"]).trim()
+const contract = { ...JSON.parse(readFileSync(ic, "utf8")), actor: "dev", want: "parse semver", why: "releases", constraints: ["std only"],
+  success_scenarios: ["1.2.3 parses"], failure_scenarios: ["bad input errors"], connections: ["none"], done_looks_like: "parse() works",
+  open_questions: [{ question: "accept a leading v (v1.2.3)?", class: "ask" }] }
+writeFileSync(ic, JSON.stringify(contract))
+const ask = childOf("ask", "intake")
+await h.on["agent/created"]({ agent: ask, source: "startup" })
+await stop(h, ask)
+const askTold = textOf(root.injected.at(-1))
+assert.ok(!ask.steered.length && /intake ask: NEEDS-HUMAN/.test(askTold) && /accept a leading v/.test(askTold) && /not a pass/.test(askTold), askTold)
+ok("an intake whose contract only waits on the human is released at once; the supervisor is told NEEDS-HUMAN with its questions")
+writeFileSync(ic, JSON.stringify({ ...contract, want: "" }))
+await step(h, ask, [userMsg("again")])
+await stop(h, ask)
+assert.ok(ask.steered.length === 1 && /is invalid/.test(textOf(ask.steered[0])), JSON.stringify(ask.steered))
+ok("a malformed Intent Contract still steers the intake back to work")
+
 // Stop: a closed sprint is announced once, steered back into the session
 mkdirSync(join(T, ".aladdin/state"), { recursive: true })
 writeFileSync(join(T, ".aladdin/state/pending-close"), "Sprint 1 closed. Tokens — sprint: 1k\n")

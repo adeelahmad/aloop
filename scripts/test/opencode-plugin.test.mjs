@@ -163,6 +163,28 @@ await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "m4
 assert.ok(/BLOCKED after 3 fix rounds/.test(msnOut.output) && /BLOCK\[mission-artifact\]/.test(msnOut.output), msnOut.output)
 ok("gate-mission-artifact runs at the evaluator's stop and blocks a run that wrote no artifact")
 
+// an intake that stops to ask the human (ROADMAP §4.9): released at once as NEEDS-HUMAN with its questions in
+// the task result, never re-prompted for rounds it cannot use; a malformed Intent Contract is still re-prompted
+writeFileSync(join(T, "docs/agents/sprint1/intake.md"), "# Intent\nWhat: a parser\n## Constraints\n## Failure scenarios\n## Success scenarios\n## Connections\n")
+const ic = sh(join(BIN, "intent"), ["new", "--source", "prompt", "--raw", "a semver parser"]).trim()
+const contract = { ...JSON.parse(readFileSync(ic, "utf8")), actor: "dev", want: "parse semver", why: "releases", constraints: ["std only"],
+  success_scenarios: ["1.2.3 parses"], failure_scenarios: ["bad input errors"], connections: ["none"], done_looks_like: "parse() works",
+  open_questions: [{ question: "accept a leading v (v1.2.3)?", class: "ask" }] }
+writeFileSync(ic, JSON.stringify(contract))
+parents.itk = "root"
+await hooks.event({ event: { type: "session.created", properties: { info: { id: "itk", parentID: "root" } } } })
+await hooks["chat.message"]({ sessionID: "itk", agent: "intake" }, { message: {}, parts: [{ type: "text", text: "intake" }] })
+const askOut = { title: "", output: "one question needs the human", metadata: { sessionId: "itk" } }
+before = calls.prompt.length
+await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "i1", args: {} }, askOut)
+assert.ok(/NEEDS-HUMAN — released UNVERIFIED/.test(askOut.output) && /accept a leading v/.test(askOut.output) && calls.prompt.length === before, askOut.output)
+ok("an intake whose contract only waits on the human is released at once; the task result says NEEDS-HUMAN with its questions")
+writeFileSync(ic, JSON.stringify({ ...contract, want: "" }))
+const badOut = { title: "", output: "done", metadata: { sessionId: "itk" } }
+await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "i2", args: {} }, badOut)
+assert.ok(/BLOCKED after 3 fix rounds/.test(badOut.output) && /is invalid/.test(badOut.output) && calls.prompt.length - before === 3, badOut.output)
+ok("a malformed Intent Contract still re-prompts the intake, then reports it BLOCKED")
+
 // Stop: a closed sprint is announced once (toast + prompt back into the session)
 mkdirSync(join(T, ".aladdin/state"), { recursive: true })
 writeFileSync(join(T, ".aladdin/state/pending-close"), "Sprint 1 closed. Tokens — sprint: 1k\n")

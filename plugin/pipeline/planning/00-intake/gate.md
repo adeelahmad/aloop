@@ -14,3 +14,7 @@ Enforced by: the human. Planning is interactive; no hook fires here.
 Self-check (v0.2): the worker runs `selfcheck` (this same gate) BEFORE reporting
 done — nothing advances past a failing self-check. The SubagentStop hook runs the same
 gate as the backstop.
+
+An unanswered `ask` question in the Intent Contract is not a hole the agent fills: the
+hook releases its stop at once as NEEDS-HUMAN (not a pass), and the supervisor asks the
+human and re-dispatches intake with the answers.

@@ -1,11 +1,12 @@
 // The aloop plugin on the REAL DeepSeek Harness runtime (dsh), driven by a scripted model.
 // `aloop install dsh` renders the profile into a throw-away DSH_HOME, then `dsh --profile aloop
-// --json` runs a supervisor that dispatches a red-worker (subagent) and an intake (subagent_planning)
-// against fixtures/fake-deepseek.mjs. The REAL bin/ scripts run in a throw-away git repo. No
-// network, no tokens. It proves on dsh itself what the emulated test (dsh-plugin.test.mjs) assumes:
-// the handoff reaches the model, a deny / post-execute block reaches it, the profile's roles, tools
-// and models, worker confinement, and the per-role stop gate (a block steers the child and is
-// reported to the supervisor after 3 rounds).
+// --json` runs a supervisor that dispatches a red-worker (subagent), an intake and an archivist
+// (subagent_planning) against fixtures/fake-deepseek.mjs. The REAL bin/ scripts run in a throw-away
+// git repo. No network, no tokens. It proves on dsh itself what the emulated test (dsh-plugin.test.mjs)
+// assumes: the handoff reaches the model, a deny / post-execute block reaches it, the profile's roles,
+// tools and models, worker confinement, and the per-role stop gate (a block steers the child and is
+// reported to the supervisor after 3 rounds; an intake that stops to ask is released at once as
+// NEEDS-HUMAN; a role that passes stops at once).
 //   DSH_BIN=<dsh's lib/bin.js or a dsh executable> node scripts/test/dsh-runtime.test.mjs
 // Without DSH_BIN it uses `dsh` on PATH, and skips when there is none (ALOOP_REQUIRE_DSH=1 fails
 // instead: CI installs the pinned @deepseek-ai/dsh and sets it).
@@ -69,7 +70,8 @@ const script = {
     { tools: [{ name: "write", input: { file_path: join(P, "src/main.rs"), content: "fn main() {}\n", agent_type: "green-worker" } }] },
     { tools: [{ name: "subagent", input: { description: "no role", prompt: "do it" } }] },
     { tools: [{ name: "subagent", input: { agent_preset: "aloop-red-worker", description: "RED S1-01-T1", prompt: red, cwd: wt } },
-              { name: "subagent_planning", input: { agent_preset: "aloop-intake", description: "intake", prompt: "Run intake." } }] },
+              { name: "subagent_planning", input: { agent_preset: "aloop-intake", description: "intake", prompt: "Run intake." } },
+              { name: "subagent_planning", input: { agent_preset: "aloop-archivist", description: "retrospective", prompt: "Run the retrospective." } }] },
     { text: "waiting for the roles" },
   ],
   "red-worker": [
@@ -96,6 +98,12 @@ const script = {
     { tools: [{ name: "write", input: { file_path: join(P, "docs/agents/sprint1/intake.md"), content:
       "# Intake\n## What\nA semver parser.\n## Constraints\nstd only.\n## Failure scenarios\nbad input errors.\n" +
       "## Success scenarios\n1.2.3 parses.\n## Connections\nnone; depends on nothing.\n" } }] },
+    // the Intent Contract, complete but for one question only the human can answer (an `ask`)
+    { tools: [{ name: "bash", input: { description: "contract", command: "f=$(aloop intent new --source prompt --raw 'a semver parser') && " +
+      "python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.update(actor=\"dev\", want=\"parse semver\", why=\"releases\", " +
+      "constraints=[\"std only\"], success_scenarios=[\"1.2.3 parses\"], failure_scenarios=[\"bad input errors\"], connections=[\"none\"], " +
+      "done_looks_like=\"parse() returns a Version\", open_questions=[{\"question\": \"May the parser accept a leading v (v1.2.3)?\", " +
+      "\"class\": \"ask\"}]); json.dump(d, open(p, \"w\"))' \"$f\" && echo \"contract $f\"" } }] },
   ],
 }
 writeFileSync(join(T, "script.json"), JSON.stringify(script))
@@ -137,9 +145,9 @@ ok("an argument the model adds (agent_type) never reaches a gate as a hook field
 assert.ok(/pass agent_preset/.test(after("supervisor", 4)), after("supervisor", 4)); ok("a dispatch without a role is refused")
 assert.ok(/started subagent/.test(after("supervisor", 5)), after("supervisor", 5)); ok("gate-dispatch admits a role dispatched with its task contract and model")
 
-const w = of("red-worker"), intake = of("intake")
-assert.ok(w.length && w.every((q) => q.model === "deepseek-flash") && intake.length && intake.every((q) => q.model === "deepseek-v4-pro"),
-  JSON.stringify([w.map((q) => q.model), intake.map((q) => q.model)]))
+const w = of("red-worker"), intake = of("intake"), arch = of("archivist")
+assert.ok(w.length && w.every((q) => q.model === "deepseek-flash") && intake.length && [...intake, ...arch].every((q) => q.model === "deepseek-v4-pro"),
+  JSON.stringify([w.map((q) => q.model), intake.map((q) => q.model), arch.map((q) => q.model)]))
 ok("each group runs on its own model: workers deepseek-flash (economical), planning deepseek-v4-pro (strongest)")
 assert.ok(/aloop bind <that path>/.test(w[0].system), w[0].system.slice(0, 400)); ok("the role's persona (its agent file + the dsh note) is the child's prompt")
 assert.ok(/bind your worktree first/.test(after("red-worker", 0)), after("red-worker", 0)); ok("an unbound writer is refused (SKIP_HOOKS=1 in the project's .env does not lift it)")
@@ -169,11 +177,15 @@ ok("a command chained to a bind with no space (`aloop bind <wt>;…`) is confine
 const steered = w.filter((q) => /\[aloop gate gate-red-verify\] Your stop was blocked/.test(q.last))
 assert.equal(steered.length, 3, JSON.stringify(w.map((q) => q.last.slice(0, 80))))
 ok("SubagentStop: gate-red-verify's block steers the worker back to work (native, before dsh settles it), 3 rounds (GATE_RUN_TESTS=0 in .env ignored)")
-assert.ok(intake.length === 2 && !intake.some((q) => /Your stop was blocked/.test(q.last)), JSON.stringify(intake.map((q) => q.last.slice(0, 200))))
-ok("a role that passes its own gate (gate-intake) stops at once")
+assert.ok(arch.length === 1 && !arch.some((q) => /Your stop was blocked/.test(q.last)), JSON.stringify(arch.map((q) => q.last.slice(0, 200))))
+ok("a role that passes its own gate (gate-memory) stops at once")
 const told = sup.map((q) => q.all).join("\n")
-assert.ok(/red-worker \S+: BLOCKED after 3 fix rounds/.test(told) && !/intake \S+: BLOCKED/.test(told), told.slice(-1500))
+assert.ok(/red-worker \S+: BLOCKED after 3 fix rounds/.test(told) && !/(intake|archivist) \S+: BLOCKED/.test(told) && !/archivist \S+: NEEDS-HUMAN/.test(told), told.slice(-1500))
 ok("a gate still blocking after 3 rounds is reported to the supervisor, never a silent pass")
+assert.ok(/contract \S+int_\w+\.json/.test(after("intake", 1)), after("intake", 1))
+assert.ok(intake.length === 3 && !intake.some((q) => /Your stop was blocked/.test(q.last)), JSON.stringify(intake.map((q) => q.last.slice(0, 200))))
+assert.ok(/intake \S+: NEEDS-HUMAN — released UNVERIFIED \(not a pass\)/.test(told) && /May the parser accept a leading v \(v1\.2\.3\)\?/.test(told), told.slice(-1500))
+ok("an intake that stops to ask is released at once, never steered: the supervisor is told NEEDS-HUMAN with its question (ROADMAP §4.9)")
 
 const gates = readFileSync(join(P, ".aladdin/logs/gates.jsonl"), "utf8")
 assert.ok(/"gate":"gate-red-verify".*"exit":2/.test(gates) && /"selfcheck":false/.test(gates), gates.slice(0, 600))
@@ -186,7 +198,7 @@ const hostDir = join(P, ".aladdin/host/dsh")
 const rootLog = readdirSync(hostDir).find((f) => f.endsWith(".jsonl"))
 const subs = join(hostDir, rootLog.replace(/\.jsonl$/, ""), "subagents")
 const metas = readdirSync(subs).filter((f) => f.endsWith(".meta.json")).map((f) => JSON.parse(readFileSync(join(subs, f), "utf8")).agentType).sort()
-assert.deepEqual(metas, ["intake", "red-worker"])
+assert.deepEqual(metas, ["archivist", "intake", "red-worker"])
 const line = JSON.parse(readFileSync(join(hostDir, rootLog), "utf8").split("\n")[0])
 assert.deepEqual(line.message.usage, { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 50, cache_creation_input_tokens: 0 })
 ok("token usage is written Claude-shaped per session and per role (.aladdin/host/dsh)")

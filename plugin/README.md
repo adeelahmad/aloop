@@ -152,7 +152,7 @@ dsh --profile aloop "Use the aloop skill. Intent: <one line>"
 - **Gates**: every block uses one of dsh's own decision points, so `enforce_gate` is native. A
   tool call is denied with the gate's reason; an invalid artifact write comes back as the
   gate's feedback; a role's stop gate steers the child back to work before dsh settles it,
-  up to 3 rounds, and a block past them (or a STUCK release) is injected into the supervisor.
+  up to 3 rounds, and a block past them (or a STUCK or NEEDS-HUMAN release) is injected into the supervisor.
 - **Unattended runs**: dsh asks before commands unless `DSH_PERMISSION_MODE=danger-full-access`
   (no sandbox, no approvals); use that only in a throw-away repo, as `make e2e-live HOST=dsh` does.
   The profile disables dsh's session-log upload (`session-log-deepseek`); set

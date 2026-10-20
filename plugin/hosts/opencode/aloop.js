@@ -20,7 +20,7 @@
 //                      a mission role's gate-mission-artifact start on its first chat.message
 //   SubagentStop       tool.execute.after of the `task` tool → the role's gate; a block is
 //                      sent back to the sub-agent (it keeps working) up to 3 rounds, then
-//                      reported in the task result
+//                      reported in the task result, as a STUCK or NEEDS-HUMAN release is
 //   Stop               event session.idle (root session) → transcripts snapshot, stats hook;
 //                      a `decision: block` reason is prompted back into the session
 // Token usage: every completed assistant message is appended, Claude-shaped, to
@@ -45,6 +45,8 @@ const GATES = {
 const TOOL = { bash: "Bash", write: "Write", edit: "Edit", apply_patch: "apply_patch", read: "Read", task: "Agent" }
 const EDITS = new Set(["write", "edit", "apply_patch"])
 const GATE_ROUNDS = 3
+// a gate's release (exit 0, NOT a pass): the same block N times (STUCK), or questions only the human can answer
+const RELEASE = /\b(STUCK|NEEDS-HUMAN)\b.*NOT verified/
 
 export const AgenticAgile = async ({ client, directory, worktree }) => {
   const project = worktree || directory
@@ -123,9 +125,10 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
     const gate = GATES[role]
     for (let round = 0; gate && round <= GATE_ROUNDS; round++) {
       const res = run(gate, [], p, bound(childID) || project)
-      // A stuck release (the same block N times) exits 0 but is NOT a pass: hand the supervisor
-      // the reason as a release, never as a silent success.
-      if (res.code === 0 && /\bSTUCK\b.*NOT verified/.test(res.stderr || "")) { verdict = { stuck: res.stderr }; break }
+      // A release (stuck on one block, or waiting on the human's answers) exits 0 but is NOT a pass:
+      // hand the supervisor the reason as a release, never as a silent success.
+      const rel = res.code === 0 && RELEASE.exec(res.stderr || "")
+      if (rel) { verdict = rel[1] === "STUCK" ? { stuck: res.stderr } : { human: res.stderr, role }; break }
       if (res.code !== 2) { verdict = null; break }
       verdict = { blocked: res.stderr }
       if (round === GATE_ROUNDS) break
@@ -232,6 +235,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
         if (child) {
           const v = await subagentStop(child, input.sessionID)
           if (v?.stuck) output.output = `${output.output || ""}\n\n[aloop gate] STUCK — released UNVERIFIED (not a pass): the sub-agent hit the same block repeatedly:\n${v.stuck}\nDo not merge. Discard its worktree and re-dispatch the task with a Feedback block that addresses the reason, or re-plan.`
+          else if (v?.human) output.output = `${output.output || ""}\n\n[aloop gate] NEEDS-HUMAN — released UNVERIFIED (not a pass): its Intent Contract has questions only the human can answer:\n${v.human}\nAsk the human each one, then re-dispatch ${v.role} with the answers in a ### Feedback block (it records each answer). Do not plan from it until gate-intake passes.`
           else if (v?.blocked) output.output = `${output.output || ""}\n\n[aloop gate] BLOCKED after ${GATE_ROUNDS} fix rounds — the sub-agent did not pass its gate:\n${v.blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`
         }
       }
