@@ -93,4 +93,9 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.44 | A goal is re-measured between its sprints | NOT_IMPLEMENTED | §4.12 |
 | M9.45 | A journey's runner has a named author | NOT_IMPLEMENTED | §4.12 |
 | M9.46 | `mission due` is the supervisor's, not a role's | NOT_IMPLEMENTED | §4.12 |
+| M9.60 | A gate's budget release is marked in the gate log | NOT_IMPLEMENTED | §4.12 |
+| M9.61 | The live run's post-run checks run the repo's code on a throwaway clone | NOT_IMPLEMENTED | §4.12 |
+| M9.62 | The gates run tests with their own bytecode cache | NOT_IMPLEMENTED | §4.12 |
+| M9.63 | `mission.set` names who set the mission | NOT_IMPLEMENTED | §4.12 |
+| M9.64 | `run-summary --kind mission` replaces the smoke summary | NOT_IMPLEMENTED | §4.12 |
 | M9.50 | A goal sprinted with gaps still open gets a next step | NOT_IMPLEMENTED | §4.12 |
