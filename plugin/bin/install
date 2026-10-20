@@ -16,7 +16,7 @@ codex:    <DIR>/.codex/agents/<role>.toml  (or ~/.codex/agents with --global)
           + ~/.local/bin/aloop (+ legacy alias agentic)  (Codex does not put plugin bin/ on PATH)
           The plugin itself (skills, hooks, commands) installs through Codex's own
           plugin manager — it reads this repo's .claude-plugin manifests natively:
-            codex plugin marketplace add adeelahmad/agentic-agile
+            codex plugin marketplace add adeelahmad/aloop
             codex plugin add aloop@aloop-marketplace
           then approve the hooks once with /hooks (Codex runs only trusted hooks).
 opencode: <DIR>/.opencode/{agents,skills,commands,plugins}/ (or ~/.config/opencode)
@@ -168,7 +168,7 @@ def install_codex(opts, st):
         write(os.path.join(base, "agents", name + ".toml"), "\n".join(lines) + "\n", written)
     link_dispatcher(written)
     return written, [
-        "codex plugin marketplace add %s   # or: adeelahmad/agentic-agile" % os.path.dirname(ROOT),
+        "codex plugin marketplace add %s   # or: adeelahmad/aloop" % os.path.dirname(ROOT),
         "codex plugin add aloop@aloop-marketplace",
         "then in Codex: /hooks  → trust the aloop hooks (Codex runs only trusted hooks)",
     ]
@@ -284,7 +284,7 @@ def main(argv):
             print("%-9s %s" % (h, os.path.dirname(p)))
         return 0
     if host == "claude":
-        print("Claude Code:\n  /plugin marketplace add adeelahmad/agentic-agile\n  /plugin install aloop@aloop-marketplace")
+        print("Claude Code:\n  /plugin marketplace add adeelahmad/aloop\n  /plugin install aloop@aloop-marketplace")
         return 0
     if host not in ("codex", "opencode"):
         print("aloop-install: host must be codex, opencode, claude or status", file=sys.stderr)

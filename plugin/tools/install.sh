@@ -5,7 +5,7 @@
 #   md-db       : built from vendored source in this repo (tools/md-db, AGPL-3.0).
 #
 # Both are built from source, so a working Rust toolchain is required:
-#   rustc/cargo >= 1.82 (the kdl dep in Cargo.lock is pinned to 6.5.0; newer
+#   rustc/cargo >= 1.85 (md-db's locked deps use edition 2024; kdl is pinned to 6.5.0, newer
 #   kdl 6.6+ would raise the MSRV to 1.95 — do not `cargo update -p kdl`).
 #   macOS:  brew install rust   ·   any:  https://rustup.rs
 #

@@ -66,8 +66,10 @@ tracked in git (default **no**), and the commit author (default: **your** git id
 no Claude co-author trailers — `gate-commit-author` enforces it). The harness saves the
 answers in `docs/agents/defaults.md`.
 
-Run data lives at one fixed path, `.agentic/` (transcripts, budget, token ledger, gate
-log, state), defined once in `bin/_paths.sh` and always git-ignored. When FINAL-GATE
+Run data lives in `.aladdin/` (transcripts, budget, token ledger, gate log, state),
+resolved in `bin/_paths.sh` / `bin/_paths.py` and never committed: `.aladdin/.gitignore`
+keeps only `config.yaml`. A project that still has `.agentic/` keeps using it until
+`aloop layout migrate`. When FINAL-GATE
 passes the harness writes `docs/agents/sprintN/stats.md` (tasks, attempts, gate blocks,
 budget stops, re-plans, tokens for the sprint / session / project, human messages) and
 `docs/agents/NEXT.md`; it shows you the totals and asks for `/clear`, and the
@@ -79,7 +81,7 @@ totals any time.
 From a marketplace (this repo ships `.claude-plugin/marketplace.json` at its root):
 
 ```
-/plugin marketplace add adeelahmad/agentic-agile
+/plugin marketplace add adeelahmad/aloop
 /plugin install aloop@aloop-marketplace
 ```
 
@@ -93,11 +95,11 @@ ledger, sprint stats and the post-`/clear` handoff. Run the installer from a clo
 from `aloop --root` once installed anywhere):
 
 ```bash
-git clone https://github.com/adeelahmad/agentic-agile && cd your-project
+git clone https://github.com/adeelahmad/aloop && cd your-project
 
 # Codex — Codex reads this repo's .claude-plugin manifests + hooks/hooks.json natively
 /path/to/aloop/plugin/bin/aloop install codex      # .codex/agents/*.toml + ~/.local/bin/aloop
-codex plugin marketplace add adeelahmad/agentic-agile
+codex plugin marketplace add adeelahmad/aloop
 codex plugin add aloop@aloop-marketplace
 #   then in Codex: /hooks → trust the aloop hooks (Codex runs only trusted hooks)
 
@@ -188,6 +190,8 @@ MIT — see `LICENSE`.
   (the `archivist`) distills it into `docs/agents/memory.md`, which is injected
   (role-scoped) into each `init.md` `# Memory` section.
 - The gates read their per-task contract (`TASK_ID`, `SCOPE_GLOBS`, `SCAFFOLD_SYMBOLS`,
-  `BASE_REF`, `BUDGET_*`) from `.agentic/state/tasks/<TASK_ID>.env` in the main tree,
-  written by the supervisor before dispatch (a worktree `.aladdin/task.env`, or `.agentic/` in a legacy project, must match it). `.agentic/` and `.transcripts/` are git-ignored and never
-  merged.
+  `BASE_REF`, `BUDGET_*`) from `.aladdin/state/tasks/<TASK_ID>.env` in the main tree
+  (`.agentic/state/tasks/` in a legacy project; both are searched), written by the supervisor
+  before dispatch (a worktree `.aladdin/task.env`, or `.agentic/` in a legacy project, must match
+  it). Run data (`.aladdin/`, by its own `.gitignore`, or `.agentic/`) and `.transcripts/` are
+  git-ignored and never merged.
