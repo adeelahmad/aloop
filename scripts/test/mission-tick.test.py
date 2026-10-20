@@ -1428,8 +1428,9 @@ ok("a goal sprinted with gaps still open is the planner's to retire, on the newe
    "and its gaps are held until the human lifts the hold or approves the mission again (a fresh checkout keeps it, "
    "whatever the status field says); 3 retired in a row are the human's")
 
-# 33) the loop hands out a goal's commands only when the gate takes them (M9.53): PLAN_INTENTS and SPRINT
-#     when `goal check` passes, the close when `goal close` would; else BLOCKED naming the gate's reason,
+# 33) the loop hands out a goal's commands only when the gate takes them (M9.53): PLAN_INTENTS when `goal
+#     check` passes, SPRINT when `goal next` would, the close when `goal close` would; else BLOCKED naming
+#     the gate's reason,
 #     never the same handout 3 times into a BLOCKED that names no cause
 p = Project().init()
 cleared(p)
@@ -1499,8 +1500,9 @@ r = q.mi("goal", "close", gid, "--eval", eid)                              # the
 assert r.returncode == 0, r.stderr
 assert [x["data"]["eval_id"] for x in M.ledger_rows(q.dir)[0] if x["event"] == "goal.met"] == [eid]
 expect(q.tick(1.8, "--peek"), "EVALUATE", 0, "which is closed")            # met: the whole mission next
-ok("the loop hands out a goal's commands only when the gate takes them: PLAN_INTENTS and SPRINT when `goal "
-   "check` passes, the close when `goal close` would (a bare met status is repaired by it), else BLOCKED with "
+ok("the loop hands out a goal's commands only when the gate takes them: PLAN_INTENTS when `goal check` "
+   "passes, SPRINT when `goal next` would, the close when `goal close` would (a bare met status is repaired "
+   "by it), else BLOCKED with "
    "the gate's reason")
 
 print("mission-tick: %d checks passed" % PASS[0])
