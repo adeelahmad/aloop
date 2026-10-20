@@ -138,12 +138,16 @@ ok("Python RED with no collected test (pytest exit 5) is rejected")
 # 4b) no gate matrix anywhere in a non-cargo project: a block that names standards.md, not the
 #     Rust default (`cargo fmt` cannot pass in a Python repo)
 os.rename(STANDARDS, STANDARDS + ".off")
+# an OpenCode install's standards agent definition is not the project's matrix (a hidden dir is a
+# host's, never the planning doc's): one with a matrix the RED would pass must not be read
+DECOY = os.path.join(MAIN, ".opencode", "agents", "standards.md")
+write(DECOY, "# standards agent\n\n## Gate matrix\n\n```\npytest -q\n```\n")
 r = red("nomatrix", {"tests/shim.py": SHIM,
                      "tests/test_sub.py": "from tests.shim import sub\n\n\ndef test_sub():\n    assert sub(3, 1) == 2\n"},
         [("tests/test_sub.py::test_sub", "FAIL")])
 os.rename(STANDARDS + ".off", STANDARDS)
 assert r.returncode == 2 and "standards.md" in r.stderr and "cargo fmt" not in r.stderr, r.stderr
-ok("the matrix is found in the story's sprint dir from a worker's worktree; with none at all, a non-cargo repo blocks on that, not on cargo")
+ok("the matrix is found in the story's sprint dir from a worker's worktree; with none at all (a host's agent file is none), a non-cargo repo blocks on that, not on cargo")
 
 # 4c) the standards role cannot stop on a standards.md whose matrix the gates cannot read
 #     (live run 37: RED blocked 3x on "no gate matrix found" until standards was re-run)
@@ -154,7 +158,11 @@ r = subprocess.run([cited, bad], cwd=MAIN, env=ENV, capture_output=True, text=Tr
 assert r.returncode == 2 and "## Gate matrix" in r.stderr and "fenced" in r.stderr, r.stderr
 r = subprocess.run([cited, STANDARDS], cwd=MAIN, env=ENV, capture_output=True, text=True)
 assert r.returncode == 0, r.stderr
-ok("the standards role's stop gate refuses a matrix with no fenced commands (a table only) and accepts a fenced one")
+write(DECOY, "# standards agent\n\n## Gate matrix\n\n| gate | command |\n|---|---|\n| test | `pytest` |\n")
+r = subprocess.run([cited], cwd=MAIN, env=ENV, capture_output=True, text=True)
+assert r.returncode == 0, r.stderr
+os.remove(DECOY)
+ok("the standards role's stop gate refuses a matrix with no fenced commands (a table only) and accepts a fenced one; unnamed, it reads the sprint's, not a host's agent file")
 
 # 5) an earlier task's test listed as PASS is context, not a new passing test (Python `def`)
 r = red("context", {"tests/shim.py": SHIM,

@@ -10,10 +10,13 @@ GATE_NAME="gate-intake"
 # shellcheck source=/dev/null
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"   # a crash blocks, never allows
 
+# shellcheck source=/dev/null
+. "$BIN_DIR/_finddoc.sh"                                # agentic_find_doc: never a host's agent definition
+
 f="${1:-${INTAKE_FILE:-}}"
 if [ -z "$f" ]; then
-  f="$(find . -maxdepth 6 -name intake.md 2>/dev/null | head -1)"
-  [ -z "$f" ] && f="$(find . -maxdepth 6 -name stories.md 2>/dev/null | head -1)"
+  f="$(agentic_find_doc intake.md)"
+  [ -z "$f" ] && f="$(agentic_find_doc stories.md)"
 fi
 if [ -z "$f" ] || [ ! -f "$f" ]; then
   echo "WARN[$GATE_NAME]: no intake.md/stories.md found; five-part intent check skipped (weaker)" >&2

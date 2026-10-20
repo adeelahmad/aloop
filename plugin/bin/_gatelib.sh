@@ -445,13 +445,15 @@ standards_file() {
   done
   for d in "$(repo_dir)" "${AGENTIC_PROJECT:-}"; do
     [ -n "$d" ] || continue
-    c="$(find "$d" -maxdepth 6 -name standards.md -not -path '*/worktrees/*' 2>/dev/null | sort | tail -1)"
+    c="$(agentic_find_doc standards.md "$d")"   # not a host's agent definition, not a linked worktree's
     [ -n "$c" ] && { printf '%s\n' "$c"; return 0; }
   done
   return 0
 }
 # shellcheck source=/dev/null
 . "$GATELIB_DIR/_matrix.sh"                      # standards_matrix_lines
+# shellcheck source=/dev/null
+. "$GATELIB_DIR/_finddoc.sh"                     # agentic_find_doc
 
 # Run the gate matrix declared in standards.md (standards-bind-gates). Falls back
 # to a default Rust matrix with a WARN if standards.md / its matrix is not found.

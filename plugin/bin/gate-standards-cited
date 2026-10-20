@@ -9,9 +9,11 @@ GATE_NAME="gate-standards-cited"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"   # a crash blocks, never allows
 
 # Resolve standards.md: $1, $STANDARDS_FILE, or auto-discover under the repo.
+# shellcheck source=/dev/null
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_finddoc.sh"   # agentic_find_doc: never a host's agent definition
 sf="${1:-${STANDARDS_FILE:-}}"
 if [ -z "$sf" ]; then
-  sf="$(find . -maxdepth 6 -name standards.md 2>/dev/null | head -1)"
+  sf="$(agentic_find_doc standards.md)"
 fi
 if [ -z "$sf" ] || [ ! -f "$sf" ]; then
   echo "WARN[$GATE_NAME]: standards.md not found; citation check skipped (weaker)" >&2

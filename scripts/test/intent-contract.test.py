@@ -148,4 +148,25 @@ json.dump(doc, open(path, "w"))
 assert I_HOOK(post).stdout.strip() == "" and gate().returncode == 0
 ok("a release whose questions were answered since is not reported; the answered contract passes")
 
+# 8) with no intake named, the gate judges the project's planning intake, never a host's agent definition:
+# an OpenCode install writes .opencode/agents/intake.md (Claude Code, Codex and dsh keep theirs in their own
+# dot dirs), and `find | head -1` judged whichever directory order gave first (CI: the agent file, whose
+# dir holds no contract, so the ask passed unchecked). Hidden dirs are skipped; the newest intake wins.
+doc["open_questions"].append({"question": "keep the old export format?", "class": "ask"})
+json.dump(doc, open(path, "w"))
+for d in (".opencode/agents", ".claude/agents", ".codex/agents", ".dsh/agents", ".aladdin/worktrees/w1/docs/agents/sprint1"):
+    os.makedirs(os.path.join(T, d), exist_ok=True)
+    open(os.path.join(T, d, "intake.md"), "w").write(
+        "# intake agent\nWhat you write: intake.md with constraints, failure and success scenarios and connections\n")
+auto = lambda: run(os.path.join(BIN, "gate-intake"))  # noqa: E731
+r = auto()
+assert r.returncode == 2 and "only the human can answer" in r.stderr and "present in ./docs/agents/sprint1/intake.md" in r.stderr, r.stderr
+sprint2 = os.path.join(T, "docs", "agents", "sprint2")
+os.makedirs(sprint2)
+open(os.path.join(sprint2, "intake.md"), "w").write("# Intent\nWhat: y\n## Constraints\n## Failure scenarios\n## Success scenarios\n")
+os.utime(os.path.join(sprint2, "intake.md"), (os.path.getmtime(os.path.join(sprint, "intake.md")) + 5,) * 2)
+r = auto()
+assert r.returncode == 2 and "five-part intent incomplete in ./docs/agents/sprint2/intake.md" in r.stderr, r.stderr
+ok("with no intake named, the newest planning intake is judged, never a host's agent definition or a worktree's")
+
 print("\n%d checks passed" % PASS[0])
