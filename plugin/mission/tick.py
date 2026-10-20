@@ -695,7 +695,7 @@ def goal_rule(f, g, mode, now, cad):
         s = latest(f, "state")
         if mine and mine["ms"] > max(f["closed"][n] for n in done) and (not s or mine["ms"] >= s["ms"]):
             return act("BLOCKED", "goal %s's intents were all sprinted and eval %s still lists %d gap(s) of it: the "
-                                  "human decides (a goal that is not met is never closed: ROADMAP M9.40)"
+                                  "human decides (a goal that is not met is never closed: ROADMAP M9.30)"
                        % (g["id"], mine["id"], len(mine["doc"].get("gaps") or [])), g["ref"], pin=mine["id"])
         return None                              # every intent sprinted and closed: assess and evaluate
     since = max([f["closed"][n] for n in done] + [sprint_handout(f, g) or 0, g["ms"]])
