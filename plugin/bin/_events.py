@@ -27,6 +27,16 @@ EVENT_TYPES = {
     "decision.recorded", "commit.created",
     "memory.candidate", "memory.promoted", "memory.retired",
     "human.approval", "human.override", "run.completed", "run.aborted",
+    # the mission layer (ROADMAP §4.12): registered up front so its parallel tracks never edit this set
+    "mission.set", "mission.approved", "mission.tick", "mission.budget_exhausted",
+    "research.recorded",
+    "baseline.proposed", "baseline.measured", "baseline.confirmed", "baseline.superseded", "baseline.vetoed",
+    "journey.proposed", "journey.approved", "journey.retired", "journey.run",
+    "state.assessed", "eval.completed",
+    "goal.derived", "goal.approved", "goal.met", "goal.retired",
+    "ethics.reviewed", "ethics.consent", "ethics.blocked",
+    "telemetry.consent", "telemetry.revoked", "telemetry.setup", "telemetry.report",
+    "judge.run",
 }
 ENVELOPE = ("schema", "event_id", "ts", "event", "ids", "parent_event_id", "caused_by", "role", "host",
             "model", "authority", "decision", "refs", "data")
@@ -81,7 +91,8 @@ def emit(cwd, event, task="", attempt="", agent_id="", role="", host="", model="
         return ""
 
 
-DECISION_KINDS = ("plan", "split", "target", "implementation", "replan", "acceptance")
+DECISION_KINDS = ("plan", "split", "target", "implementation", "replan", "acceptance",
+                  "mission", "baseline", "journey", "goal", "ethics", "telemetry")
 AUTONOMY = ("reviewed", "autonomous")
 
 

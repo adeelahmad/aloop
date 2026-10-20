@@ -28,6 +28,7 @@ original plan.
 | **M6 — Audit** | v0.17 | Sessions 7–8: event stream, rationale, authority, lineage query (§4.7); provider seam (§4.8) | done: `aladdin.event/1` stream, decisions, authority, lineage, `events trace SHA`, commit messages and graph export (§4.7); impact provider seam (§4.8) |
 | **M7 — Any host** | v0.18 | Session 9: `HostAdapter`, capability matrix, `.aladdin/config.yaml`, host swap, metrics (§4.9–4.10) | done: `HostAdapter` + `host check` in CI, capability matrix, usage accuracy, `.aladdin/config.yaml` with migration, `host swap`, the full metrics table incl. context-window share (tests: `host-adapter`, `portable-config`, `host-swap`, `metrics`) |
 | **M8 — Aladdin 1.0** | v1.0 | Session 10: `/aladdin` + `aladdin` CLI with aliases, site, measured public runs (§4.11). The rename to aloop shipped early in v0.11.0 | in progress: `bin/aladdin` + `/aladdin` with `aloop`/`agentic` aliases (test: `aladdin-cli.test.py`); natural-language auto-trigger on every host (`intent-trigger`, test: `intent-trigger.test.py`); README reordered product-first; site at `docs/index.html` (Pages switch is the owner's). evidence ledger `docs/evidence/README.md` + `run-summary` (test: `evidence.test.py`). `e2e-live.sh --host codex|opencode` runs the same loop on those hosts (`aloop install <host>` into the run repo, then `codex exec --json` / `opencode run --format json`; `--dry-run` prints the command; test: `e2e-live-hosts.test.py`). Open: the measured public runs themselves (this environment has no `codex`/`opencode` CLI: run `make e2e-live YES=1 HOST=codex` and `HOST=opencode` on a machine with both and add the rows; reason: a number we cannot measure is not published) Mac release run (2026-10-19) found two bugs Linux CI never sees, both fixed with tests: `stats sprint-close` counted 0 attempts when the project sat behind a symlink (macOS `/var` → `/private/var`; paths are now compared by realpath), and `make conformance` hung when another aloop checkout's `plugin/bin` was ahead on PATH (`ensure-tools --resolve` returned that checkout's shim; any aloop bin dir is now skipped). RED is now verified on any language: a non-cargo repo runs its `standards.md` matrix's test command, and a RED whose tests pass or do not collect is blocked (pytest, `go test`; test: `any-language.test.py`). Reason: the north star is any intent, and RED was dynamically checked only for Rust. GREEN and the final gate now refuse Python/Go/JS skips, and the final gate finds a planned `def`/`func` test (before, it found only `fn`, so every planned Python test blocked). `INTENT=slugify` is the Python fixture. Run 36 (slugify, the first Python run): 11/12, 11m37s, $0.83, 5 wakes, 0 plugin-source reads, 15 blocks (9 caught by self-checks). The sprint merged a correct `slugify` with 13 passing tests and the final gate passed. The one failed check was the fixture's own: bare `pytest` leaves the repo root off `sys.path` (now `python3 -m pytest`). It found two gate bugs that Rust runs had hidden. First, a worker's worktree has no `docs/agents/` (git-ignored), so the gates never found `standards.md` and ran the default Rust matrix: RED blocked 4 times on `cargo fmt`, and in a Rust project a custom matrix was silently swapped for the default. Second, `ctx-symbols conflicts` walked the merged task checkout under `.aladdin/worktrees/` and reported `slugify` as a HIGH duplicate, so the structural reviewer was rejected 4 times. Fixed with tests: the gates read the story's sprint `standards.md` (else this tree, else the main tree), and a non-cargo project with no matrix blocks with a message naming `standards.md`; ctx-symbols skips `.aladdin/`. Run 37 on these fixes: 12/12, 9m42s, $0.69, 1 wake, 11 blocks (7 caught by self-checks). It found that a `standards.md` whose matrix is a table parses empty, so RED blocked 3 times; `gate-standards-cited` now refuses a standards.md with no runnable `## Gate matrix` block (test: `any-language.test.py`). Run 38 (`INTENT=roman`, the first Go run): 12/12, 14m15s, $1.02, 3 wakes, 9 blocks (7 caught by self-checks). It found that the sprint dir's `init.md` had no `type: init` header (the supervisor began it with a dispatch block), so the structural reviewer was blocked 7 times; `aloop budget contract` now writes that header (test: `budget-contract.test.py`). Run 39 on the fix: 12/12, 7m52s, $0.56, 0 init.md blocks. It found that GREEN's default scope let it touch Rust test files only, so a Go GREEN removing RED's `_test.go` shim was blocked 10 times; GREEN now shares RED's any-language test globs (test: `any-language.test.py`). Run 40 on it: 12/12, 13m03s, $0.75, 1 wake, 0 GREEN scope blocks (5 blocks, all caught by self-checks). The structural reviewer's HIGH foundation-poisoning finding in runs 38 and 40 was a false positive: a worker's `selfcheck` resolved a stale 0.11.0 `ctx-symbols` (before the `.aladdin/` exclusion) ahead of the session's current build; `ensure-tools --resolve` now skips a stale own build (test: `ensure-tools.test.py`). RED is verified on JS too (a test file that cannot load what it imports is blocked; test: `any-language.test.py`), and `INTENT=camel` is the JS fixture. Run 41 (camel, the first JS run): 12/12, 6m45s, $0.56, 1 wake, 2 blocks (both RED self-checks refusing a source edit). The loop is now measured on Rust, Python, Go and JS. Run 42 (`INTENT=extend`, the first brownfield intent: add `compare` to a crate whose `parse` already works and is tested): 13/13, 7m11s, $0.67, 2 blocks (both self-check catches); the seed's code and tests were left unchanged and still pass (reason: every earlier fixture started from an empty library, and most real intents land on existing code). Run 43 (`INTENT=modify`: change that existing `parse` to accept a leading `v` and trim whitespace): 13/13, 9m10s, $0.67, 6 blocks, all self-check catches; the change was 3 lines in `parse`, with its signature and seed tests kept. `INTENT=cli` (an application: a wc-like binary tested by running it, checked by running the merged binary) is ready; its first run (44) stopped during planning on the account's weekly usage limit, so it is unmeasured (reason: every fixture so far is a library; to run after the limit resets). Planner friction next: across runs 36–41 the most frequent block was `targets` "create needs planned_symbol" on a new test file (8); a test-file create now takes it from the task's `tests` (test: `semantic-targets.test.py`). The `gate-validate-artifact` plan.md refusals (4) were the persona's bare `stage: 1`, now quoted and checked (test: `persona-shapes.test.py`). Next: the final-gate block order (3). Running every suite under a locally built bash 3.2 found that the `standards.md` gate matrix was silently replaced by the default Rust matrix (`mapfile` does not exist in bash 3.2). It is fixed and guarded by `bash-portable.test.py`. A `macos` CI job now runs the host tests and the conformance fixtures on macOS (reason: both were found only by hand on the owner's Mac). |
+| **M9 — Mission layer** | v0.13 | The "Missionary Aladdin Genie" spec (2026-10-17): a human-set mission above goals; fixed roles (research, product testing, state, evaluation, planning, ethics) build a confirmed baseline and a reproducible evaluation layer from user journeys; goals derived from the gap list become Aladdin intents; re-evaluate on a cadence and after each sprint; GA4 usage informs goals and is never a gate; every element has a deterministic check (§4.12). Reason: the owner's mission-driven loop, stacked on Aladdin | in progress: M9.0 core (`aloop mission init / check / approve / status`, sealed mission + approval events, area discovery, test glob; test: `mission-core.test.py`). Parallel tracks M9.1–M9.9 are open; the task graph is in §4.12 |
 
 **Order rationale:** identity and conformance fixtures first, so every later change is
 measured against today's behaviour; budgets and handoff next, because they shape every run;
@@ -47,9 +48,9 @@ Evolve **agentic-agile** into **Aladdin**. Aladdin is an intent-driven, test-dri
 
 **Out of scope for this roadmap:**
 - harness or workflow synthesis;
-- personas invented per mission;
+- personas invented per mission (the mission layer's six roles are fixed, §4.12);
 - non-software workflows;
-- a Mission OS;
+- a Mission OS (the §4.12 mission layer is a loop that turns one software product's mission into Aladdin intents, not an OS);
 - building an enterprise knowledge graph (Aladdin only consumes one through a provider seam);
 - IDE or human-facing LSP features.
 
@@ -293,6 +294,138 @@ No extra model calls are made just for telemetry.
   12. Limitations
 - **A site / GitHub Pages** with an original lamp motif (no Disney visual language), the RED explainer ("Give the agent something to make false.") and the audit tree.
 - **Evidence:** every public claim links to a reproducible measured run. ✅ *(Unreleased) `docs/evidence/README.md` is the ledger: one row per live run with intent, plugin version, checks, wall, cost, wakes, plugin reads, gate blocks and the `make e2e-live` command; `bin/run-summary` writes each run's `summary.json` and its row from the session's `result` lines and the gate log (called by `e2e-live.sh`). The README demo table and the site link every figure to it. Test: `scripts/test/evidence.test.py` (a public figure without a row fails).*
+
+### 4.12 Mission layer: Missionary Aladdin Genie (M9)
+
+*Source: the 17 Oct 2026 voice-session spec ("Missionary Aladdin Genie"). Its **Decision** and
+**Confirmed** items are requirements below; each **Proposed** item is a call recorded here with
+a one-line reason. Status per task: the table at the end of this section.*
+
+**What it is.** A mission layer stacked on Aladdin. The human sets a **mission** (bigger than a
+goal: "the world's best to-do app with the best user experience"), a budget and a cadence,
+confirms the starting baseline and the direction, and sets and forgets. Fixed roles research
+the market, measure the product, build a verifiable evaluation layer from user journeys,
+derive the next **goal** from the gap list, and hand it to Aladdin as intents. When a
+re-evaluation shows the goal is met, the loop goes back to the mission and raises the bar.
+The loop is IBM's autonomic MAPE-K: *monitor* (State Assessor) → *analyze* (Evaluator) →
+*plan* (Mission Planner) → *execute* (an Aladdin sprint) over a shared *knowledge* base
+(`docs/agents/mission/`). Usage telemetry (Google Analytics) informs goals and is never a gate.
+
+**Scope against §1.** The out-of-scope list stands, read this way: *personas invented per
+mission* stay out, because the six mission roles are fixed and the same for every mission;
+*a Mission OS* stays out, because this layer is a deterministic loop that turns one software
+product's mission into Aladdin intents, with no workflow engine or scheduler of its own (it
+runs on the host's cron) and no non-software missions; *harness or workflow synthesis* stays out.
+
+**Requirements (Decision / Confirmed).**
+1. The human's role is a high-level mission, a budget, a cadence, confirming the baseline and
+   direction in plain language. The human never writes or edits a metric or a journey.
+2. The baseline comes first, immediately after the mission is set, and is confirmed by the human.
+3. Baseline, current state and evaluation are done by dedicated roles in a fixed structure:
+   market/product research, current state, evaluation (plus the Ethics Reviewer, confirmed).
+4. Evaluation is verifiable and reproducible, built on **user journeys**, run only through
+   pinned scripts, and every journey and metric cites its research source.
+5. Lifecycle: mission → baseline + definition of best → evaluation layer → sprints →
+   re-evaluate after each epic/sprint cycle and on the cron → compare with the baseline → goal
+   met: back to the research board, "what is best that the user is not even thinking of" →
+   new goal. Everything is capped by budget, time and constraints, and by gates outside the model.
+6. Usage is captured from day one through Google Analytics, set up by the agents through its
+   API; no self-hosted servers, no other SaaS. It is opt-in, with the human's consent and API
+   access. Live usage feeds research and goal-setting (most of a later goal, once there is
+   usage) and is never a gate; user telemetry is consented and anonymized before an agent sees it.
+7. Standing principles in every goal, in two variants (autonomous, spoon-fed): IBM's autonomic
+   loop as a native principle, grow adoption and usage, keep it simple, and more; they create
+   tension that drives the flywheel (Amazon's flywheel and Leadership Principles as the influence).
+8. Ethics is checked when the mission is set and on every derived goal, in three tiers: clear
+   (proceed), gray (pause and ask; the consent lives inside that goal with its reason and does
+   not carry over), hard line (illegal, deceptive or harmful: no consent unlocks it).
+9. Every element has a deterministic check, enforced outside the model.
+10. It runs inside Claude Code (and every host Aladdin runs on).
+
+**Calls on the Proposed items** (one line each; changeable with evidence):
+- Name: "mission layer" in docs, `aloop mission` on the command line. Reason: plain words; the product keeps Aladdin.
+- Fixed point: the mission, mode, budget caps and constraints change only with a new human approval of the new content; goals change every cycle. Reason: it makes `mission check` deterministic.
+- Roles: Market Researcher, Product Tester, State Assessor, Evaluator, Mission Planner, Ethics Reviewer; each writes one schema-checked artifact; a builder never grades its own work. Reason: the spec's structure, enforceable by path guards.
+- Baseline: a script plus pinned versions, measured twice within a tolerance; frozen and versioned once confirmed; a replacement needs evidence that the old one is invalid; kept apart from the target. Reason: requirement 4's reproducibility, made checkable.
+- Baseline contents: benchmark scores and feature comparisons against rivals, keyed apart. Reason: the Product Tester's results are the rival half of "best".
+- Journeys: scripted steps, pass criteria, events per step; existing journeys frozen; new ideas arrive as new journeys; retiring or weakening one needs evidence and a human approval event. Reason: the journeys are the mission's RED test, and weakening a test is never the agent's call (§7). This also settles the open "who approves weakening" question.
+- The confirmed definition of best is the mission's RED: a baseline whose journeys all pass already is refused. Reason: the technical thesis, one level up.
+- Subjective UX: judges on a pinned model id with a hashed rubric, at least 3 runs, scored by agreement (default 2 of 3). Reason: the gate checks the setup, never the verdict.
+- Redefining best: research proposes a new baseline version with its evidence; in autonomous mode it applies after a veto window (default 24h) unless the human vetoes; in spoon-fed mode it waits for confirmation. Reason: set-and-forget has to move, and the old version stays archived, so it is reversible.
+- Gap list: autonomous mode sends it straight to the Mission Planner; spoon-fed mode shows the human ranked options. Reason: the two modes' difference (Raise the Bar).
+- Approval mode per goal: an autonomous mission runs its goals in Aladdin's autonomous mode, bounded by the authority record's scope (the approved mission); spoon-fed runs reviewed mode, one intent at a time. Reason: it maps the spec's modes onto §4.1 without a new mode.
+- Whose "best": the app's end users, as researched; the human confirms the definition. Reason: the spec's "in terms of user's perspective", with the human confirming direction only.
+- Cadence default 6h. Reason: the slower of the spoken examples (3h, 6h); fewer tokens per day.
+- Budget: a USD and/or token cap is required at `mission init`, an optional deadline; the loop stops at a cap. Reason: "capped by budget", enforced outside the model.
+- Telemetry: instrumentation is part of done once telemetry is consented (no journey ships without its events); usage leads goal derivation only past a minimum sample (default 50 users over 28 days) and research keeps at least a 30% share; cron runs read the Realtime API, goal decisions read settled data (≥48h old); GA4 thresholding is treated as "below the minimum sample". Reason: small numbers are noise, and GA hides them anyway.
+- GA4 setup: the agents create the property, web data stream, Measurement Protocol secret and key events through the Admin API and read fixed report definitions through the Data API; the one human step is authorizing a Google account once. Opt-in consent is an event in the authority record; once other people use the app, a consent banner (Consent Mode v2) becomes a journey requirement. Reason: requirement 6 with the fewest human steps.
+- Principles: Own the Outcome; Ship Small, Ship Often; Verify, Don't Assume; Raise the Bar; Disagree, Then Commit (a decision record with a reason and evidence refs); Leave It Better ("log it, don't fix it"); Know When to Stop and Ask (the §4.1 clarification table); plus Grow Adoption (real value: journeys completed, users returning; never time-on-app tricks) and Keep It Simple; the IBM loop is the engine. Tension pairs: Customer Obsession vs Frugality, Bias for Action vs Dive Deep, Think Big vs Deliver Results, Grow Adoption vs Keep It Simple. No principle can relax an invariant. Reason: the spec's list, with the edits it proposed for Aladdin.
+- Deterministic checks: every row of the spec's table becomes a gate (below). Reason: requirement 9; a gate checks structure and evidence, never whether a judgment is right.
+
+**Open questions for the owner** (not blocking; the default is in use): native voice mode (the
+statement was cut off: unscoped until defined, M9.15); consent once other people use the app
+(default: a consent banner journey, above); the rest of the standing principles (default: the
+list above); the "my example" the first goal text refers to (not in the transcript).
+
+**Deterministic checks** (each one `aloop mission <area> check`, exit 0 pass · 2 block · 3 needs the human):
+
+| Element | Check |
+|---|---|
+| Mission | `docs/agents/mission/mission.json` is sealed (sha256); any content without a `mission.approved` event for that exact sha fails |
+| Research | every claim has a source ref; every source has an archived snapshot whose sha256 matches |
+| Baseline | the measure script runs twice on pinned versions and the results agree within tolerance; a confirmed version is frozen |
+| Journeys and metrics | each metric has a query definition and each journey step its event; a diff that removes or weakens one needs a `journey.approved` event |
+| Role separation | path guards: builders cannot write `docs/agents/mission/`, evaluators and assessors cannot write source |
+| LLM judges | the setup, not the verdict: pinned model id, hashed rubric, ≥3 runs, agreement threshold |
+| Telemetry | every journey step emits its event (static check), a test hit to GA's debug endpoint passes, the minimum-sample rule is code |
+| Ethics | a review artifact on the mission and on every goal, a consent record bound to the goal's sha256 whenever the tier is gray, and a hard line blocks always |
+| Budget and cadence | `mission tick` stops at a cap (the token ledger) and acts only when the cadence is due; per-attempt and sprint budgets stay Aladdin's |
+
+**The loop** (`aloop mission tick`, one action from facts, like `sweep`; first match wins):
+`SET_MISSION` → `CONFIRM_MISSION` (human) → `ETHICS_REVIEW` (mission) → `STOP_BUDGET` → `RESEARCH`
+→ `DEFINE_JOURNEYS` → `BASELINE` → `CONFIRM_BASELINE` (human) → `ASSESS` → `EVALUATE` →
+goal met? `RESEARCH` (raise the bar) : `DERIVE_GOAL` → `ETHICS_REVIEW` (goal; gray → `ASK_CONSENT`) →
+`PLAN_INTENTS` (spoon-fed: `OFFER_OPTIONS`) → `SPRINT` (Aladdin) → `WAIT` until the sprint closes or
+the cadence is due → `ASSESS`. A host routine runs `aloop mission due && aloop mission tick`, so a
+tick that is not due spends no tokens.
+
+**Layout.** `docs/agents/mission/`: `mission.json`, `research/`, `baseline/`, `journeys/`,
+`state/`, `eval/`, `goals/`, `ethics/`, `judges/`, `telemetry/` (one JSON file per artifact,
+named by its harness-issued id; schemas in `plugin/mission/schemas/`). Code: one entry point
+`plugin/bin/mission` with the core in `plugin/bin/_mission.py`; each area is its own module
+`plugin/mission/<area>.py`, discovered by name, and its tests are `scripts/test/mission-<area>.test.py`,
+run by a Makefile glob. Every `mission.*` event type is registered in `_events.py` up front.
+So parallel tracks add files and never edit a shared list.
+
+**Tasks.** *Parallel-safe* tasks own disjoint files and can run in separate threads at once.
+Each task flips only its own row here and in TRACKING.md.
+
+| Task | What | Needs | Owns (files) | Parallel-safe | Status |
+|---|---|---|---|---|---|
+| M9.0 | Core: `mission` entry point, `_mission.py` (ids, canonical sha256, schema subset, approvals, snapshot), `mission init / check / approve / show / status`, event types, the test glob | — | `plugin/bin/{mission,_mission.py}`, `plugin/mission/{README.md,schemas/mission.json}`, `scripts/test/mission-core.test.py`, `_events.py` types, Makefile + `check-tracking.py` glob | — | done: `mission-core.test.py` (8 checks) |
+| M9.1 | Research: claims with source refs, archived source snapshots, `research new / claim / archive / check` | M9.0 | `plugin/mission/research.py`, `schemas/research.json`, `scripts/test/mission-research.test.py` | yes | open |
+| M9.2 | Baseline: re-runnable spec (script + pinned versions), `measure` twice within tolerance, `confirm` freezes a version, `propose` a replacement with evidence, veto window | M9.0 | `plugin/mission/baseline.py`, `schemas/baseline.json`, `scripts/test/mission-baseline.test.py` | yes | open |
+| M9.3 | Journeys and metrics: steps, pass criteria, events, metric query definitions, source refs; `diff` blocks removing or weakening without approval; `run` through a pinned runner; all-green-at-baseline refused | M9.0 | `plugin/mission/journeys.py`, `schemas/journey.json`, `scripts/test/mission-journeys.test.py` | yes | open |
+| M9.4 | Ethics: review per mission and goal, three tiers, gray consent bound to the goal's sha256, hard line never unlocked | M9.0 | `plugin/mission/ethics.py`, `schemas/ethics.json`, `scripts/test/mission-ethics.test.py` | yes | open |
+| M9.5 | Judges: rubric setup check and an agreement verdict from recorded runs | M9.0 | `plugin/mission/judge.py`, `schemas/rubric.json`, `scripts/test/mission-judge.test.py` | yes | open |
+| M9.6 | Telemetry (GA4): opt-in consent, Admin API setup, Measurement Protocol debug hit, fixed Data API reports (+ realtime), minimum-sample rule, static emit check; network faked in tests | M9.0 | `plugin/mission/telemetry.py`, `schemas/telemetry.json`, `scripts/test/mission-telemetry.test.py`, `scripts/test/fixtures/fake-ga.py` | yes | open |
+| M9.7 | Principles in two variants with tension pairs; `principles show --mode`, hashed and injected into goals | M9.0 | `plugin/mission/principles.{md,py}`, `scripts/test/mission-principles.test.py` | yes | open |
+| M9.8 | Loop: `tick` (the state machine above), `due` (zero-token cadence check), `cron` (host routine or crontab line), budget caps from the token ledger | M9.0 | `plugin/mission/{tick,due,cron}.py`, `scripts/test/mission-tick.test.py` | yes | open |
+| M9.9 | Roles and wiring: the six personas, hook matchers, model routes, host install, eval suites, role counts in docs; `gate-mission-scope` (role path guards) and `gate-mission-artifact` (a role's artifact passes its check at stop) | M9.0 | `plugin/agents/` (6 new files), `plugin/hooks/hooks.json`, `plugin/hosts/`, `plugin/evals/`, `plugin/bin/gate-mission-*`, role counts in README / OVERVIEW / plugin docs | yes (the only track touching shared lists) | open |
+| M9.10 | Assess and evaluate: the State Assessor's report (numbers only, from pinned scripts) and the Evaluator's gap list against the baseline and rivals, with `goal_met` | M9.2, M9.3, M9.5 | `plugin/mission/{assess,evaluate}.py`, `schemas/{state,eval}.json`, their tests | after its needs | blocked |
+| M9.11 | Goals and the Aladdin handoff: top gaps → a goal → intents (`intent` source `mission`), ethics and principles applied, mode → autonomy; `events trace` reaches goal → mission | M9.4, M9.7, M9.10 | `plugin/mission/goal.py`, `schemas/goal.json`, `plugin/bin/intent` (source list), `plugin/bin/events` (trace) | after its needs | blocked |
+| M9.12 | The `/aloop:mission` skill: the supervisor's playbook for the tick loop | M9.8, M9.9 | `plugin/skills/mission/` | after its needs | blocked |
+| M9.13 | End to end: an offline scripted to-do-app mission (mission → baseline → eval → goal → intent, zero tokens), then a live `make e2e-mission YES=1` | M9.10–M9.12 | `scripts/test/mission-e2e.test.py`, `scripts/smoke/e2e-mission.sh` | after its needs | blocked |
+| M9.14 | GA4 live on the owner's account (one Google sign-in) | M9.6 | — | — | needs the owner |
+| M9.15 | Native voice mode | the owner's scope (spec cut off) | — | — | open question |
+| M9.16 | Docs: OVERVIEW, README, CHANGELOG, site | M9.13 | shared docs | — | blocked |
+| M9.17 | Approval provenance: an approval names the captured human prompt (the UserPromptSubmit log), so a supervisor cannot approve its own mission change. Reason: found while building M9.0, an approval is only as strong as `--by` | M9.0 | `plugin/bin/_mission.py` (`approve`), its test | yes | open |
+
+**Parallel tracks** (one thread each, from M9.0 on master): (1) Research + Judges, M9.1 + M9.5;
+(2) Baseline + Journeys → Assess/Evaluate, M9.2 + M9.3 → M9.10; (3) Ethics + Principles → Goals,
+M9.4 + M9.7 → M9.11; (4) Telemetry, M9.6 → M9.14; (5) Loop → skill, M9.8 → M9.12; (6) Roles and
+wiring, M9.9. M9.13 and M9.16 close the milestone. **Exit:** M9.13's offline run passes in CI and
+one live mission cycle is measured in `docs/evidence/`.
 
 ## 5. Delivery sessions
 

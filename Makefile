@@ -74,7 +74,8 @@ shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent
 pycheck: ## Byte-compile the Python hook scripts
 	@python3 -m py_compile plugin/bin/budget plugin/bin/stats plugin/bin/aloop-init plugin/bin/gate-commit-author plugin/bin/_paths.py \
 	    plugin/bin/_usage.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/capabilities plugin/bin/models plugin/bin/_routes.py plugin/bin/host plugin/bin/_host.py plugin/bin/config plugin/bin/_config.py plugin/bin/layout plugin/bin/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
-	  && rm -rf plugin/bin/__pycache__ && echo "python ok"
+	    plugin/bin/mission plugin/bin/_mission.py $$(ls plugin/mission/*.py 2>/dev/null) \
+	  && rm -rf plugin/bin/__pycache__ plugin/mission/__pycache__ && echo "python ok"
 
 .PHONY: test-hosts
 test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plugin end-to-end (no network, no tokens)
@@ -131,6 +132,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/e2e-live-hosts.test.py
 	python3 scripts/test/suppression-contract.test.py
 	python3 scripts/test/skill-layout.test.py
+	@for t in scripts/test/mission-*.test.py; do echo "python3 $$t"; python3 "$$t" || exit 1; done
 	@if command -v node >/dev/null; then node scripts/test/opencode-plugin.test.mjs; else echo "node not found — skipped OpenCode test (CI runs it)"; fi
 
 .PHONY: conformance
