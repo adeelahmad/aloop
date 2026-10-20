@@ -99,13 +99,23 @@ def run(probe, cwd, env=None, extra_env=None):
         return None, "steps and metrics must be objects"
     if not all(isinstance(v, bool) for v in steps.values()):
         return None, "every step result must be true or false"
-    if not all(isinstance(v, (int, float)) for v in metrics.values()):
-        return None, "every metric must be a number or a boolean"
+    if not all(isinstance(v, bool) or finite(v) for v in metrics.values()):
+        return None, "every metric must be a finite number (within a float's range) or a boolean"
     return {"steps": steps, "metrics": metrics, "exit": r.returncode}, ""
 
 
 def _refuse(c):
     raise ValueError("%s is not a measurement" % c)
+
+
+def finite(v):
+    """A real, finite number a float can hold (not a bool; 10**400 is not one)."""
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return False
+    try:
+        return math.isfinite(float(v))
+    except OverflowError:
+        return False
 
 
 def drift(a, b):
@@ -115,7 +125,7 @@ def drift(a, b):
         return 0.0 if a == b else 1.0
     if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
         return 0.0 if a == b else 1.0
-    if not (math.isfinite(a) and math.isfinite(b)):
+    if not (finite(a) and finite(b)):
         return float("inf")
     if a == b:
         return 0.0

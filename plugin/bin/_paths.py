@@ -92,7 +92,7 @@ def home_guard(root):
     d = os.path.join(root, NEW_HOME)
     if os.path.isdir(d) and not os.path.isfile(os.path.join(d, ".gitignore")):
         try:
-            with open(os.path.join(d, ".gitignore"), "w") as f:
+            with open(os.path.join(d, ".gitignore"), "w", encoding="utf-8") as f:
                 f.write(GUARD)
         except OSError:
             pass
@@ -152,7 +152,7 @@ def marker_dir(top, make=True):
         try:
             os.makedirs(d, exist_ok=True)
             if d.endswith(NEW_HOME) and not os.path.isfile(os.path.join(d, ".gitignore")):
-                with open(os.path.join(d, ".gitignore"), "w") as f:
+                with open(os.path.join(d, ".gitignore"), "w", encoding="utf-8") as f:
                     f.write(WT_GUARD)
         except OSError:
             pass

@@ -34,10 +34,33 @@ KIND = "eval"
 
 
 def active_goal(cwd):
-    """The goal being worked (status active), or None. A goal (M9.11) names its targets as
-    [{"journey_id", "criterion_id"}]."""
-    rows = [d for _, d in M.artifacts(cwd, "goal") if d.get("status") == "active"]
-    return max(rows, key=lambda d: d.get("created_at", "")) if rows else None
+    """The goal being worked, from the records: the newest goal whose current content a
+    goal.derived (or the human's goal.approved) record covers and no later goal.met record closed.
+    A status field activates nothing. A goal (M9.11) names its targets as [{"journey_id", "criterion_id"}]."""
+    best = None
+    for path, d in M.artifacts(cwd, "goal"):
+        ref, sha = M.rel(cwd, path), M.digest(d)
+        starts = [r["ts"] for ev in ("goal.derived", "goal.approved") for r in M.records(cwd, ev, ref)
+                  if r["data"].get("sha256") == sha]
+        if starts and not any(r["ts"] >= max(starts) for r in M.records(cwd, "goal.met", ref)):
+            if best is None or max(starts) > best[0]:
+                best = (max(starts), d)
+    return best[1] if best else None
+
+
+def goal_problems(cwd, goal, bdoc):
+    """A goal's targets are criteria the baseline froze: a target that names nothing would drop
+    every open gap and read as GOAL MET with nothing measured."""
+    t = goal.get("targets")
+    if not isinstance(t, list) or not t or not all(isinstance(x, dict) and isinstance(x.get("journey_id"), str)
+                                                   and isinstance(x.get("criterion_id"), str) for x in t):
+        return ["goal %s: targets must be a non-empty list of {journey_id, criterion_id}" % goal.get("goal_id")]
+    have = set()
+    for j in bdoc.get("journeys") or []:
+        jd, _ = J.load(cwd, j["journey_id"])
+        have |= {(j["journey_id"], c.get("id")) for c in (jd or {}).get("pass_criteria") or [] if isinstance(c, dict)}
+    return ["goal %s targets %s#%s, which baseline %s does not freeze" % (goal.get("goal_id"), x["journey_id"],
+            x["criterion_id"], bdoc.get("baseline_id")) for x in t if (x["journey_id"], x["criterion_id"]) not in have]
 
 
 def target_of(c):
@@ -52,6 +75,25 @@ def distance(c, now_metrics):
     if not isinstance(v, (int, float)) or isinstance(v, bool) or not isinstance(c.get("value"), (int, float)):
         return 1.0
     return round(abs(v - c["value"]) / max(abs(c["value"]), 1e-9), 6)
+
+
+def input_problems(cwd, bdoc, goal):
+    """Why the gap list cannot be computed from these inputs: the baseline must be content a
+    confirmation covers, each journey it lists the content it froze (never whatever the file says
+    now), and the goal's targets criteria it froze."""
+    if M.malformed(M.problems(bdoc, B.KIND)):
+        return ["baseline %s is malformed" % bdoc.get("baseline_id")]
+    sha = M.digest(bdoc)
+    if not any(r["data"].get("sha256") == sha for r in M.records(cwd, B.CONFIRM, M.rel(cwd, B.bpath(cwd, bdoc["baseline_id"])))):
+        return ["baseline %s is not the content its confirmation covers (edited since?)" % bdoc["baseline_id"]]
+    out = []
+    for j in bdoc.get("journeys") or []:
+        jd, _ = J.load(cwd, j["journey_id"])
+        if not isinstance(jd, dict):
+            out.append("journey %s is gone" % j["journey_id"])
+        elif M.digest(J.unretired(jd)) != j["sha256"]:
+            out.append("journey %s is not the content baseline %s froze" % (j["journey_id"], bdoc["baseline_id"]))
+    return out or (goal_problems(cwd, goal, bdoc) if goal else [])
 
 
 def compute(cwd, state, bdoc, goal):
@@ -117,12 +159,13 @@ def cmd_evaluate(cwd, sid, o):
         bad.append("its runs disagree (%s): a flaky measurement is fixed before it is evaluated"
                    % "; ".join(state.get("disagreements") or []))
     bdoc, _ = M.load(B.bpath(cwd, state.get("baseline_id", "")))
+    goal = active_goal(cwd)
+    bad += input_problems(cwd, bdoc, goal) if isinstance(bdoc, dict) and not bad else []
     bad += J.ref_problems(cwd, o.get("rival", []), "rival")
     if bad:
         for b in bad:
             print("BLOCK[evaluate]: %s" % b, file=sys.stderr)
         return 2
-    goal = active_goal(cwd)
     res = compute(cwd, state, bdoc, goal)
     eid = M.new_id(KIND)
     doc = dict(res, eval_id=eid, state_id=state["state_id"], baseline_id=bdoc["baseline_id"],
@@ -130,8 +173,8 @@ def cmd_evaluate(cwd, sid, o):
     M.seal(doc)
     path = M.save(M.path_of(cwd, KIND, eid), doc)
     M.emit(cwd, "eval.completed", role="evaluator", refs={"eval": M.rel(cwd, path), "state": M.rel(cwd, spath)},
-           eval_id=eid, state_id=state["state_id"], goal_id=doc["goal_id"], goal_met=res["goal_met"],
-           gaps=len(res["gaps"]), regressions=res["regressions"])
+           eval_id=eid, sha256=doc["sha256"], state_id=state["state_id"], goal_id=doc["goal_id"],
+           goal_met=res["goal_met"], gaps=len(res["gaps"]), regressions=res["regressions"])
     if o.get("json"):
         print(json.dumps(doc, indent=1))
     else:
@@ -158,16 +201,21 @@ def problems(cwd, path, doc):
     if not isinstance(state, dict):
         return out + ["state %s does not exist" % doc["state_id"]]
     out += ["state %s: %s" % (doc["state_id"], p) for p in A.problems(cwd, spath, state)]
+    if not out and not state.get("agreed"):
+        out.append("state %s: its runs disagree: a flaky measurement is never evaluated" % doc["state_id"])
     bdoc, _ = M.load(B.bpath(cwd, doc["baseline_id"]))
-    if not isinstance(bdoc, dict) or bdoc["baseline_id"] != state.get("baseline_id"):
+    if not isinstance(bdoc, dict) or bdoc.get("baseline_id") != state.get("baseline_id"):
         return out + ["baseline %s is not the one state %s measured against" % (doc["baseline_id"], doc["state_id"])]
     goal = None
     if doc.get("goal_id"):
         goal, _ = M.load(M.path_of(cwd, "goal", doc["goal_id"]))
         if not isinstance(goal, dict):
             return out + ["goal %s does not exist" % doc["goal_id"]]
+    out += input_problems(cwd, bdoc, goal)
+    if out:
+        return out
     again = compute(cwd, state, bdoc, goal)
-    for k in ("gaps", "earned", "regressions", "goal_met"):
+    for k in ("gaps", "earned", "regressions", "metrics", "goal_met"):
         if again[k] != doc.get(k):
             out.append("%s does not follow from state %s (recomputed: %s)" % (k, doc["state_id"], json.dumps(again[k])[:160]))
     out += J.ref_problems(cwd, doc.get("rival_refs"), "rival")
@@ -188,17 +236,19 @@ def cmd_check(cwd, eid, as_json):
 
 
 def parse(argv):
-    return J.parse(argv, multi=("rival",))
+    return J.parse(argv, multi=("rival",), known=("rival",))
 
 
 NO_ARGS = True
 
 
 def main(argv, cwd):
-    if argv and argv[0] == "check":
-        o, pos = parse(argv[1:])
+    check = bool(argv) and argv[0] == "check"
+    o, pos = parse(argv[1:] if check else argv)
+    if J.unknown_flags(o, "evaluate"):
+        return 64
+    if check:
         return cmd_check(cwd, pos[0] if pos else "", o.get("json"))
-    o, pos = parse(argv)
     return cmd_evaluate(cwd, pos[0] if pos else "", o)
 
 

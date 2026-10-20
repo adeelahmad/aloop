@@ -20,6 +20,7 @@ import sys
 
 import _mission as M
 import _paths
+import _runner
 import baseline as B
 import journeys as J
 
@@ -37,8 +38,9 @@ def head(cwd):
 
 def judged(cwd, bdoc):
     """Judge verdicts for judged metrics from the judges area (M9.5): {journey_id: {metric_id:
-    {"value", "refs"}}}. A journey's judged metric is judged with the journey id as the subject;
-    a verdict that is not pass or fail (incomplete, inconclusive, blocked) leaves it pending."""
+    {"value", "refs"}}}. A journey's judged metric is judged with the journey id as the subject,
+    against the rubric content the journey pinned; a verdict that is not pass or fail (incomplete,
+    inconclusive, blocked), or a judge that cannot check the pin, leaves it pending."""
     try:
         import judge
     except ImportError:
@@ -51,8 +53,11 @@ def judged(cwd, bdoc):
         jd, _ = J.load(cwd, j["journey_id"])
         for m in (jd or {}).get("metrics", []):
             if m["query"].get("kind") == "judge":
-                v = verdict(cwd, m["query"].get("rubric"), j["journey_id"])
-                if isinstance(v, dict) and v.get("verdict") in ("pass", "fail") and isinstance(v.get("score"), (int, float)):
+                try:
+                    v = verdict(cwd, m["query"].get("rubric"), j["journey_id"], rubric_sha256=m["query"].get("rubric_sha256"))
+                except TypeError:
+                    continue
+                if isinstance(v, dict) and v.get("verdict") in ("pass", "fail") and _runner.finite(v.get("score")):
                     out.setdefault(j["journey_id"], {})[m["id"]] = {"value": v["score"], "refs": v.get("run_ids") or []}
     return out
 
@@ -99,8 +104,8 @@ def cmd_assess(cwd, o):
            "disagreements": diffs, "judged": scores, "status": "recorded", "created_at": M.now()}
     M.seal(doc)
     path = M.save(M.path_of(cwd, KIND, sid), doc)
-    M.emit(cwd, "state.assessed", role="state-assessor", refs={"state": M.rel(cwd, path)}, state_id=sid,
-           baseline_id=bdoc["baseline_id"], agreed=not diffs, commit=doc["head"]["commit"])
+    M.record(cwd, "state.assessed", M.rel(cwd, path), "state-assessor", sha256=doc["sha256"], state_id=sid,
+             baseline_id=bdoc["baseline_id"], agreed=not diffs, commit=doc["head"]["commit"])
     if o.get("json"):
         print(json.dumps(doc, indent=1))
     else:
@@ -111,8 +116,23 @@ def cmd_assess(cwd, o):
 
 
 def latest(cwd):
-    rows = M.artifacts(cwd, KIND)
-    return max(rows, key=lambda pd: (pd[1].get("created_at", ""), pd[0])) if rows else (None, None)
+    """The newest state report `mission assess` recorded (a file with no record is not one)."""
+    rows = [(p, d) for p, d in M.artifacts(cwd, KIND)
+            if (M.newest(cwd, "state.assessed", M.rel(cwd, p)) or {}).get("data", {}).get("sha256") == M.digest(d)]
+    return max(rows, key=lambda pd: (str(pd[1].get("created_at", "")), pd[0])) if rows else (None, None)
+
+
+def run_shape(run, n):
+    """The shape every reader of a run relies on (the schema stops at the run's keys)."""
+    js = run.get("journeys")
+    if not isinstance(js, dict) or not isinstance(run.get("benchmarks"), dict):
+        return ["run %d: journeys and benchmarks must be objects" % n]
+    for jid, rec in js.items():
+        if not isinstance(rec, dict) or not isinstance(rec.get("metrics"), dict) or rec.get("passed") not in (True, False, None) \
+                or not isinstance(rec.get("criteria"), list) or \
+                not all(isinstance(c, dict) and isinstance(c.get("id"), str) for c in rec["criteria"]):
+            return ["run %d: journey %s is not a scored run record {criteria, metrics, passed, sha256}" % (n, jid)]
+    return []
 
 
 def problems(cwd, path, doc):
@@ -121,6 +141,12 @@ def problems(cwd, path, doc):
         return out
     if "sha256" not in doc:
         out.append("a state report is sealed when it is written")
+    rec = M.newest(cwd, "state.assessed", M.rel(cwd, path))
+    if not rec or rec["data"].get("sha256") != M.digest(doc):
+        out.append("state %s has no state.assessed record for this content: only `mission assess` measures" % doc["state_id"])
+    out += [x for i, run in enumerate(doc["runs"]) for x in run_shape(run, i + 1)]
+    if out:
+        return out
     bdoc, _ = M.load(B.bpath(cwd, doc["baseline_id"]))
     if not isinstance(bdoc, dict):
         return out + ["baseline %s does not exist" % doc["baseline_id"]]
@@ -151,27 +177,19 @@ def cmd_check(cwd, sid, as_json):
 
 
 def parse(argv):
-    o, pos, k = {}, [], None
-    for a in argv:
-        if k:
-            o[k], k = a, None
-        elif a == "--json":
-            o["json"] = True
-        elif a.startswith("--"):
-            k = a[2:].replace("-", "_")
-        else:
-            pos.append(a)
-    return o, pos
+    return J.parse(argv, multi=(), known=("runs",))
 
 
 NO_ARGS = True
 
 
 def main(argv, cwd):
-    if argv and argv[0] == "check":
-        o, pos = parse(argv[1:])
+    check = bool(argv) and argv[0] == "check"
+    o, pos = parse(argv[1:] if check else argv)
+    if J.unknown_flags(o, "assess"):
+        return 64
+    if check:
         return cmd_check(cwd, pos[0] if pos else "", o.get("json"))
-    o, pos = parse(argv)
     if pos:
         print("mission assess: unknown command %r (mission assess --help)" % pos[0], file=sys.stderr)
         return 64
