@@ -30,6 +30,7 @@ first message and the grant lines. No host binary runs here.
     python3 scripts/test/mission-e2e-live.test.py
     MISSION_E2E_LIVE_KEEP_GOING=1 python3 scripts/test/mission-e2e-live.test.py    (every block, then the failures)
 """
+import ast
 import contextlib
 import fcntl
 import hashlib
@@ -722,6 +723,22 @@ POLLUTE2 = {"REPO_DIR": ELSE, "STORY_DIR": ELSE, "SPRINT_DIR": ELSE, "BASE_REF":
             "PYTEST_ADDOPTS": "--deselect tests/test_todo.py", "PYTEST_PLUGINS": "x"}
 
 
+def py_env_reads(src):
+    """The variables a Python gate reads: os.environ[...], .get/.pop/.setdefault, os.getenv and `in
+    os.environ`, from its parse tree (a name in a comment or a regex is not a read)."""
+    out, env = set(), (lambda v: isinstance(v, ast.Attribute) and v.attr == "environ")
+    lit = (lambda v: isinstance(v, ast.Constant) and isinstance(v.value, str))
+    for n in ast.walk(ast.parse(src)):
+        if isinstance(n, ast.Subscript) and env(n.value) and lit(n.slice):
+            out.add(n.slice.value)
+        elif isinstance(n, ast.Call) and n.args and lit(n.args[0]) and isinstance(n.func, ast.Attribute) and (
+                n.func.attr == "getenv" or (n.func.attr in ("get", "pop", "setdefault") and env(n.func.value))):
+            out.add(n.args[0].value)
+        elif isinstance(n, ast.Compare) and lit(n.left) and any(env(c) for c in n.comparators):
+            out.add(n.left.value)
+    return out
+
+
 def t_env_more():
     out2 = os.path.join(T, "spy2.env")
     r, d, p2 = dry(env=dict(ENV, PATH=SPY + ":" + ENV["PATH"], E2E_SPY_OUT=out2, ANTHROPIC_BASE_URL="https://gateway.invalid",
@@ -753,7 +770,7 @@ def t_env_more():
             continue
         src = open(pth, errors="replace").read()
         if src.startswith("#!/usr/bin/env python3"):
-            reads |= set(re.findall(r"os\.environ(?:\.get)?[\(\[]\s*[\"']([A-Z][A-Z0-9_]*)", src))
+            reads |= py_env_reads(src)
         else:
             reads |= set(re.findall(r"\$\{?!?([A-Z][A-Z0-9_]*)", src))
             assigned |= set(re.findall(r"^([A-Z][A-Z0-9_]*)=", src, re.M))
