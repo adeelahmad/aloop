@@ -1031,7 +1031,7 @@ expect(p.tick(later(p)), "ASSESS", 0, "sprint 2 closed")
 assert p.mi("assess").returncode == 0
 expect(p.tick(later(p)), "EVALUATE", 0)
 assert p.mi("evaluate").returncode == 0                                    # narrowed to the goal: not met
-expect(p.tick(later(p)), "BLOCKED", 2, "M9.30")
+expect(p.tick(later(p)), "BLOCKED", 2, "M9.50")
 p.app(**PASSING)
 assert p.mi("assess").returncode == 0
 expect(p.tick(later(p)), "EVALUATE", 0)
