@@ -10,7 +10,8 @@
   "mission_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
   "head": {"type": "object", "required": ["commit", "dirty"], "properties": {
    "commit": {"type": "string"}, "dirty": {"type": "boolean"}}},
-  "runs": {"type": "array", "minItems": 2, "items": {"type": "object", "required": ["journeys", "benchmarks"]}},
+  "runs": {"type": "array", "minItems": 2, "items": {"type": "object", "required": ["journeys", "benchmarks"],
+                                                  "properties": {"journeys": {"type": "object"}, "benchmarks": {"type": "object"}}}},
   "agreed": {"type": "boolean"},
   "disagreements": {"type": "array", "items": {"type": "string"}},
   "judged": {"type": "object"},
