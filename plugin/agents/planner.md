@@ -48,7 +48,13 @@ Each worker attempt runs under a per-task budget (defaults: 250k tokens / 30 min
 hard; 150k / 20 min soft — see `docs/agents/defaults.md`). A worker still running at
 the hard limit is STOPPED by the hook and the task comes back to you to split — never retried.
 So size each task so one worker can do its RED or its GREEN well inside the soft
-limit: a handful of tests, one or two files, one behaviour. When in doubt, split.
+limit: a handful of tests, one or two files. That is the upper bound, not the target:
+every task costs a fixed RED, SCAFFOLD and GREEN dispatch and about 8 supervisor turns
+whatever its size, so related behaviours on the same files (each count of one counter,
+each flag of one parser) belong in ONE task with one test per behaviour. Split only what
+would not fit the soft limit, or what a later task genuinely builds on (live run 44: a
+small wc-like CLI planned as 7 tasks cost $1.54 and 56 supervisor turns; one-to-two-task
+runs of the same size cost $0.67).
 A later task's RED tests must fail against what the EARLIER tasks leave on main, not only
 against the empty tree: `gate-red-verify` requires every new test to fail by assertion, so
 a task whose planned tests already pass against the previous task's skeleton (a placeholder

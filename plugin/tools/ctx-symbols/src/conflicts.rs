@@ -130,12 +130,21 @@ fn in_test_crate(root: &Path, file: &Path) -> bool {
         .any(|c| c.as_os_str() == "tests")
 }
 
+/// A `const` / `static` item: a value, not an implementation.
+fn is_value_def(kind: &str) -> bool {
+    kind.contains("const") || kind.contains("static")
+}
+
 fn detect_duplicate_definitions(
     root: &Path,
     index: &[(PathBuf, String, SymbolDef)],
 ) -> Vec<Finding> {
     let mut by_name: BTreeMap<String, Vec<(PathBuf, usize)>> = BTreeMap::new();
     for (file, _src, sym) in index {
+        // a constant in a test crate pins an expected value; it cannot shadow the code
+        if is_value_def(&sym.kind) && in_test_crate(root, file) {
+            continue;
+        }
         by_name
             .entry(sym.name.clone())
             .or_default()
@@ -314,6 +323,38 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write(dir.path(), "src/lib.rs", "pub fn top_n() {}\n");
         write(dir.path(), "tests/top.rs", "fn top_n() {}\n");
+        let findings = detect_all(dir.path()).unwrap();
+        assert!(findings
+            .iter()
+            .any(|f| matches!(f, Finding::DuplicateDefinition { .. })
+                && f.severity() == Severity::High));
+    }
+
+    #[test]
+    fn a_test_constant_pinning_a_source_constant_is_not_a_duplicate() {
+        // An integration test that pins the expected output in its own `const` is asserting
+        // the contract, not reimplementing it (live e2e run 45 halted the chain on `USAGE`).
+        let dir = tempfile::tempdir().unwrap();
+        write(
+            dir.path(),
+            "src/main.rs",
+            "const USAGE: &str = \"usage: minwc\";\nfn main() { eprintln!(\"{USAGE}\"); }\n",
+        );
+        write(dir.path(), "tests/cli.rs", "const USAGE: &str = \"usage: minwc\";\n#[test]\nfn t() { assert!(!USAGE.is_empty()); }\n");
+        let findings = detect_all(dir.path()).unwrap();
+        assert!(
+            !findings
+                .iter()
+                .any(|f| matches!(f, Finding::DuplicateDefinition { .. })),
+            "{findings:?}"
+        );
+    }
+
+    #[test]
+    fn a_source_constant_defined_twice_in_source_is_still_high() {
+        let dir = tempfile::tempdir().unwrap();
+        write(dir.path(), "src/a.rs", "pub const LIMIT: u32 = 1;\n");
+        write(dir.path(), "src/b.rs", "pub const LIMIT: u32 = 1;\n");
         let findings = detect_all(dir.path()).unwrap();
         assert!(findings
             .iter()
