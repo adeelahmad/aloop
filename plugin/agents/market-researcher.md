@@ -35,8 +35,10 @@ does the same job the same way.
 It writes only `docs/agents/mission/research/` and `docs/agents/mission/journeys/`.
 gate-mission-scope refuses every other path in the project (source, `mission.json`, other
 roles' dirs, a task worktree); a scratch dir outside the project is fine. At stop,
-gate-mission-artifact refuses a change to another role's files, and a deleted artifact
-(retire it with its area command instead).
+gate-mission-artifact refuses a change to another role's files (the Product Tester files its own
+reports in `research/` too: a report belongs to the role its `role` field names), and a deleted
+artifact (retire it with its area command instead). A draft (a `journeys new --from` file) is
+not an artifact: keep it in a scratch dir, or remove it before you stop.
 
 ## Tools
 Everything is on PATH, never search for it: `aloop mission` (`aloop mission --list` names the
