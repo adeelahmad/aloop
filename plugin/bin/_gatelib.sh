@@ -369,6 +369,15 @@ assert_planned_dependencies() {
   fi
 }
 
+# Secrets (ROADMAP M10.2): no credential in the project. With an argument, only lines added since
+# that ref (a task's diff); without, every file (the sprint sign-off). exit 2 if one is found.
+assert_no_secrets() {
+  local out
+  if ! out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/secrets" scan ${1:+--base "$1"} --root "$(repo_dir)" 2>&1)"; then
+    fail "credential in the project: $(echo "$out" | tr '\n' ';' | sed 's/; *$//'). Read it from the environment or a git-ignored file instead; a test fixture that must look like a key carries an \`aloop: allow-secret\` comment on its line"
+  fi
+}
+
 # True if $1 matches any space-separated glob in $2.
 # Test files by convention: Rust's tests/ and tests/common/, any tests/ dir, and the Python/Go/JS
 # test-file names. RED writes only these; GREEN may touch them besides its scope, to drop shims.
