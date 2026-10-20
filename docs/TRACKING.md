@@ -82,3 +82,6 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.25 | A baseline binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
 | M9.26 | A goal's sprint history is read from committed records | NOT_IMPLEMENTED | §4.12 |
 | M9.27 | The mission loop trusts an eval only when `evaluate check` would | NOT_IMPLEMENTED | §4.12 |
+| M9.28 | The mission loop drives the goal commands and reads goals by their records | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
+| M9.29 | A hard-lined goal stops being the active goal | NOT_IMPLEMENTED | §4.12 |
+| M9.30 | A goal sprinted with gaps still open gets a next step | NOT_IMPLEMENTED | §4.12 |
