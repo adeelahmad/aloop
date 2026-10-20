@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
@@ -26,8 +27,9 @@ T = tempfile.mkdtemp(prefix="aloop-telemetry-")
 WT = T + "-wt"
 T2 = tempfile.mkdtemp(prefix="aloop-telemetry-probe-")
 PASS = [0]
-sys.path.insert(0, BIN)
+sys.path[:0] = [BIN, os.path.join(ROOT, "mission")]
 import _mission as M  # noqa: E402
+import journeys as J  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("telemetry", os.path.join(ROOT, "mission", "telemetry.py"))
 TM = importlib.util.module_from_spec(spec)
@@ -63,8 +65,8 @@ def calls():
     return fake("/_log")
 
 
-def mp_calls(log):
-    return [c for c in log if c["path"] == "/mp/debug/mp/collect"]
+def mp_calls(log, path="/mp/debug/mp/collect"):
+    return [c for c in log if c["path"] == path]
 
 
 def events(kind=None, root=T):
@@ -79,10 +81,17 @@ def record(root=T):
     return recs[0]
 
 
-def journey(name, steps, status="active"):
+def journey(title, steps, frozen=True, status="active"):
+    """A journey; frozen = a confirmed baseline froze it, which is what makes it active."""
     jid = M.new_id("journey")
-    M.save(M.path_of(T, "journey", jid), {"journey_id": jid, "status": status, "created_at": M.now(), "name": name,
-                                          "steps": [{"name": s, "event": s} for s in steps]})
+    jp = M.path_of(T, "journey", jid)
+    M.save(jp, {"journey_id": jid, "status": status, "created_at": M.now(), "title": title, "persona": "a user",
+                "steps": [{"id": "s%d" % i, "action": s, "event": s} for i, s in enumerate(steps)]})
+    if frozen:
+        bid = M.new_id("baseline")
+        bp = M.path_of(T, "baseline", bid)
+        M.save(bp, {"baseline_id": bid, "journeys": [{"journey_id": jid, "sha256": M.digest(json.load(open(jp)))}]})
+        M.approve(T, "baseline.confirmed", M.rel(T, bp), M.digest(json.load(open(bp))), "Adeel")
     return jid
 
 
@@ -133,16 +142,19 @@ try:
                             cwd=T, env=ENV, capture_output=True, text=True)
     assert forged.returncode == 64 and "only its own command" in forged.stderr, forged.stderr  # events emit refuses it
     M.emit(T, "telemetry.consent", role="supervisor", subject=M.rel(T, path), sha256=TM.terms_sha(doc))  # appended anyway
+    M.record(T, "telemetry.consent", M.rel(T, path), "supervisor", by="Adeel", sha256=TM.terms_sha(doc))  # and in the ledger
     assert run("setup").returncode == 3 and run("check").returncode == 0 and calls() == []   # not a consent
     assert run("consent").returncode == 64                    # who consents is required
     r = run("consent", "--by", "Adeel", "--reason", "my own app, day one")
     assert r.returncode == 0, r.stderr
     path, doc = record()
     ev = events("telemetry.consent")
-    assert [e["role"] for e in ev] == ["supervisor", "human"] and ev[1]["data"]["by"] == "Adeel", ev
-    assert ev[1]["data"]["sha256"] == TM.terms_sha(doc) and ev[1]["data"]["subject"] == M.rel(T, path)
+    assert [e["role"] for e in ev] == ["supervisor", "supervisor", "human"] and ev[2]["data"]["by"] == "Adeel", ev
+    assert ev[2]["data"]["sha256"] == TM.terms_sha(doc) and ev[2]["data"]["subject"] == M.rel(T, path)
+    rows = M.records(T, "telemetry.consent", M.rel(T, path), role="human")       # committed: the ledger
+    assert len(rows) == 1 and rows[0]["data"]["sha256"] == TM.terms_sha(doc), rows
     assert doc["status"] == "consented" and run("check").returncode == 0 and calls() == []
-    ok("init seals the terms (uri, credential, GA's acknowledgement); a forged non-human consent is ignored")
+    ok("init seals the terms (uri, credential, GA's acknowledgement); consent is a human ledger row, a forged one is ignored")
 
     # 3) consent covers exact terms; a hand-edited record blocks every command, consent cannot launder it
     doc["terms"]["uri"] = "https://elsewhere.example"
@@ -192,7 +204,7 @@ try:
     assert all(c["method"] == "GET" for c in calls())           # asking never creates anything
     journey("sign up", ["signup_started", "signup_done"])
     journey("add a todo", ["todo_add_opened", "todo_added"])
-    journey("old idea", ["old_step"], status="retired")
+    journey("old idea", ["old_step"], frozen=False)             # status says active; no baseline froze it
     n = len(calls())
     r = run("setup", "--account", "accounts/101")
     assert r.returncode == 0, r.stderr
@@ -255,7 +267,7 @@ try:
     assert r.returncode == 2, r.stderr
     rep = json.loads(r.stdout)
     assert [m["event"] for m in rep["missing"]] == ["todo_added"] and rep["missing"][0]["journey"] == "add a todo", rep
-    assert "old_step" not in r.stderr                                      # retired journeys are not checked
+    assert "old_step" not in r.stderr                       # a hand-set status is not active: no record says so
     write("src/todo.js", "export const add = () => gtag('event', 'todo_added');\n")
     r = run("check", "--json")
     assert r.returncode == 2 and "measurement id" in r.stderr, r.stderr    # instrumented, but to no stream
@@ -264,12 +276,16 @@ try:
     write("src/ga.js", "gtag('config', '%s');\n" % mid)
     r = run("check")
     assert r.returncode == 2 and "measurement id" not in r.stderr and "no debug hit" in r.stderr, r.stderr
-    jid = journey("bad names", ["session_start", "2fast", "x" * 41, "google_x"])
+    jid = journey("bad names", ["session_start", "2fast", "x" * 41, "google_x", "app_background"])
     r = run("check")
     assert r.returncode == 2 and "'session_start' is reserved" in r.stderr and "2fast" in r.stderr, r.stderr
-    assert "'google_x' is reserved" in r.stderr
+    assert "'google_x' is reserved" in r.stderr and "'app_background' is reserved" in r.stderr
+    assert set(J.GA4_RESERVED_NAMES) <= TM.RESERVED and set(J.GA4_RESERVED) <= set(TM.RESERVED_PREFIXES)
+    assert TM.name_problem("Firebase_x") and TM.name_problem("GA_x")           # prefixes in any case, as journeys
+    assert TM.name_problem("todo_added\n") and TM.name_problem(TM.PROBE_EVENT)  # whole names; the probe is ours
+    assert TM.name_problem("todo_added") is None
     os.remove(M.path_of(T, "journey", jid))
-    ok("emit check: quoted literals in non-test code (tests, docs, dot-dirs, comments ignored); the stream's id")
+    ok("emit check: frozen journeys only, quoted literals in non-test code; reserved names match journeys'")
 
     # 8) the debug hit: the secret is proven live on the Admin API, then GA's validation server checks the events
     n = len(calls())
@@ -333,7 +349,10 @@ try:
     want = [TM.request("users", [], sid), TM.request("journeys", TM.journey_events(T), sid)]
     assert sorted(json.dumps(b, sort_keys=True) for b in sent) == sorted(json.dumps(b, sort_keys=True) for b in want), sent
     assert all(b["dateRanges"] == [{"startDate": "30daysAgo", "endDate": "3daysAgo"}] for b in sent), sent
-    assert want[0]["dimensionFilter"]["filter"] == {"fieldName": "streamId", "stringFilter": {"matchType": "EXACT", "value": sid}}
+    assert want[0]["dimensionFilter"]["andGroup"]["expressions"] == [
+        {"filter": {"fieldName": "streamId", "stringFilter": {"matchType": "EXACT", "value": sid}}},
+        {"notExpression": {"filter": {"fieldName": "eventName", "stringFilter": {"matchType": "EXACT",
+                                                                                 "value": TM.PROBE_EVENT}}}}]
     assert rep["kind"] == "settled" and rep["sample"] == {"users": 12, "min_users": 50, "days": 28, "thresholded": False, "met": False}
     assert rep["share"]["usage"] == 0 and rep["share"]["research"] == 1, rep["share"]
     assert "page_view" not in json.dumps(rep["results"]["journeys"]), rep                     # only journey events
@@ -383,6 +402,14 @@ try:
     r = run("revoke", "--by", "Adeel", "--reason", "pausing")
     assert r.returncode == 0 and "keeps sending" in r.stderr, r.stderr
     assert record()[1]["status"] == "revoked" and len(events("telemetry.revoked")) == 1 and not os.path.exists(sfile)
+    assert [r["data"]["by"] for r in M.records(T, "telemetry.revoked", M.rel(T, path), role="human")] == ["Adeel"]
+    led = M.ledger(T)
+    good = open(led).read()
+    open(led, "w").write("".join(x for x in good.splitlines(True) if '"telemetry.revoked"' not in x))  # lost
+    sh = json.loads(run("share", "--json").stdout)
+    assert sh["usage"] == 0 and "ledger" in sh["reason"], sh                    # not the consent before it
+    assert json.loads(run("show", "--json").stdout)["consent"] == "broken"
+    open(led, "w").write(good)
     sh = json.loads(run("share", "--json").stdout)
     assert sh["usage"] == 0 and sh["report"] is None, sh
     n = len(calls())
@@ -421,6 +448,8 @@ try:
     env = dict(ENV, HOME=os.path.join(T2, "home"))
     assert run("init", "--uri", "https://probe.example", env=env, cwd=T2).returncode == 0
     assert run("consent", "--by", "Adeel", env=env, cwd=T2).returncode == 0
+    r = run("verify", env=env, cwd=T2)
+    assert r.returncode == 2 and "setup" in r.stderr, r.stderr
     assert run("setup", "--account", "accounts/100", env=env, cwd=T2).returncode == 0
     n = len(calls())
     assert run("debug-hit", env=env, cwd=T2).returncode == 0
@@ -430,6 +459,127 @@ try:
     r = run("check", env=env, cwd=T2)
     assert r.returncode == 0, r.stderr
     ok("no journeys yet: the probe event proves the wiring; check passes once the page carries the stream")
+
+    # 14) a fresh checkout keeps consent and revoke; a broken ledger blocks; verify is the live round-trip
+    T3 = tempfile.mkdtemp(prefix="aloop-telemetry-fresh-")
+    shutil.copytree(os.path.join(T, "docs"), os.path.join(T3, "docs"))
+    subprocess.run(["git", "init", "-q"], cwd=T3, check=True)
+    assert not os.path.exists(os.path.join(T3, ".aladdin"))                      # no run log: the ledger only
+    assert json.loads(run("check", "--json", cwd=T3).stdout)["consent"] == "ok"
+    led = M.ledger(T)
+    good = open(led).read()
+    open(led, "w").write(good.replace('"by": "Adeel"', '"by": "Mallory"', 1))
+    n = len(calls())
+    for cmd in (["check"], ["setup"], ["verify"]):
+        r = run(*cmd)
+        assert r.returncode == 2 and "ledger line" in r.stderr and "git checkout" in r.stderr, (cmd, r.stderr)
+    assert calls()[n:] == []
+    open(led, "w").write(good)
+    env3 = dict(env, ALADDIN_GA_VERIFY_WAIT="0", ALADDIN_GA_QUOTA_PROJECT="aloop-ga-1")
+    sid = record(T2)[1]["stream"]["name"].rsplit("/", 1)[-1]
+    n = len(calls())
+    r = run("verify", env=env3, cwd=T2)
+    assert r.returncode == 0 and "verified live" in r.stderr, r.stderr
+    log = calls()[n:]
+    hit = mp_calls(log, "/mp/mp/collect")
+    sec2 = json.load(open(TM.secret_file(T2, record(T2)[1]["telemetry_id"])))
+    assert len(hit) == 1 and hit[0]["auth"] == "" and hit[0]["user_project"] == "", hit      # no token to MP
+    assert "api_secret=" + sec2["api_secret"] in hit[0]["query"] and hit[0]["body"]["events"][0]["name"] == TM.PROBE_EVENT
+    assert [c["body"] for c in log if c["path"].endswith(":runRealtimeReport")][0] == TM.request("realtime", [TM.PROBE_EVENT], sid)
+    assert all(c["user_project"] == "aloop-ga-1" for c in log if c["path"].startswith(("/admin", "/data"))), log
+    v = record(T2)[1]["verified"]
+    assert v["ok"] and v["after"] == v["before"] + 1 and v["measurement_id"] == record(T2)[1]["stream"]["measurement_id"], v
+    assert set(hit[0]["body"]["events"][0]["params"]) == {"session_id", "engagement_time_msec"}   # realtime needs both
+    sfile2 = TM.secret_file(T2, record(T2)[1]["telemetry_id"])
+    json.dump(dict(sec2, api_secret="wrong"), open(sfile2, "w"))
+    n = len(calls())
+    r = run("verify", env=env3, cwd=T2)
+    assert r.returncode == 2 and "not live" in r.stderr and not mp_calls(calls()[n:], "/mp/mp/collect"), r.stderr
+    assert record(T2)[1]["verified"] == v                                     # nothing recorded
+    json.dump(sec2, open(sfile2, "w"))
+    path2, doc2 = record(T2)
+    assert TM.still(T2, doc2) and not TM.still(T2, dict(doc2, stream=None))   # a new setup mid-verify stops it
+    moved = dict(doc2, stream=dict(doc2["stream"], name=doc2["stream"]["name"] + "9"))
+    M.seal(moved)
+    M.save(path2, moved)
+    assert run("setup", env=env, cwd=T2).returncode == 0 and record(T2)[1]["verified"] is None    # new stream
+    assert run("debug-hit", env=env, cwd=T2).returncode == 0
+    assert run("verify", env=env3, cwd=T2).returncode == 0 and record(T2)[1]["verified"]["ok"]
+    path2, doc2 = record(T2)
+    swapped = dict(doc2, secret=dict(doc2["secret"], display_name="an older secret"))
+    M.seal(swapped)
+    M.save(path2, swapped)
+    assert run("setup", env=env, cwd=T2).returncode == 0 and record(T2)[1]["verified"] is None    # new secret
+    assert run("verify", env=env3, cwd=T2).returncode == 0
+    fake("/_control", {"mp_drop": True})                    # a revoke while verify waits: it stops calling GA
+    n = len(calls())
+    slow = subprocess.Popen([MI, "telemetry", "verify"], cwd=T2, env=dict(env3, ALADDIN_GA_VERIFY_WAIT="3"),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    time.sleep(1.5)
+    revoked_at = len(calls())
+    assert run("revoke", "--by", "Adeel", env=env, cwd=T2).returncode == 0
+    out, err = slow.communicate(timeout=60)
+    assert slow.returncode == 3 and "changed while verify ran" in err, err
+    assert not [c for c in calls()[revoked_at:] if c["path"].endswith(":runRealtimeReport")], calls()[n:]
+    assert record(T2)[1]["verified"]["ok"] and record(T2)[1]["status"] == "revoked"     # nothing written back
+    assert run("consent", "--by", "Adeel", env=env, cwd=T2).returncode == 0 and run("setup", env=env, cwd=T2).returncode == 0
+    fake("/_control", {"mp_drop": False})
+    fake("/_control", {"mp_drop": True})                    # MP answers 2xx and drops the hit: only verify sees it
+    r = run("verify", env=env3, cwd=T2)
+    assert r.returncode == 2 and "did not reach" in r.stderr and record(T2)[1]["verified"]["ok"] is False, r.stderr
+    rc = json.loads(run("check", "--json", env=env, cwd=T2).stdout)
+    assert rc["exit"] == 0 and rc["verified"] is False, rc                      # verify informs; it never gates
+    fake("/_control", {"mp_drop": False})
+    for bad in ("soon", "inf", "nan", "-1", "1e9"):
+        assert run("verify", env=dict(env3, ALADDIN_GA_VERIFY_WAIT=bad), cwd=T2).returncode == 64, bad
+    led2 = M.ledger(T2)
+    good2 = open(led2).read()
+    last = json.loads(good2.splitlines()[-1])
+    ref2 = M.rel(T2, record(T2)[0])
+    rows = []
+    for ts, ev, extra in (("2099-01-01T00:00:03Z", "telemetry.revoked", {}),                 # main: revoked
+                          ("2099-01-01T00:00:02Z", "telemetry.consent", {"sha256": TM.terms_sha(record(T2)[1])})):
+        row = {"event_id": ev + ts, "ts": ts, "event": ev, "role": "human", "prev": last["hash"],   # a branch's
+               "data": dict(extra, subject=ref2, by="Adeel", reason="")}                          # older consent
+        row["hash"] = M._row_hash(row)
+        rows.append(json.dumps(row, sort_keys=True) + "\n")
+    open(led2, "a").write("".join(rows))                     # a union merge puts the older consent last
+    assert M.ledger_problems(T2) == [] and json.loads(run("check", "--json", env=env, cwd=T2).stdout)["consent"] == "revoked"
+    open(led2, "w").write(good2)
+    assert run("revoke", "--by", "Adeel", env=env, cwd=T2).returncode == 0
+    n = len(calls())
+    assert run("verify", env=env3, cwd=T2).returncode == 3 and calls()[n:] == []
+    shutil.rmtree(T3, ignore_errors=True)
+    ok("ledger: fresh checkouts and merges keep the newest decision, edits block; verify is the live round-trip")
+
+    # 15) the journeys telemetry binds: frozen or a frozen one's replacement, not retired, unchanged since
+    old = journey("checkout v1", ["cart_opened", "paid_v1"])
+    new = journey("checkout v2", ["cart_opened", "paid_v2"], frozen=False)
+    op = M.path_of(T, "journey", old)
+    od = json.load(open(op))
+    od["retirement"] = {"replaced_by": new, "replaced_by_sha256": M.digest(json.load(open(M.path_of(T, "journey", new))))}
+    M.save(op, od)
+    M.record(T, "journey.retired", M.rel(T, op), "mission", sha256=M.digest(od), journey_id=old, replaced_by=new,
+             replaced_by_sha256=od["retirement"]["replaced_by_sha256"])
+    assert J.lifecycle(T, op, od) == "retired"
+    titles = [j for j, _, _ in TM.journeys(T)]
+    assert "checkout v2" in titles and "checkout v1" not in titles, titles      # the replacement binds
+    rep = json.loads(run("check", "--json").stdout)
+    assert {"journey": "checkout v2", "event": "paid_v2"} in rep["missing"] and "paid_v1" not in rep["events"], rep
+    np_ = M.path_of(T, "journey", new)
+    nd = json.load(open(np_))
+    nd["steps"] = nd["steps"][:1]                                                # weakened after it was pinned
+    M.save(np_, nd)
+    rep = json.loads(run("check", "--json").stdout)
+    assert any("'checkout v2' changed after the records pinned it" in x for x in rep["problems"]), rep["problems"]
+    bad = journey("broken", [])
+    bp = M.path_of(T, "journey", bad)
+    M.save(bp, dict(json.load(open(bp)), steps="not a list", title=["x"]))
+    r = run("check", "--json")
+    assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr          # malformed: no crash
+    for jid in (old, new, bad):
+        os.remove(M.path_of(T, "journey", jid))
+    ok("journeys: a recorded replacement binds, a retired one does not, drift blocks, malformed ones never crash")
 finally:
     FAKE.terminate()
     FAKE.wait(timeout=10)

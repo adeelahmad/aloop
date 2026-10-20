@@ -131,7 +131,8 @@ A gate checks structure and evidence, never whether a judgment is right.
   gcloud's default OAuth client is being blocked for analytics scopes: use `--client-id-file` or
   service-account impersonation, and send `x-goog-user-project`. The Data API needs
   `analytics.readonly` (not `analytics.edit`). The Measurement Protocol answers 2xx to bad payloads
-  and the debug endpoint skips the secret, so prove a setup with `runRealtimeReport` (last 30 min);
+  and the debug endpoint skips the secret, so prove a setup with `runRealtimeReport` (last 30 min;
+  `mission telemetry verify` does that round-trip);
   standard reports lag 2–48 h and threshold small user counts (`metadata.subjectToThresholding`).
 
 ## What the loop reads (`mission tick`, M9.8)
