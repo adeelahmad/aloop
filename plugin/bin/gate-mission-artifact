@@ -17,7 +17,9 @@ its stop the run's changes (the files now against the start record) must show:
      paths a tool names; this catches a write made inside a command (`mission <area> …` of another
      role, a script). A content change counts, a human approval of a file (status/approval only) does
      not, and a path whose owner role had a run overlapping this one is that run's to answer for. A
-     status-only change to another role's artifact counts unless the human approved it. docs/agents/intents/ is
+     status-only change to another role's artifact counts unless an event of the run explains it: a human event, or
+     one of this role's own area (`baseline apply` freezing its journeys, an ethics hard line blocking its goal),
+     naming the file or an artifact that names its id. docs/agents/intents/ is
      shared with Aladdin: only an intent with source `mission` is a role's (the Mission Planner's);
   5. the mission's ledger (docs/agents/mission/ledger.jsonl) still verifies if it changed during the run:
      only the mission CLI appends to it (M9.17 covers a forged append);
@@ -71,15 +73,25 @@ def core_problems(M, doc, kind, path):
 
 
 def run_check(argv, cwd, deadline):
-    """(exit, output) of a check, within what is left of the gate's one deadline."""
+    """(exit, output, stdout) of a check, within what is left of the gate's one deadline."""
     left = deadline - time.time()
     if left < 1:
-        return 1, "not run: the gate's %ds for all checks ran out" % CHECKS_S
+        return 1, "not run: the gate's %ds for all checks ran out" % CHECKS_S, ""
     try:
         r = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=left)
     except (OSError, subprocess.TimeoutExpired) as e:
-        return 1, str(e)
-    return r.returncode, (r.stderr.strip() or r.stdout.strip())
+        return 1, str(e), ""
+    return r.returncode, (r.stderr.strip() or r.stdout.strip()), r.stdout
+
+
+def check_args(spec, kind, doc):
+    """One artifact's arguments to its area's check (roles.json `area_checks`), or None when it lacks one."""
+    subj = doc.get("subject")
+    vals = {"{id}": doc.get(kind + "_id"),
+            "{subject}": subj if isinstance(subj, str) else
+            ("mission" if subj.get("kind") == "mission" else subj.get("id")) if isinstance(subj, dict) else None}
+    out = [vals.get(a, a) for a in spec.get("args", [])]
+    return out if all(isinstance(a, str) and a for a in out) else None
 
 
 def intent_problems(path):
@@ -115,8 +127,13 @@ def judge(R, M, project, role, run):
     mine = R.writes(role)
     own = lambda rel: any(R.under(rel, w) for w in mine)  # noqa: E731
     problems, notes, accepted, areas = [], [], [], set()
-    humans = R.human_events_since(project, run["events_at"]) if isinstance((run or {}).get("events_at"), int) else []
+    evs = R.events_since(project, run["events_at"]) if isinstance((run or {}).get("events_at"), int) else []
+    humans = [e for e in evs if R.is_human_event(e)]
     approved = {(e.get("data") or {}).get("subject") for e in humans}
+    areas_mine = R.own_areas(role)
+    # what a status cascade can be explained by: an artifact a human event or this role's own command named
+    vouched = set().union(*[R.named_paths(e) for e in evs
+                            if R.is_human_event(e) or str(e.get("event", "")).split(".")[0] in areas_mine])
     for e in humans:
         d = e.get("data") or {}
         notes.append("`%s` (%s, by %s) was recorded while you ran. Approvals are the human's: if you ran it, say so in"
@@ -126,6 +143,23 @@ def judge(R, M, project, role, run):
     def bookkeeping(rel):
         """Only status/approval changed (the content digest is the same)."""
         return before is not None and rel in before and rel in now and before[rel][1] == now[rel][1]
+
+    def cascade(rel):
+        """A status change the area made for an event of the run: the human's confirmation freezing a baseline's
+        journeys, an applied baseline, an ethics hard line blocking its goal. The event names the file itself, or
+        an artifact whose content names the file's id."""
+        if rel in vouched:
+            return True
+        fid = os.path.splitext(os.path.basename(rel))[0]
+        for v in vouched:
+            if v.endswith(".json") and R.under(v, R.MISSION) and os.path.isfile(os.path.join(project, v)):
+                try:
+                    with open(os.path.join(project, v), encoding="utf-8", errors="replace") as f:
+                        if fid in f.read():
+                            return True
+                except OSError:
+                    continue
+        return False
 
     # what this run wrote: new or changed files in its own paths; a human approval of one is not its write
     changed = sorted(rel for rel in now if own(rel) and (before is None or (before.get(rel) or [None])[0] != now[rel][0])
@@ -145,8 +179,8 @@ def judge(R, M, project, role, run):
             if own(rel) or before.get(rel, [None])[0] == now[rel][0]:
                 continue
             if bookkeeping(rel):
-                if rel in approved:
-                    continue                              # the human approved it
+                if cascade(rel):
+                    continue                              # the human's step, or this role's own command, made it
                 problems.append("the status of %s changed during your run, and it is %s's artifact, not yours: only its"
                                 " owner (or the human's approval) changes it. Undo that change; if it is needed, say so in"
                                 " your artifact" % (rel, " or ".join(own_by)))
@@ -204,12 +238,30 @@ def judge(R, M, project, role, run):
         if not os.path.isfile(os.path.join(M.AREAS_DIR, area + ".py")):
             notes.append("area `%s` is not built yet: its check did not run" % area)
             continue
-        rc, out = run_check([os.path.join(BIN, "mission"), area, "check"], project, deadline)
-        if rc == 3:
-            notes.append("`mission %s check` needs the human (exit 3); that is the supervisor's next step, not yours" % area)
-        elif rc != 0:
-            problems.append("`aloop mission %s check` %s (exit %d):\n      %s"
-                            % (area, "blocks" if rc == 2 else "failed", rc, out.replace("\n", "\n      ")))
+        spec = R.AREA_CHECKS.get(area) or {}
+        calls = [[]]
+        if spec.get("args"):                              # the area checks one artifact: each one this run wrote
+            calls = []
+            for _, kind, doc, _ in accepted:
+                a = check_args(spec, kind, doc) if doc and R.KIND_AREAS.get(kind) == area else None
+                if a is not None and a not in calls:
+                    calls.append(a)
+        for args in calls:
+            cmd = " ".join(["aloop mission", area, "check"] + [a for a in args if a != "--json"])
+            rc, out, stdout = run_check([os.path.join(BIN, "mission"), area, "check"] + args, project, deadline)
+            state = None
+            if "--json" in args:
+                try:
+                    state = (json.loads(stdout) or {}).get("state")
+                except (ValueError, AttributeError):
+                    state = None
+            if rc == 3:
+                notes.append("`%s` needs the human (exit 3); that is the supervisor's next step, not yours" % cmd)
+            elif rc == 2 and state in spec.get("verdicts", ()):
+                notes.append("`%s` holds a %s verdict: your finding, recorded; what follows is the supervisor's" % (cmd, state))
+            elif rc != 0:
+                problems.append("`%s` %s (exit %d):\n      %s"
+                                % (cmd, "blocks" if rc == 2 else "failed", rc, out.replace("\n", "\n      ")))
     return problems, notes, accepted, humans
 
 

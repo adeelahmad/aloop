@@ -232,6 +232,10 @@ class Scope:
                 pos.append(t)
         cmd, event, role = (ts[0] if ts else ""), (pos[0] if pos else ""), opt.get("role", "")
         as_human = role is None or role.strip().lower() == "human"
+        if cmd == "emit" and event and event.split(".")[0] in self.R.MISSION_EVENTS:
+            raise Block("`events emit %s` is not a dispatched agent's to run: the mission layer's events (%s.*) are"
+                        " written only by its own commands (`aloop mission …`) and its gates, so a hand-written one"
+                        " would pass for theirs." % (event, event.split(".")[0]))
         human = (cmd == "authority" or cmd == "decide" and as_human or
                  cmd == "emit" and (as_human or event is None or event in self.R.M.HUMAN_EVENTS or event.startswith("human.")))
         if human:

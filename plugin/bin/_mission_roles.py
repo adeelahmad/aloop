@@ -38,6 +38,9 @@ def table():
 T = table()
 ROLES = tuple(T["roles"])
 KIND_AREAS = T["kind_areas"]
+AREA_CHECKS = T.get("area_checks", {})
+# the mission layer's event prefixes: only its own commands and gates emit them (never `events emit` by hand)
+MISSION_EVENTS = frozenset(["mission", "artifact"] + list(M.LAYOUT) + list(KIND_AREAS.values()))
 HUMAN_VERBS = frozenset(T["human_verbs"])
 READ_ONLY = frozenset(T["read_only"])
 DIR_KIND = {loc: kind for kind, loc in M.LAYOUT.items() if not loc.endswith(".json")}
@@ -154,9 +157,8 @@ def events_size(project):
         return 0
 
 
-def human_events_since(project, offset):
-    """The human's events (approvals, consents, a mission set) appended to the event log after
-    byte `offset`; [] when the log was rotated below it."""
+def events_since(project, offset):
+    """The events appended to the event log after byte `offset`; [] when the log was rotated below it."""
     if events_size(project) < offset:
         return []
     out = []
@@ -168,11 +170,38 @@ def human_events_since(project, offset):
                     e = json.loads(line)
                 except ValueError:
                     continue
-                if isinstance(e, dict) and (e.get("role") == "human" or e.get("event") in M.APPROVAL_EVENTS):
+                if isinstance(e, dict):
                     out.append(e)
     except OSError:
         pass
     return out
+
+
+def is_human_event(e):
+    """An approval, a consent, a mission set: the human's (or the loop's veto-window confirmation)."""
+    return e.get("role") == "human" or e.get("event") in M.APPROVAL_EVENTS
+
+
+def human_events_since(project, offset):
+    return [e for e in events_since(project, offset) if is_human_event(e)]
+
+
+def own_areas(role):
+    """The artifact kinds a role writes and their areas: the event prefixes its own commands emit
+    (`ethics.blocked`, `baseline.confirmed`, `judge.verdict`…)."""
+    out = set()
+    for w in writes(role):
+        m = re.match(r"^docs/agents/mission/([a-z]+)/$", w)
+        kind = DIR_KIND.get(m.group(1)) if m else None
+        if kind:
+            out |= {kind, KIND_AREAS.get(kind, kind)}
+    return out
+
+
+def named_paths(e):
+    """The project paths an event names (its refs, and a `subject` in its data)."""
+    vals = list((e.get("refs") or {}).values()) + [(e.get("data") or {}).get("subject")]
+    return {v for v in vals if isinstance(v, str) and v}
 
 
 def ledger_problems(project):

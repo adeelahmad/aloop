@@ -262,7 +262,8 @@ for who in (None, E, G):
     assert blocked(scope("Write", who, file_path=LEDGER), "the mission's ledger", "aloop mission")
     assert blocked(scope("Bash", who, command="echo '{}' >> docs/agents/mission/ledger.jsonl"), "the mission's ledger")
 assert blocked(scope("Bash", E, command="aloop events authority --initiated-by h --mode autonomous --scope all"), "human's word")
-assert blocked(scope("Bash", G, command="aloop events emit telemetry.consent --role human"), "human's word")
+assert blocked(scope("Bash", G, command="aloop events emit telemetry.consent --role human"), "written only by its own commands")
+assert blocked(scope("Bash", G, command="aloop events emit task.note --role human"), "human's word")
 assert blocked(scope("Bash", "aloop:state-assessor", command="aloop mission baseline restore bln_x --by Adeel"), "the human's")
 assert allowed(scope("Bash", command="aloop events authority --initiated-by Adeel --mode reviewed --scope s1"))
 SUPSCOPE, LOCK = os.path.join(BIN, "gate-supervisor-scope"), os.path.join(P, ".aladdin", "state", "sprint.lock")
@@ -542,7 +543,7 @@ assert ga.intent_problems(os.path.join(T, iid + ".json")) == ([], []), ga.intent
 assert ga.intent_problems(os.path.join(Q, "docs", "agents", "intents", "int_bogus.json"))[0]
 assert len(events()) == n_ev                                 # checking an intent emits nothing (intent.normalized is intake's)
 t0 = time.time()
-rc, out = ga.run_check(["sleep", "5"], Q, time.time() + 1)
+rc, out, _ = ga.run_check(["sleep", "5"], Q, time.time() + 1)
 assert rc == 1 and time.time() - t0 < 4, (rc, out)
 assert ga.run_check(["true"], Q, time.time() - 1)[0] == 1          # nothing runs once the deadline is spent
 ok("a stuck release closes the run; a pass re-baselines it; bad log lines, intent checks and slow checks are handled")
@@ -580,7 +581,7 @@ def made(r):
 
 
 def researched():
-    rid = M.new_id("research")
+    rid = researched.rid = M.new_id("research")
     d = {"research_id": rid, "status": "recorded", "created_at": M.now(),
          "claims": [{"claim_id": "c1", "text": "rivals show a first task in 3s", "kind": "other"}]}
     M.seal(d)
@@ -613,6 +614,54 @@ def tamper():
 
 r, _ = role_run("aloop:evaluator", "ev2", tamper)
 assert r.returncode == 2 and "ledger.jsonl changed during your run and no longer verifies" in r.stderr, r.stderr
+rows = open(M.ledger(X.dir)).read().splitlines(True)
+open(M.ledger(X.dir), "w").write("".join(rows[:-1]))           # the supervisor restores it
 ok("with the real areas, each role's run passes its stop and is recorded; a ledger edit inside a run is not accepted")
+
+
+def review(subject, findings, tier):
+    def work():
+        r = X.run("ethics", "new", "--subject", subject)
+        assert r.returncode == 0, r.stderr
+        path = r.stdout.strip().splitlines()[-1]
+        d = json.load(open(path))
+        d.update(findings=findings, tier=tier)
+        json.dump(d, open(path, "w"))
+        return X.run("ethics", "record", path)
+    return work
+
+
+r, rec = role_run("aloop:ethics-reviewer", "er1", review("mission", [], "clear"))
+assert rec.returncode == 0 and r.returncode == 0, (rec.stderr, r.stderr)        # its check needs --subject
+gid = M.new_id("goal")
+g = {"goal_id": gid, "statement": "post fake reviews of our rivals", "status": "derived", "created_at": M.now()}
+M.seal(g)
+M.save(M.path_of(X.dir, "goal", gid), g)
+r, rec = role_run("aloop:ethics-reviewer", "er2", review(gid, [{"category": "deceptive", "tier": "hard",
+                                                                 "reason": "fake reviews deceive buyers"}], "hard"))
+assert X.load("goal", gid)["status"] == "blocked"            # the hard line retires the planner's goal
+assert r.returncode == 0 and "holds a hard verdict" in r.stderr, r.stderr
+r, j2 = role_run("aloop:market-researcher", "mr2", lambda: X.journey(X.draft(researched.rid, title="Add three tasks")))
+assert r.returncode == 0, r.stderr
+r, b2 = role_run("aloop:state-assessor", "sa4", lambda: made(X.run(
+    "baseline", "new", "--definition", "faster, and three tasks", "--supersedes", b["baseline_id"],
+    "--evidence", researched.rid + "#c1")))
+assert r.returncode == 0, r.stderr
+
+
+def apply():
+    assert X.run("baseline", "measure", b2["baseline_id"]).returncode == 0
+    return X.run("baseline", "apply", b2["baseline_id"])
+
+
+r, ap = role_run("aloop:state-assessor", "sa5", apply)
+assert ap.returncode == 0 and X.load("journey", j2)["status"] == "active", ap.stderr   # it froze the researcher's journey
+assert r.returncode == 0, r.stderr
+j3 = X.journey(X.draft(researched.rid, title="Delete a task"))
+r, _ = role_run("aloop:product-tester", "pt1", lambda: X.run("journeys", "retire", j3, "--evidence", researched.rid + "#c1"))
+assert X.load("journey", j3)["status"] == "retired"
+assert r.returncode == 2 and "journeys/%s.json changed during your run" % j3 in r.stderr, r.stderr
+ok("the real ethics, baseline and journeys commands: an ethics check gets its subject and a hard line is the reviewer's"
+   " finding; a status its own command cascades passes; another area's status change blocks")
 
 print("\n%d checks passed" % PASS[0])

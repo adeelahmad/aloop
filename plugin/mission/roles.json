@@ -1,6 +1,6 @@
 {
   "schema": "aladdin.mission-roles/1",
-  "note": "The six fixed mission roles (ROADMAP §4.12, M9.9): the same for every mission. `writes` is every project path a role may write; the rest of the project is refused (bin/gate-mission-scope), so no mission role writes source and no builder writes docs/agents/mission/. `group` is the model route group (bin/_routes.py). At its stop, bin/gate-mission-artifact checks every artifact the role wrote and refuses a change to another role's files. A track whose command makes one role write another role's dir changes `writes` here, with its reason.",
+  "note": "The six fixed mission roles (ROADMAP §4.12, M9.9): the same for every mission. `writes` is every project path a role may write; the rest of the project is refused (bin/gate-mission-scope), so no mission role writes source and no builder writes docs/agents/mission/. `group` is the model route group (bin/_routes.py). At its stop, bin/gate-mission-artifact checks every artifact the role wrote (`mission <area> check`, once per artifact with the `area_checks` args where the area checks one; a `verdicts` state such as an ethics hard line is the role's finding, not a defect) and refuses a change to another role's files. A track whose command makes one role write another role's dir changes `writes` here, with its reason.",
   "roles": {
     "market-researcher": {
       "persona": "The Scout",
@@ -49,6 +49,12 @@
     "ethics": "ethics",
     "rubric": "judge",
     "telemetry": "telemetry"
+  },
+  "area_checks": {
+    "evaluate": {"args": ["{id}"]},
+    "assess": {"args": ["{id}"]},
+    "journeys": {"args": ["{id}"]},
+    "ethics": {"args": ["--subject", "{subject}", "--json"], "verdicts": ["hard"]}
   },
   "human_verbs": ["approve", "confirm", "consent", "veto", "accept", "revoke", "restore"],
   "read_only": ["status", "show", "check", "list", "diff", "due", "help", "--list", "--help", "-h"]
