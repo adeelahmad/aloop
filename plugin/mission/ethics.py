@@ -27,10 +27,12 @@ Usage:
   mission ethics screen --subject mission|<goal_id> | --text TEXT
         the screened topics as JSON {category: matched phrase}
 """
+import hashlib
 import json
 import os
 import re
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "bin"))
 import _events  # noqa: E402
@@ -82,36 +84,53 @@ CATEGORIES = {
 }
 _RX = {c: [re.compile(p, re.I) for p in ps] for c, ps in CATEGORIES.items()}
 
-# fields that are bookkeeping, ids, hashes or refs, never the subject's words
-SKIP = {"sha256", "status", "created_at", "approval", "provenance", "principles", "ethics", "evidence", "refs",
-        "sources", "source_refs"}
+# top-level fields that are not the subject's content: outside its sha256 (M.UNHASHED: the seal,
+# the status, the approvals and consent reasons) or the creation time. Everything else is screened,
+# keys and values, at any depth, except values that are harness ids or hashes.
+SKIP = set(M.UNHASHED) | {"created_at"}
+ID_VALUE = re.compile(r"^(?:[a-z]{3}_[0-9a-f]{20}|[0-9a-f]{64})$")
 REASON_MAX = 200
 
 
-def strings(x, key=""):
-    if key in SKIP or key.endswith("_id") or key.endswith("_ids"):
-        return
+def strings(x, top=True):
     if isinstance(x, dict):
         for k, v in x.items():
-            yield from strings(v, k)
+            if top and k in SKIP:
+                continue
+            yield str(k)
+            yield from strings(v, False)
     elif isinstance(x, list):
         for v in x:
-            yield from strings(v, key)
-    elif isinstance(x, str):
+            yield from strings(v, False)
+    elif isinstance(x, str) and not ID_VALUE.match(x):
         yield x
 
 
+def normalize(text):
+    """What the screen reads: NFKC (fullwidth and compatibility forms folded), invisible format
+    characters (zero-width, soft hyphen) removed, each run of whitespace one space."""
+    t = unicodedata.normalize("NFKC", text or "")
+    t = "".join(ch for ch in t if unicodedata.category(ch) != "Cf")
+    return re.sub(r"\s+", " ", t).strip()
+
+
 def text_of(doc):
-    """The subject's own words: every string field except bookkeeping, ids, hashes and refs."""
-    return "\n".join(strings(doc))
+    """The subject's own words, one normalized line per string: its hashed content, keys and values."""
+    return "\n".join(normalize(x) for x in strings(doc))
+
+
+def text_digest(doc):
+    """The sha256 of the screened words: a hard line follows them to any goal that repeats them."""
+    return hashlib.sha256(text_of(doc).encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def screen(text):
     """[(category, matched phrase)] in CATEGORIES order, one per matched category."""
     out = []
+    t = "\n".join(normalize(x) for x in (text or "").split("\n"))
     for c, rxs in _RX.items():
         for rx in rxs:
-            m = rx.search(text or "")
+            m = rx.search(t)
             if m:
                 out.append((c, m.group(0)))
                 break
@@ -125,28 +144,39 @@ def rank(tier):
 # ── subjects ─────────────────────────────────────────────────────────────────────────
 def parse_subject(s):
     """'mission' → ("mission", ""); 'gol_…' → ("goal", id); else None."""
+    if not isinstance(s, str):
+        return None
     if s == "mission":
         return "mission", ""
-    if re.match(r"^gol_[0-9a-f]{20}$", s or ""):
+    if re.match(r"^gol_[0-9a-f]{20}$", s):
         return "goal", s
     return None
 
 
 def resolve(cwd, kind, sid):
-    """(path, doc) of the subject; LookupError when it does not exist."""
+    """(path, doc) of the subject; LookupError when it does not exist or is not itself."""
     path = M.path_of(cwd, kind, sid)
+    if os.path.islink(path):
+        raise LookupError("%s is a symlink: a subject is its own file (a review or consent never carries over)"
+                          % M.rel(cwd, path))
     doc, err = M.load(path)
     if not isinstance(doc, dict):
         raise LookupError("no %s%s (%s)" % (kind, " " + sid if sid else "", M.rel(cwd, path)) if doc is None else
                           "%s is not a JSON object" % M.rel(cwd, path))
+    own = doc.get(kind + "_id")
+    if not isinstance(own, str) or not M.ID.match(own) or (sid and own != sid):
+        raise LookupError("%s: its %s_id %r is not the harness-issued id of this file" % (M.rel(cwd, path), kind, own))
     return path, doc
 
 
 def binding(cwd, kind, sid):
     """The subject as a review binds it: kind, ref, id and the content's sha256."""
     path, doc = resolve(cwd, kind, sid)
-    return {"kind": kind, "ref": M.rel(cwd, path), "id": doc.get(kind + "_id", sid),
-            "sha256": M.digest(doc)}, doc
+    try:
+        sha = M.digest(doc)
+    except UnicodeError:
+        raise LookupError("%s holds text that is not valid Unicode" % M.rel(cwd, path))
+    return {"kind": kind, "ref": M.rel(cwd, path), "id": doc[kind + "_id"], "sha256": sha}, doc
 
 
 # ── a review's own rules (beyond the schema and the core contract) ───────────────────
@@ -178,6 +208,17 @@ def review_problems(cwd, rev, path, matched):
 
 
 # ── the verdict ──────────────────────────────────────────────────────────────────────
+def is_hard(e):
+    return e.get("event") == "ethics.blocked" or (e.get("event") == "ethics.reviewed"
+                                                  and (e.get("data") or {}).get("tier") == "hard")
+
+
+def human_consent(e):
+    """An ethics.consent only counts as the human's when `mission ethics consent` wrote it."""
+    d = e.get("data") or {}
+    return e.get("role") == "human" and str(d.get("by", "")).strip() and str(d.get("reason", "")).strip()
+
+
 def verdict(cwd, kind, sid):
     """(exit, problems, facts) for the subject's current content: 0 clear or consented gray,
     2 block, 3 needs the human's consent."""
@@ -186,29 +227,35 @@ def verdict(cwd, kind, sid):
     except LookupError as e:
         return 2, [str(e)], {}
     ref, sha = subj["ref"], subj["sha256"]
-    matched = screen(text_of(doc))
+    matched, words = screen(text_of(doc)), text_digest(doc)
     facts = {"subject": ref, "kind": kind, "id": subj["id"], "sha256": sha,
-             "screen": {c: p for c, p in matched}, "tier": None, "review": None, "review_sha256": None,
+             "screen": {c: p for c, p in matched}, "tier": None, "review": None, "reviews": [],
              "consent_event": None}
-    every, recs, blocked, consents = [], {}, [], []
+    every, recs, hard, consents = [], {}, [], []
     for e in _events.read(cwd):
         d = e.get("data") or {}
+        if not str(e.get("event", "")).startswith("ethics."):
+            continue
+        # a hard line is sticky: for this content, for this goal whatever it says now (a hard-lined goal
+        # is retired, not edited), and for these exact words under any goal id
+        if is_hard(e) and (d.get("subject") == ref and (d.get("sha256") == sha or kind == "goal")
+                           or d.get("text_sha256") == words):
+            hard.append(e)
         if d.get("subject") != ref or d.get("sha256") != sha:
             continue
         if e.get("event") == "ethics.reviewed" and d.get("ethics_id"):
             every.append(e)
             recs.pop(d["ethics_id"], None)
             recs[d["ethics_id"]] = e        # re-inserted: dict order is the order last recorded
-        elif e.get("event") == "ethics.blocked":
-            blocked.append(e)
-        elif e.get("event") == "ethics.consent":
+        elif e.get("event") == "ethics.consent" and human_consent(e):
             consents.append(e)
-    hard = [e["data"]["ethics_id"] for e in every if e["data"].get("tier") == "hard"] + \
-        [(e.get("data") or {}).get("ethics_id") for e in blocked]
     if hard:
-        facts.update(tier="hard", review=hard[0])
-        return 2, ["hard line: review %s found illegal, deceptive or harmful work in %s; no consent or later "
-                   "review unlocks it, only changing the %s does" % (hard[0], ref, kind)], facts
+        h = hard[0].get("data") or {}
+        facts.update(tier="hard", review=h.get("ethics_id"))
+        return 2, ["hard line: review %s found illegal, deceptive or harmful work in %s; no consent, later review "
+                   "or edit unlocks it%s" % (h.get("ethics_id"), h.get("subject"),
+                                             ": retire this goal" if kind == "goal" else
+                                             ", only a human-approved change of the mission does")], facts
     if not recs:
         return 2, ["no ethics review of this content of %s (sha256 %s): the Ethics Reviewer writes one "
                    "(mission ethics new --subject %s, then mission ethics record FILE)"
@@ -220,27 +267,42 @@ def verdict(cwd, kind, sid):
         if not isinstance(rev, dict):
             bad.append("review %s was removed or is unreadable after it was recorded" % eid)
             continue
-        bad += ["review %s: %s" % (eid, x) for x in review_problems(cwd, rev, p, matched)]
+        try:
+            bad += ["review %s: %s" % (eid, x) for x in review_problems(cwd, rev, p, matched)]
+        except UnicodeError:
+            bad.append("review %s holds text that is not valid Unicode" % eid)
+            continue
         if rev.get("sha256") != e["data"].get("review_sha256"):
             bad.append("review %s changed after it was recorded (re-record it: mission ethics record)" % eid)
+        elif rev.get("tier") != e["data"].get("tier"):
+            bad.append("review %s: the recorded tier %r is not the sealed review's %r"
+                       % (eid, e["data"].get("tier"), rev.get("tier")))
+        top = max((x["data"].get("tier") for x in every if x["data"]["ethics_id"] == eid), key=rank)
+        if rank(e["data"].get("tier")) < rank(top):
+            bad.append("review %s was re-recorded below its %s tier: a review never lowers (restore it, or write "
+                       "a new review; the tier of this content stays %s)" % (eid, top, top))
     if bad:
         return 2, sorted(set(bad), key=bad.index), facts
-    # every recorded review of this content counts, re-recorded ones included: a later or edited
-    # review never lowers the tier, and the consent names the latest gray one exactly
+    # a later review never lowers the tier of this content; every current gray review needs its own
+    # consent, naming that review and its sealed version
     tier = max((e["data"].get("tier") for e in every), key=rank)
     facts["tier"] = tier
     if tier == "clear":
         facts["review"] = list(recs)[-1]
         return 0, [], facts
-    last = [e for e in every if e["data"].get("tier") == "gray"][-1]
-    facts["review"], facts["review_sha256"] = last["data"]["ethics_id"], last["data"].get("review_sha256")
-    ok = [c for c in consents if (c.get("data") or {}).get("review") == facts["review"]
-          and c["data"].get("review_sha256") == facts["review_sha256"]]
-    if not ok:
+    gray = [e["data"] for e in recs.values() if e["data"].get("tier") == "gray"]
+    facts["reviews"] = [{"ethics_id": d["ethics_id"], "review_sha256": d.get("review_sha256")} for d in gray]
+    facts["review"] = gray[-1]["ethics_id"]
+    pending, matched_consents = [], []
+    for d in gray:
+        ok = [c for c in consents if c["data"].get("review") == d["ethics_id"]
+              and c["data"].get("review_sha256") == d.get("review_sha256")]
+        (matched_consents.append(ok[-1]) if ok else pending.append(d["ethics_id"]))
+    if pending:
         return 3, ["gray area in %s (review %s): the human's consent is needed for exactly this content "
                    "(mission ethics consent --subject %s --by NAME --reason TEXT)"
-                   % (ref, facts["review"], sid or "mission")], facts
-    facts["consent_event"] = ok[-1].get("event_id")
+                   % (ref, ", ".join(pending), sid or "mission")], dict(facts, pending=pending)
+    facts["consent_event"] = matched_consents[-1].get("event_id")
     return 0, [], facts
 
 
@@ -295,24 +357,29 @@ def cmd_record(cwd, path):
                    "review (mission ethics new --subject %s)" % (s.get("id") if s.get("kind") == "goal" else "mission")])
         return 2
     rev.pop("sha256", None)
-    bad = review_problems(cwd, rev, path, screen(text_of(doc)))
+    try:
+        bad = review_problems(cwd, rev, path, screen(text_of(doc)))
+        if not bad:
+            M.seal(rev)
+    except UnicodeError:
+        bad = ["the review holds text that is not valid Unicode"]
     if bad:
         report(2, bad)
         return 2
-    M.seal(rev)
     M.save(path, rev)
     kind, sid = parsed
     mine = [e for e in _events.read(cwd) if e.get("event") == "ethics.reviewed"
             and (e.get("data") or {}).get("ethics_id") == eid]
     if not mine or mine[-1]["data"].get("review_sha256") != rev["sha256"]:   # re-recording the same file is a no-op
         refs = {"review": M.rel(cwd, path), "subject": cur["ref"]}
+        words = text_digest(doc)
         M.emit(cwd, "ethics.reviewed", role="ethics-reviewer", refs=refs, ethics_id=eid, subject=cur["ref"],
-               sha256=cur["sha256"], review_sha256=rev["sha256"], tier=rev["tier"], kind=kind)
+               sha256=cur["sha256"], text_sha256=words, review_sha256=rev["sha256"], tier=rev["tier"], kind=kind)
         if rev["tier"] == "hard":
             cats = [c for c in list(CATEGORIES) + ["other"]
                     if any(f["category"] == c and f["tier"] == "hard" for f in rev["findings"])]
             M.emit(cwd, "ethics.blocked", role="ethics-reviewer", refs=refs, ethics_id=eid, subject=cur["ref"],
-                   sha256=cur["sha256"], categories=cats, kind=kind)
+                   sha256=cur["sha256"], text_sha256=words, categories=cats, kind=kind)
     print("[ethics] %s recorded: tier %s for %s" % (eid, rev["tier"], cur["ref"]), file=sys.stderr)
     rc, bad, _ = verdict(cwd, kind, sid)
     report(rc, bad)
@@ -349,20 +416,25 @@ def cmd_consent(cwd, kind, sid, by, reason):
     if rc == 0:
         print("[ethics] already consented (%s)" % facts["consent_event"], file=sys.stderr)
         return 0
-    try:
-        eid = M.approve(cwd, "ethics.consent", facts["subject"], facts["sha256"], by, reason,
-                        review=facts["review"], review_sha256=facts["review_sha256"], kind=kind,
-                        subject_id=facts["id"])
-    except ValueError as e:
-        print("mission ethics consent: %s" % e, file=sys.stderr)
-        return 64
+    eids = []
+    for r in facts["reviews"]:
+        if r["ethics_id"] not in facts["pending"]:
+            continue
+        try:
+            eids.append(M.approve(cwd, "ethics.consent", facts["subject"], facts["sha256"], by, reason,
+                                  review=r["ethics_id"], review_sha256=r["review_sha256"], kind=kind,
+                                  subject_id=facts["id"]))
+        except ValueError as e:
+            print("mission ethics consent: %s" % e, file=sys.stderr)
+            return 64
     if kind == "goal":   # the consent lives inside the goal; `approval` is outside its sha256
         path, doc = resolve(cwd, kind, sid)
         appr = doc.get("approval") if isinstance(doc.get("approval"), dict) else {}
-        appr["ethics"] = {"event_id": eid, "by": by, "reason": reason, "review": facts["review"], "at": M.now()}
+        appr["ethics"] = {"event_id": eids[-1], "events": eids, "by": by, "reason": reason,
+                          "reviews": facts["pending"], "at": M.now()}
         doc["approval"] = appr
         M.save(path, doc)
-    print("[ethics] consent recorded for %s by %s (review %s)" % (facts["subject"], by, facts["review"]),
+    print("[ethics] consent recorded for %s by %s (review %s)" % (facts["subject"], by, ", ".join(facts["pending"])),
           file=sys.stderr)
     return 0
 

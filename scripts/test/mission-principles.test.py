@@ -103,6 +103,7 @@ assert any("changed since" in x for x in P.verify(dict(st, sha256="0" * 64)))
 assert any("mode" in x for x in P.verify(dict(st, mode="sometimes")))
 assert any("mode" in x for x in P.verify(dict(st, mode="spoon-fed")))   # the other mode's block has another hash
 assert P.verify(None) and P.verify({"mode": "autonomous"})
+assert any("ids" in x for x in P.verify(dict(st, ids=[])))      # the stamp names the principles it carries
 ok("stamp(mode) = {mode, sha256, ids}; verify() names a changed block, a wrong mode, a missing field")
 
 # 6) a malformed or incomplete edit is refused (exit 2) with a line per problem; --file checks a draft
@@ -128,11 +129,26 @@ cases = [
     ("\n".join(l for l in text.splitlines() if not l.startswith("- think-big-vs-deliver-results:")) + "\n",
      "the tension pair think-big-vs-deliver-results is missing"),
 ]
+ga = next(p for p in doc["principles"] if p["id"] == "grow-adoption")
+cut = ga["autonomous"].index(" Never")
+cases += [
+    (text.replace(ga["autonomous"], ga["autonomous"][:cut] + "\n  " + ga["autonomous"][cut + 1:]), "only bullet lines"),
+    (text.replace(ga["autonomous"], ga["autonomous"].replace(" Never", "\u2028Never")), "control or invisible"),
+    (text.replace("(ship-small) vs", "( ) vs"), "names no principle for Bias for Action"),
+]
 for new_text, want in cases:
     assert new_text != text, want
     r = check_variant(new_text)
     assert r.returncode == 2 and want in r.stderr and "BLOCK[principles]" in r.stderr, (want, r.stderr)
 assert check_variant(text).returncode == 0
+open(os.path.join(T, "draft.md"), "wb").write(text.encode("latin-1", "replace"))   # an editor's latin-1 save
+r = run(MI, "principles", "check", "--file", os.path.join(T, "draft.md"))
+assert r.returncode == 2 and "cannot read" in r.stderr and "Traceback" not in r.stderr, r.stderr
+r = run(MI, "principles", "show", "--mode", "autonomous", "--file", os.path.join(T, "draft.md"))
+assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+assert run(MI, "principles", "check", "--file", "").returncode == 64        # an empty --file is not the shipped file
+assert run(MI, "principles", "show", "--mode", "").returncode == 64
+check_variant(text)
 r = run(MI, "principles", "show", "--mode", "autonomous", "--file", os.path.join(T, "draft.md"))
 assert r.returncode == 0 and r.stdout == auto.stdout
 check_variant(cases[0][0])

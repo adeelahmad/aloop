@@ -16,7 +16,8 @@ characters (the block is read on every goal, so it stays short).
 
 Format: one `## <id>: <Title>` section per principle with exactly one `- autonomous:` and
 one `- spoon-fed:` line; one `- <id>: <Label> (<principle ids>) vs <Label> (<principle ids>): <how it is settled>`
-line per tension under `## Tensions`. Everything else is commentary and is not rendered.
+line per tension under `## Tensions`, each on one line. Commentary goes above the first section
+and is not rendered; inside a section only these bullet lines are allowed.
 No principle can relax an invariant (ROADMAP §7); the renderer appends that line itself.
 
 ## autonomic-loop: The Autonomic Loop

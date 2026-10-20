@@ -189,9 +189,9 @@ assert fill(q6, [{"category": "other", "tier": "gray", "reason": "removes a feat
             "gray").returncode == 3
 q7, _ = start(gid4)
 assert fill(q7, [], "clear").returncode == 3                 # gray stays gray: a clear re-review is not a way out
-assert fill(q6, [], "clear").returncode == 3                 # nor is re-recording the gray review itself as clear
-assert json.loads(run(MI, "ethics", "check", "--subject", gid4, "--json").stdout)["review"] \
-    == json.load(open(q6))["ethics_id"]
+r = fill(q6, [], "clear")                                  # nor is re-recording the gray review itself as clear:
+assert r.returncode == 2 and "never lowers" in r.stderr, r.stderr   # it blocks until the gray version is back
+assert run(MI, "ethics", "consent", "--subject", gid4, "--by", "Adeel", "--reason", "x").returncode == 2
 assert fill(q6, [{"category": "other", "tier": "gray", "reason": "removes a feature some users rely on"}],
             "gray").returncode == 3
 assert run(MI, "ethics", "consent", "--subject", gid4, "--by", "Adeel", "--reason", "fine").returncode == 0
@@ -232,7 +232,86 @@ r = fill(p7, [], "clear")
 assert r.returncode == 2 and "changed since this review began" in r.stderr, r.stderr
 ok("an edited review fails its seal (2); a review whose subject binding does not match the content is refused")
 
-# 9) usage: unknown subjects and commands; the area is discovered; --help is the docstring
+# 9) hardening (adversarial review of #72): what a model can do with its normal tools never clears a gate
+#    a) re-recording an older, consented review does not hide a newer gray one
+gA = goal("a calmer home screen with fewer options")
+rA, _ = start(gA)
+assert fill(rA, [{"category": "other", "tier": "gray", "reason": "removes options"}], "gray").returncode == 3
+assert run(MI, "ethics", "consent", "--subject", gA, "--by", "Adeel", "--reason", "fine").returncode == 0
+rB, _ = start(gA)
+assert fill(rB, [{"category": "other", "tier": "gray", "reason": "also hides the export button"}], "gray").returncode == 3
+keep = json.load(open(rA))
+assert fill(rA, [{"category": "other", "tier": "gray", "reason": "removes options!"}], "gray").returncode == 3
+json.dump(keep, open(rA, "w"))
+assert run(MI, "ethics", "record", rA).returncode == 3          # B still has no consent
+r = run(MI, "ethics", "check", "--subject", gA)
+assert r.returncode == 3 and json.load(open(rB))["ethics_id"] in r.stderr, r.stderr
+#    b) a hard line follows the goal through edits, and its words to any other goal
+gH = goal("pay strangers to post five-star ratings under made-up names")
+rH, _ = start(gH)
+assert fill(rH, [{"category": "other", "tier": "hard", "reason": "fake ratings deceive buyers"}], "hard").returncode == 2
+gdoc = json.load(open(M.path_of(T, "goal", gH)))
+M.save(M.path_of(T, "goal", gH), dict(gdoc, statement=gdoc["statement"] + " "))
+rH2, _ = start(gH)
+assert fill(rH2, [], "clear").returncode == 2
+r = run(MI, "ethics", "check", "--subject", gH)
+assert r.returncode == 2 and "hard line" in r.stderr and "retire" in r.stderr, r.stderr
+gH2 = goal("pay strangers to post five-star ratings under made-up names")
+rH3, _ = start(gH2)
+r = fill(rH3, [], "clear")
+assert r.returncode == 2 and "hard line" in r.stderr, r.stderr
+#    c) the event stream must agree with the sealed review, and only the human's consent counts
+r = run(os.path.join(BIN, "events"), "emit", "ethics.consent", "--data", "subject=x")
+assert r.returncode == 64 and "only its own command" in r.stderr, r.stderr
+assert run(os.path.join(BIN, "events"), "emit", "ethics.reviewed").returncode == 64
+gF = goal("a darker theme")
+rF, _ = start(gF)
+assert fill(rF, [{"category": "other", "tier": "gray", "reason": "contrast drops"}], "gray").returncode == 3
+fd = json.load(open(rF))
+sub = fd["subject"]
+M.emit(T, "ethics.reviewed", role="ethics-reviewer", ethics_id=fd["ethics_id"], subject=sub["ref"],
+       sha256=sub["sha256"], review_sha256=fd["sha256"], tier="clear")
+r = run(MI, "ethics", "check", "--subject", gF)
+assert r.returncode == 2 and "is not the sealed review's" in r.stderr, r.stderr
+gC = goal("a lighter theme")
+rC, _ = start(gC)
+assert fill(rC, [{"category": "other", "tier": "gray", "reason": "contrast drops"}], "gray").returncode == 3
+cd = json.load(open(rC))
+M.emit(T, "ethics.consent", subject=cd["subject"]["ref"], sha256=cd["subject"]["sha256"], review=cd["ethics_id"],
+       review_sha256=cd["sha256"])                       # no role human, no by, no reason: not a consent
+assert run(MI, "ethics", "check", "--subject", gC).returncode == 3
+#    d) the screen reads normalized words, keys and nested fields, not only top-level strings
+for t in ("sell counter​feit goods", "post fake reviews", "fake  reviews", "ｓｐｙｗａｒｅ", "counter­feit"):
+    assert E.screen(t), t
+assert [c for c, _ in E.screen(E.text_of({"goal_id": "gol_x", "plan": {"post fake reviews of rivals": True}}))] \
+    == ["deceptive"]
+assert [c for c, _ in E.screen(E.text_of({"steps": [{"status": "ship spyware"}], "tactic_id": "sell counterfeit goods"}))] \
+    == ["illegal", "harmful"]
+assert E.screen(E.text_of({"status": "fake reviews", "approval": {"ethics": {"reason": "fake reviews"}}})) == []
+#    e) a goal is its own file with its own id; malformed reviews and text exit 2, never a traceback
+gS = goal("a symlinked goal")
+os.remove(M.path_of(T, "goal", gS))
+os.symlink(M.path_of(T, "goal", gC), M.path_of(T, "goal", gS))
+r = run(MI, "ethics", "check", "--subject", gS)
+assert r.returncode == 2 and "symlink" in r.stderr, r.stderr
+gW = goal("a goal with someone else's id")
+gw = json.load(open(M.path_of(T, "goal", gW)))
+json.dump(dict(gw, goal_id=gC), open(M.path_of(T, "goal", gW), "w"))
+assert run(MI, "ethics", "check", "--subject", gW).returncode == 2
+rN, _ = start(gF)
+nd = json.load(open(rN))
+nd["subject"]["id"] = 123
+json.dump(nd, open(rN, "w"))
+r = run(MI, "ethics", "record", rN)
+assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+rU, _ = start(gF)
+json.dump(dict(json.load(open(rU)), findings=[{"category": "other", "tier": "gray", "reason": "x\ud800"}], tier="gray"),
+          open(rU, "w"))
+r = run(MI, "ethics", "record", rU)
+assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+ok("hardening: no reordering, edit, re-id, forged event, symlink, invisible character or nested field clears a gate")
+
+# 10) usage: unknown subjects and commands; the area is discovered; --help is the docstring
 assert run(MI, "ethics", "check", "--subject", "gol_000000000000deadbeef").returncode == 2
 assert run(MI, "ethics", "check").returncode == 64
 assert run(MI, "ethics", "nope").returncode == 64

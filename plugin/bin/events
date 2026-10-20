@@ -22,7 +22,8 @@ Usage:
   events decide KIND --reason "one line" [--task T] [--evidence ref ...] [--authority EVENT_ID]
                                        structured rationale (plan|split|target|
                                        implementation|replan|acceptance)
-Emitting never fails a hook: an unknown event type is the only error (exit 64).
+Emitting never fails a hook: an unknown event type is the only error (exit 64), besides the
+human approvals and ethics verdicts of the mission layer, which only their own commands write.
 """
 import glob
 import json
@@ -32,7 +33,11 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import _events  # noqa: E402
+import _mission  # noqa: E402
 import _paths  # noqa: E402
+
+# events only their own command may write (ROADMAP §4.12): human approvals and the ethics gate's verdicts
+GATE_OWNED = set(_mission.APPROVAL_EVENTS) | {"ethics.reviewed", "ethics.blocked"}
 
 
 def parse(argv):
@@ -180,6 +185,10 @@ def main(argv):
     if cmd == "emit":
         if not pos:
             print("events emit: need an EVENT", file=sys.stderr)
+            return 64
+        if pos[0] in GATE_OWNED:
+            print("events emit: %s is a human approval or a gate's verdict; only its own command writes it "
+                  "(aloop mission … approve / consent / record)" % pos[0], file=sys.stderr)
             return 64
         try:
             eid = _events.emit(cwd, pos[0], task=opts.get("task", ""), attempt=opts.get("attempt", ""),

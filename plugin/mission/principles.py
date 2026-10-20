@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "bin"))
 import _mission as M  # noqa: E402
@@ -51,8 +52,10 @@ def parse(text):
     "tensions": [{id, a: {label, ids}, b: {label, ids}, resolves}]}."""
     principles, tensions, bad = [], [], []
     section, cur = None, None
-    for n, raw in enumerate(text.splitlines(), 1):
+    for n, raw in enumerate(text.split("\n"), 1):
         line = raw.rstrip()
+        if section and line and any(unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") for ch in line):
+            bad.append("line %d: a control or invisible character (only plain text renders the same everywhere)" % n)
         if line.startswith("## "):
             if line == "## Tensions":
                 section, cur = "tensions", None
@@ -65,8 +68,11 @@ def parse(text):
             section, cur = "principle", {"id": m.group(1), "title": m.group(2).strip(), "line": n}
             principles.append(cur)
             continue
-        if not line.startswith("- ") or section is None:
-            continue   # commentary
+        if section is None or not line:
+            continue   # commentary comes before the first section
+        if not line.startswith("- "):
+            bad.append("line %d: only bullet lines go inside a section (a variant is one line; no wrapped text)" % n)
+            continue
         if section == "principle":
             m = VARIANT.match(line)
             if not m:
@@ -109,6 +115,8 @@ def parse(text):
             bad.append("line %d: duplicate tension pair %s" % (t["line"], t["id"]))
         seen.add(t["id"])
         for side in ("a", "b"):
+            if not t[side]["ids"]:
+                bad.append("line %d: tension %s names no principle for %s" % (t["line"], t["id"], t[side]["label"]))
             for i in t[side]["ids"]:
                 if i not in ids:
                     bad.append("line %d: tension %s names an unknown principle %s" % (t["line"], t["id"], i))
@@ -122,8 +130,11 @@ def parse(text):
 
 def load(path=None):
     """The parsed principles (+ "problems": [] when complete)."""
-    with open(path or SOURCE) as f:
-        doc, bad = parse(f.read())
+    try:
+        with open(path or SOURCE, encoding="utf-8") as f:
+            doc, bad = parse(f.read())
+    except (OSError, UnicodeDecodeError) as e:
+        doc, bad = {"principles": [], "tensions": []}, ["cannot read %s: %s" % (path or SOURCE, e)]
     doc["problems"] = bad
     return doc
 
@@ -163,7 +174,9 @@ def verify(st, path=None):
     except ValueError as e:
         return ["principles.md is invalid: %s" % e]
     if st["sha256"] == cur[st["mode"]]:
-        return []
+        ids = [p["id"] for p in load(path)["principles"]]
+        return [] if st.get("ids") == ids else ["the principles stamp's ids %r are not the block's %r"
+                                                % (st.get("ids"), ids)]
     other = [m for m in MODES if m != st["mode"] and cur[m] == st["sha256"]]
     if other:
         return ["the principles stamp's sha256 is the %s block, not the %s one (mode mismatch)" % (other[0], st["mode"])]
@@ -194,6 +207,10 @@ def parse_args(argv):
 
 def main(argv, cwd):
     cmd, (o, _) = argv[0], parse_args(argv[1:])
+    for k in ("file", "mode"):
+        if k in o and not o[k]:
+            print("mission principles: --%s needs a value" % k, file=sys.stderr)
+            return 64
     path = o.get("file") or None
     if path and not os.path.isfile(path):
         print("mission principles: no such file %s" % path, file=sys.stderr)
