@@ -434,63 +434,116 @@ json.dump(it, open(paths[0], "w"))
 ok("intent: a mission intent names its goal and gap, passes the goal's gate, and is checked in the goal's autonomy")
 
 # 13) retire (M9.50): an active goal whose every intent was sprinted, and whose newest evaluation, made after
-#     its sprints closed, still lists its gaps, is set aside by a goal.retired ledger record (the planner's): `mission evaluate`
-#     then covers the whole mission and a new goal is derived; a retired goal takes no more intents or sprints
+#     its sprints closed from a state measured after them, still lists its gaps, is set aside by a goal.retired
+#     ledger record (the planner's): `mission evaluate` then covers the whole mission, the retired goal's open
+#     gaps are held (its sprints tried them), and a retired goal takes no more intents, sprints or close
 p4, (k1, _), ek = setup("autonomous")
 assert review(p4, "mission").returncode == 0
 gk = made(p4.run("goal", "derive"))["goal_id"]
 assert review(p4, gk).returncode == 0
-r = p4.run("goal", "retire", gk, "--eval", ek["eval_id"])
-assert r.returncode == 2 and "only an active goal" in r.stderr, r.stderr
+gkref = M.rel(p4.dir, p4.path("goal", gk))
+
+
+def refused(eid, *words):
+    r = p4.run("goal", "retire", gk, "--eval", eid)
+    assert r.returncode == 2 and all(w in r.stderr for w in words), (words, r.returncode, r.stderr)
+    assert not M.records(p4.dir, "goal.retired", gkref)
+
+
+refused(ek["eval_id"], "only an active goal")
 assert p4.run("goal", "retire", gk).returncode == 64
 assert len(p4.run("goal", "intents", gk).stdout.split()) == 2
 ek2 = evaluate(p4)
 assert ek2["goal_id"] == gk and not ek2["goal_met"]
-r = p4.run("goal", "retire", gk, "--eval", ek2["eval_id"])
-assert r.returncode == 2 and "has no plan yet" in r.stderr, r.stderr          # sprint every intent first
+refused(ek2["eval_id"], "has no plan yet")                          # sprint every intent first
 for n in (1, 2):
     path = p4.run("goal", "next", gk).stdout.strip()
     _events.emit(p4.dir, "plan.created", role="planner", sprint="S%d" % n, intent_id=json.load(open(path))["intent_id"])
-r = p4.run("goal", "retire", gk, "--eval", ek2["eval_id"])
-assert r.returncode == 2 and "sprint 1 is not closed" in r.stderr, r.stderr       # its sprints still run
-closes = os.path.join(_paths.home(p4.dir, "state"), "sprints.json")
-stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-json.dump({"closed": [{"sprint": 1, "at": stamp}]}, open(closes, "w"))
-r = p4.run("goal", "retire", gk, "--eval", ek2["eval_id"])
-assert r.returncode == 2 and "sprint 2 is not closed" in r.stderr, r.stderr
-json.dump({"closed": [{"sprint": 1, "at": stamp}, {"sprint": 2, "at": stamp}]}, open(closes, "w"))
-r = p4.run("goal", "retire", gk, "--eval", ek2["eval_id"])
-assert r.returncode == 2 and "before" in r.stderr and "evaluate" in r.stderr, r.stderr   # it predates the closes
-r = p4.run("goal", "retire", gk, "--eval", ek["eval_id"])
-assert r.returncode == 2 and "not an evaluation of goal" in r.stderr, r.stderr
+refused(ek2["eval_id"], "sprint 1 is not closed")                   # its sprints still run
+closes, FMT = os.path.join(_paths.home(p4.dir, "state"), "sprints.json"), "%Y-%m-%dT%H:%M:%SZ"
+past = time.strftime(FMT, time.gmtime(time.time() - 10))
+junk = {"sprint": float("inf"), "at": past}                         # a hand-edited row is skipped, never a crash
+json.dump({"closed": [{"sprint": 1, "at": past}, junk]}, open(closes, "w"))
+refused(ek2["eval_id"], "sprint 2 is not closed")
+em = evaluate(p4)                                                   # after sprint 1 closed, before sprint 2
+time.sleep(1.05)
+stamp = time.strftime(FMT, time.gmtime())
+json.dump({"closed": [{"sprint": 1, "at": past}, {"sprint": 2, "at": stamp}, junk]}, open(closes, "w"))
+refused(em["eval_id"], "made before goal %s's last sprint closed" % gk)
+refused(ek["eval_id"], "not an evaluation of goal")
+r = tool(p4, INTENT, "new", "--source", "mission", "--goal", gk, "--gap", em["gaps"][0]["gap_id"], "--raw", "try again")
+assert r.returncode == 0, r.stderr                                 # a second intent for a gap is the goal's too
+i3 = p4.events("intent.received")[-1]["data"]["intent_id"]
+refused(em["eval_id"], "intent %s has no plan yet" % i3)
+_events.emit(p4.dir, "plan.created", role="planner", sprint="S3", intent_id=i3)
+refused(em["eval_id"], "sprint 3 is not closed")
+json.dump({"closed": [{"sprint": 1, "at": past}, {"sprint": 2, "at": stamp}, {"sprint": 3, "at": stamp}, junk]},
+          open(closes, "w"))
 time.sleep(1.05)                                    # a close stamp keeps the second: after it is the next one
+eo = made(p4.run("evaluate", ek2["state_id"]))                     # after the closes, from a state before them
+refused(eo["eval_id"], "measured before goal %s's last sprint closed" % gk, "assess")
 ek3 = evaluate(p4)
 assert ek3["goal_id"] == gk and not ek3["goal_met"]
-r = p4.run("goal", "retire", gk, "--eval", ek2["eval_id"])
-assert r.returncode == 2 and "not the newest eval" in r.stderr, r.stderr          # the loop reads ek3 now
+assert p4.run("assess").returncode == 0                            # a newer state report: evaluate it first
+refused(ek3["eval_id"], "not the newest state report")
+ek3 = made(p4.run("evaluate"))
+refused(ek2["eval_id"], "not the newest eval")                     # the loop reads ek3 now
+p4.app(seconds_to_first_task=2.0, working_steps=["open", "add", "see"], tasks_shown=1)
+emet = evaluate(p4)
+assert emet["goal_id"] == gk and emet["goal_met"] is True
+refused(emet["eval_id"], "is met in eval", "close it")             # a met goal is closed, never retired
+p4.app(seconds_to_first_task=9.0, working_steps=["open", "add"], tasks_shown=0)
+ek3 = evaluate(p4)
+assert not ek3["goal_met"]
+gpath = p4.path("goal", gk)
+orig = open(gpath).read()
+gd = json.loads(orig)
+gd["gaps"] = gd["gaps"][:1]
+M.seal(gd)
+json.dump(gd, open(gpath, "w"))
+refused(ek3["eval_id"], "not the content goal.derived recorded")   # an edited, resealed goal is not the derived one
+open(gpath, "w").write(orig)
+refused("evl_" + "0" * 20, "no evaluation")
+lrows = open(M.ledger(p4.dir)).read()
+open(M.ledger(p4.dir), "a").write('{"event": "goal.retired", "role": "mission-planner"}\n')
+refused(ek3["eval_id"], "BLOCK")                                   # a broken ledger decides nothing
+open(M.ledger(p4.dir), "w").write(lrows)
+with open(_events.path(p4.dir), "a") as f:                         # a malformed run-log line crashes nothing
+    f.write(json.dumps({"event": "plan.created", "data": "text", "ids": "S9"}) + "\n")
+json.dump(dict(json.loads(orig), status="retired"), open(gpath, "w"))   # a status with no record: retire repairs it
 r = p4.run("goal", "retire", gk, "--eval", ek3["eval_id"])
 assert r.returncode == 0, r.stderr
-gkref = M.rel(p4.dir, p4.path("goal", gk))
 recs = M.records(p4.dir, "goal.retired", gkref)
 assert len(recs) == 1 and recs[0]["role"] == "mission-planner" and recs[0]["data"]["eval_id"] == ek3["eval_id"], recs
 assert recs[0]["data"]["sha256"] == M.digest(p4.load("goal", gk)) and p4.load("goal", gk)["status"] == "retired"
 assert recs[0]["data"]["open"] == [x["gap_id"] for x in ek3["gaps"]], recs[0]["data"]
+assert recs[0]["data"]["baseline_id"] == ek3["baseline_id"], recs[0]["data"]
 r = p4.run("goal", "retire", gk, "--eval", ek3["eval_id"])
 assert r.returncode == 0 and len(M.records(p4.dir, "goal.retired", gkref)) == 1, r.stderr   # once
-for args in (("next", gk), ("intents", gk), ("check", gk), ("close", gk, "--eval", ek3["eval_id"])):
+json.dump(dict(json.loads(orig), status="active"), open(gpath, "w"))    # the record decides, not the status
+c = json.loads(p4.run("goal", "check", gk, "--json").stdout)
+assert c["exit"] == 2 and c["state"] == "retired" and len(c["blocks"]) == 1, c   # the planner's finding (roles.json)
+for args in (("next", gk), ("intents", gk), ("check", gk), ("close", gk, "--eval", emet["eval_id"])):
     r = p4.run("goal", *args)
     assert r.returncode == 2 and "retired" in r.stderr, (args, r.returncode, r.stderr)
+assert not M.records(p4.dir, "goal.met", gkref)
 r = p4.run("goal", "derive")
 assert r.returncode == 2 and "was retired with its gaps still open" in r.stderr, r.stderr   # the eval narrowed to it
 assert EV.active_goal(p4.dir) is None
 ek4 = evaluate(p4)
 assert ek4["goal_id"] is None
+r = p4.run("goal", "derive")                                  # its sprints already tried these gaps: held
+assert r.returncode == 2 and "2 held: 2 by retired goal %s" % gk in r.stderr, r.stderr
+o4 = json.loads(p4.run("goal", "options", "--json").stdout)
+assert o4["options"] == [] and {x["held_by"] for x in o4["held"]} == {"retired goal %s" % gk}, o4
+assert p4.run("approve", "--by", "Adeel").returncode == 0     # the human's approval of the mission frees them
 assert made(p4.run("goal", "derive"))["goal_id"] != gk
 r = tool(p4, EVENTS, "emit", "goal.retired", "--data", "goal_id=%s" % gk)
 assert r.returncode == 64 and "only its own command" in r.stderr, r.stderr
-ok("retire: an active goal whose intents were all sprinted (sprints closed) and whose newest evaluation, made after "
-   "the closes, still lists gaps is retired by a goal.retired record (once); it takes no more work, and the whole "
-   "mission is evaluated and derived again")
+ok("retire: an active goal whose every intent was sprinted (sprints closed) and whose newest evaluation, made after "
+   "the closes from a state measured after them, still lists gaps is retired by a goal.retired record (once); the "
+   "record, not the status, decides; it takes no more work, the whole mission is evaluated again and its open gaps "
+   "are held until the human approves the mission again")
 
 # 14) the area is discovered; --help is the docstring
 assert "goal" in p.run("--list").stdout.split() and "Aladdin handoff" in p.run("goal", "--help").stdout

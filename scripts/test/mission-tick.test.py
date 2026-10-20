@@ -1333,13 +1333,24 @@ while True:
     p.event("plan.created", later(p), sprint="S%d" % n, intent_id=json.load(open(r.stdout.strip()))["intent_id"])
     p.sprint_closed(n, later(p))
 assert n == len(p.load("goal", gid)["gaps"]) > 0
-later(p)                                                                   # the close keeps its second: assess after it
+later(p)                                                                   # the close keeps its second: after it
+assert p.mi("evaluate").returncode == 0                                    # an eval of the state before the sprints
+expect(p.tick(later(p), "--peek"), "ASSESS", 0, "measured before goal %s's last sprint closed" % gid)
 assert p.mi("assess").returncode == 0
 expect(p.tick(later(p)), "EVALUATE", 0)
 eid = json.load(open(p.mi("evaluate").stdout.strip()))["eval_id"]
 d = p.tick(later(p))
 expect(d, "RETIRE_GOAL", 0, "aloop mission goal retire %s --eval %s" % (gid, eid))
 assert d["roles"] == ["mission-planner"] and d["who"] == "role", d
+assert p.mi("assess").returncode == 0                                      # a newer state: evaluate it first
+expect(p.tick(later(p), "--peek"), "EVALUATE", 0, "older than the state report")
+r = p.mi("goal", "retire", gid, "--eval", eid)
+assert r.returncode == 2 and "not the newest state report" in r.stderr, r.stderr
+eid = json.load(open(p.mi("evaluate").stdout.strip()))["eval_id"]
+expect(p.tick(later(p), "--peek"), "RETIRE_GOAL", 0, "--eval %s" % eid)
+with open(os.path.join(p.dir, ".aladdin", "logs", "events.jsonl"), "a") as f:   # a malformed line crashes nothing
+    f.write(json.dumps({"event": "plan.created", "data": "text", "ids": "S9"}) + "\n")
+expect(p.tick(later(p), "--peek"), "RETIRE_GOAL", 0, "--eval %s" % eid)
 ip = sorted(glob.glob(os.path.join(p.dir, "docs", "agents", "intents", "int_*.json")))[0]
 os.rename(ip, ip + ".aside")                                               # the gate refuses: the loop says why
 expect(p.tick(later(p), "--peek"), "BLOCKED", 2, "`mission goal retire` refuses")
@@ -1350,9 +1361,13 @@ assert r.returncode == 0, r.stderr
 assert [x["data"]["eval_id"] for x in M.ledger_rows(p.dir)[0] if x["event"] == "goal.retired"] == [eid]
 expect(p.tick(later(p)), "EVALUATE", 0, "retired")                         # its narrowed eval says nothing now
 assert p.mi("evaluate").returncode == 0
-expect(p.tick(later(p), "--peek"), "DERIVE_GOAL", 0, "goal %s was retired" % gid)
+held = "held (%d by retired goal %s)" % (n, gid)                          # its sprints already tried every gap
+expect(p.tick(later(p), "--peek"), "BLOCKED", 2, held)
+json.dump(dict(p.load("goal", gid), status="active"), open(M.path_of(p.dir, "goal", gid), "w"))   # the record decides
 shutil.rmtree(os.path.join(p.dir, ".aladdin"))                             # a fresh checkout keeps the retirement
-expect(p.tick(later(p), "--peek"), "DERIVE_GOAL", 0, "goal %s was retired" % gid)
+expect(p.tick(later(p), "--peek"), "BLOCKED", 2, held)
+assert p.mi("approve", "--by", "Adeel").returncode == 0                    # the human's approval frees the gaps
+expect(p.tick(later(p), "--peek"), "DERIVE_GOAL", 0, "aloop mission goal derive")
 w = Project().init()                                                       # 3 retired goals in a row: the human's
 cleared(w)
 w.art("state", "recorded", 1)
@@ -1362,7 +1377,9 @@ for h in (1.2, 1.4, 1.6):
     with w.clock(h + 0.05):
         M.record(w.dir, "goal.retired", w.ref("goal", g), "mission-planner", goal_id=g, sha256=M.digest(gd))
 expect(w.tick(1.7), "BLOCKED", 2, "3 goals")
-ok("a goal sprinted with gaps still open is the planner's to retire: a goal.retired ledger record, then the whole "
-   "mission is evaluated and another goal derived (a fresh checkout keeps it); 3 retired in a row are the human's")
+ok("a goal sprinted with gaps still open is the planner's to retire, on the newest eval of a state measured after "
+   "its sprints (else ASSESS or EVALUATE first): a goal.retired ledger record, then the whole mission is evaluated "
+   "and its gaps are held until the human approves the mission again (a fresh checkout keeps it, whatever the status "
+   "field says); 3 retired in a row are the human's")
 
 print("mission-tick: %d checks passed" % PASS[0])
