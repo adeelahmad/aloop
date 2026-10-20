@@ -50,6 +50,9 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 41 | camel (JS), first run | v0.12.0 + #63 (3752458) | 12/12 | 6m45s | $0.56 | 1 | 0 | 2 | `make e2e-live YES=1 INTENT=camel` |
 | run 42 | extend (brownfield Rust), first run | v0.12.0 + #66 (859661d) | 13/13 | 7m11s | $0.67 | 2 | 4 | 2 | `make e2e-live YES=1 INTENT=extend` |
 | run 43 | modify (brownfield Rust), first run | v0.12.0 + #67 (f16433d) | 13/13 | 9m10s | $0.67 | 1 | 0 | 6 | `make e2e-live YES=1 INTENT=modify` |
+| run 44 | cli (Rust binary), first run | v0.12.0 + #68 (216dd4c) | 13/13 | 24m55s | $1.54 | 3 | 0 | 6 | `make e2e-live YES=1 INTENT=cli` |
+| run 45 | cli (Rust binary), on the task-sizing rule | v0.12.0 + #76 (eb00a74) | 13/13 | 16m22s | $1.07 | 3 | 0 | 8 | `make e2e-live YES=1 INTENT=cli` |
+| run 46 | cli (Rust binary), on both #76 fixes | v0.12.0 + #76 (286bf45) | 13/13 | 15m19s | $0.99 | 2 | 2 | 6 | `make e2e-live YES=1 INTENT=cli` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
@@ -72,3 +75,16 @@ seed's tests still pass on main (the extra 13th check).
 Run 43 changed an existing, tested function for the first time: `parse` gained 3 lines (trim, then
 strip a leading `v`/`V`), its signature and seed tests were kept, and 6 of 6 blocks were the
 workers' own self-checks (2 of them RED's `cargo fmt` on its new tests).
+Run 44 is the first application: the merged `minwc` binary counted stdin and exited 2 on a bad
+flag (the extra check runs it). It cost the most of any one-intent run because the planner made
+2 stories and 7 tasks (one per count, one per flag behaviour) for a small tool, so the
+supervisor ran 7 RED/SCAFFOLD/GREEN cycles in 56 turns. A first try at 18:32 UTC stopped in
+planning on the account's weekly usage limit and is not counted.
+Run 45 (the planner sizing tasks up to the budget) planned the same tool as 3 tasks (from 7):
+$1.07 and 16m22s (from $1.54 and 24m55s). 6 of its 8 blocks were one false positive:
+`ctx-symbols conflicts` read the test's own `const USAGE` (the expected usage line) as a HIGH
+duplicate of the binary's, so the structural reviewer halted twice. A constant in a test crate
+no longer counts as a duplicate definition; a test function redefining a source one still does.
+Run 46 is the same tool on both fixes: 3 tasks, $0.99 and 15m19s, no structural-review halt, and
+all 6 blocks were the workers' own self-checks (targets naming symbols not yet written, RED's
+`cargo fmt`). The `cli` loop now costs about what one-task brownfield runs do.

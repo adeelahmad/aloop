@@ -1,0 +1,76 @@
+{
+ "title": "telemetry — the opt-in GA4 usage record (ROADMAP §4.12, M9.6): docs/agents/mission/telemetry/<telemetry_id>.json",
+ "type": "object",
+ "required": ["telemetry_id", "status", "created_at", "provider", "terms", "settings", "property", "acknowledged", "stream", "secret", "key_events", "debug_hit"],
+ "additionalProperties": false,
+ "properties": {
+  "telemetry_id": {"type": "string", "pattern": "^tlm_"},
+  "status": {"enum": ["off", "consented", "configured", "revoked"]},
+  "created_at": {"type": "string", "minLength": 1},
+  "provider": {"const": "ga4"},
+  "mission_id": {"type": ["string", "null"]},
+  "terms": {
+   "type": "object",
+   "required": ["uri", "purpose", "collects", "agents_see", "acknowledgement", "credential", "scopes", "others"],
+   "additionalProperties": false,
+   "properties": {
+    "uri": {"type": "string", "pattern": "^https?://[^\\s/]+"},
+    "purpose": {"type": "string", "minLength": 1},
+    "collects": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "agents_see": {"type": "string", "minLength": 1},
+    "acknowledgement": {"type": "string", "minLength": 1},
+    "credential": {"type": "string", "minLength": 1},
+    "scopes": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^https://www\\.googleapis\\.com/auth/analytics"}},
+    "others": {"type": "string", "minLength": 1}
+   }
+  },
+  "settings": {
+   "type": "object",
+   "required": ["display_name", "time_zone", "currency"],
+   "additionalProperties": false,
+   "properties": {
+    "display_name": {"type": "string", "minLength": 1},
+    "time_zone": {"type": "string", "minLength": 1},
+    "currency": {"type": "string", "pattern": "^[A-Z]{3}$"}
+   }
+  },
+  "account": {"type": ["string", "null"], "pattern": "^accounts/[0-9]+$"},
+  "property": {"type": ["string", "null"], "pattern": "^properties/[0-9]+$"},
+  "acknowledged": {"type": "boolean"},
+  "stream": {
+   "type": ["object", "null"],
+   "required": ["name", "measurement_id", "default_uri"],
+   "additionalProperties": false,
+   "properties": {
+    "name": {"type": "string", "pattern": "^properties/[0-9]+/dataStreams/[0-9]+$"},
+    "measurement_id": {"type": "string", "pattern": "^G-[A-Z0-9]+$"},
+    "default_uri": {"type": "string", "minLength": 1}
+   }
+  },
+  "secret": {
+   "type": ["object", "null"],
+   "required": ["name", "display_name"],
+   "additionalProperties": false,
+   "properties": {
+    "name": {"type": "string", "pattern": "/measurementProtocolSecrets/"},
+    "display_name": {"type": "string"}
+   }
+  },
+  "key_events": {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$"}},
+  "debug_hit": {
+   "type": ["object", "null"],
+   "required": ["at", "ok", "measurement_id", "events_sha256", "events", "messages"],
+   "additionalProperties": false,
+   "properties": {
+    "at": {"type": "string", "minLength": 1},
+    "ok": {"type": "boolean"},
+    "measurement_id": {"type": "string", "pattern": "^G-"},
+    "events_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "events": {"type": "integer", "minimum": 1},
+    "messages": {"type": "array", "items": {"type": "object"}}
+   }
+  },
+  "approval": {"type": "object"},
+  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+ }
+}
