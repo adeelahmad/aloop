@@ -345,6 +345,8 @@ def gblocked(r, *words):
     return r.returncode == 2 and "BLOCK[mission-artifact]" in r.stderr and all(w in r.stderr for w in words)
 
 
+assert hook("", "oc-child", "start").returncode == 0 and not os.path.exists(
+    os.path.join(Q, ".aladdin", "state", "mission-runs", "oc-child.json"))        # a role-less record would excuse anything
 assert hook(E, "ev1", "start").returncode == 0
 rec = json.load(open(os.path.join(Q, ".aladdin", "state", "mission-runs", "ev1.json")))
 assert rec["role"] == "evaluator" and rec["files"] == {}
@@ -405,26 +407,50 @@ artifact("state", numbers={"journeys_passed": 5})
 hook(E, "ev4", "start")                                      # an evaluator runs at the same time
 fp, fd = artifact("eval", gaps=[{"gap": "the evaluator's"}])
 assert hook(S, "sa3").returncode == 0
-ok("a change to another role's artifact blocks at stop, unless an open run of that role owns it")
+hook(S, "sa5", "start")
+artifact("state", numbers={"journeys_passed": 6})
+assert hook(E, "ev4").returncode == 0                        # it finishes first: it still overlapped sa5
+assert hook(S, "sa5").returncode == 0
+ok("a change to another role's artifact blocks at stop, unless a run of that role overlapped (open, or stopped since)")
 
 hook(S, "sa4", "start")
-artifact("state", numbers={"journeys_passed": 6})
-fd["status"], fd["approval"] = "recorded", {"event": "x"}             # bookkeeping only: not a content change
+artifact("state", numbers={"journeys_passed": 7})
+was = open(fp).read()
+M.save(fp, dict(fd, approval={"event": "goal.approved", "by": "the assessor"}))   # bookkeeping only, no approval event
+r = hook(S, "sa4")
+assert gblocked(r, "the status of docs/agents/mission/eval/%s.json changed during your run" % fd["eval_id"]), r.stderr
+open(fp, "w").write(was)
+assert hook(S, "sa4").returncode == 0
+hook(S, "sa6", "start")
+artifact("state", numbers={"journeys_passed": 8})
+rel = "docs/agents/mission/eval/%s.json" % fd["eval_id"]
+M.approve(Q, "journey.approved", rel, M.digest(fd), by="Adeel")
+fd["approval"] = {"event": "journey.approved"}
 M.save(fp, fd)
-assert hook(S, "sa4").returncode == 0, hook(S, "sa4").stderr
+r = hook(S, "sa6")
+assert r.returncode == 0 and "was recorded while you ran" in r.stderr, r.stderr
+assert [e for e in events() if e["event"] == "gate.passed"][-1]["data"]["human_events"][0]["by"] == "Adeel"
 hook(E, "ev5", "start")
 os.remove(fp)
 artifact("eval", gaps=[{"gap": "g9"}])
 r = hook(E, "ev5")
 assert gblocked(r, "was deleted", "retire it"), r.stderr
-ok("an approval (status/approval only) is not an edit; deleting an artifact blocks (retire it instead)")
+ok("a status-only change to another role's artifact blocks unless the human approved it; deleting one blocks")
 
 hook("aloop:mission-planner", "mp1", "start")
 os.makedirs(os.path.join(Q, "docs", "agents", "intents"), exist_ok=True)
-json.dump({"intent_id": "int_bogus"}, open(os.path.join(Q, "docs", "agents", "intents", "int_bogus.json"), "w"))
+json.dump({"intent_id": "int_human", "source": "prompt"}, open(os.path.join(Q, "docs", "agents", "intents", "int_human.json"), "w"))
+r = hook("aloop:mission-planner", "mp1")
+assert gblocked(r, "you wrote no artifact") and "int_human" not in r.stderr, r.stderr   # the human's intent is not its work
+json.dump({"intent_id": "int_bogus", "source": "mission"}, open(os.path.join(Q, "docs", "agents", "intents", "int_bogus.json"), "w"))
 r = hook("aloop:mission-planner", "mp1")
 assert gblocked(r, "int_bogus.json fails `intent check`"), r.stderr
-ok("a Mission Planner's intents must pass `intent check` at its stop")
+hook(E, "ev12", "start")
+artifact("eval", gaps=[{"gap": "g13"}])
+json.dump({"intent_id": "int_human2", "source": "prompt"}, open(os.path.join(Q, "docs", "agents", "intents", "int_human2.json"), "w"))
+os.remove(os.path.join(Q, "docs", "agents", "intents", "int_human.json"))
+assert hook(E, "ev12").returncode == 0                       # intake or the human wrote it: not the evaluator's doing
+ok("a Mission Planner's intents (source mission) must pass `intent check`; the human's intents are no role's")
 
 hook(E, "ev6", "start")
 sc = dict(ENV, AGENT_ROLE="evaluator")
@@ -437,6 +463,23 @@ assert r.returncode == 0 and "SELF-CHECK PASS" in r.stdout, (r.stdout, r.stderr)
 assert len(events()) == n_ev and not json.load(open(os.path.join(Q, ".aladdin", "state", "mission-runs", "ev6.json"))).get("stopped")
 ok("selfcheck <role> judges the role's open run the same way, with no events and without closing the run")
 
+hook(E, "ev10", "start")
+artifact("eval", gaps=[{"gap": "g11"}])
+M.approve(Q, "goal.approved", "docs/agents/mission/goals/gol_x.json", "0" * 64, by="Adeel")   # however it was spelled
+r = hook(E, "ev10")
+assert r.returncode == 0 and "`goal.approved` (docs/agents/mission/goals/gol_x.json, by Adeel) was recorded while you ran" in r.stderr, r.stderr
+assert [e for e in events() if e["event"] == "gate.passed"][-1]["data"]["human_events"] == [
+    {"event": "goal.approved", "subject": "docs/agents/mission/goals/gol_x.json", "by": "Adeel"}]
+hook("aloop:mission-planner", "mp2", "start")
+gp, gd = artifact("goal", eval_id="evl_x", gaps=["g1"])
+assert hook("aloop:mission-planner", "mp2").returncode == 0
+hook("aloop:mission-planner", "mp3", "start")
+M.approve(Q, "goal.approved", "docs/agents/mission/goals/%s.json" % gd["goal_id"], M.digest(gd), by="Adeel")
+gd["status"], gd["approval"] = "approved", {"event": "goal.approved"}
+M.save(gp, gd)
+assert gblocked(hook("aloop:mission-planner", "mp3"), "you wrote no artifact")   # the human's approval is not its write
+ok("a human event during a role's run is named (note, gate.passed human_events); the human's approval is no role's write")
+
 hook(E, "ev7", "start")
 for i in range(2):
     assert hook(E, "ev7").returncode == 2
@@ -447,9 +490,41 @@ ok("the same block three times releases the stop UNVERIFIED (gate.failed, releas
 
 assert hook("aloop:red-worker", "rw1").returncode == 0
 assert hook(E, "ev8", env=dict(ENV, SKIP_HOOKS="1")).returncode == 0
+artifact("eval", gaps=[{"gap": "g14"}])
 r = hook(E, "ev-no-start")
-assert "no start record" in r.stderr
-ok("not a mission role, or SKIP_HOOKS=1: no opinion; a run with no start record has all its paths checked")
+assert gblocked(r, "there is no start record for this run (agent ev-no-start)", "accepts nothing"), r.stderr
+ok("not a mission role, or SKIP_HOOKS=1: no opinion; a run with an agent id but no start record is blocked")
+
+st7 = json.load(open(os.path.join(Q, ".aladdin", "state", "mission-runs", "ev7.json")))
+assert st7.get("stopped") and st7.get("released") == "stuck", st7          # a released run owns nothing any more
+hook(E, "ev13", "start")
+artifact("eval", gaps=[{"gap": "g15"}])
+assert hook(E, "ev13").returncode == 0
+assert gblocked(hook(E, "ev13"), "you wrote no artifact")   # the same agent's next task starts from its last pass
+with open(os.path.join(Q, ".aladdin", "logs", "gates.jsonl"), "a") as f:
+    f.write("{ not json\n")
+assert hook(E, "ev13").returncode == 2
+assert "STUCK" in hook(E, "ev13").stderr                    # one bad line never turns the release off
+import time  # noqa: E402
+loader = importlib.machinery.SourceFileLoader("gate_artifact", GATE)
+spec = importlib.util.spec_from_loader("gate_artifact", loader)
+ga = importlib.util.module_from_spec(spec)
+loader.exec_module(ga)
+n_ev = len(events())
+iid = "int_%012x%s" % (int(time.time() * 1000), "0a1b2c3d")
+ok_intent = {"intent_id": iid, "source": "prompt", "actor": "a user", "want": "dark mode", "why": "eyes",
+             "constraints": [], "success_scenarios": ["the toggle works"], "failure_scenarios": ["no toggle"],
+             "connections": [], "done_looks_like": "a test passes", "open_questions": [], "assumptions": [],
+             "provenance": {"received_at": M.now(), "raw_ref": "", "raw_sha256": ""}}
+json.dump(ok_intent, open(os.path.join(T, iid + ".json"), "w"))
+assert ga.intent_problems(os.path.join(T, iid + ".json")) == ([], []), ga.intent_problems(os.path.join(T, iid + ".json"))
+assert ga.intent_problems(os.path.join(Q, "docs", "agents", "intents", "int_bogus.json"))[0]
+assert len(events()) == n_ev                                 # checking an intent emits nothing (intent.normalized is intake's)
+t0 = time.time()
+rc, out = ga.run_check(["sleep", "5"], Q, time.time() + 1)
+assert rc == 1 and time.time() - t0 < 4, (rc, out)
+assert ga.run_check(["true"], Q, time.time() - 1)[0] == 1          # nothing runs once the deadline is spent
+ok("a stuck release closes the run; a pass re-baselines it; bad log lines, intent checks and slow checks are handled")
 
 open(os.path.join(PL, "mission", "roles.json"), "w").write("{ not json")          # a broken role table: a gate bug
 r = hook(E, "ev9")

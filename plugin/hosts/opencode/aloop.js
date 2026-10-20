@@ -16,7 +16,8 @@
 //   PostToolUse        tool.execute.after → transcripts record, budget post; context is
 //                      appended to the tool output; `continue: false` aborts the session
 //   SubagentStart      event session.created (child session) → host-adapter, transcripts
-//                      stage-in; gate-tooling on the worker's first tool call (role known)
+//                      stage-in; gate-tooling on the worker's first tool call (role known);
+//                      a mission role's gate-mission-artifact start on its first chat.message
 //   SubagentStop       tool.execute.after of the `task` tool → the role's gate; a block is
 //                      sent back to the sub-agent (it keeps working) up to 3 rounds, then
 //                      reported in the task result
@@ -150,7 +151,16 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       if (!input.sessionID) return
       const s = await info(input.sessionID)
       if (input.agent) s.agent = input.agent
-      if (!active() || s.parentID) return
+      if (!active()) return
+      if (s.parentID) {
+        // A mission role's SubagentStart: record what exists once its role is known (its first message
+        // comes before its first tool call); the stop gate diffs against it
+        if (GATES[s.agent] === "gate-mission-artifact" && !s.missionStart) {
+          s.missionStart = true
+          run("gate-mission-artifact", ["start"], await payload("SubagentStart", input.sessionID))
+        }
+        return
+      }
       const text = (output.parts || []).filter((x) => x.type === "text").map((x) => x.text).join("\n")
       if (text.startsWith("[aloop")) return                     // our own injections
       const pl = await payload("UserPromptSubmit", input.sessionID, { prompt: text })
@@ -242,7 +252,6 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
         } else {
           const p = await payload("SubagentStart", id)
           run("host-adapter", ["hook"], p)
-          run("gate-mission-artifact", ["start"], p)     // what exists before a (mission) sub-agent writes: its stop gate diffs it
           run("transcripts", ["stage-in"], p)
         }
       }

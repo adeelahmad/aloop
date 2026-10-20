@@ -143,8 +143,15 @@ ok("a worker stuck on one block is released unverified and reported as such, not
 // mission roles (ROADMAP §4.12): a start record, the role path guard, and the artifact gate at stop
 parents.msn = "root"
 await hooks.event({ event: { type: "session.created", properties: { info: { id: "msn", parentID: "root" } } } })
-assert.ok(existsSync(join(T, ".aladdin/state/mission-runs/msn.json"))); ok("a sub-agent's start records what exists (gate-mission-artifact start)")
+assert.ok(!existsSync(join(T, ".aladdin/state/mission-runs/msn.json")))       // its role is not known yet
 await hooks["chat.message"]({ sessionID: "msn", agent: "evaluator" }, { message: {}, parts: [{ type: "text", text: "evaluate" }] })
+const msnRun = JSON.parse(readFileSync(join(T, ".aladdin/state/mission-runs/msn.json"), "utf8"))
+assert.equal(msnRun.role, "evaluator")
+parents.bld = "root"
+await hooks.event({ event: { type: "session.created", properties: { info: { id: "bld", parentID: "root" } } } })
+await hooks["chat.message"]({ sessionID: "bld", agent: "green-worker" }, { message: {}, parts: [{ type: "text", text: "build" }] })
+assert.ok(!existsSync(join(T, ".aladdin/state/mission-runs/bld.json")))
+ok("a mission sub-agent's start records what exists once its role is known (a builder's never)")
 await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m1" }, { args: { filePath: join(T, "src/app.py"), content: "x" } }),
   /BLOCK\[mission-scope\].*evaluator writes only/s, "gate-mission-scope: an evaluator never writes source")
 await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "msn", callID: "m2" }, { args: { command: "echo x > src/app.py" } }),
