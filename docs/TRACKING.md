@@ -92,3 +92,4 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.42 | Shared mission role dirs, judge run records and the judge command | NOT_IMPLEMENTED | §4.12 |
 | M9.43 | A goal binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
 | M9.50 | A goal sprinted with gaps still open gets a next step | NOT_IMPLEMENTED | §4.12 |
+| M9.51 | Lifting a mission block is the human's typed line, kept in the ledger | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |

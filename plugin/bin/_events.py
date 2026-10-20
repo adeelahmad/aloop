@@ -28,7 +28,7 @@ EVENT_TYPES = {
     "memory.candidate", "memory.promoted", "memory.retired",
     "human.approval", "human.override", "run.completed", "run.aborted",
     # the mission layer (ROADMAP §4.12): registered up front so its parallel tracks never edit this set
-    "mission.set", "mission.approved", "mission.tick", "mission.budget_exhausted",
+    "mission.set", "mission.approved", "mission.tick", "mission.budget_exhausted", "mission.lifted",
     "research.recorded",
     "baseline.proposed", "baseline.measured", "baseline.confirmed", "baseline.superseded", "baseline.vetoed",
     "journey.proposed", "journey.approved", "journey.retired", "journey.run",
