@@ -44,7 +44,7 @@ _SAFE = r"[A-Za-z0-9_./@%+=:,-]"
 _WORD = r"(?:'[^'\n]*'|\"[^\"$`\\\n!]*\"|%s+)" % _SAFE
 ONLY_BIND = re.compile(r"[ \t]*(?:cd[ \t]+%s[ \t]*&&[ \t]*)?(?:%s*/)?(?:(?:aloop|agentic)[ \t]+bind|bin/bind)[ \t]+%s"
                        r"(?:[ \t]+(?:[12]?>[ \t]*/dev/null|2>&1))*\s*\Z" % (_WORD, _SAFE, _WORD))
-PATCH_PATHS = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
+PATCH_PATHS = re.compile(r"^[^\S\n]*\*\*\*[^\S\n]*(?:Add|Update|Delete)[^\S\n]+File:[^\S\n]*(.+)$|^[^\S\n]*\*\*\*[^\S\n]*Move[^\S\n]+to:[^\S\n]*(.+)$", re.M)
 
 
 def role_of(agent_type):

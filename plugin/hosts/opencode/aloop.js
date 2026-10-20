@@ -51,7 +51,7 @@ const GATES = {
 const TOOL = { bash: "Bash", write: "Write", edit: "Edit", apply_patch: "apply_patch", read: "Read", task: "Agent", question: "AskUserQuestion" }
 const EDITS = new Set(["write", "edit", "apply_patch"])
 // read-only built-ins (the door gate's QUIET set): they cross no door, so no spawn
-const QUIET = new Set(["read", "grep", "glob", "list", "todowrite", "todoread", "webfetch", "websearch"])
+const QUIET = new Set(["read", "grep", "glob", "list", "todowrite", "todoread", "webfetch", "websearch", "codesearch"])
 const GATE_ROUNDS = 3
 // the door gate's timeout: hooks.json's 15 s; ALOOP_DOORS_TIMEOUT_MS only shortens it (tests)
 const DOORS_MS = ((t) => (t > 0 && t < 15000 ? t : 15000))(Number(process.env.ALOOP_DOORS_TIMEOUT_MS))
@@ -106,6 +106,26 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       core = r.stdout.trim()
     }
     return core
+  }
+
+  // OpenCode names an MCP tool <server>_<tool>, each part with [^a-zA-Z0-9_-] as "_": the gates read it as
+  // Claude Code's mcp__<server>__<tool> (the longest server name that prefixes it), so a door matches a
+  // server and a tool, not a word inside either. The servers are re-read on a miss, at most once a second.
+  let servers = [], serversAt = 0
+  async function toolName(tool) {
+    if (TOOL[tool]) return TOOL[tool]
+    if (QUIET.has(tool) || !tool.includes("_")) return tool
+    const of = () => servers.find((n) => tool.startsWith(n + "_") && tool.length > n.length + 1)
+    if (!of() && Date.now() - serversAt > 1000) {
+      serversAt = Date.now()
+      try {
+        const data = (await client.mcp.status()).data
+        if (data && typeof data === "object")
+          servers = Object.keys(data).map((n) => n.replace(/[^a-zA-Z0-9_-]/g, "_")).sort((a, b) => b.length - a.length)
+      } catch {}
+    }
+    const n = of()
+    return n ? `mcp__${n}__${tool.slice(n.length + 1)}` : tool
   }
 
   async function info(id) {
@@ -216,7 +236,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       if (!active()) return
       const s = await info(input.sessionID)
       const args = output.args || {}
-      let p = await payload("PreToolUse", input.sessionID, { tool_name: TOOL[input.tool] || input.tool, tool_input: toolInput(input.tool, args) })
+      let p = await payload("PreToolUse", input.sessionID, { tool_name: await toolName(input.tool), tool_input: toolInput(input.tool, args) })
       run("host-adapter", ["hook"], p)                                   // records `aloop bind`
       const role = s.agent || ""
       if (s.parentID && GATES[role] && WRITERS.has(role) && !s.toolingOk) {     // SubagentStart preflight
@@ -233,8 +253,8 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
           if (input.tool === "bash") args.workdir = wt
           if (input.tool === "write" || input.tool === "edit") args.filePath = intoWt(args.filePath, wt)
           if (input.tool === "apply_patch" && args.patchText)
-            args.patchText = args.patchText.replace(/^(\*\*\* (?:Add|Update|Delete) File: |\*\*\* Move to: )(.+)$/gm, (_, h, f) => h + intoWt(f.trim(), wt))
-          p = await payload("PreToolUse", input.sessionID, { tool_name: TOOL[input.tool] || input.tool, tool_input: toolInput(input.tool, args) })
+            args.patchText = args.patchText.replace(/^([^\S\n]*\*\*\*[^\S\n]*(?:Add|Update|Delete)[^\S\n]+File:[^\S\n]*|[^\S\n]*\*\*\*[^\S\n]*Move[^\S\n]+to:[^\S\n]*)(.+)$/gm, (_, h, f) => h + intoWt(f.trim(), wt))
+          p = await payload("PreToolUse", input.sessionID, { tool_name: await toolName(input.tool), tool_input: toolInput(input.tool, args) })
         }
       }
       const checks = []
@@ -256,7 +276,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
     "tool.execute.after": async (input, output) => {
       if (!active()) return
       const p = await payload("PostToolUse", input.sessionID, {
-        tool_name: TOOL[input.tool] || input.tool, tool_input: toolInput(input.tool, input.args || {}), tool_response: output.output,
+        tool_name: await toolName(input.tool), tool_input: toolInput(input.tool, input.args || {}), tool_response: output.output,
       })
       run("transcripts", ["record"], p)
       const res = run("budget", ["hook", "post"], p)

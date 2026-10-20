@@ -118,7 +118,10 @@ assert "NEXT-MARKER" in context(r) and "aloop" in context(r); ok("SessionStart i
 # supervisor (no agent_id) patching source mid-sprint is blocked; apply_patch matches Write|Edit
 fire("PreToolUse", dict(base, tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n*** Add File: docs/agents/sprint1/s1-01-x/init.md\n+x\n*** End Patch"}))
 why = denied(fire("PreToolUse", dict(base, tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n*** Update File: src/main.rs\n@@\n-a\n+b\n*** End Patch"})))
-assert why and "production source" in why; ok("supervisor-scope blocks the supervisor's apply_patch to source")
+assert why and "production source" in why
+why = denied(fire("PreToolUse", dict(base, tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n  *** Update File:src/main.rs\n@@\n-a\n+b\n*** End Patch"})))
+assert why and "production source" in why, why           # a header Codex accepts once trimmed, with no space after the colon
+ok("supervisor-scope blocks the supervisor's apply_patch to source")
 
 why = denied(fire("PreToolUse", dict(base, tool_name="Bash", tool_input={"command": "git commit -m 'x\n\nCo-Authored-By: Claude <noreply@anthropic.com>'"})))
 assert why and "co-author" in why.lower(); ok("commit-author blocks a Claude trailer")
@@ -143,6 +146,7 @@ assert not denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={
 assert denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "cargo test"}))); ok("command outside the worktree refused")
 assert not denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "cd %s && cargo test" % wt}))); ok("command inside the worktree allowed")
 assert denied(fire("PreToolUse", dict(worker, tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n*** Add File: tests/a.rs\n+x\n*** End Patch"})))
+assert denied(fire("PreToolUse", dict(worker, tool_name="apply_patch", tool_input={"command": "*** Begin Patch\n\t*** Add File:tests/a.rs\n+x\n*** End Patch"})))
 ok("patch outside the worktree refused")
 
 # time box from the worker's own rollout: soft token telemetry, then hard stop (no report call) via continue:false

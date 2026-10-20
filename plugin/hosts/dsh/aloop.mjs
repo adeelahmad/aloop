@@ -205,8 +205,9 @@ export function apply(ctx, config = {}) {
         options: Array.isArray(q?.options) ? q.options.map((o) => ({ label: str(o?.label), description: str(o?.description) })) : undefined,
         multi_select: typeof q?.multi_select === "boolean" ? q.multi_select : undefined })) }
       default:
+        // an MCP tool's own arguments, no workdir: its once digest is the one any host prints for them
         if (tool.startsWith("mcp__") && obj(a))
-          return { ...a, ...(Object.hasOwn(a, "arguments") ? { arguments: JSON.stringify(a) } : {}), workdir: wd }
+          return { ...a, ...(Object.hasOwn(a, "arguments") ? { arguments: JSON.stringify(a) } : {}) }
         return { arguments: JSON.stringify(a), workdir: wd }
     }
   }

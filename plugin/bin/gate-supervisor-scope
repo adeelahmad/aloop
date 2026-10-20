@@ -65,7 +65,7 @@ if [ "$tool" = "apply_patch" ] && command -v python3 >/dev/null 2>&1; then
 import json, re, sys
 p = json.load(sys.stdin)
 patch = (p.get("tool_input") or {}).get("command") or ""
-for a, b in re.findall(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", patch, re.M):
+for a, b in re.findall(r"^[^\S\n]*\*\*\*[^\S\n]*(?:Add|Update|Delete)[^\S\n]+File:[^\S\n]*(.+)$|^[^\S\n]*\*\*\*[^\S\n]*Move[^\S\n]+to:[^\S\n]*(.+)$", patch, re.M):
     q = {k: v for k, v in p.items() if k in ("session_id", "agent_type", "agent_id", "cwd")}
     q["tool_name"] = "Write"; q["tool_input"] = {"file_path": (a or b).strip()}
     print(json.dumps(q))' | while IFS= read -r one; do

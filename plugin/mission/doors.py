@@ -80,8 +80,11 @@ QUESTIONS = ("AskUserQuestion", "request_user_input", "request_user_input_async"
 # set in every shell an agent host runs (the agent's Bash tool): Claude Code, dsh, Codex, and OpenCode (its
 # plugin exports ALOOP_AGENT_SHELL); an authorization never comes from there
 AGENT_SHELL = ("CLAUDECODE", "DSH_SHELL", "CODEX_THREAD_ID", "ALOOP_AGENT_SHELL")
-# the paths a patch adds, updates, deletes or moves to (host-adapter's PATCH_PATHS)
-PATCH = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
+# the paths a patch adds, updates, deletes or moves to (host-adapter's PATCH_PATHS), read as loosely as a
+# host parses a header: Codex trims each line, OpenCode splits at the colon and trims the path
+PATCH = re.compile(r"^[^\S\n]*\*\*\*[^\S\n]*(?:Add|Update|Delete)[^\S\n]+File:[^\S\n]*(.+)$"
+                   r"|^[^\S\n]*\*\*\*[^\S\n]*Move[^\S\n]+to:[^\S\n]*(.+)$", re.M)
+PATCHERS = ("apply_patch", "applypatch")    # Codex's patch tool run as a program (its argument or stdin form)
 TAG = re.compile(r"\[door:([^\]\s]*)\]")
 WRAPPERS = {"sudo", "doas", "env", "nohup", "time", "command", "exec", "nice", "timeout", "stdbuf", "caffeinate", "ionice"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
@@ -358,6 +361,8 @@ def feed(vs, text, depth):
     for v in vs:
         if "code" in v:                     # python: its stdin is code it may run (exec(sys.stdin.read()))
             v["code"] = (v["code"] + "\n" + text).lstrip("\n")
+        elif v["prog"] in PATCHERS:         # apply_patch <<'EOF' … EOF: each path the patch names is a write
+            v["writes"] = v["writes"] + patched(text)
         elif reads_stdin(v):
             out += [dict(x, env=x["env"] + v["env"]) for x in views(text, depth + 1, v["dir"])]
     return out
@@ -412,6 +417,8 @@ def chain(words, env, writes, depth, cur):
                     prog, rest, code = os.path.basename(rest[j]), rest[j + 1:], None   # python SCRIPT: the script runs
         if prog == "tee":
             writes = writes + [w for w in rest if not w.startswith("-")]
+        if prog in PATCHERS and rest:       # apply_patch 'PATCH': each path it names is a write
+            writes = writes + patched(rest[0])
         if prog == "git":
             while rest and rest[0].startswith("-"):
                 o, v = rest[0], rest[1] if len(rest) > 1 else None
@@ -560,13 +567,15 @@ def toplevel(cwd):
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
-def resolve(cwd, where):
-    """The absolute directory of a view's `dir` (TOP: the checkout's top, from git; "" when there is none)."""
+def resolve(cwd, where, kernel=False):
+    """The absolute directory of a view's `dir` (TOP: the checkout's top, from git; "" when there is none);
+    `kernel`: its symlinks resolved as the kernel walks it (before each `..`)."""
     if where.startswith(TOP):
         if not toplevel(cwd):
             return ""
         where = toplevel(cwd) + where[len(TOP):]
-    return os.path.normpath(os.path.join(cwd, os.path.expanduser(where)))
+    where = os.path.join(cwd, os.path.expanduser(where))
+    return os.path.realpath(where) if kernel else os.path.normpath(where)
 
 
 def branches(cwd, vs):
@@ -638,11 +647,12 @@ def dry(args):
 GUARDED = ("docs/agents/mission/ledger.jsonl", ".aladdin/logs/events.jsonl", ".agentic/logs/events.jsonl")
 
 
-def placed(cwd, top, v, path):
+def placed(cwd, top, v, path, kernel=False):
     """A path a command names as its patterns read it: resolved where the command runs, relative to the
     project `top` or this checkout when inside one (`cd docs/agents && … mission/ledger.jsonl` is the
     ledger; /tmp/x/.aladdin is not the run's home). Where the gate cannot resolve it, a name a guarded
-    record ends with is that record."""
+    record ends with is that record. `kernel`: walked as the kernel walks it, a symlink resolved before
+    the `..` after it (link/../x is beside the link's target), instead of as the words say."""
     if path.startswith("-") or path in (STDIN, "") or "\n" in path or len(path) > 4096:
         return path
     if re.match("(?:%s|\\$PWD|\\$CLAUDE_PROJECT_DIR)(?:/|$)" % re.escape(TOP), path):
@@ -654,7 +664,7 @@ def placed(cwd, top, v, path):
     if where == UNKNOWN:
         x = os.path.normpath(path)
         return next((g for g in GUARDED if not os.path.isabs(x) and (g == x or g.endswith("/" + x))), path)
-    full = resolve(cwd, where)
+    full = resolve(cwd, where, kernel)
     if not full:
         return path
     for root in (top, toplevel(os.path.abspath(cwd))):     # the project, else this checkout (a worktree)
@@ -668,8 +678,9 @@ def place(cwd, vs):
     """Each view's operands and writes as placed() reads them (files, placed_writes)."""
     top = os.path.realpath(_paths.project(cwd))
     for v in vs:
-        v["files"] = [placed(cwd, top, v, a) for a in v["args"] if not a.startswith("-")]
-        v["placed_writes"] = [placed(cwd, top, v, w) for w in v["writes"]]
+        v["files"] = list(dict.fromkeys(placed(cwd, top, v, a, k) for a in v["args"] if not a.startswith("-")
+                                        for k in (False, True)))
+        v["placed_writes"] = list(dict.fromkeys(placed(cwd, top, v, w, k) for w in v["writes"] for k in (False, True)))
     return vs
 
 
@@ -702,13 +713,22 @@ def bash_hits(d, v, ctx, default):
 
 def rel_path(cwd, path):
     """(the forms a project path pattern is matched against, the path relative to the plugin or None): a
-    path relative to the project, and the absolute path as written and resolved, so a suffix pattern
-    (one that ends in /.claude/settings.json) also covers ~/.claude, a worktree's own and a linked file."""
-    given = os.path.normpath(os.path.join(cwd, os.path.expanduser(path)))
-    full = os.path.realpath(given)
-    r = os.path.relpath(full, os.path.realpath(_paths.project(cwd)))
-    plug = os.path.relpath(full, PLUGIN)
-    return [x for x in (r, given, full) if not x.startswith("..")], (plug if not plug.startswith("..") else None)
+    path relative to the project (else to this checkout, a linked worktree), and the absolute path as
+    written and resolved, so a suffix pattern (one that ends in /.claude/settings.json) also covers
+    ~/.claude, a worktree's own and a linked file. Resolved twice: as the words say, and as the kernel
+    walks it (a symlink before the `..` after it: link/../x is beside the link's target)."""
+    raw = os.path.join(cwd, os.path.expanduser(path))
+    given = os.path.normpath(raw)
+    roots = [os.path.realpath(_paths.project(cwd))]
+    forms, plug = [given], None
+    for full in dict.fromkeys((os.path.realpath(given), os.path.realpath(raw))):
+        r = os.path.relpath(full, roots[0])
+        if r.startswith("..") and len(roots) == 1:
+            roots.append(os.path.realpath(toplevel(cwd) or roots[0]))
+        forms += [next((x for x in (os.path.relpath(full, t) for t in roots) if not x.startswith("..")), ".."), full]
+        p = os.path.relpath(full, PLUGIN)
+        plug = plug or (p if not p.startswith("..") else None)
+    return [x for x in dict.fromkeys(forms) if not x.startswith("..")], plug
 
 
 class Read(dict):
@@ -742,22 +762,27 @@ def written(tool, inp):
     if tool in EDITS:
         paths = [inp.get("file_path") or inp.get("notebook_path")]
     elif tool == "apply_patch":
-        paths = [(a or b).strip() for k in ("command", "patchText") if isinstance(inp.get(k), str)
-                 for a, b in PATCH.findall(inp[k])]
+        paths = [x for k in ("command", "patchText") if isinstance(inp.get(k), str) for x in patched(inp[k])]
     else:
         paths = []
     return [x for x in paths if isinstance(x, str) and x]
 
 
-def workdir(inp):
+def patched(text):
+    """Each path a patch adds, updates, deletes or moves to."""
+    return [x for x in ((a or b).strip() for a, b in PATCH.findall(text)) if x]
+
+
+def workdir(inp, cwd):
     """Where a Bash command starts: OpenCode and dsh run a bound worker's command in tool_input.workdir (the
-    payload's cwd stays the project, which still names the catalogue and the ledger) when it is an absolute
-    directory that exists; anywhere else the payload's cwd (""). Claude Code sends none."""
+    payload's cwd stays the project, which still names the catalogue and the ledger), a relative one under
+    the payload's cwd; a directory that is not there is UNKNOWN (its git state assumed). Anywhere else, or
+    no path, the payload's cwd (""). Claude Code sends none."""
     wd = inp.get("workdir")
-    if os.environ.get("AGENTIC_HOST") in ("opencode", "dsh") and isinstance(wd, str) and os.path.isabs(wd) \
-            and os.path.isdir(wd):
-        return wd
-    return ""
+    if os.environ.get("AGENTIC_HOST") not in ("opencode", "dsh") or not isinstance(wd, str) or not wd:
+        return ""
+    wd = os.path.normpath(os.path.join(cwd, wd))
+    return wd if os.path.isdir(wd) else UNKNOWN
 
 
 def classify(cwd, tool, inp, cat=None, assume_when=False):
@@ -766,7 +791,7 @@ def classify(cwd, tool, inp, cat=None, assume_when=False):
     default = re.compile("(?:%s)" % cat.get("default_branch", "main|master"))
     ctx = contexts(cwd, assume_when)
     inp = input_of(tool, inp)
-    vs = place(cwd, branches(cwd, views(str(inp.get("command", "")), 0, workdir(inp)))) if tool == "Bash" else []
+    vs = place(cwd, branches(cwd, views(str(inp.get("command", "")), 0, workdir(inp, cwd)))) if tool == "Bash" else []
     proj_rel, plug_rel = [], []
     for path in written(tool, inp):
         rel, plug = rel_path(cwd, path)
@@ -1010,9 +1035,14 @@ def hook(cwd_default):
 READ_SECONDS = 8     # under the hook's own timeout (plugin/hooks/hooks.json, the OpenCode and dsh plugins: 15 s)
 
 
+class Deadline(BaseException):
+    """The decision ran past its deadline. Not an Exception, so no `except Exception` or `except OSError` in
+    a step (a git call, a parse) can swallow it and let the gate fall through to an allow."""
+
+
 @contextlib.contextmanager
 def deadline(seconds):
-    """A TimeoutError after `seconds` (POSIX); yields the monotonic time it ends at, which the lock waits for
+    """A Deadline after `seconds` (POSIX); yields the monotonic time it ends at, which the lock waits for
     too: a gate that cannot decide in time fails closed (exit 2) before the host's hook timeout, which a host
     may treat as a non-blocking error, lets the call through."""
     end = time.monotonic() + seconds
@@ -1021,7 +1051,7 @@ def deadline(seconds):
         return
 
     def stop(*_):
-        raise TimeoutError("the door gate could not decide within %g s" % seconds)
+        raise Deadline("the door gate could not decide within %g s" % seconds)
     old = signal.signal(signal.SIGALRM, stop)
     signal.setitimer(signal.ITIMER_REAL, seconds)
     try:
@@ -1055,10 +1085,10 @@ def serialized(cwd, end):
                     break
                 except BlockingIOError:
                     if time.monotonic() >= end:
-                        raise TimeoutError from None
+                        raise Deadline from None
                     time.sleep(0.02)
-        except TimeoutError:            # the poll's own deadline, or the alarm's
-            raise TimeoutError("another door gate held %s past this decision's deadline" % M.rel(cwd, path)) from None
+        except Deadline:                # the poll's own deadline, or the alarm's
+            raise Deadline("another door gate held %s past this decision's deadline" % M.rel(cwd, path)) from None
         yield
     finally:
         os.close(fd)
@@ -1226,7 +1256,7 @@ def main(argv, cwd):
     if cmd == "hook":
         try:
             return hook(cwd)
-        except Exception as e:  # noqa: BLE001 — a gate that cannot decide fails closed
+        except (Exception, Deadline) as e:  # noqa: BLE001 — a gate that cannot decide fails closed
             print("BLOCK[doors]: the door gate could not decide (%s: %s); fix it or run the action yourself"
                   % (type(e).__name__, e), file=sys.stderr)
             return 2

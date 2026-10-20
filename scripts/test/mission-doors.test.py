@@ -478,7 +478,7 @@ try:
     with D.deadline(0.2):                   # the hook's read deadline: past it the gate fails closed (exit 2)
         while True:
             pass
-except TimeoutError:
+except D.Deadline:
     pass
 else:
     raise AssertionError("no deadline")
@@ -724,6 +724,38 @@ def ids(tool, inp, cwd=None):
     return [d["id"] for d in D.classify(cwd or p.dir, tool, inp, CAT)]
 
 
+# a patch is read as loosely as a host parses it: any spacing around a header's words, an indented header
+# (Codex trims each line); and apply_patch run through the shell (Codex's heredoc and argument forms,
+# applypatch, after a cd, fed by a pipe) judges its paths as writes where it runs
+for head in ("*** Add File:.claude/settings.json", "\t***  Add File:\t.claude/settings.json ",
+             "  *** Update File: src/x.py\n  ***\tMove to:.codex/config.toml"):
+    assert ids("apply_patch", {"command": patch(head, "+{}")}) == ["change-agent-settings"], head
+settings = patch("*** Add File: .claude/settings.json", "+{}")
+for cmd in ("apply_patch <<'EOF'\n%sEOF" % settings, "apply_patch '%s'" % settings, "applypatch <<'EOF'\n%sEOF" % settings,
+            "cd .claude && apply_patch <<'EOF'\n%sEOF" % patch("*** Add File: settings.json", "+{}"),
+            "printf '%%s' '%s' | apply_patch" % settings, "timeout 9 apply_patch <<< '%s'" % settings):
+    assert ids("Bash", {"command": cmd}) == ["change-agent-settings"], (cmd, ids("Bash", {"command": cmd}))
+assert ids("Bash", {"command": "apply_patch <<'EOF'\n%sEOF" % patch("*** Update File: src/x.py", "@@", "-a", "+b")}) == []
+assert ids("Bash", {"command": "echo '%s' > notes.txt" % settings}) == []          # a patch written to a file runs nothing
+ok("apply_patch: headers with any spacing or indent, and apply_patch run through the shell, judge their paths")
+
+# a path through a symlink and then `..` is where the kernel lands (the link's target's parent), not where the
+# words say; opencode.json is a door where OpenCode reads it (the project's, a worktree's, .opencode/, the user's)
+os.makedirs(os.path.join(p.dir, ".claude", "sub"), exist_ok=True)
+os.makedirs(os.path.join(p.dir, "src", "deep"), exist_ok=True)
+os.symlink(os.path.join(p.dir, ".claude", "sub"), os.path.join(p.dir, "into-claude"))
+os.symlink(os.path.join(p.dir, "src", "deep"), os.path.join(p.dir, "deep-link"))
+for path in ("into-claude/../settings.json", os.path.join(p.dir, "into-claude/../settings.json"), "deep-link/../../opencode.json"):
+    assert ids("Write", {"file_path": path if os.path.isabs(path) else os.path.join(p.dir, path)}) == ["change-agent-settings"], path
+    assert ids("Bash", {"command": "echo {} > %s" % path}) == ["change-agent-settings"], path
+for path in ("opencode.json", "home/worktrees/S1-01-T1/opencode.jsonc", ".opencode/opencode.json", "~/.config/opencode/opencode.json",
+             os.path.join(p.dir, "opencode.json")):
+    assert ids("Write", {"file_path": path}) == ["change-agent-settings"], path
+for path in ("/tmp/opencode.json", "docs/examples/opencode.json", "src/opencode.json"):
+    assert ids("Write", {"file_path": path}) == [], path
+    assert ids("Bash", {"command": "echo {} > %s" % path}) == [], path
+ok("paths: a symlink then `..` is resolved as the kernel does; opencode.json only where OpenCode reads it")
+
 pushed = {"owner": "o", "repo": "r", "branch": "main", "files": [{"path": "a", "content": "b"}], "message": "m"}
 dsh_push = {"arguments": json.dumps(pushed), "workdir": p.dir}
 assert ids("mcp__github__push_files", dsh_push) == ids("mcp__github__push_files", pushed) == ["push-default-branch"]
@@ -770,8 +802,17 @@ for host in ("opencode", "dsh"):
     assert hook(g, "Bash", {"command": "git reset --hard", "workdir": gwt}, env=on).stdout == "", host
     assert "push-default-branch" in denied(hook(g, "Bash", dict(push, workdir=g.dir), env=on))
     assert "discard-local-work" in denied(hook(g, "Bash", {"command": "git reset --hard", "workdir": g.dir}, env=on))
-for wd in ("home/feat-wt", os.path.join(g.dir, "gone"), 7):                  # not absolute, not there: the cwd decides
+for wd in (os.path.join(g.dir, "gone"), "gone", 7):        # not there (unknown: assumed), not a path (the cwd decides)
     assert "push-default-branch" in denied(hook(g, "Bash", dict(push, workdir=wd), env={"AGENTIC_HOST": "dsh"})), wd
+# a relative workdir is where the host runs the command: under the payload's cwd (OpenCode's bash resolves it so)
+for host in ("opencode", "dsh"):
+    on = {"AGENTIC_HOST": host}
+    assert hook(g, "Bash", dict(push, workdir="home/feat-wt"), env=on).stdout == "", host
+    assert hook(g, "Bash", dict(push, workdir="home/../home/feat-wt/"), env=on).stdout == "", host
+    os.makedirs(os.path.join(g.dir, ".claude"), exist_ok=True)
+    assert "change-agent-settings" in denied(hook(g, "Bash", {"command": "echo {} > settings.json", "workdir": ".claude"}, env=on))
+    assert "push-default-branch" in denied(hook(g, "Bash", {"command": "git push origin HEAD", "workdir": "home/feat-wt/../.."},
+                                                env=on))
 assert "push-default-branch" in denied(hook(g, "Bash", push, env={"AGENTIC_HOST": "codex"}))
 ok("OpenCode and dsh: a bound worker's tool_input.workdir is where its command runs (its branch, its worktree)")
 
@@ -843,6 +884,23 @@ try:
 finally:
     D.verdict = real_verdict
 assert rc == 2 and out == "" and "BLOCK[doors]" in err and took < 3, (rc, out, err, took)
+
+
+def swallowing(*a, **k):
+    """A step that catches its own errors (a git call's OSError, a parse's ValueError) as `except Exception`."""
+    try:
+        time.sleep(10)
+    except Exception:       # noqa: BLE001 — the deadline is not an Exception: this cannot turn a stall into an allow
+        return 0, [], []
+    raise AssertionError("slept past the deadline")
+
+
+D.verdict = swallowing
+try:
+    rc, out, err, took = hook_in(stopping)
+finally:
+    D.verdict = real_verdict
+assert rc == 2 and out == "" and "BLOCK[doors]" in err and took < 3, (rc, out, err, took)
 ok("deadline: one deadline covers the whole decision; a held doors.lock or a hung verdict is exit 2 within it, never a hang")
 
 for x in ("hosts/opencode/aloop.js", "hosts/dsh/aloop.mjs", "bin/host-adapter", "bin/install"):
@@ -856,6 +914,14 @@ assert ids("Write", {"file_path": os.path.join(D.PLUGIN, "bin", "README.md")}) =
 for cmd in ("echo '{}' > opencode.json", "cat x >> .codex/hooks.json", "printf x | tee ~/.dsh/profiles/aloop/cordis.patch.yml"):
     assert "change-agent-settings" in doors_of(cmd), cmd
 for cmd in ("cat .codex/config.toml", "jq . opencode.json", "cat ~/.dsh/profiles/aloop/cordis.patch.yml"):
+    assert doors_of(cmd) == [], cmd
+# a program that replaces, moves, links or removes a settings file changes it as a redirect does
+for cmd in ("cp x .claude/settings.json", "mv /tmp/s .claude/settings.local.json", "ln -sf /tmp/h .codex/hooks.json",
+            "install -m 644 x ~/.codex/config.toml", "rm -f .claude/settings.json", "rsync -a x/ .opencode/plugins/aloop.js",
+            "sed -i 's/doors//' .claude/settings.json", "perl -pi -e 's/x//' opencode.json", "truncate -s 0 .codex/hooks.json",
+            "cd .claude && cp ../x settings.json"):
+    assert "change-agent-settings" in doors_of(cmd), (cmd, doors_of(cmd))
+for cmd in ("cp src/a.py src/b.py", "sed 's/x//' .claude/settings.json", "rm -rf build", "ln -s x docs/opencode.json"):
     assert doors_of(cmd) == [], cmd
 assert p.run("doors", "check").returncode == 0
 ok("settings: every host's settings and hooks and aloop's own host adapters are one-way; reading them is two-way")

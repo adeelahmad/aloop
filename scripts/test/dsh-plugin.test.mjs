@@ -4,6 +4,7 @@
 // dsh-runtime.test.mjs runs the same plugin on dsh itself; this one covers what a scripted model
 // cannot reach cheaply: the budget limits, the STUCK release, the cancel, the fallbacks.
 import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -117,6 +118,17 @@ assert.ok(denied(await pre(h, root, "mcp__github__push_files", JSON.stringify(pu
 assert.ok(denied(await pre(h, root, "mcp__github__push_files", { ...pushFiles, arguments: JSON.stringify({ ...pushFiles, branch: "x" }) }), /ASK\[door\] push-default-branch/))
 assert.ok(allowed(await pre(h, root, "mcp__github__push_files", { ...pushFiles, branch: "s1-01-x" })))
 ok("an MCP tool's arguments reach the door gate as its input: push_files to the default branch is asked (a nested `arguments` key hides nothing), to a branch not")
+// a once-door's digest is the MCP tool's own arguments wherever the agent runs, the digest any host prints
+// for them: the human's `--once` opens the action the ASK named, from any directory
+const share = { fileId: "f1", role: "reader", type: "anyone" }
+const digestOf = (d) => (JSON.stringify(d).match(/--once ([0-9a-f]{64})/) || [])[1]
+const shareHere = digestOf(await pre(h, root, "mcp__Google_Drive__share_file", share))
+mkdirSync(join(T, "elsewhere"), { recursive: true }); h.wd.set("root", join(T, "elsewhere"))
+const shareThere = digestOf(await pre(h, root, "mcp__Google_Drive__share_file", share))
+h.wd.delete("root")
+const want = createHash("sha256").update("mcp__Google_Drive__share_file\0" + JSON.stringify(share)).digest("hex")
+assert.ok(shareHere === want && shareThere === want, `${shareHere} ${shareThere} ${want}`)
+ok("an MCP tool's once digest is its own arguments, the same from any directory")
 // a live run: a question to the human must name a one-way door the gate stopped ([door:<id>])
 process.env.AGENTIC_AUTONOMY_MODE = "autonomous"
 const ask = (question, extra = {}) => ({ questions: [{ id: "q1", question, header: "Merge", multi_select: false,

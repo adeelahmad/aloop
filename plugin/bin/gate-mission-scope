@@ -48,7 +48,7 @@ import _shellread as SR  # noqa: E402
 GATE = "mission-scope"
 EDIT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "write", "edit")
 SHELL_TOOLS = ("Bash", "bash", "shell")
-PATCH_PATHS = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
+PATCH_PATHS = re.compile(r"^[^\S\n]*\*\*\*[^\S\n]*(?:Add|Update|Delete)[^\S\n]+File:[^\S\n]*(.+)$|^[^\S\n]*\*\*\*[^\S\n]*Move[^\S\n]+to:[^\S\n]*(.+)$", re.M)
 GIT_WRITES = {"commit", "push", "pull", "merge", "rebase", "cherry-pick", "am", "apply", "reset", "restore",
               "checkout", "switch", "stash", "rm", "mv", "add", "revert", "clean", "tag", "worktree", "notes",
               "update-ref", "branch", "config", "submodule", "sparse-checkout", "filter-branch", "replace"}

@@ -45,6 +45,9 @@ const client = {
     abort: async (a) => { calls.abort.push(a); return { data: true } },
   },
   tui: { showToast: async (a) => { calls.toast.push(a) } },
+  // the MCP servers OpenCode runs (their names as configured; a tool is <server>_<tool>, sanitized)
+  mcp: { status: async () => ({ data: { github: { status: "connected" }, "Google Drive": { status: "connected" },
+    notion: { status: "connected" }, drive: { status: "failed", error: "x" }, "drive_x": { status: "connected" } } }) },
 }
 const { AgenticAgile } = await import(pathToFileURL(pluginFile).href)
 process.env.AGENTIC_STUCK_BLOCKS = "99"      // the plugin captures its env at load; the stuck release is tested on a second instance
@@ -121,6 +124,9 @@ assert.equal(writeArgs.filePath, join(wt, "tests/a.rs")); ok("bound worker's rel
 const patchArgs = { patchText: `*** Begin Patch\n*** Add File: ${join(T, "src/lib.rs")}\n+x\n*** End Patch` }
 await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "child", callID: "8" }, { args: patchArgs })
 assert.ok(patchArgs.patchText.includes(`*** Add File: ${join(wt, "src/lib.rs")}`)); ok("patch paths rewritten into the worktree")
+const looseArgs = { patchText: `*** Begin Patch\n  *** Add File:${join(T, "src/b.rs")}\n+x\n*** End Patch` }
+await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "child", callID: "8b" }, { args: looseArgs })
+assert.ok(looseArgs.patchText.includes(join(wt, "src/b.rs")), looseArgs.patchText); ok("a loosely spaced patch header is rewritten too")
 // the door gate reads a bound worker's command where it runs (tool_input.workdir, its worktree): a reset
 // there is two-way, the same reset in the main checkout (above) is not
 await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "d5" }, { args: { command: "git reset --hard" } })
@@ -221,8 +227,8 @@ process.on("exit", () => rmSync(S, { recursive: true, force: true }))
 mkdirSync(join(S, "plugin/bin"), { recursive: true })
 for (const g of ["host-adapter", "gate-tooling", "gate-supervisor-scope", "gate-mission-scope", "gate-commit-author", "budget", "mission"]) {
   writeFileSync(join(S, "plugin/bin", g), `#!/bin/sh
-cat >/dev/null
 S="$(dirname "$0")/../.."
+cat > "$S/stdin.$(basename "$0")"
 echo "$(basename "$0") $*" >> "$S/calls"
 case "$(cat "$S/mode.$(basename "$0")" 2>/dev/null)" in
   hang) exec sleep 30 ;;
@@ -248,9 +254,19 @@ const gated = async (tool, args) => {
 let g = await gated("bash", { command: "ls" })
 assert.ok(!g.err && g.calls.at(-1) === "mission doors hook" && g.calls.at(-2) === "budget hook pre", g.calls.join(" | "))
 ok("doors: the door gate runs last, after budget")
-g = await gated("read", { filePath: join(T, "README.md") })
-assert.ok(!g.err && g.calls.length && !g.calls.some((c) => c.startsWith("mission")), g.calls.join(" | "))
-ok("doors: a read-only tool never spawns the door gate")
+for (const tool of ["read", "codesearch"]) {
+  g = await gated(tool, { filePath: join(T, "README.md"), query: "x" })
+  assert.ok(!g.err && g.calls.length && !g.calls.some((c) => c.startsWith("mission")), `${tool}: ${g.calls.join(" | ")}`)
+}
+ok("doors: a read-only tool (read, codesearch) never spawns the door gate")
+for (const [tool, want] of [["github_create_pull_request", "mcp__github__create_pull_request"],
+  ["Google_Drive_share_file", "mcp__Google_Drive__share_file"], ["notion_search_slack_posts", "mcp__notion__search_slack_posts"],
+  ["drive_get_share", "mcp__drive__get_share"], ["drive_x_send", "mcp__drive_x__send"], ["lsp_hover", "lsp_hover"], ["bash", "Bash"]]) {
+  await gated(tool, { command: "ls" })
+  const sent = JSON.parse(readFileSync(join(S, "stdin.mission"), "utf8"))
+  assert.equal(sent.tool_name, want, tool)
+}
+ok("doors: an MCP tool reaches the gates as mcp__<server>__<tool> (OpenCode's servers, the longest first), so a word inside its name is no door")
 mode("budget", "deny")
 g = await gated("bash", { command: "ls" })
 assert.ok(/BLOCK\[stub\]/.test(g.err?.message) && !g.calls.some((c) => c.startsWith("mission")), g.calls.join(" | "))

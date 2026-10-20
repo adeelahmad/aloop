@@ -421,7 +421,8 @@
     "(?:^|/)\\.claude/settings(?:\\.local)?\\.json$",
     "(?:^|/)\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)$",
     "(?:^|/)(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js$",
-    "(?:^|/)opencode\\.jsonc?$",
+    "^opencode\\.jsonc?$",
+    "(?:^|/)(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?$",
     "(?:^|/)\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json)$"
    ],
    "plugin_paths": [
@@ -435,7 +436,21 @@
      "writes": "(?:^|/)\\.claude/settings(?:\\.local)?\\.json$"
     },
     {
-     "writes": "(?:^|/)(?:\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|opencode\\.jsonc?|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$"
+     "writes": "(?:^|/)(?:\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
+    },
+    {
+     "prog": "cp|mv|ln|install|rsync|rm|unlink|truncate|shred",
+     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
+    },
+    {
+     "prog": "sed",
+     "flag": "-[^-\\sefl]*i.*|--in-place(?:=.*)?",
+     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
+    },
+    {
+     "prog": "perl",
+     "flag": "-[^-\\sMmIeEFxdDC]*i.*",
+     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
     },
     {
      "prog": "git",
@@ -459,12 +474,18 @@
      "~/.config/opencode/plugins/aloop.js",
      ".opencode/opencode.json",
      "opencode.jsonc",
+     "home/worktrees/S1-01-T1/opencode.json",
+     "~/.config/opencode/opencode.jsonc",
      "~/.dsh/profiles/aloop/cordis.patch.yml",
      "~/.dsh/profiles/aloop/package.json"
     ],
     "bash": [
      "echo '{}' > .claude/settings.json",
      "echo '{}' > opencode.json",
+     "cd .opencode && echo '{}' > opencode.json",
+     "cp /tmp/s .claude/settings.json",
+     "sed -i 's/doors//' .codex/hooks.json",
+     "rm -f .claude/settings.local.json",
      "cat x >> .codex/hooks.json",
      "printf x | tee ~/.dsh/profiles/aloop/cordis.patch.yml",
      "git config core.hooksPath /dev/null",
@@ -736,6 +757,8 @@
    "python3 -c \"import _mission as M; print(len(M.records('.', 'door.authorized')))\"",
    "cat .codex/config.toml",
    "jq . opencode.json",
+   "echo '{}' > docs/examples/opencode.json",
+   "sed 's/x//' .claude/settings.json",
    "cat ~/.dsh/profiles/aloop/cordis.patch.yml",
    "cat plugin/hosts/opencode/aloop.js"
   ],
@@ -749,7 +772,8 @@
    "slack_slack_list_channels",
    "Gmail_search_threads",
    "slack_get_post_history",
-   "mcp__drive__get_share"
+   "mcp__drive__get_share",
+   "mcp__notion__search_slack_posts"
   ],
   "paths": [
    "src/a.py",
@@ -759,7 +783,9 @@
    ".codex/notes.md",
    ".dsh/skills/aloop-mission/SKILL.md",
    "docs/codex/config.toml",
-   "src/opencode.ts"
+   "src/opencode.ts",
+   "/tmp/opencode.json",
+   "docs/examples/opencode.json"
   ]
  }
 }
