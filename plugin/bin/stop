@@ -20,8 +20,10 @@ import _events  # noqa: E402
 import _paths  # noqa: E402
 import _stop  # noqa: E402
 
-# set in every shell an agent host runs (its Bash tool): a resume never comes from there
-AGENT_SHELL = ("CLAUDECODE",)
+# set in every shell an agent host runs (its Bash tool): a resume never comes from there. Claude
+# Code, dsh and Codex set theirs; aloop's OpenCode plugin exports ALOOP_AGENT_SHELL (the door
+# gate's list, M9.31)
+AGENT_SHELL = ("CLAUDECODE", "DSH_SHELL", "CODEX_THREAD_ID", "ALOOP_AGENT_SHELL")
 
 
 def now():
