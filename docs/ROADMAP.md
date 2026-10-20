@@ -385,15 +385,20 @@ list above); the "my example" the first goal text refers to (not in the transcri
 
 **The loop** (`aloop mission tick`, one action from facts, like `sweep`; first match wins):
 `SET_MISSION` → `CONFIRM_MISSION` (human) → `STOP_BUDGET` → `ETHICS_REVIEW` (mission; hard →
-`BLOCKED`, gray → `ASK_CONSENT`) → `RESEARCH` → `DEFINE_JOURNEYS` → `BASELINE` → `CONFIRM_BASELINE`
-(human) → open goal? its `ETHICS_REVIEW` → `PLAN_INTENTS` (spoon-fed: `OFFER_OPTIONS`) → `SPRINT`
-(Aladdin) → `WAIT` until the sprint closes, with an `ASSESS`/`EVALUATE` whenever the cadence is due
-mid-sprint → `ASSESS` → `EVALUATE` → goal met? `RESEARCH` (raise the bar, at most once per cadence)
-: `DERIVE_GOAL` (3 failed goals from one eval → `BLOCKED`). The budget comes before the mission's
-review because a review spends tokens. The same action on unchanged facts is handed out at most 3
-times, then `BLOCKED` (`--force` once). `aloop mission cron` installs `aloop mission due && <host>
-/aloop:mission`, so a tick that is not due spends no tokens; `due` leases a model action for 2h and
-tells the human about a human action once.
+`BLOCKED`, gray → `ASK_CONSENT`) → `RESEARCH` → `DEFINE_JOURNEYS` → `BASELINE` (propose, measure
+twice; nothing to earn → `DEFINE_JOURNEYS` raises the bar) → `CONFIRM_BASELINE` (human; autonomous: a
+replacement applies after the mission's veto window) → open goal? its `ETHICS_REVIEW` →
+`PLAN_INTENTS` (spoon-fed: `OFFER_OPTIONS`) → `SPRINT` (Aladdin, one per intent; spoon-fed:
+`APPROVE_PLAN`) → `WAIT` until the sprint closes, with an `ASSESS`/`EVALUATE` whenever the cadence is
+due mid-sprint (12h silent → `BLOCKED`) → `ASSESS` → `EVALUATE` → goal met? `RESEARCH` (raise the
+bar, at most once per cadence) : `DERIVE_GOAL` (3 failed goals in a row → `BLOCKED`). The budget
+comes before the mission's review because a review spends tokens. Human decisions and the baseline
+are read from the committed ledger, the way their areas decide them, so a fresh checkout decides
+the same; a broken ledger or confirmed baseline is `BLOCKED`. The same action on the same facts is
+handed out at most 3 times, then `BLOCKED` until the human's `--force --by` (recorded).
+`aloop mission cron` installs a line that runs `aloop mission cron --fire`: it decides like `due`
+(zero tokens) under the loop lock and starts `<host> /aloop:mission` only when a tick is due; a
+human action is printed once (`due` exits 3) and starts no session.
 
 **Layout.** `docs/agents/mission/`: `mission.json`, `research/`, `baseline/`, `journeys/`,
 `state/`, `eval/`, `goals/`, `ethics/`, `judges/`, `telemetry/` (one JSON file per artifact,
@@ -416,7 +421,7 @@ Each task flips only its own row here and in TRACKING.md.
 | M9.5 | Judges: rubric setup check and an agreement verdict from recorded runs | M9.0 | `plugin/mission/judge.py`, `schemas/rubric.json`, `scripts/test/mission-judge.test.py` | yes | open |
 | M9.6 | Telemetry (GA4): opt-in consent, Admin API setup, Measurement Protocol debug hit, fixed Data API reports (+ realtime), minimum-sample rule, static emit check; network faked in tests | M9.0 | `plugin/mission/telemetry.py`, `schemas/telemetry.json`, `scripts/test/mission-telemetry.test.py`, `scripts/test/fixtures/fake-ga.py` | yes | open |
 | M9.7 | Principles in two variants with tension pairs; `principles show --mode`, hashed and injected into goals | M9.0 | `plugin/mission/principles.{md,py}`, `scripts/test/mission-principles.test.py` | yes | open |
-| M9.8 | Loop: `tick` (the state machine above), `due` (zero-token cadence check), `cron` (host routine or crontab line), budget caps from the token ledger | M9.0 | `plugin/mission/{tick,due,cron}.py`, `scripts/test/mission-tick.test.py` | yes | done: `mission-tick.test.py` (16 checks) |
+| M9.8 | Loop: `tick` (the state machine above), `due` (zero-token cadence check), `cron` (host routine or crontab line), budget caps from the token ledger | M9.0 | `plugin/mission/{tick,due,cron}.py`, `scripts/test/mission-tick.test.py` | yes | done: `mission-tick.test.py` (20 checks, on baselines proposed, measured and confirmed through `aloop mission`; a fresh checkout decides the same) |
 | M9.9 | Roles and wiring: the six personas, hook matchers, model routes, host install, eval suites, role counts in docs; `gate-mission-scope` (role path guards) and `gate-mission-artifact` (a role's artifact passes its check at stop) | M9.0 | `plugin/agents/` (6 new files), `plugin/hooks/hooks.json`, `plugin/hosts/`, `plugin/evals/`, `plugin/bin/gate-mission-*`, role counts in README / OVERVIEW / plugin docs | yes (the only track touching shared lists) | open |
 | M9.10 | Assess and evaluate: the State Assessor's report (numbers only, from pinned scripts) and the Evaluator's gap list against the baseline and rivals, with `goal_met` | M9.2, M9.3, M9.5 | `plugin/mission/{assess,evaluate}.py`, `schemas/{state,eval}.json`, `scripts/test/mission-evaluate.test.py` | after its needs | done: `mission-evaluate.test.py` (6 checks); judged metrics come from `judge.verdict(cwd, rubric, journey_id)` (M9.5) and stay pending until a pass or fail verdict. Open: rival values keyed per benchmark in the baseline, so the gap list compares against rivals (review finding) |
 | M9.11 | Goals and the Aladdin handoff: top gaps → a goal → intents (`intent` source `mission`), ethics and principles applied, mode → autonomy; `events trace` reaches goal → mission | M9.4, M9.7, M9.10 | `plugin/mission/goal.py`, `schemas/goal.json`, `plugin/bin/intent` (source list), `plugin/bin/events` (trace) | after its needs | blocked |
@@ -429,6 +434,9 @@ Each task flips only its own row here and in TRACKING.md.
 | M9.19 | Mission spend from mission sessions only: tag the ledger rows of sessions the loop starts. Reason: found while building M9.8, `tick` counts every ledger row since the mission was set, the human's own work included (safe, but it stops early) | M9.8 | `plugin/mission/tick.py`, the ledger writer, `mission-tick.test.py` | yes | open |
 | M9.20 | Keep `tick`'s USD price table current (pinned 2026-10-06). Reason: found while building M9.8, an unknown model is charged the top rate, so a new model stops the loop early | M9.8 | `plugin/mission/tick.py` (`PRICES`), `mission-tick.test.py` | yes | open |
 | M9.21 | The ledger keeps `usage.speed` and server tool use, and `tick` prices fast mode (2x on Opus 5, 5.5) and web search ($10 per 1,000). Reason: found reviewing M9.8, the ledger drops both, so a USD cap can be overshot (a fast-mode Opus 5.5 session is priced at half its bill) | M9.8 | `plugin/bin/{_usage.py,stats}`, `plugin/mission/tick.py`, their tests | yes | open |
+| M9.22 | `tick` takes its ethics facts from `mission ethics`'s verdict (M9.4), so one rule decides (a hard-lined gap reworded into a new goal, a review edited after it was recorded). Reason: found aligning M9.8 with the ledger, `tick` reads the ethics events itself and catches neither | M9.4, M9.8 | `plugin/mission/tick.py`, `mission-tick.test.py` | yes | open |
+| M9.23 | The human's `mission tick --force --by` grant and the ethics reviews are ledger rows, not run data. Reason: found aligning M9.8 with the ledger, a fresh checkout loses both, so 3 failed goals block again and every review is asked again | M9.0, M9.4 | `plugin/bin/_mission.py` (`LEDGER_EVENTS`), `plugin/mission/{tick,ethics}.py`, their tests | yes | open |
+| M9.24 | A baseline binds the mission's direction (statement, mode, constraints), not its whole content. Reason: found in M9.8's budget test, raising a budget cap re-approves the mission and so asks for a new baseline version, though nothing about "best" changed | M9.2 | `plugin/mission/baseline.py`, `mission-baseline.test.py` | yes | open |
 
 **Parallel tracks** (one thread each, from M9.0 on master): (1) Research + Judges, M9.1 + M9.5;
 (2) Baseline + Journeys → Assess/Evaluate, M9.2 + M9.3 → M9.10; (3) Ethics + Principles → Goals,

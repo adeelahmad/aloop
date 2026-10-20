@@ -41,9 +41,9 @@ those from research, and the human only confirms the baseline and the direction.
 
 Show them `aloop mission show`. Only on their explicit yes run
 `aloop mission approve --by "<their name>" --reason "<their words>"`. Then offer the cron
-once (recommended): `aloop mission cron` prints a crontab line that runs `aloop mission due`
-(reads files, spends nothing) and starts a session only when a tick is due. On yes:
-`aloop mission cron --install`. On Codex or OpenCode add `--host codex|opencode`; for a host
+once (recommended): `aloop mission cron` prints a crontab line that decides like
+`aloop mission due` (reads files, spends nothing) and starts a session only when a tick is
+due; a human action is logged once and starts none. On yes: `aloop mission cron --install`. On Codex or OpenCode add `--host codex|opencode`; for a host
 scheduler (a Claude Code routine), `aloop mission cron --json` gives the schedule and prompt.
 
 ## The loop
@@ -71,15 +71,16 @@ paste artifacts into it. A role writes its artifact only through `aloop mission 
 | `CONFIRM_MISSION` | human | Show `aloop mission show`; on their explicit yes, `aloop mission approve --by`. | the content is approved |
 | `STOP_BUDGET` | human | Show the spend and cap from `aloop mission tick --json` (`budget`). A higher cap is a mission change: edit, then their approval. | the cap is raised or the mission ends |
 | `ETHICS_REVIEW` | `ethics-reviewer` | Review the subject (the mission or a goal) against the mission's constraints; it records the tier with `aloop mission ethics`. | a review covers that content |
-| `BLOCKED` | human | A hard line, 3 failed goals from one eval, or an action repeated without result. Report it. | the human changes the subject, or runs `aloop mission tick --force` |
+| `BLOCKED` | human | A hard line, 3 failed goals in a row, a stalled sprint, an action repeated without result, or a broken record (the ledger, the confirmed baseline). Report it. | the human fixes the subject; a repeat or 3 failed goals: `aloop mission tick --force --by "<their name>"` |
 | `ASK_CONSENT` | human | Gray tier: show the review's reason. On their yes record consent for that exact subject (`aloop mission ethics`); it never carries over to another goal. | consent covers that content |
 | `RESEARCH` | `market-researcher` | Sourced landscape: rival products, papers, benchmarks (`aloop mission research`). When the goal is met: raise the bar, "what is best that the user is not even thinking of?" | a new research artifact |
-| `DEFINE_JOURNEYS` | `market-researcher` | User journeys from the research: scripted steps, pass criteria, an event per step, sources (`aloop mission journeys`). | a proposed journey |
-| `BASELINE` | `state-assessor`, `product-tester` | Ours with pinned scripts, the rivals on the same tasks, measured twice (`aloop mission baseline`). A replacement past its veto window: apply it. | a measured baseline |
-| `CONFIRM_BASELINE` | human | In plain words: the journeys, where we are, where the rivals are. On their explicit yes record the confirmation (`aloop mission baseline`). | a confirmed baseline |
+| `DEFINE_JOURNEYS` | `market-researcher` | User journeys from the research: scripted steps, pass criteria, an event per step, sources (`aloop mission journeys`). A baseline with nothing to earn: raise the bar (new or stricter journeys). | a proposed journey |
+| `BASELINE` | `state-assessor`, `product-tester` | Ours with pinned scripts, the rivals on the same tasks: `aloop mission baseline new` (a replacement names the current one, with evidence), then `measure` (twice). A replacement past its veto window: `aloop mission baseline apply <id>`. | a measured or applied version |
+| `CONFIRM_BASELINE` | human | In plain words: the journeys, where we are, where the rivals are. On their explicit yes `aloop mission baseline confirm <id> --by`; a no is `veto <id> --by --reason`. | a confirmed or vetoed version |
 | `OFFER_OPTIONS` | `mission-planner`, then human | Spoon-fed: the planner ranks the goal's options; show one line each, recommended first; record their pick (`aloop mission goal`). | `goal.approved` for that goal |
 | `PLAN_INTENTS` | `mission-planner` | Turn the goal's top gaps into Aladdin intents, source `mission` (`aloop mission goal`). | the goal is active |
 | `SPRINT` | supervisor | Load the aloop skill and run one sprint on the goal's intents. Autonomous: `aloop events authority --initiated-by "<who approved the mission>" --mode autonomous --scope "mission <id>, goal <id>"`; spoon-fed: reviewed mode, one intent at a time. | Aladdin's final gate closes the sprint |
+| `APPROVE_PLAN` | human | Spoon-fed: show the sprint's plan in one screen. On their go, `aloop events authority --initiated-by "<their name>" --mode reviewed --scope "mission <id>, goal <id>"` (it records `plan.approved`). | the plan is approved |
 | `ASSESS` | `state-assessor` | Measure the product with the pinned scripts; numbers only, no opinions (`aloop mission assess`). | a new state report |
 | `EVALUATE` | `evaluator` | Compare the state with the baseline and the rivals: the gap list and `goal_met` (`aloop mission evaluate`); it never builds. | a new eval |
 | `DERIVE_GOAL` | `mission-planner` | The eval's top gaps become one goal, with the standing principles for the mode (`aloop mission principles`, `aloop mission goal`). | a derived goal |

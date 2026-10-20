@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """ROADMAP §4.12 (M9) M9.8: the mission loop. `mission tick` picks one action from harness
 files (first match wins), `mission due` says whether a tick is worth a model call (zero
-tokens: it reads files only), `mission cron` renders the host routine / crontab line, and
-the budget caps are read from the token ledger. No area module is needed: every fact comes
-from the core contract (status, harness ids, sha256, approval events) and Aladdin's own files.
+tokens: it reads files only), `mission cron` renders the crontab line and runs it (`--fire`,
+under the loop lock), and the budget caps are read from the token ledger. Human decisions and
+the baseline come from the committed ledger, the way `mission baseline` decides them, so the
+baselines here are real: proposed, measured twice and confirmed through `aloop mission`.
     python3 scripts/test/mission-tick.test.py
 """
-import calendar
 import contextlib
+import fcntl
 import io
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -23,11 +25,15 @@ MI = os.path.join(BIN, "mission")
 PASS = [0]
 sys.path.insert(0, BIN)
 sys.path.insert(0, os.path.join(ROOT, "mission"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
 import _mission as M  # noqa: E402
+import mission_fixture as F  # noqa: E402
 import tick as TICK  # noqa: E402
 
 H = 3600 * 1000
 SEQ = [0]
+FAILING = {"seconds_to_first_task": 9.0, "working_steps": ["open", "add"], "tasks_shown": 0}
+PASSING = {"seconds_to_first_task": 3.0, "working_steps": ["open", "add", "see"], "tasks_shown": 1}
 
 
 def ok(name):
@@ -40,28 +46,42 @@ def iso(ms):
 
 
 class Project:
-    """A throwaway git repo with a mission, and helpers that write artifacts and events at
-    chosen times (ids carry the time, like the harness's)."""
+    """A throwaway git repo with a mission and the fixture's to-do "app" (a pinned journey runner
+    reads app.json), plus helpers that write artifacts, events and ledger records at chosen times
+    (ids carry the time, like the harness's)."""
 
-    def __init__(self, mode="autonomous", budget=("--budget-usd", "40"), cadence="6h"):
+    def __init__(self, mode="autonomous", budget=("--budget-usd", "40"), cadence="6h", veto=None):
         self.dir = tempfile.mkdtemp(prefix="aloop-tick-")
         self.env = dict(os.environ, HOME=os.path.join(self.dir, "home"))
-        self.env.pop("AGENTIC_HOST", None)
+        for k in ("AGENTIC_HOST", "ALOOP_MISSION_LOOP"):
+            self.env.pop(k, None)
         subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
-        self.mode, self.budget, self.cadence = mode, budget, cadence
+        os.makedirs(os.path.join(self.dir, "tools"))
+        with open(os.path.join(self.dir, "tools", "journey.py"), "w") as f:
+            f.write(F.RUNNER)
+        self.app(**FAILING)
+        self.mode, self.budget, self.cadence, self.veto = mode, budget, cadence, veto
         self.t0 = int(time.time() * 1000)
+        self.rid = None
 
     def run(self, *args, env=None):
         return subprocess.run(args, cwd=self.dir, env=env or self.env, capture_output=True, text=True)
 
+    def mi(self, *args):
+        return self.run(MI, *args)
+
+    def app(self, **state):
+        with open(os.path.join(self.dir, "app.json"), "w") as f:
+            json.dump(state, f)
+
     def init(self, approve=True):
-        r = self.run(MI, "init", "the world's best to-do app", "--mode", self.mode, *self.budget,
-                     "--cadence", self.cadence, "--by", "Adeel")
+        extra = ["--veto-window-h", str(self.veto)] if self.veto is not None else []
+        r = self.mi("init", "the world's best to-do app", "--mode", self.mode, *self.budget, "--cadence", self.cadence,
+                    "--by", "Adeel", *extra)
         assert r.returncode == 0, r.stderr
         if approve:
-            assert self.run(MI, "approve", "--by", "Adeel").returncode == 0
-        self.mission = json.load(open(M.path_of(self.dir, "mission")))
-        self.t0 = int(self.mission["mission_id"][4:16], 16)
+            assert self.mi("approve", "--by", "Adeel").returncode == 0
+        self.t0 = int(self.mission_doc()["mission_id"][4:16], 16)
         return self
 
     def at(self, hours):
@@ -77,25 +97,73 @@ class Project:
     def ref(self, kind, aid=""):
         return M.rel(self.dir, M.path_of(self.dir, kind, aid))
 
-    def event(self, name, hours, **data):
+    def load(self, kind, aid=""):
+        return json.load(open(M.path_of(self.dir, kind, aid)))
+
+    def event(self, name, hours, role=None, **data):
         p = os.path.join(self.dir, ".aladdin", "logs", "events.jsonl")
         os.makedirs(os.path.dirname(p), exist_ok=True)
         SEQ[0] += 1
         with open(p, "a") as f:
             f.write(json.dumps({"schema": "aladdin.event/1", "event_id": "e%d" % SEQ[0], "ts": iso(self.at(hours)),
-                                "event": name, "ids": {}, "role": None, "refs": {}, "data": data}) + "\n")
+                                "event": name, "ids": {}, "role": role, "refs": {}, "data": data}) + "\n")
 
-    def review(self, subject, doc, tier, hours):
-        self.event("ethics.reviewed", hours, subject=subject, sha256=M.digest(doc), tier=tier)
+    def review(self, subject, doc, tier, hours, **data):
+        self.event("ethics.reviewed", hours, subject=subject, sha256=M.digest(doc), tier=tier, **data)
 
-    def approve_event(self, event, subject, doc, hours):
-        self.event(event, hours, subject=subject, sha256=M.digest(doc), by="Adeel", reason="")
+    @contextlib.contextmanager
+    def clock(self, hours):
+        real = M.now
+        M.now = lambda: iso(self.at(hours))
+        try:
+            yield
+        finally:
+            M.now = real
+
+    def approve(self, event, subject, doc, hours, **data):
+        """A human approval as `mission … --by` records it: a ledger row (role human), at that time."""
+        with self.clock(hours):
+            return M.approve(self.dir, event, subject, M.digest(doc), "Adeel", **data)
 
     def mission_ref(self):
         return self.ref("mission")
 
     def mission_doc(self):
-        return json.load(open(M.path_of(self.dir, "mission")))
+        return self.load("mission")
+
+    def research(self):
+        self.rid = F.Project.research(self, ["c1", "c2"])
+        return self.rid
+
+    def journey(self, **over):
+        p = os.path.join(self.dir, "draft-%d.json" % SEQ[0])
+        SEQ[0] += 1
+        json.dump(F.Project.draft(self, self.rid, **over), open(p, "w"))
+        r = self.mi("journeys", "new", "--from", p)
+        assert r.returncode == 0, r.stderr
+        return json.load(open(r.stdout.strip()))["journey_id"]
+
+    def baseline(self, *extra, measure=True):
+        """A proposed baseline (measured twice when `measure`); a replacement names the current one."""
+        cur = TICK.B.current_id(self.dir)
+        sup = ["--supersedes", cur, "--evidence", self.rid + "#c2"] if cur else []
+        r = self.mi("baseline", "new", "--definition", "a first task in under 5 seconds, and it shows up", *sup,
+                    *extra)
+        assert r.returncode == 0, r.stderr
+        bid = json.load(open(r.stdout.strip()))["baseline_id"]
+        if measure:
+            r = self.mi("baseline", "measure", bid)
+            assert r.returncode == 0, r.stderr
+        return bid
+
+    def confirmed(self):
+        """Research, a journey and a baseline the human confirmed, all through `aloop mission`."""
+        self.research()
+        self.journey()
+        bid = self.baseline()
+        r = self.mi("baseline", "confirm", bid, "--by", "Adeel")
+        assert r.returncode == 0, r.stderr
+        return bid
 
     def sprint_closed(self, n, hours):
         p = os.path.join(self.dir, ".aladdin", "state", "sprints.json")
@@ -112,12 +180,12 @@ class Project:
         os.makedirs(d, exist_ok=True)
         with open(os.path.join(d, "s1.jsonl"), "a") as f:
             for hours, model, i, cr, cw, o in rows:
-                f.write(json.dumps({"ts": iso(self.at(hours)) [:-1] + ".123Z", "agent": "main", "agent_type": "supervisor",
+                f.write(json.dumps({"ts": iso(self.at(hours))[:-1] + ".123Z", "agent": "main", "agent_type": "supervisor",
                                     "model": model, "in": i, "cache_read": cr, "cache_write": cw, "out": o,
                                     "session": "s1"}) + "\n")
 
-    def tick(self, hours, *extra):
-        r = self.run(MI, "tick", "--json", "--now", iso(self.at(hours)), *extra)
+    def tick(self, hours, *extra, env=None):
+        r = self.run(MI, "tick", "--json", "--now", iso(self.at(hours)), *extra, env=env)
         try:
             d = json.loads(r.stdout)
         except ValueError:
@@ -126,7 +194,7 @@ class Project:
         return d
 
     def due(self, hours):
-        r = self.run(MI, "due", "--json", "--now", iso(self.at(hours)))
+        r = self.mi("due", "--json", "--now", iso(self.at(hours)))
         d = json.loads(r.stdout)
         d["rc"] = r.returncode
         return d
@@ -134,6 +202,9 @@ class Project:
     def events(self):
         p = os.path.join(self.dir, ".aladdin", "logs", "events.jsonl")
         return [json.loads(l) for l in open(p)] if os.path.exists(p) else []
+
+    def ticks(self):
+        return [e for e in self.events() if e["event"] == "mission.tick"]
 
 
 def expect(d, action, rc=None, why=None):
@@ -147,22 +218,25 @@ def expect(d, action, rc=None, why=None):
 def cleared(p, hours=0.1):
     """A project through the mission's ethics review, research, a journey and a confirmed baseline."""
     p.review(p.mission_ref(), p.mission_doc(), "clear", hours)
-    p.art("research", "recorded", hours)
-    p.art("journey", "proposed", hours)
-    bid, bdoc = p.art("baseline", "confirmed", hours)
-    p.approve_event("baseline.confirmed", p.ref("baseline", bid), bdoc, hours)
-    return bid
+    return p.confirmed()
 
 
-# 1) the lifecycle, autonomous: mission → ethics → research → journeys → baseline → assess → evaluate
-#    → goal → ethics → intents → sprint → wait → sprint closed → assess again
+def active_goal(p, hours, status="active"):
+    gid, gdoc = p.art("goal", status, hours)
+    p.review(p.ref("goal", gid), gdoc, "clear", hours)
+    return gid, gdoc
+
+
+# 1) the lifecycle, autonomous, through the real areas: mission → ethics → research → journeys →
+#    baseline (proposed, measured twice, confirmed) → assess → evaluate → goal → ethics → intents →
+#    sprint → wait → sprint closed → assess again
 p = Project()
 d = p.tick(0)
 expect(d, "SET_MISSION", 3)
 assert d["who"] == "human"
 p.init(approve=False)
 expect(p.tick(0), "CONFIRM_MISSION", 3, "draft")
-assert p.run(MI, "approve", "--by", "Adeel").returncode == 0
+assert p.mi("approve", "--by", "Adeel").returncode == 0
 d = p.tick(0.01)
 expect(d, "ETHICS_REVIEW", 0)
 assert d["roles"] == ["ethics-reviewer"] and d["subject"] == "docs/agents/mission/mission.json", d
@@ -170,29 +244,34 @@ p.review(p.mission_ref(), p.mission_doc(), "clear", 0.02)
 d = p.tick(0.03)
 expect(d, "RESEARCH", 0)
 assert d["roles"] == ["market-researcher"] and d["who"] == "role"
-p.art("research", "recorded", 0.04)
+p.research()
 expect(p.tick(0.05), "DEFINE_JOURNEYS", 0)
-p.art("journey", "proposed", 0.06)
+p.journey()
 d = p.tick(0.07)
-expect(d, "BASELINE", 0, "propose")
+expect(d, "BASELINE", 0, "no baseline yet")
 assert d["roles"] == ["state-assessor", "product-tester"], d["roles"]
-bid, bdoc = p.art("baseline", "proposed", 0.08)
-expect(p.tick(0.09), "BASELINE", 0, "measure")
+bid = p.baseline(measure=False)
+expect(p.tick(0.08), "BASELINE", 0, "measure it")
+assert p.mi("baseline", "measure", bid).returncode == 0
+d = p.tick(0.09)
+expect(d, "CONFIRM_BASELINE", 3, "is measured")
+assert d["subject"] == p.ref("baseline", bid)
+bdoc = p.load("baseline", bid)
+bdoc["status"] = "confirmed"                                               # a status is not a confirmation
+M.save(M.path_of(p.dir, "baseline", bid), bdoc)
+d = p.tick(0.10)
+assert d["action"] == "BASELINE" and "only a measured version" in d["reason"], d
 bdoc["status"] = "measured"
 M.save(M.path_of(p.dir, "baseline", bid), bdoc)
-expect(p.tick(0.10), "CONFIRM_BASELINE", 3)
-bdoc["status"] = "confirmed"
-M.save(M.path_of(p.dir, "baseline", bid), bdoc)
-expect(p.tick(0.11), "CONFIRM_BASELINE", 3, "no human approval")       # a status is not an approval
-p.approve_event("baseline.confirmed", p.ref("baseline", bid), bdoc, 0.12)
-expect(p.tick(0.13), "ASSESS", 0)
-p.art("state", "recorded", 0.14)
-d = p.tick(0.15)
-expect(d, "EVALUATE", 0)
+assert p.mi("baseline", "confirm", bid, "--by", "Adeel").returncode == 0
+expect(p.tick(0.11), "ASSESS", 0, "no state report")
+assert p.mi("assess").returncode == 0
+d = p.tick(0.12)
+expect(d, "EVALUATE", 0, "no eval")
 assert d["roles"] == ["evaluator"]
-eid, _ = p.art("eval", "recorded", 0.16, goal_met=False)
-d = p.tick(0.17)
-expect(d, "DERIVE_GOAL", 0)
+assert p.mi("evaluate").returncode == 0
+d = p.tick(0.13)
+expect(d, "DERIVE_GOAL", 0, "gaps")
 assert d["roles"] == ["mission-planner"]
 gid, gdoc = p.art("goal", "derived", 0.18)
 d = p.tick(0.19)
@@ -206,48 +285,67 @@ d = p.tick(0.22)
 expect(d, "SPRINT", 0)
 assert d["who"] == "supervisor", d
 p.event("plan.created", 0.5, sprint="S1")
-d = p.tick(0.6)
-expect(d, "WAIT", 4, "sprint 1")
+expect(p.tick(0.6), "WAIT", 4, "sprint 1")
 p.sprint_closed(1, 2)
 expect(p.tick(2.1), "ASSESS", 0, "sprint 1 closed")
-p.art("state", "recorded", 2.2)
-expect(p.tick(2.3), "EVALUATE", 0)
-p.art("eval", "recorded", 2.4, goal_met=False)
+p.art("state", "recorded", 2.2, baseline_id=bid)
+expect(p.tick(2.3), "EVALUATE", 0, "state report")
+p.art("eval", "recorded", 2.4, goal_met=False, baseline_id=bid)
 expect(p.tick(2.5), "DERIVE_GOAL", 0)
-ok("lifecycle: mission → ethics → research → journeys → baseline → assess → evaluate → goal → intents → sprint → wait → re-assess")
+ok("lifecycle through the real areas: mission → ethics → research → journeys → baseline (measured twice, "
+   "confirmed) → assess → evaluate → goal → intents → sprint → wait → re-assess")
 
-# 2) the tick records every decision (mission.tick) and never needs an area module
-ticks = [e for e in p.events() if e["event"] == "mission.tick"]
-assert len(ticks) == 19 and {"action", "key", "facts", "reason", "at"} <= set(ticks[-1]["data"]), ticks[-1]
+# 2) the tick records every decision (mission.tick) and --peek records nothing
+ticks = p.ticks()
+assert len(ticks) == 19 and {"action", "key", "facts", "reason", "at"} <= set(ticks[-1]["data"]), len(ticks)
 assert ticks[-1]["data"]["action"] == "DERIVE_GOAL"
 r = p.run(MI, "tick", "--peek", "--now", iso(p.at(2.5)))
 assert r.returncode == 0 and r.stdout.startswith("DERIVE_GOAL"), r.stdout
-assert len([e for e in p.events() if e["event"] == "mission.tick"]) == len(ticks)   # --peek records nothing
+assert len(p.ticks()) == len(ticks)
 ok("every tick records mission.tick (action, key, facts fingerprint, reason); --peek records nothing")
 
-# 3) ethics on the mission: hard line blocks for good, gray asks once per content, a change re-reviews
+# 3) a fresh checkout decides the same: human decisions and the baseline live in the committed ledger;
+#    an approval only the run log has (no ledger row) is not one
+p = Project().init()
+cleared(p)
+shutil.rmtree(os.path.join(p.dir, ".aladdin"))                             # run data is git-ignored
+p.review(p.mission_ref(), p.mission_doc(), "clear", 0.2)                   # ethics reviews are run data (M9.4)
+expect(p.tick(0.3), "ASSESS", 0, "no state report")                        # not CONFIRM_*: the ledger has them
+q = Project().init(approve=False)
+q.event("mission.approved", 0.1, role="human", subject=q.mission_ref(), sha256=M.digest(q.mission_doc()), by="Adeel")
+expect(q.tick(0.2), "CONFIRM_MISSION", 3)
+ok("a fresh checkout keeps every human decision and the baseline (the ledger); a run-log-only approval is none")
+
+# 4) ethics on the mission: hard line blocks for good, gray asks once per content, a change re-reviews
 p = Project().init()
 p.review(p.mission_ref(), p.mission_doc(), "hard", 0.1)
 expect(p.tick(0.2), "BLOCKED", 2, "hard line")
 p.review(p.mission_ref(), p.mission_doc(), "clear", 0.3)                   # shopping for a better verdict
 expect(p.tick(0.4), "BLOCKED", 2, "hard line")
 p = Project().init()
-p.review(p.mission_ref(), p.mission_doc(), "gray", 0.1)
+p.review(p.mission_ref(), p.mission_doc(), "gray", 0.1, ethics_id="eth_a", review_sha256="1" * 64)
 d = p.tick(0.2)
 expect(d, "ASK_CONSENT", 3)
 assert d["subject"] == p.mission_ref()
-p.approve_event("ethics.consent", p.mission_ref(), p.mission_doc(), 0.3)
+p.approve("ethics.consent", p.mission_ref(), p.mission_doc(), 0.3, review="eth_a", review_sha256="2" * 64)
+expect(p.tick(0.35), "ASK_CONSENT", 3)                                     # it names another version of the review
+p.approve("ethics.consent", p.mission_ref(), p.mission_doc(), 0.36, review="eth_a", review_sha256="1" * 64)
 expect(p.tick(0.4), "RESEARCH", 0)
+p.review(p.mission_ref(), p.mission_doc(), "gray", 0.41, ethics_id="eth_b", review_sha256="3" * 64)
+expect(p.tick(0.42), "ASK_CONSENT", 3)                                     # every gray review needs its consent
+p.approve("ethics.consent", p.mission_ref(), p.mission_doc(), 0.43, review="eth_b", review_sha256="3" * 64)
+expect(p.tick(0.44), "RESEARCH", 0)
 doc = p.mission_doc()
 doc["constraints"] = ["no dark patterns"]
 doc["status"] = "draft"
 M.save(M.path_of(p.dir, "mission"), doc)
 expect(p.tick(0.5), "CONFIRM_MISSION", 3)
-assert p.run(MI, "approve", "--by", "Adeel").returncode == 0
+assert p.mi("approve", "--by", "Adeel").returncode == 0
 expect(p.tick(0.6), "ETHICS_REVIEW", 0)                                    # new content, new review
-ok("mission ethics: a hard line is never unlocked; gray waits for consent on that content; a changed mission is re-reviewed")
+ok("mission ethics: a hard line is never unlocked; gray waits for a consent naming every gray review of that "
+   "content; a changed mission is re-reviewed")
 
-# 4) ethics on goals: gray consent does not carry over; hard lines re-derive, 3 per eval then BLOCKED
+# 5) ethics on goals: gray consent does not carry over; hard lines re-derive, 3 failed goals then BLOCKED
 p = Project().init()
 cleared(p)
 p.art("state", "recorded", 1)
@@ -257,7 +355,7 @@ p.review(p.ref("goal", gid), gdoc, "gray", 1.3)
 d = p.tick(1.4)
 expect(d, "ASK_CONSENT", 3)
 assert d["subject"] == p.ref("goal", gid)
-p.approve_event("ethics.consent", p.ref("goal", gid), gdoc, 1.5)
+p.approve("ethics.consent", p.ref("goal", gid), gdoc, 1.5)
 expect(p.tick(1.6), "PLAN_INTENTS", 0)
 gdoc["status"] = "blocked"
 M.save(M.path_of(p.dir, "goal", gid), gdoc)
@@ -269,40 +367,129 @@ p.event("ethics.blocked", 2.1, subject=p.ref("goal", g2), sha256=M.digest(g2doc)
 expect(p.tick(2.2), "DERIVE_GOAL", 0, "hard line")
 g3, g3doc = p.art("goal", "derived", 2.3)
 p.review(p.ref("goal", g3), g3doc, "hard", 2.4)
-expect(p.tick(2.5), "BLOCKED", 2, "3 goals")
-ok("goal ethics: consent is bound to one goal's content; a hard line re-derives, 3 failed goals per eval block")
+d = p.tick(2.5)
+expect(d, "BLOCKED", 2, "3 goals")
+assert p.mi("tick", "--force").returncode == 64                            # lifting a block names the human
+r = p.mi("tick", "--force", "--by", "Adeel", "--now", iso(p.at(2.6)))
+assert r.returncode == 0 and r.stdout.startswith("FORCE"), (r.stdout, r.stderr)
+assert p.ticks()[-1]["role"] == "human" and p.ticks()[-1]["data"]["by"] == "Adeel"
+expect(p.tick(2.7), "DERIVE_GOAL", 0)                                      # the count starts again
+ok("goal ethics: consent is bound to one goal's content; a hard line re-derives; 3 failed goals block until "
+   "the human lifts it (--force --by, recorded)")
 
-# 5) spoon-fed: the goal's options wait for the human's pick (an event, never a status); replacements wait too
+# 6) spoon-fed: the goal's options and the sprint plan wait for the human; so does every baseline version
 p = Project(mode="spoon-fed").init()
 bid = cleared(p)
 p.art("state", "recorded", 1)
 p.art("eval", "recorded", 1.1, goal_met=False)
-gid, gdoc = p.art("goal", "derived", 1.2)
-p.review(p.ref("goal", gid), gdoc, "clear", 1.3)
+gid, gdoc = active_goal(p, 1.2, "derived")
 d = p.tick(1.4)
 expect(d, "OFFER_OPTIONS", 3)
 assert d["roles"] == ["mission-planner"] and d["who"] == "human", d
 gdoc["status"] = "approved"
 M.save(M.path_of(p.dir, "goal", gid), gdoc)
-expect(p.tick(1.5), "OFFER_OPTIONS", 3)
-p.approve_event("goal.approved", p.ref("goal", gid), gdoc, 1.6)
+expect(p.tick(1.5), "OFFER_OPTIONS", 3)                                    # a status is not a pick
+p.event("goal.approved", 1.55, role="human", subject=p.ref("goal", gid), sha256=M.digest(gdoc), by="Adeel")
+expect(p.tick(1.56), "OFFER_OPTIONS", 3)                                   # nor is a run-log event
+p.approve("goal.approved", p.ref("goal", gid), gdoc, 1.6)
 expect(p.tick(1.7), "PLAN_INTENTS", 0)
-p.art("baseline", "measured", 1.8)
-expect(p.tick(1.9), "CONFIRM_BASELINE", 3, "replacement")
-ok("spoon-fed: OFFER_OPTIONS until a goal.approved event covers the goal's content; a replacement baseline asks")
+gdoc["status"] = "active"
+M.save(M.path_of(p.dir, "goal", gid), gdoc)
+expect(p.tick(1.8), "SPRINT", 0)
+p.event("plan.created", 1.9, sprint="S1")
+expect(p.tick(2.0), "APPROVE_PLAN", 3, "sprint 1")
+p.event("plan.approved", 2.1, sprint="S1")
+expect(p.tick(2.2), "WAIT", 4)
+b2 = p.baseline()
+expect(p.tick(2.3), "CONFIRM_BASELINE", 3, "spoon-fed")
+ok("spoon-fed: OFFER_OPTIONS until a ledger goal.approved covers the goal's content; APPROVE_PLAN before the "
+   "sprint runs; a replacement baseline waits for the human")
 
-# 6) autonomous replacement baseline: the cycle goes on during the veto window, then it is applied
+# 7) autonomous replacement baseline: the cycle goes on in the veto window, then it is applied;
+#    a veto binds the content; a looser tolerance is the human's
 p = Project().init()
-cleared(p)
-rid, _ = p.art("baseline", "measured", 1)
+bid = cleared(p)
+b2 = p.baseline()
 expect(p.tick(2), "ASSESS", 0)
-expect(p.tick(25.5), "BASELINE", 0, "veto window")
-p.event("baseline.vetoed", 25.6, subject=p.ref("baseline", rid), by="Adeel")
+d = p.tick(25.5)
+expect(d, "BASELINE", 0, "veto window")
+assert "baseline apply %s" % b2 in d["reason"] and d["subject"] == p.ref("baseline", b2), d
+assert p.mi("baseline", "apply", b2).returncode == 3                       # the real clock: the window is open
+assert p.mi("baseline", "veto", b2, "--by", "Adeel", "--reason", "not yet").returncode == 0
 expect(p.tick(26), "ASSESS", 0)
-ok("autonomous: a replacement baseline is applied after the 24h veto window unless vetoed")
+p = Project(veto=0).init()
+bid = cleared(p)
+assert p.mi("assess").returncode == 0
+b2 = p.baseline()
+expect(p.tick(0.2), "BASELINE", 0, "apply it")
+assert p.mi("baseline", "apply", b2).returncode == 0
+expect(p.tick(0.3), "ASSESS", 0, "another baseline")                       # the state measured the old version
+b3 = p.baseline("--tolerance", "0.2")
+expect(p.tick(0.4), "CONFIRM_BASELINE", 3, "more drift")
+ok("autonomous: a replacement applies after the mission's veto window unless vetoed; then the product is "
+   "re-assessed against it; a looser tolerance waits for the human")
 
-# 7) budget caps from the token ledger: tokens (uncached input, cache writes, output), USD (priced per
-#    model), deadline. On Claude Code nearly all new input arrives as cache writes, so they count.
+# 8) the current baseline needs a new version (the mission changed): propose one; in its veto window the
+#    loop waits (assess would refuse the old one), then it applies
+p = Project().init()
+bid = cleared(p)
+doc = p.mission_doc()
+doc["constraints"] = ["works offline"]
+doc["status"] = "draft"
+M.save(M.path_of(p.dir, "mission"), doc)
+assert p.mi("approve", "--by", "Adeel").returncode == 0
+p.review(p.mission_ref(), p.mission_doc(), "clear", 0.5)
+d = p.tick(1)
+expect(d, "BASELINE", 0, "needs a new version")
+assert d["subject"] == p.ref("baseline", bid)
+b2 = p.baseline()
+d = p.tick(2)
+expect(d, "WAIT", 4, "veto window")
+assert d["next_check"] and d["next_check"] > iso(p.at(23)), d
+expect(p.tick(25), "BASELINE", 0, "apply it")
+ok("a mission change makes the baseline propose a new version; the loop waits out its veto window, then applies it")
+
+# 9) a measurement that fails is not progress: flaky runs re-measure, nothing to earn raises the bar,
+#    and the repeat guard sees the same work although each failed measurement rewrites the file
+p = Project().init()
+p.review(p.mission_ref(), p.mission_doc(), "clear", 0.1)
+p.research()
+p.journey()
+bid = p.baseline(measure=False)
+open(os.path.join(p.dir, "flaky"), "w").close()
+assert p.mi("baseline", "measure", bid).returncode == 2
+expect(p.tick(0.2), "BASELINE", 0, "disagreed")
+os.remove(os.path.join(p.dir, "flaky"))
+p.app(**PASSING)
+keys = set()
+for i in range(3):
+    assert p.mi("baseline", "measure", bid).returncode == 2
+    d = p.tick(0.3 + i * 0.01)
+    expect(d, "DEFINE_JOURNEYS", 0, "nothing to earn")
+    keys.add(d["key"])
+assert p.mi("baseline", "measure", bid).returncode == 2
+expect(p.tick(0.4), "BLOCKED", 2, "3 times")
+assert len(keys) == 1, keys
+ok("a flaky measurement is measured again; nothing to earn sends the researchers to raise the bar; the repeat "
+   "guard binds a version's content, not its rewritten file")
+
+# 10) broken records stop the loop: an edited ledger row, a confirmed baseline edited after confirmation
+p = Project().init()
+bid = cleared(p)
+bdoc = p.load("baseline", bid)
+bdoc["definition_of_best"] = "something easier"
+M.save(M.path_of(p.dir, "baseline", bid), bdoc)
+expect(p.tick(1), "BLOCKED", 2, "changed after it was confirmed")
+lp = M.ledger(p.dir)
+rows = open(lp).read().splitlines()
+row = json.loads(rows[0])
+row["data"]["by"] = "Mallory"
+open(lp, "w").write("\n".join([json.dumps(row, sort_keys=True)] + rows[1:]) + "\n")
+expect(p.tick(1.1), "BLOCKED", 2, "ledger fails its check")
+ok("an edited ledger row or a confirmed baseline changed after confirmation blocks the loop (no grant lifts it)")
+
+# 11) budget caps from the token ledger: tokens (uncached input, cache writes, output), USD (priced per
+#     model), deadline. On Claude Code nearly all new input arrives as cache writes, so they count.
 p = Project(budget=("--budget-tokens", "1000")).init()
 cleared(p)
 p.ledger([(-1, "claude-opus-5-5", 5000, 0, 0, 5000)])                     # before the mission: not charged
@@ -318,9 +505,10 @@ doc = p.mission_doc()
 doc["budget"]["tokens"] = 5000
 doc["status"] = "draft"
 M.save(M.path_of(p.dir, "mission"), doc)
-assert p.run(MI, "approve", "--by", "Adeel", "--reason", "raise the cap").returncode == 0
+assert p.mi("approve", "--by", "Adeel", "--reason", "raise the cap").returncode == 0
 p.review(p.mission_ref(), p.mission_doc(), "clear", 1.2)
-expect(p.tick(1.3), "ASSESS", 0)
+d = p.tick(1.3)
+assert d["action"] != "STOP_BUDGET", d                                     # the raised cap resumes the loop
 ok("token cap: uncached input + cache writes + output since the mission was set; one budget_exhausted event; "
    "a raised cap resumes")
 
@@ -344,20 +532,19 @@ cleared(p)
 p.ledger([(0.5, "claude-opus-5-5", 1_000_000, 0, 0, 40_000)])
 expect(p.tick(1), "ASSESS", 0)                                             # $4.80
 p.ledger([(0.6, "claude-opus-5-5", 0, 0, 0, 20_000)])
-d = p.tick(1)
-expect(d, "STOP_BUDGET", 3, "$5.20")
+expect(p.tick(1), "STOP_BUDGET", 3, "$5.20")
 p = Project(budget=("--budget-usd", "50", "--deadline", "2000-01-01")).init()
 expect(p.tick(0), "STOP_BUDGET", 3, "deadline")
 ok("USD cap priced per model (dotted, routed and Bedrock ids too; unknown at the highest rate); a passed deadline "
    "stops the loop")
 
-# 8) cadence: a running sprint waits, re-assesses on the cadence; a met goal raises the bar once per cadence
+# 12) cadence: a running sprint waits, re-assesses on the cadence; a met goal raises the bar once per cadence
 p = Project(cadence="6h").init()
 cleared(p)
 p.art("state", "recorded", 1)
 p.art("eval", "recorded", 1.1, goal_met=False)
-gid, gdoc = p.art("goal", "active", 1.2)
-p.review(p.ref("goal", gid), gdoc, "clear", 1.2)
+gid, gdoc = active_goal(p, 1.2)
+expect(p.tick(1.3), "SPRINT", 0)
 p.event("plan.created", 1.5, sprint="S1")
 d = p.tick(3)
 expect(d, "WAIT", 4)
@@ -385,36 +572,59 @@ p.art("eval", "recorded", 15.9, goal_met=False)                            # gap
 expect(p.tick(16), "DERIVE_GOAL", 0)
 ok("cadence: re-assess mid-sprint, act at the close; a met goal raises the bar at most once per cadence")
 
-# 9) the sprint for an active goal: planning in progress (a fresh sprint lock) is a wait, not a second /aladdin
+# 13) an active goal's sprints: its intents are sprinted one by one (intent.received goal_id →
+#     plan.created intent_id); a fresh sprint lock is planning under way; a silent sprint has stalled
 p = Project().init()
 cleared(p)
 p.art("state", "recorded", 1)
 p.art("eval", "recorded", 1.1, goal_met=False)
-gid, gdoc = p.art("goal", "active", 1.2)
-p.review(p.ref("goal", gid), gdoc, "clear", 1.2)
+gid, gdoc = active_goal(p, 1.2)
 p.event("plan.created", 0.5, sprint="S1")                                  # an older sprint is not this goal's
-expect(p.tick(1.3), "SPRINT", 0)
+expect(p.tick(1.3), "SPRINT", 0, "no sprint was planned")
 lock = os.path.join(p.dir, ".aladdin", "state", "sprint.lock")
 os.makedirs(os.path.dirname(lock), exist_ok=True)
 open(lock, "w").write("s\n")
 os.utime(lock, (p.at(1.4) / 1000, p.at(1.4) / 1000))
-expect(p.tick(1.5), "WAIT", 4, "planning")
-ok("an active goal's sprint: SPRINT once, then a fresh sprint lock (planning under way) is a wait")
+expect(p.tick(1.5), "WAIT", 4, "being planned")
+os.remove(lock)
+p.event("intent.received", 1.6, goal_id=gid, intent_id="I1")
+p.event("intent.received", 1.6, goal_id=gid, intent_id="I2")
+p.event("plan.created", 1.7, sprint="S2", intent_id="I1")
+expect(p.tick(1.8), "WAIT", 4, "sprint 2")
+expect(p.tick(14), "BLOCKED", 2, "no activity")                            # 12h without a sign of life
+p.sprint_closed(2, 14.1)
+expect(p.tick(14.2), "SPRINT", 0, "intent I2")
+p.event("plan.created", 14.3, sprint="S3", intent_id="I2")
+p.sprint_closed(3, 15)
+expect(p.tick(15.1), "ASSESS", 0, "sprint 3 closed")
+ok("an active goal's intents are sprinted one by one; a fresh sprint lock waits; 12h without activity is a "
+   "stalled sprint for the human")
 
-# 10) the repeat guard: the same action on unchanged facts is handed out 3 times, then BLOCKED; --force retries
+# 14) the repeat guard: the same action on the same facts is handed out 3 times, then BLOCKED; the
+#     human's --force --by hands it out again (recorded, so any session sees it)
 p = Project().init()
 p.review(p.mission_ref(), p.mission_doc(), "clear", 0.1)
 for i in range(3):
     expect(p.tick(0.2 + i * 0.01), "RESEARCH", 0)
 d = p.tick(0.3)
 expect(d, "BLOCKED", 2, "3 times")
-expect(p.tick(0.31, "--force"), "RESEARCH", 0)
-expect(p.tick(0.32), "BLOCKED", 2)
-p.art("research", "recorded", 0.33)
+assert p.mi("tick", "--force", "--by", "", "--now", iso(p.at(0.31))).returncode == 64
+assert p.mi("tick", "--force", "--by", "Adeel", "--now", iso(p.at(0.31))).returncode == 0
+expect(p.tick(0.32), "RESEARCH", 0)
+p.research()
 expect(p.tick(0.34), "DEFINE_JOURNEYS", 0)
-ok("an action handed out 3 times on the same facts blocks; --force retries once; new facts clear it")
+r = p.mi("tick", "--force", "--by", "Adeel", "--now", iso(p.at(0.35)))
+assert r.returncode == 0 and "nothing is blocked" in r.stderr, (r.returncode, r.stderr)
+q = Project().init()
+q.review(q.mission_ref(), q.mission_doc(), "hard", 0.1)
+r = q.mi("tick", "--force", "--by", "Adeel", "--now", iso(q.at(0.2)))
+assert r.returncode == 2 and "not lifted by --force" in r.stderr, r.stderr  # a hard line is not a repeat
+ok("an action handed out 3 times on the same facts blocks; --force --by (recorded) hands it out again; a hard "
+   "line is not lifted that way")
 
-# 11) due: zero tokens, read-only; a handed-out action is leased; the human is told once
+# 15) due: zero tokens, read-only; a handout from an interactive session is leased 2h, one from a
+#     finished cron session is due again at once; a human action exits 3 once, then 1; a cron session
+#     holding the loop lock makes nothing due
 p = Project().init()
 p.review(p.mission_ref(), p.mission_doc(), "clear", 0.1)
 n = len(p.events())
@@ -425,31 +635,40 @@ p.tick(0.3)
 d = p.due(0.5)
 assert d["rc"] == 1 and "handed out" in d["reason"], d
 assert p.due(2.4)["rc"] == 0                                               # the 2h lease lapsed: retry
-p.art("research", "recorded", 0.6)
-assert p.due(0.7)["rc"] == 0                                               # new facts: due at once
+p.tick(2.5, env=dict(p.env, ALOOP_MISSION_LOOP="4242"))
+assert p.due(2.6)["rc"] == 0                                               # that cron session has ended
+os.makedirs(os.path.join(p.dir, ".aladdin", "state"), exist_ok=True)
+fd = os.open(os.path.join(p.dir, ".aladdin", "state", "mission-loop.lock"), os.O_RDWR | os.O_CREAT)
+fcntl.flock(fd, fcntl.LOCK_EX)
+os.write(fd, json.dumps({"pid": 4242, "host": "claude", "action": "RESEARCH", "at": "now"}).encode())
+d = p.due(2.7)
+assert d["rc"] == 1 and "session is running (pid 4242" in d["reason"], d
+os.close(fd)
+assert p.due(2.8)["rc"] == 0
 p = Project().init(approve=False)
-assert p.due(0)["rc"] == 0                                                 # tell the human once
-p.tick(0.1)
+r = p.mi("due", "--now", iso(p.at(0)))
+assert r.returncode == 3 and r.stdout.startswith("[mission] the human is needed: CONFIRM_MISSION"), r.stdout
+assert p.ticks()[-1]["data"]["action"] == "CONFIRM_MISSION"               # due recorded the tick itself
 d = p.due(0.2)
-assert d["rc"] == 1 and "already" in d["reason"], d
+assert d["rc"] == 1 and "already told" in d["reason"], d
 p = Project().init()
 cleared(p)
 p.art("state", "recorded", 1)
 p.art("eval", "recorded", 1.1, goal_met=False)
-gid, gdoc = p.art("goal", "active", 1.2)
-p.review(p.ref("goal", gid), gdoc, "clear", 1.2)
+active_goal(p, 1.2)
+p.tick(1.3)
 p.event("plan.created", 1.5, sprint="S1")
 assert p.due(3)["rc"] == 1 and p.due(7.5)["rc"] == 0                        # waiting, then the cadence is due
-r = p.run(MI, "due", "-q", "--now", iso(p.at(3)))
+r = p.mi("due", "-q", "--now", iso(p.at(3)))
 assert r.returncode == 1 and r.stdout == "" and r.stderr == ""
 p = Project(budget=("--budget-tokens", "100")).init()                      # at a cap no session starts:
 p.ledger([(0.5, "claude-opus-5-5", 50, 0, 0, 60)])                         # due records the stop itself, once
-r = p.run(MI, "due", "-q", "--now", iso(p.at(1)))
-assert r.returncode == 1 and "no session starts" in r.stderr and "110" in r.stderr, (r.returncode, r.stderr)
-assert [e["data"]["action"] for e in p.events() if e["event"] == "mission.tick"] == ["STOP_BUDGET"]
+r = p.mi("due", "-q", "--now", iso(p.at(1)))
+assert r.returncode == 3 and "STOP_BUDGET" in r.stdout and "110" in r.stdout, (r.returncode, r.stdout)
+assert [e["data"]["action"] for e in p.ticks()] == ["STOP_BUDGET"]
 assert len([e for e in p.events() if e["event"] == "mission.budget_exhausted"]) == 1
-r = p.run(MI, "due", "-q", "--now", iso(p.at(1.5)))
-assert r.returncode == 1 and r.stderr == "" and len([e for e in p.events() if e["event"] == "mission.tick"]) == 1
+r = p.mi("due", "-q", "--now", iso(p.at(1.5)))
+assert r.returncode == 1 and r.stdout == "" and len(p.ticks()) == 1
 DUE = __import__("due")
 real = DUE.T.decide
 DUE.T.decide = lambda *a, **k: 1 / 0                                         # any crash: exit 2 with a BLOCK line
@@ -460,43 +679,71 @@ try:
 finally:
     DUE.T.decide = real
 assert err.getvalue().startswith("BLOCK[mission-due]: ") and "ZeroDivisionError" in err.getvalue(), err.getvalue()
-ok("due: reads files only; leases a handed-out action 2h; tells the human once; WAIT and STOP_BUDGET are never "
-   "due; a crash exits 2, not 'not due'")
+ok("due: reads files only; leases an interactive handout 2h, a finished cron session's not at all; a held loop "
+   "lock is a running session; a human action (a cap too) exits 3 once; a crash exits 2, not 'not due'")
 
-# 12) cron: the routine and the crontab line, gated by `due`; install is idempotent, remove undoes it
+# 16) cron: the crontab line runs `mission cron --fire`, which decides like due under the loop lock and
+#     starts the host session only when a tick is due; install is idempotent, remove undoes it
 p = Project(cadence="6h").init()
-r = p.run(MI, "cron")
+r = p.mi("cron")
 assert r.returncode == 0, r.stderr
 line = r.stdout.strip().splitlines()[0]
 aloop = os.path.join(BIN, "aloop")
-assert line.startswith("*/30 * * * * cd ") and ("{ %s mission due -q && " % aloop) in line, line
-assert "claude -p" in line and "/aloop:mission" in line and "; } >> " in line and "mission-cron.log" in line, line
+assert line.startswith("*/30 * * * * cd ") and ("exec %s mission cron --fire --host claude" % aloop) in line, line
 assert line.rstrip().endswith("# aloop-mission %s" % os.path.realpath(p.dir)), line
-r = p.run(MI, "cron", "--host", "codex", "--every", "1h")
-assert r.stdout.startswith("0 * * * * ") and "codex exec --full-auto" in r.stdout, r.stdout
-assert "opencode run" in p.run(MI, "cron", "--host", "opencode").stdout
-assert p.run(MI, "cron", "--every", "7m").returncode == 64
-r = p.run(MI, "cron", "--json")
-spec = json.loads(r.stdout)
-assert spec["schedule"] == "*/30 * * * *" and "aloop mission due" in spec["routine_prompt"], spec
-fake = os.path.join(p.dir, "fakebin")
-os.makedirs(fake)
+assert p.mi("cron", "--every", "7m").returncode == 64
+assert p.mi("cron", "--every", "12h").returncode == 64                     # longer than the 6h cadence
+assert p.mi("cron", "--host", "vim").returncode == 64
+spec = json.loads(p.mi("cron", "--json").stdout)
+assert spec["schedule"] == "*/30 * * * *" and spec["routine"]["schedule"] == "0 */6 * * *", spec
+assert "aloop mission due" in spec["routine"]["prompt"] and "Exit 3" in spec["routine"]["prompt"], spec["routine"]
+cronbin = os.path.join(p.dir, "fakebin")
+os.makedirs(cronbin)
 tab = os.path.join(p.dir, "crontab.txt")
 open(tab, "w").write("0 3 * * * backup\n")
-with open(os.path.join(fake, "crontab"), "w") as f:
+with open(os.path.join(cronbin, "crontab"), "w") as f:
     f.write('#!/bin/sh\nif [ "$1" = "-l" ]; then cat "%s"; else cat > "%s"; fi\n' % (tab, tab))
-os.chmod(os.path.join(fake, "crontab"), stat.S_IRWXU)
-env = dict(p.env, PATH=fake + os.pathsep + p.env["PATH"])
+os.chmod(os.path.join(cronbin, "crontab"), stat.S_IRWXU)
+seen = os.path.join(p.dir, "host-ran.txt")
+for host in ("claude", "codex", "opencode"):                               # a host session that says what it got
+    with open(os.path.join(cronbin, host), "w") as f:
+        f.write('#!/bin/sh\necho "$ALOOP_MISSION_LOOP $*" >> "%s"\n' % seen)
+    os.chmod(os.path.join(cronbin, host), stat.S_IRWXU)
+env = dict(p.env, PATH=cronbin + os.pathsep + p.env["PATH"])
 assert p.run(MI, "cron", "--install", env=env).returncode == 0
 assert p.run(MI, "cron", "--install", env=env).returncode == 0
 lines = open(tab).read().splitlines()
 assert lines[0] == "0 3 * * * backup" and len(lines) == 2 and "aloop-mission" in lines[1], lines
 assert p.run(MI, "cron", "--remove", env=env).returncode == 0
 assert open(tab).read().splitlines() == ["0 3 * * * backup"]
-ok("cron: */30 crontab line gated by `aloop mission due` (both logged), per host; --install idempotent, "
-   "--remove undoes it")
+r = p.run(MI, "cron", "--fire", env=env)                                   # due (the mission's ethics review)
+assert r.returncode == 0, r.stderr
+got = open(seen).read().split()
+assert got[0].isdigit() and got[1] == "-p" and "/aloop:mission" in got, got
+r = p.run(MI, "cron", "--fire", "--host", "codex", env=env)
+assert "network_access=true" in open(seen).read().splitlines()[-1], open(seen).read()
+log = open(os.path.join(p.dir, ".aladdin", "logs", "mission-cron.log")).read()
+assert "due: ETHICS_REVIEW" in log and "exited 0" in log, log
+fd = os.open(os.path.join(p.dir, ".aladdin", "state", "mission-loop.lock"), os.O_RDWR)
+fcntl.flock(fd, fcntl.LOCK_EX)
+before = open(seen).read()
+assert p.run(MI, "cron", "--fire", env=env).returncode == 1                # a session holds the lock
+assert open(seen).read() == before
+os.close(fd)
+q = Project().init(approve=False)
+env_q = dict(q.env, PATH=cronbin + os.pathsep + q.env["PATH"])
+assert q.run(MI, "cron", "--fire", env=env_q).returncode == 3
+assert q.run(MI, "cron", "--fire", env=env_q).returncode == 1              # told once
+qlog = open(os.path.join(q.dir, ".aladdin", "logs", "mission-cron.log")).read()
+assert qlog.count("the human is needed: CONFIRM_MISSION") == 1 and open(seen).read() == before, qlog
+pct = tempfile.mkdtemp(prefix="aloop-50%-")
+shutil.copytree(p.dir, os.path.join(pct, "app"), symlinks=True)
+r = subprocess.run([MI, "cron"], cwd=os.path.join(pct, "app"), env=p.env, capture_output=True, text=True)
+assert "aloop-50\\%-" in r.stdout and "aloop-50%-" not in r.stdout, r.stdout   # cron reads a bare % as a newline
+ok("cron: the */30 line runs `cron --fire` (log, lock, host session with ALOOP_MISSION_LOOP; codex gets the "
+   "network); a human action is logged once and starts nothing; % is escaped; install is idempotent")
 
-# 13) files a human or a host may have mangled never crash the loop (a crash would read as "not due")
+# 17) files a human or a host may have mangled never crash the loop (a crash would read as "not due")
 p = Project().init()
 cleared(p)
 p.art("state", "recorded", 1)
@@ -504,7 +751,7 @@ os.makedirs(os.path.join(p.dir, ".aladdin", "state"), exist_ok=True)
 sprints = os.path.join(p.dir, ".aladdin", "state", "sprints.json")
 for bad in ('{"closed": null}', '{"closed": [3, "x", {"sprint": "S?"}]}', "[]"):
     open(sprints, "w").write(bad)
-    expect(p.tick(1.1), "EVALUATE", 0)
+    expect(p.tick(1.1, "--peek"), "EVALUATE", 0)
 open(sprints, "w").write('{"closed": []}')
 with open(os.path.join(p.dir, ".aladdin", "logs", "events.jsonl"), "a") as f:
     f.write('[]\n"text"\n{"event": "mission.tick", "ts": "2026-01-01T00:00:00Z", "data": null}\n'
@@ -525,31 +772,32 @@ expect(p.tick(1.6), "SET_MISSION", 3, "unreadable")
 ok("mangled sprints.json, events, ledger rows, caps, cadence or mission.json: SET_MISSION or the next step, never "
    "a crash")
 
-# 14) a stamp kept to the second (events, sprint closes) ties toward "after": the sprint planned in the
-#     same second as its goal is that goal's, a state report in the second of a close is re-assessed
+# 18) a stamp kept to the second (events, sprint closes) ties toward "after": the sprint planned in the
+#     second the loop handed out SPRINT is that goal's, a state report in the second of a close is re-assessed
 p = Project().init()
 cleared(p)
 p.art("state", "recorded", 1)
 p.art("eval", "recorded", 1.1, goal_met=False)
-gid, gdoc = p.art("goal", "active", 1.2)
-p.review(p.ref("goal", gid), gdoc, "clear", 1.2)
+active_goal(p, 1.2)
+expect(p.tick(1.2), "SPRINT", 0)
 p.event("plan.created", 1.2, sprint="S1")                                  # same second, ms lost
 expect(p.tick(1.3), "WAIT", 4, "sprint 1")
 p.art("state", "recorded", 2.0)
 p.sprint_closed(1, 2.0)                                                    # closes later in that second
 expect(p.tick(2.1), "ASSESS", 0, "sprint 1 closed")
-ok("second-resolution stamps tie toward after: same-second sprints belong to the goal; a same-second close re-assesses")
+ok("second-resolution stamps tie toward after: a sprint planned in the second of its handout is the goal's; a "
+   "same-second close re-assesses")
 
-# 15) discovery and help: the three areas are found by name
-listed = p.run(MI, "--list").stdout.split()
+# 19) discovery and help: the three areas are found by name
+listed = p.mi("--list").stdout.split()
 assert {"tick", "due", "cron"} <= set(listed), listed
 for a in ("tick", "due", "cron"):
-    r = p.run(MI, a, "--help")
+    r = p.mi(a, "--help")
     assert r.returncode == 0 and "ROADMAP §4.12" in r.stdout, (a, r.stdout)
-assert p.run(MI, "tick", "--bogus").returncode == 64
-r = p.run(MI, "tick")                                                      # bare: it runs (NO_ARGS), not --help
+assert p.mi("tick", "--bogus").returncode == 64
+r = p.mi("tick")                                                           # bare: it runs (NO_ARGS), not --help
 assert r.stdout.split()[0] in TICK.ROLES, r.stdout
-assert p.run(MI, "due").stdout.startswith(("due:", "not due:"))
+assert p.mi("due").stdout.startswith(("due:", "not due:"))
 assert p.run(os.path.join(BIN, "aloop"), "mission", "tick", "--peek").stdout.split()[0] in TICK.ROLES
 ok("tick, due and cron are area commands with --help; bare `aloop mission tick` runs")
 
