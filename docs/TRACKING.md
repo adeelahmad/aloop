@@ -83,7 +83,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.24 | `--force` grants, ethics reviews and the budget stop are ledger rows | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.25 | A baseline binds the mission's direction, not its budget | IMPLEMENTED_TESTED | `scripts/test/mission-baseline.test.py` |
 | M9.26 | A goal's sprint history is read from committed records | NOT_IMPLEMENTED | §4.12 |
-| M9.27 | The mission loop trusts an eval only when `evaluate check` would | NOT_IMPLEMENTED | §4.12 |
+| M9.27 | The mission loop trusts an eval only when `evaluate check` would | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.28 | The mission loop drives the goal commands and reads goals by their records | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.29 | A hard-lined goal stops being the active goal | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py`, `scripts/test/mission-tick.test.py` |
 | M9.30 | Core agent principles; one-way / two-way door rule enforced by a gate | IMPLEMENTED_TESTED | `scripts/test/mission-doors.test.py` |
@@ -96,6 +96,8 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.46 | `mission due` is the supervisor's, not a role's | NOT_IMPLEMENTED | §4.12 |
 | M9.50 | A goal sprinted with gaps still open gets a next step | NOT_IMPLEMENTED | §4.12 |
 | M9.51 | Lifting a mission block is the human's typed line, kept in the ledger | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
+| M9.52 | The mission loop reads a gap list only when it still recomputes | NOT_IMPLEMENTED | §4.12 |
+| M9.53 | The mission loop hands out a goal's commands only when `goal check` passes | NOT_IMPLEMENTED | §4.12 |
 | M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | NOT_IMPLEMENTED | §4.13 |
 | M10.2 | Secret scan and dependency audit in acceptance; no unplanned dependency | NOT_IMPLEMENTED | §4.13 |
 | M10.3 | Fetched web content is data (no shell for fetching roles, injection eval case) | NOT_IMPLEMENTED | §4.13 |
