@@ -72,6 +72,15 @@ class Project:
             "claims": [{"claim_id": c, "text": "claim %s" % c, "kind": "other"} for c in claims]})
         return rid
 
+    def rubric(self, pass_mark=4):
+        """A sealed rubric in the judges area; returns the query a judged metric uses."""
+        rub = M.new_id("rubric")
+        doc = {"rubric_id": rub, "status": "active", "created_at": M.now(), "pass": pass_mark,
+               "criteria": [{"id": "delight", "scale": "1-5", "anchor": "a first-time user smiles"}]}
+        M.seal(doc)
+        M.save(M.path_of(self.dir, "rubric", rub), doc)
+        return {"kind": "judge", "rubric": rub, "rubric_sha256": M.digest(doc)}
+
     def draft(self, rid, **over):
         d = {"title": "Add a task and see it", "persona": "first-time user",
              "steps": [{"id": "open", "action": "open the app", "event": "app_open"},

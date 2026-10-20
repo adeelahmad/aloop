@@ -246,7 +246,7 @@ jp = Project(veto_window_h=0)
 jr = jp.research(["c1"])
 jdraft = jp.draft(jr)
 jdraft["metrics"].append({"id": "ux", "name": "delight", "unit": "1-5", "direction": "higher",
-                          "query": {"kind": "judge", "rubric": "rub_" + "1" * 20}, "source_refs": [jr + "#c1"]})
+                          "query": jp.rubric(), "source_refs": [jr + "#c1"]})
 jdraft["pass_criteria"].append({"id": "delight", "metric": "ux", "op": ">=", "value": 4})
 jp.journey(jdraft)
 jp.app(seconds_to_first_task=2.0, working_steps=["open", "add", "see"], tasks_shown=1)
@@ -272,5 +272,107 @@ assert q.run("baseline", "restore", c1, "--by", "Adeel", "--reason", "back to th
 assert q.run("baseline", "current").stdout.strip() == c1 and q.run("baseline", "check").returncode == 0
 assert q.load("baseline", c2)["status"] == "superseded"
 ok("a run that leaves out a step or metric is refused; restore reinstates only an intact, once-confirmed version")
+
+# 12) the freeze is the records', not the files'; a broken ledger stops every decision; a symlinked version blocks
+q = Project(veto_window_h=0)
+qr = q.research(["c1", "c2"])
+qj = q.journey(q.draft(qr))
+qb = new_id(q.run("baseline", "new", "--definition", "a first task in under 5 seconds"))
+assert q.run("baseline", "measure", qb).returncode == 0
+assert q.run("baseline", "confirm", qb, "--by", "Adeel").returncode == 0
+assert M.newest(q.dir, "baseline.confirmed", M.rel(q.dir, q.path("baseline", qb)))["data"]["journeys"] == \
+    [{"journey_id": qj, "sha256": M.digest(q.load("journey", qj))}]
+bdoc = q.load("baseline", qb)
+q.save("baseline", qb, dict(bdoc, definition_of_best="edited, so no confirmation covers this file"))
+r = q.run("journeys", "retire", qj, "--evidence", qr + "#c2")
+assert r.returncode == 3 and not q.load("journey", qj).get("retirement"), (r.returncode, r.stderr)
+q.save("baseline", qb, bdoc)
+led = M.ledger(q.dir)
+good = open(led).read()
+open(led, "w").write(good.replace('"by": "Adeel"', '"by": "Eve"', 1))
+for args in (["baseline", "new", "--definition", "x"], ["baseline", "measure", qb], ["baseline", "apply", qb],
+             ["baseline", "confirm", qb, "--by", "Adeel"], ["baseline", "veto", qb, "--by", "Adeel", "--reason", "no"],
+             ["baseline", "restore", qb, "--by", "Adeel"], ["journeys", "approve", qj, "--by", "Adeel", "--reason", "ok"],
+             ["journeys", "retire", qj, "--evidence", qr + "#c2"], ["assess"]):
+    r = q.run(*args)
+    assert r.returncode == 2 and "was edited" in r.stderr and "Traceback" not in r.stderr, (args, r.returncode, r.stderr)
+assert open(led).read() == good.replace('"by": "Adeel"', '"by": "Eve"', 1)
+open(led, "w").write(good)
+assert q.run("baseline", "check").returncode == 0
+bp = q.path("baseline", qb)
+os.rename(bp, bp + ".orig")
+os.symlink(bp + ".orig", bp)
+r = q.run("baseline", "check")
+assert r.returncode == 0 and "Traceback" not in r.stderr, (r.returncode, r.stderr)     # the same content, through a link
+M.save(bp + ".orig", dict(bdoc, definition_of_best="another content behind the link"))
+r = q.run("baseline", "check")
+assert r.returncode == 2 and "changed after it was confirmed" in r.stderr, (r.returncode, r.stderr)
+M.save(bp + ".orig", bdoc)
+os.remove(bp)
+os.rename(bp + ".orig", bp)
+assert q.run("baseline", "check").returncode == 0
+ok("a confirmation records what it froze (an edited baseline file unfreezes nothing); a broken ledger blocks every decision; a link is read, never a crash")
+
+# 13) the current version must be intact to decide from; a veto binds content in any order; restore sticks
+z = Project(veto_window_h=0)
+zr = z.research(["c1", "c2"])
+z1 = z.journey(z.draft(zr))
+zb1 = new_id(z.run("baseline", "new", "--definition", "a first task in under 5 seconds"))
+assert z.run("baseline", "measure", zb1).returncode == 0 and z.run("baseline", "confirm", zb1, "--by", "Adeel").returncode == 0
+z2 = z.journey(z.draft(zr, title="A second journey"))
+zp = z.path("baseline", zb1)
+zdoc = z.load("baseline", zb1)
+os.rename(zp, zp + ".aside")
+r = z.run("baseline", "new", "--journey", z2, "--definition", "d", "--supersedes", zb1, "--evidence", zr + "#c1")
+assert r.returncode == 2 and "the current version %s is gone" % zb1 in r.stderr, r.stderr
+os.rename(zp + ".aside", zp)
+
+
+def sup(*extra):
+    return z.run("baseline", "new", "--supersedes", zb1, "--evidence", zr + "#c1", *extra)
+
+
+zb2 = new_id(sup("--definition", "looser", "--tolerance", "0.25"))
+assert z.run("baseline", "measure", zb2).returncode == 0
+z.save("baseline", zb1, dict(zdoc, tolerance=0.25))
+r = z.run("baseline", "apply", zb2)
+assert r.returncode == 2 and "the current version %s changed after it was confirmed" % zb1 in r.stderr, r.stderr
+z.save("baseline", zb1, zdoc)
+r = z.run("baseline", "apply", zb2)
+assert r.returncode == 3 and "tolerates more drift" in r.stderr, r.stderr
+r = sup("--definition", "dup", "--journey", z1, "--journey", z1)
+assert r.returncode == 2 and "lists journey %s twice" % z1 in r.stderr, r.stderr
+zb3 = new_id(sup("--definition", "two journeys", "--journey", z1, "--journey", z2))
+assert z.run("baseline", "measure", zb3).returncode == 0
+assert z.run("baseline", "veto", zb3, "--by", "Adeel", "--reason", "not this").returncode == 0
+zb4 = new_id(sup("--definition", "two journeys", "--journey", z2, "--journey", z1))
+assert z.run("baseline", "measure", zb4).returncode == 0
+r = z.run("baseline", "apply", zb4)
+assert r.returncode == 2 and "content the human vetoed" in r.stderr, r.stderr
+zb5 = new_id(sup("--definition", "a fifth"))
+assert z.run("baseline", "measure", zb5).returncode == 0
+z.save("baseline", zb5, dict(z.load("baseline", zb5), status="vetoed"))
+assert z.run("baseline", "veto", zb5, "--by", "Adeel", "--reason", "really").returncode == 0
+assert M.newest(z.dir, "baseline.vetoed", M.rel(z.dir, z.path("baseline", zb5)))["data"]["by"] == "Adeel"
+zb6 = new_id(sup("--definition", "a sixth"))
+assert z.run("baseline", "measure", zb6).returncode == 0 and z.run("baseline", "apply", zb6).returncode == 0
+assert z.run("baseline", "restore", zb1, "--by", "Adeel", "--reason", "too early").returncode == 0
+z.save("baseline", zb6, dict(z.load("baseline", zb6), status="measured"))
+r = z.run("baseline", "apply", zb6)
+assert r.returncode == 2 and "was confirmed before" in r.stderr, r.stderr
+r = z.run("baseline", "veto", zb6, "--by", "Adeel", "--reason", "x")
+assert r.returncode == 2 and "was confirmed" in r.stderr, r.stderr
+assert z.run("baseline", "current").stdout.strip() == zb1
+zdoc = z.load("baseline", zb1)
+for bad_doc in (dict(zdoc, measurements=dict(zdoc["measurements"], runs=[{"journeys": "x"}, {"journeys": "x"}])),
+                dict(zdoc, journeys=["jrn_x"]), dict(zdoc, tolerance="0.05"), {k: v for k, v in zdoc.items() if k != "version"}):
+    z.save("baseline", zb1, bad_doc)
+    for args in (["baseline", "check"], ["assess"], ["baseline", "new", "--definition", "d", "--supersedes", zb1,
+                 "--evidence", zr + "#c1"], ["baseline", "apply", zb2], ["baseline", "show"], ["baseline", "current"]):
+        r = z.run(*args)
+        assert "Traceback" not in r.stderr and r.returncode in (0, 2, 3), (args, r.returncode, r.stderr[-300:])
+z.save("baseline", zb1, zdoc)
+assert z.run("baseline", "check").returncode == 0
+ok("an edited, moved or malformed current version decides nothing; a veto binds content in any order; a restore sticks")
 
 print("mission-baseline: %d checks passed" % PASS[0])

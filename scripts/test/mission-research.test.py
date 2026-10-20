@@ -158,8 +158,8 @@ assert run(*R, "new", "Rivals", "--role", "market-researcher").returncode == 64 
 assert run(*R, "new", "--question", "who are the rivals?").returncode == 64               # no title
 assert run(*R, "new", "Rivals", "--question", "q?", "--role", "builder").returncode == 64  # unknown role
 assert run(*R, "new", "Rivals", "--question", "q?", "--bogus", "1").returncode == 64       # unknown option
-r = run(*R, "new", b"caf\xe9", "--question", "q?")                                       # not UTF-8: usage
-assert r.returncode == 64 and "BLOCK[research]" in r.stderr and "UTF-8" in r.stderr, r.stderr
+rc, _, err = cli("new", b"caf\xe9".decode("utf-8", "surrogateescape"), "--question", "q?")   # not UTF-8: usage
+assert rc == 64 and "BLOCK[research]" in err and "UTF-8" in err, err     # (the `mission` entry decodes argv itself)
 assert not os.path.isdir(os.path.join(T, "docs", "agents", "mission", "research"))
 r = run(*R, "new", "To-do app rivals", "--question", "who are the best to-do apps and why?")
 assert r.returncode == 0, r.stderr
@@ -333,10 +333,14 @@ for args, rc, words in cases:
     for w in words:
         assert w in r.stderr, (args, w, r.stderr)
 assert run(*R, "claim", RID, "--source", "s1", "--quote", "Pricing starts at $4").returncode == 64   # no text
-r = run(*R, "claim", RID, b"caf\xe9 claim", "--source", "s1", "--quote", "Pricing starts at $4")
-assert r.returncode == 64 and "UTF-8" in r.stderr, r.stderr
-r = run(*R, "claim", RID, "a claim", "--source", "s1", "--quote", b"Pricing starts at $4 \xe9")
-assert r.returncode == 64 and "UTF-8" in r.stderr, r.stderr
+def undecodable(b):
+    return b.decode("utf-8", "surrogateescape")      # argv as Python gets bytes that are not UTF-8
+
+
+rc, _, err = cli("claim", RID, undecodable(b"caf\xe9 claim"), "--source", "s1", "--quote", "Pricing starts at $4")
+assert rc == 64 and "UTF-8" in err, err
+rc, _, err = cli("claim", RID, "a claim", "--source", "s1", "--quote", undecodable(b"Pricing starts at $4 \xe9"))
+assert rc == 64 and "UTF-8" in err, err
 assert read(P) == raw and len(events("claim")) == 2
 r = run(*R, "claim", RID, "Price is the rival's edge", "--from", "c1", "c2", "--kind", "other")
 assert r.returncode == 0 and r.stdout.strip() == "c3", r.stderr
