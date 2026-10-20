@@ -22,6 +22,7 @@ import math
 import os
 import re
 import secrets
+import sys
 import time
 import uuid
 
@@ -51,7 +52,7 @@ STATUSES = {
     "state": ("recorded",),
     "eval": ("recorded",),
     "goal": ("derived", "approved", "active", "met", "retired", "blocked"),
-    "ethics": ("recorded",),
+    "ethics": ("draft", "recorded"),
     "rubric": ("proposed", "active", "retired"),
     "telemetry": ("off", "consented", "configured", "revoked"),
 }
@@ -60,6 +61,14 @@ STATUSES = {
 APPROVAL_EVENTS = {"mission.approved": "mission", "baseline.confirmed": "baseline",
                    "journey.approved": "journey", "goal.approved": "goal", "ethics.consent": "goal",
                    "telemetry.consent": "telemetry"}
+# a human grant counts only with the human's own words (M9.17): a line of a prompt the
+# UserPromptSubmit hook captured (`transcripts prompt`) that says the grant's verb and the code of
+# the content it grants (the first 8 hex of its sha256). A veto needs none: refusing is always safe.
+GRANT_VERBS = {"mission.approved": "approve", "baseline.confirmed": "confirm", "journey.approved": "approve",
+               "goal.approved": "approve", "ethics.consent": "consent", "telemetry.consent": "consent"}
+ACTION_VERBS = ("restore", "retire")    # a grant whose data.action is one of these says that verb
+SUPERSEDE_ACROSS = ("baseline.confirmed",)     # the newest confirmation of any version is the current one
+NEGATION = re.compile(r"\b(?:not|no|never|don'?t|veto\w*|reject\w*|cancel\w*|stop|wait|undo)\b")
 
 # fields left out of the digest: the digest itself and the bookkeeping that changes on approval
 UNHASHED = ("sha256", "status", "approval")
@@ -87,10 +96,22 @@ def path_of(cwd, kind, artifact_id=""):
     return mdir(cwd, loc, artifact_id + ".json")
 
 
+def cli_text(argv):
+    """argv as the UTF-8 it was typed in, and a stdout/stderr that never crash on it, whatever the
+    locale: a C locale decodes argv as ASCII and leaves lone surrogates in it."""
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(errors="backslashreplace")
+        except (AttributeError, ValueError):
+            pass
+    return [os.fsencode(a).decode("utf-8", "replace") for a in argv]
+
+
 def canonical(doc, drop=UNHASHED):
-    """The canonical bytes of a document: sorted keys, no whitespace, `drop` fields removed."""
+    """The canonical bytes of a document: sorted keys, no whitespace, `drop` fields removed. A lone
+    surrogate (only a hand-edited file holds one) is encoded as is, so digesting never crashes."""
     body = {k: v for k, v in doc.items() if k not in drop}
-    return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8", "surrogatepass")
 
 
 def digest(doc, drop=UNHASHED):
@@ -99,7 +120,7 @@ def digest(doc, drop=UNHASHED):
 
 def load(path):
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f), None
     except (OSError, ValueError) as e:
         return None, str(e)
@@ -109,7 +130,7 @@ def save(path, doc):
     """Write atomically (a reader never sees half a file)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = "%s.tmp.%d" % (path, os.getpid())
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=1, ensure_ascii=False)
         f.write("\n")
     os.replace(tmp, path)
@@ -153,6 +174,8 @@ def validate(doc, schema, where="$"):
             out.append("%s is empty" % where if not doc.strip() else "%s is too short" % where)
         if "pattern" in schema and not re.search(schema["pattern"], doc):
             out.append("%s does not match %s" % (where, schema["pattern"]))
+        if re.search("[\ud800-\udfff]", doc):
+            out.append("%s holds a lone surrogate, which is not text" % where)
     if isinstance(doc, float) and not math.isfinite(doc):
         return ["%s must be a finite number" % where]
     if isinstance(doc, (int, float)) and not isinstance(doc, bool):
@@ -180,7 +203,7 @@ def validate(doc, schema, where="$"):
 
 
 def schema(kind):
-    with open(os.path.join(SCHEMAS_DIR, kind + ".json")) as f:
+    with open(os.path.join(SCHEMAS_DIR, kind + ".json"), encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -208,9 +231,12 @@ def emit(cwd, event, role="", refs=None, **data):
     return _events.emit(cwd, event, role=role, refs=refs, **data)
 
 
-HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed",)
-# every record a mission gate decides from: the human decisions, plus what the harness measured
-LEDGER_EVENTS = HUMAN_EVENTS + ("baseline.measured", "journey.retired")
+# a human decision that is not an approval: a veto, an opt-out
+HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed", "telemetry.revoked")
+# every record a mission gate decides from: the human decisions, plus what the harness measured,
+# assessed, retired, reviewed (a hard ethics line stays blocked on a fresh checkout) and derived
+LEDGER_EVENTS = HUMAN_EVENTS + ("baseline.measured", "state.assessed", "journey.retired", "ethics.reviewed",
+                                "ethics.blocked", "goal.derived", "goal.met")
 
 
 def ledger(cwd=None):
@@ -230,7 +256,7 @@ def ledger_rows(cwd):
     """(intact rows in file order, problems): one problem per malformed line, edited row, row
     whose predecessor is gone, or row dated before the row it follows."""
     try:
-        with open(ledger(cwd)) as f:
+        with open(ledger(cwd), encoding="utf-8") as f:
             lines = f.read().splitlines()
     except OSError:
         return [], []
@@ -256,40 +282,169 @@ def ledger_rows(cwd):
         elif prev and row["ts"] < seen[prev]["ts"]:
             bad.append("ledger line %d is dated before the row it follows" % n)
         seen[row["hash"]] = row
+        if row["event"] in GRANT_VERBS and row.get("role") == "human" and not cites(row):
+            bad.append("ledger line %d is a human %s that cites none of the human's own words (no captured "
+                       "prompt line says it)" % (n, row["event"]))
+            continue
         rows.append(row)
     return rows, bad
 
 
+def branch(cwd):
+    """The main worktree's branch (the ledger is that worktree's file), or "" on a detached HEAD."""
+    return _paths._git(_paths.project(cwd), "symbolic-ref", "-q", "--short", "HEAD")
+
+
+class LedgerBroken(RuntimeError):
+    """The ledger has problems, so no gate decides from it and no row is chained past them."""
+
+
 def ledger_problems(cwd):
-    """The ledger's own problems, plus every ledger event the run log recorded that the ledger lost."""
+    """The ledger's own problems, plus every ledger event the run log recorded on this branch that
+    the ledger lost (the run log is shared by every branch of the checkout; another branch's
+    ledger never had this branch's rows)."""
     rows, bad = ledger_rows(cwd)
     have = set(r.get("event_id") for r in rows)
+    here = None
     for e in _events.read(cwd):
-        if (e.get("data") or {}).get("ledger") is True and e.get("event_id") not in have:
-            bad.append("the ledger lost %s %s (the run log recorded it at %s)"
-                       % (e.get("event"), (e.get("data") or {}).get("subject"), e.get("ts")))
+        d = e.get("data")
+        if not isinstance(d, dict) or d.get("ledger") is not True or e.get("event_id") in have:
+            continue
+        here = branch(cwd) if here is None else here
+        if d.get("branch", here) == here:
+            bad.append("the ledger lost %s %s (the run log recorded it at %s)" % (e.get("event"), d.get("subject"), e.get("ts")))
     return bad
+
+
+def ledger_block(cwd, area):
+    """Print why and return 2 when the ledger is broken (nothing may decide from it), else 0."""
+    bad = ledger_problems(cwd)
+    for b in bad:
+        print("BLOCK[%s]: %s (restore it: git checkout -- %s)" % (area, b, rel(cwd, ledger(cwd))), file=sys.stderr)
+    return 2 if bad else 0
 
 
 def record(cwd, event, subject_ref, role, **data):
     """Append one record a gate decides from to the ledger (and the event stream); returns the row."""
     if event not in LEDGER_EVENTS:
         raise ValueError("not a ledger event: %r" % event)
+    bad = ledger_problems(cwd)
+    if bad:
+        raise LedgerBroken("; ".join(bad))
     body = dict(data, subject=subject_ref)
-    eid = emit(cwd, event, role=role, refs={"subject": subject_ref}, ledger=True, **body) or uuid.uuid4().hex
+    if event in HUMAN_EVENTS:      # a decision (or the veto window's) dates every prompt captured before it
+        body["prompt_log"] = prompt_clock(prompts(cwd))
+    eid = emit(cwd, event, role=role, refs={"subject": subject_ref}, ledger=True, branch=branch(cwd), **body) \
+        or uuid.uuid4().hex
     rows, _ = ledger_rows(cwd)
     ts = max([now()] + [r["ts"] for r in rows[-1:]])
     row = {"event_id": eid, "ts": ts, "event": event, "role": role, "data": body,
            "prev": rows[-1]["hash"] if rows else ""}
     row["hash"] = _row_hash(row)
     os.makedirs(os.path.dirname(ledger(cwd)), exist_ok=True)
-    with open(ledger(cwd), "a") as f:
+    with open(ledger(cwd), "a", encoding="utf-8") as f:
         f.write(json.dumps(row, sort_keys=True) + "\n")
     return row
 
 
+class NeedsHuman(Exception):
+    """A grant the human has not said in their own words yet: ASK (exit 3) with the line to reply."""
+
+
+def code(sha):
+    """The short code a human types to grant exactly this content."""
+    return (sha or "")[:8]
+
+
+def grant_verb(event, data):
+    a = data.get("action")
+    return a if a in ACTION_VERBS else GRANT_VERBS[event]
+
+
+def grants(line, verb, sha):
+    """True when one typed line grants exactly this content: it starts with the verb (after an optional
+    yes or ok), names the content's code (or more of its sha256), and says nothing that undoes it."""
+    s = re.sub(r"^(?:yes|ok|okay|sure)\b[\s,.!:;-]*", "", line.strip().strip("`'\"").strip().lower())
+    hexes = [t for t in re.findall(r"\b[0-9a-f]{8,64}\b", s) if sha and sha.startswith(t)]
+    return bool(re.match(r"%s\b" % re.escape(verb), s)) and bool(hexes) and not NEGATION.search(s)
+
+
+def cites(row):
+    """A human grant's record names a captured prompt line that grants exactly its content."""
+    d, c = row["data"], row["data"].get("prompt")
+    return isinstance(c, dict) and isinstance(c.get("line"), str) and isinstance(d.get("sha256"), str) \
+        and grants(c["line"], grant_verb(row["event"], d), d["sha256"])
+
+
+def prompts(cwd):
+    """The human prompts the UserPromptSubmit hook captured in this checkout (`transcripts prompt`),
+    oldest first: {ts, sha256, session, text}. Run data, so another checkout has its own."""
+    out = []
+    for p in sorted(glob.glob(os.path.join(_paths.home(cwd, "transcripts", make=False), "*", "events.jsonl"))):
+        try:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+        except OSError:
+            continue
+        for ln in lines:
+            if '"prompt"' not in ln:        # the store also holds every tool call's full payload
+                continue
+            try:
+                e = json.loads(ln)
+            except ValueError:
+                continue
+            pl = e.get("payload") if isinstance(e, dict) and e.get("kind") == "prompt" else None
+            if isinstance(pl, dict) and isinstance(pl.get("prompt"), str) and isinstance(e.get("ts"), str):
+                out.append({"ts": e["ts"], "session": str(pl.get("session_id") or ""), "text": pl["prompt"],
+                            "sha256": hashlib.sha256(pl["prompt"].encode("utf-8", "surrogatepass")).hexdigest()})
+    return sorted(out, key=lambda q: q["ts"])     # stable: file order within a second
+
+
+def prompt_clock(qs):
+    """Which prompt log this is (its first prompt) and how many prompts it had: a human decision records
+    it, so a line captured before that decision is known to be older, even within the same second."""
+    return {"id": hashlib.sha256((qs[0]["ts"] + qs[0]["sha256"]).encode()).hexdigest()[:16] if qs else "",
+            "seen": len(qs)}
+
+
+def stale_before(cwd, event, subject_ref, sha, qs):
+    """How many of the captured prompts are too old to grant this: every one captured before a later human
+    decision about the same subject (other content approved, a veto, a revocation) or, for a baseline,
+    before any version's confirmation (the newest one is the current version)."""
+    clock, floor = prompt_clock(qs), 0
+    for r in ledger_rows(cwd)[0]:
+        d = r["data"]
+        if r["event"] not in HUMAN_EVENTS or (r["event"] == event and d.get("subject") == subject_ref
+                                              and d.get("sha256") == sha):
+            continue                       # this very content (a consent per review, a repeat) undoes nothing
+        if d.get("subject") != subject_ref and not (event in SUPERSEDE_ACROSS and r["event"] == event):
+            continue
+        seen = d.get("prompt_log") if isinstance(d.get("prompt_log"), dict) else {}
+        if clock["id"] and seen.get("id") == clock["id"] and isinstance(seen.get("seen"), int):
+            floor = max(floor, seen["seen"])
+        else:   # recorded on another checkout: a prompt from that second or before is older
+            floor = max(floor, sum(1 for q in qs if q["ts"] <= r["ts"]))
+    return floor
+
+
+def provenance(cwd, event, subject_ref, sha, data):
+    """The newest captured prompt line that grants this content, as the record's `prompt`; raises
+    NeedsHuman with the line to reply when there is none. A line older than a later decision about the
+    subject is stale, so an old "approve" never re-grants content that was replaced or vetoed."""
+    verb, qs = grant_verb(event, data), prompts(cwd)
+    for q in reversed(qs[stale_before(cwd, event, subject_ref, sha, qs):]):
+        for line in q["text"].splitlines():
+            if grants(line, verb, sha):
+                return {"ts": q["ts"], "sha256": q["sha256"], "session": q["session"], "line": line.strip()[:200]}
+    name = next((data[k] for k in ("mission_id", "baseline_id", "journey_id", "goal_id", "subject_id", "telemetry_id")
+                 if isinstance(data.get(k), str) and data[k]), os.path.basename(subject_ref))
+    raise NeedsHuman("%s is the human's own decision: they reply  %s %s %s  (the code names exactly this "
+                     "content), then run this again" % (event, verb, name, code(sha)))
+
+
 def record_human(cwd, event, subject_ref, by, reason="", **data):
-    """Record a human decision about one subject; returns its event id."""
+    """Record a human decision about one subject; returns its event id. A grant also cites the
+    captured prompt line that says it (raises NeedsHuman until the human has typed one)."""
     if event not in HUMAN_EVENTS:
         raise ValueError("not a human decision event: %r" % event)
     by, reason = (by or "").strip(), (reason or "").strip()
@@ -297,6 +452,8 @@ def record_human(cwd, event, subject_ref, by, reason="", **data):
         raise ValueError("a human decision names who made it (--by)")
     if "\n" in reason or len(reason) > 200:
         raise ValueError("a reason is one line of at most 200 characters")
+    if event in GRANT_VERBS:
+        data["prompt"] = provenance(cwd, event, subject_ref, data.get("sha256") or "", data)
     return record(cwd, event, subject_ref, "human", by=by, reason=reason, **data)["event_id"]
 
 

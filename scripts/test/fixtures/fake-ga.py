@@ -7,6 +7,9 @@ calls (ROADMAP §4.12, M9.6), for tests: no network, no Google account, no token
   /data/v1beta/…    Data API: :runReport, :runRealtimeReport
   /mp/debug/mp/collect   the Measurement Protocol validation server (like Google's, it checks the
                          payload and never the measurement_id or api_secret)
+  /mp/mp/collect         the Measurement Protocol itself: like Google's it answers 204 to every
+                         hit, and only a hit whose api_secret is live on the stream with that
+                         measurement_id reaches that stream's realtime report
 
 Point the client at it with ALADDIN_GA_BASE=http://127.0.0.1:<port>. The port is the first
 line on stdout. Admin and Data calls need `Authorization: Bearer $FAKE_GA_TOKEN` (default
@@ -14,8 +17,9 @@ line on stdout. Admin and Data calls need `Authorization: Bearer $FAKE_GA_TOKEN`
   POST /_control {json}   merge into the scenario: accounts (0, 1, 2…), users, new_users,
                           thresholded, events {name: [count, users]}, realtime {name: [count, users]}
                           (all on the property's first stream), mp_messages [extra validation
-                          messages], redirect (a path every admin/data call is 302-redirected to)
-  GET  /_log              every request so far: [{method, path, query, auth, body}]
+                          messages], redirect (a path every admin/data call is 302-redirected to),
+                          mp_drop (collect drops every hit)
+  GET  /_log              every request so far: [{method, path, query, auth, user_project, body}]
 """
 import json
 import os
@@ -23,7 +27,7 @@ import re
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 TOKEN = os.environ.get("FAKE_GA_TOKEN", "fake-token")
 ACK = ("I acknowledge that I have the necessary privacy disclosures and rights from my end users for the "
@@ -31,15 +35,16 @@ ACK = ("I acknowledge that I have the necessary privacy disclosures and rights f
        "information Google Analytics collects from my site and/or app property.")
 NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
 RESERVED = {"ad_activeview", "ad_click", "ad_exposure", "ad_impression", "ad_query", "ad_reward", "adunit_exposure",
-            "app_clear_data", "app_exception", "app_install", "app_remove", "app_store_refund", "app_update",
-            "app_upgrade", "dynamic_link_app_open", "dynamic_link_app_update", "dynamic_link_first_open", "error",
+            "app_background", "app_clear_data", "app_exception", "app_install", "app_remove", "app_store_refund",
+            "app_store_subscription_cancel", "app_store_subscription_convert", "app_store_subscription_renew",
+            "app_update", "app_upgrade", "dynamic_link_app_open", "dynamic_link_app_update", "dynamic_link_first_open", "error",
             "first_open", "first_visit", "in_app_purchase", "notification_dismiss", "notification_foreground",
             "notification_open", "notification_receive", "os_update", "session_start", "session_start_with_rollout",
             "user_engagement"}
 
 LOCK = threading.Lock()
 SCENARIO = {"accounts": 1, "users": 0, "new_users": 0, "thresholded": False, "events": {}, "realtime": {},
-            "mp_messages": [], "redirect": ""}
+            "mp_messages": [], "redirect": "", "mp_drop": False}
 DB = {"n": 1000, "properties": {}, "acked": set(), "streams": {}, "secrets": {}, "key_events": {}}
 LOG = []
 
@@ -201,6 +206,20 @@ def mp_debug(body):
     return 200, {"validationMessages": msgs}
 
 
+def mp_collect(query, body):
+    """A hit counts only on the stream whose measurement id and live secret it carries (the
+    scenario's traffic is the property's first stream's, so that is where it can show)."""
+    q = {k: v[0] for k, v in parse_qs(query).items()}
+    stream = next((s for s in DB["streams"].values() if s["webStreamData"]["measurementId"] == q.get("measurement_id")), None)
+    live = stream and any(x["name"].startswith(stream["name"] + "/") and x["secretValue"] == q.get("api_secret")
+                          for x in DB["secrets"].values())
+    if live and not SCENARIO["mp_drop"] and body.get("client_id"):
+        for e in (body.get("events") or [])[:25]:
+            count, users = SCENARIO["realtime"].get(e.get("name"), [0, 0])
+            SCENARIO["realtime"][e.get("name")] = [count + 1, max(users, 1)]
+    return 204
+
+
 class H(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -228,8 +247,12 @@ class H(BaseHTTPRequestHandler):
                 SCENARIO.update(body)
                 return self.reply(200, SCENARIO)
             auth = self.headers.get("Authorization") or ""
-            LOG.append({"method": method, "path": u.path, "query": u.query, "auth": auth, "body": body})
+            LOG.append({"method": method, "path": u.path, "query": u.query, "auth": auth, "body": body,
+                        "user_project": self.headers.get("x-goog-user-project") or ""})
             parts = [p for p in u.path.split("/") if p]
+            if parts == ["mp", "mp", "collect"] and method == "POST":
+                self.send_response(mp_collect(u.query, body))
+                return self.end_headers()
             if parts[:2] == ["mp", "debug"] and parts[2:] == ["mp", "collect"] and method == "POST":
                 return self.reply(*mp_debug(body))
             if parts[:1] in (["admin"], ["data"]) and SCENARIO["redirect"]:
