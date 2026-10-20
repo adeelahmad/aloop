@@ -772,9 +772,10 @@ d = p.due(0.2)
 assert d["rc"] == 1 and "already told" in d["reason"], d
 p = Project().init()
 cleared(p)
-active_goal(p, 1.2, at=(1, 1.1))
+gid, _ = active_goal(p, 1.2, at=(1, 1.1))
+ids = handed_off(p, gid, 1.25)
 p.tick(1.3)
-p.event("plan.created", 1.5, sprint="S1")
+p.event("plan.created", 1.5, sprint="S1", intent_id=ids[0])
 assert p.due(3)["rc"] == 1 and p.due(7.5)["rc"] == 0                        # waiting, then the cadence is due
 r = p.mi("due", "-q", "--now", iso(p.at(3)))
 assert r.returncode == 1 and r.stdout == "" and r.stderr == ""
