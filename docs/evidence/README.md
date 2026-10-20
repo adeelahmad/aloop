@@ -51,7 +51,7 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 42 | extend (brownfield Rust), first run | v0.12.0 + #66 (859661d) | 13/13 | 7m11s | $0.67 | 2 | 4 | 2 | `make e2e-live YES=1 INTENT=extend` |
 | run 43 | modify (brownfield Rust), first run | v0.12.0 + #67 (f16433d) | 13/13 | 9m10s | $0.67 | 1 | 0 | 6 | `make e2e-live YES=1 INTENT=modify` |
 | run 44 | cli (Rust binary), first run | v0.12.0 + #68 (216dd4c) | 13/13 | 24m55s | $1.54 | 3 | 0 | 6 | `make e2e-live YES=1 INTENT=cli` |
-| run 45 | cli (Rust binary), on the task-sizing rule | v0.12.0 + #71 (eb00a74) | 13/13 | 16m22s | $1.07 | 3 | 0 | 8 | `make e2e-live YES=1 INTENT=cli` |
+| run 45 | cli (Rust binary), on the task-sizing rule | v0.12.0 + #76 (eb00a74) | 13/13 | 16m22s | $1.07 | 3 | 0 | 8 | `make e2e-live YES=1 INTENT=cli` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
