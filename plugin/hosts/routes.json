@@ -1,6 +1,6 @@
 {
   "schema": "aladdin.routes/1",
-  "note": "Abstract model routes (ROADMAP §3.6). Roles map to a route; each host resolves a route to its own concrete model id. An empty id means 'the host session's own model' (Codex has no Claude ids). A setting that is not a route name is a pinned concrete id and passes through unchanged.",
+  "note": "Abstract model routes (ROADMAP §3.6). Roles map to a route; each host resolves a route to its own concrete model id. An empty id means 'the host session's own model' (Codex has no Claude ids). DeepSeek Harness (dsh) ids are its catalog's, on provider deepseek-official. A setting that is not a route name is a pinned concrete id and passes through unchanged.",
   "routes": ["strongest", "strong", "economical"],
   "hosts": {
     "claude": {
@@ -17,6 +17,11 @@
       "strongest": "",
       "strong": "",
       "economical": ""
+    },
+    "dsh": {
+      "strongest": "deepseek-v4-pro",
+      "strong": "deepseek-v4-pro",
+      "economical": "deepseek-flash"
     }
   }
 }

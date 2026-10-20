@@ -176,6 +176,14 @@ case "$tool" in Write|Edit|MultiEdit|NotebookEdit) ;; *) exit 0 ;; esac
 # No session id => fail OPEN (don't risk blocking a non-agentic session).
 [ -n "$session" ] || exit 0
 
+# Classify where the write really lands: symlinks and `..` resolved as the OS resolves them, so
+# `.aladdin/../src/a.rs` or `docs/agents/s1/../../../src/a.rs` is source. A relative path is the
+# payload cwd's. Only suffix globs are matched below, so macOS's /var -> /private/var is harmless.
+cwd_f="$(field cwd)"; [ -n "$cwd_f" ] || cwd_f="$PWD"
+case "$file" in /*) abs="$file" ;; *) abs="$cwd_f/$file" ;; esac
+real="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$abs" 2>/dev/null)"
+[ -n "$real" ] || real="$file"
+
 # Dispatched sub-agent (planner / intake / standards / red / scaffolder / green / …):
 # agent_type is present ⇒ it is doing its designated job; its own SubagentStop gate
 # constrains it. Never block a sub-agent here.
@@ -183,7 +191,7 @@ agent_type="$(field agent_type)"
 # ...except the task contract and the supervisor's state: a worker that rewrites its contract
 # (<run-data>/state/tasks/<TASK_ID>.env, or the worktree copy) widens its own scope or budget.
 if [ -n "$agent_type" ]; then
-  case "$file" in .agentic/state/*|*/.agentic/state/*|.aladdin/state/*|*/.aladdin/state/*|.agentic/task.env|*/.agentic/task.env|.aladdin/task.env|*/.aladdin/task.env)
+  case "$real" in .agentic/state/*|*/.agentic/state/*|.aladdin/state/*|*/.aladdin/state/*|.agentic/task.env|*/.agentic/task.env|.aladdin/task.env|*/.aladdin/task.env)
     echo "BLOCK[$GATE_NAME]: $file is the supervisor's task contract/state; a dispatched agent may not write it." >&2
     echo "  Your task contract is fixed at dispatch. If it is wrong, say so in your output.md report." >&2
     exit 2 ;;
@@ -191,21 +199,24 @@ if [ -n "$agent_type" ]; then
   exit 0
 fi
 
-# Fallback (only if a payload ever lacks agent_type): a worktree task.env naming a
-# dispatched role still exempts that agent.
-for te in "$root/.aladdin/task.env" "$root/.agentic/task.env"; do
-  if [ -f "$te" ] \
-     && grep -qE '^[[:space:]]*AGENT_ROLE=("?)(red-worker|scaffolder|green-worker|planner|intake|standards|structural-reviewer|final-gate|archivist)\1' "$te" 2>/dev/null; then
-    exit 0
-  fi
-done
+# Fallback (only if a sub-agent's payload ever lacks agent_type): a worktree task.env naming a
+# dispatched role still exempts that agent. Only a sub-agent's: the supervisor's payload carries
+# no agent_id, and its hook may run inside a task worktree after a `cd` there.
+if [ -n "$(field agent_id)" ]; then
+  for te in "$root/.aladdin/task.env" "$root/.agentic/task.env"; do
+    if [ -f "$te" ] \
+       && grep -qE '^[[:space:]]*AGENT_ROLE=("?)(red-worker|scaffolder|green-worker|planner|intake|standards|structural-reviewer|final-gate|archivist)\1' "$te" 2>/dev/null; then
+      exit 0
+    fi
+  done
+fi
 
 # ── MAIN AGENT (the supervisor) from here on ───────────────────────────────
-base="${file##*/}"
+base="${real##*/}"
 
 # (A) Planning artifacts are authored by a DISPATCHED activity, never hand-written by
 # you. Path-based (fires even on the FIRST stories.md write, before any lock is armed).
-case "$file" in docs/agents/*|*/docs/agents/*)
+case "$real" in docs/agents/*|*/docs/agents/*)
   case "$base" in stories.md|tasks.md|validate.md|plan.md|intake.md|standards.md)
     echo "BLOCK[$GATE_NAME]: dispatch the planning activity — do not hand-write this artifact:" >&2
     echo "    $file" >&2
@@ -234,11 +245,16 @@ esac
 # Classify the remaining target paths. Match relative AND absolute forms — do NOT
 # prefix-strip against $root: on macOS `git rev-parse --show-toplevel` resolves /private
 # symlinks and would not match the payload's /var path, silently disarming the guard.
-case "$file" in
+case "$real" in
   # The mission layer's (gate-mission-scope judges it): a mission.json write is no sprint, so it
   # never arms the lock (ROADMAP §4.12, M9.9).
   docs/agents/mission/*|*/docs/agents/mission/*) is_docs=0; is_ctl=1 ;;
   docs/agents/*|*/docs/agents/*)                 is_docs=1; is_ctl=0 ;;
+  # a task worktree lives under the run-data dir, but it is a checkout of the project: only its
+  # own marker dir (the task.env copy) is a control file; the rest is production source
+  .aladdin/worktrees/*/.aladdin/*|*/.aladdin/worktrees/*/.aladdin/*|.aladdin/worktrees/*/.agentic/*|*/.aladdin/worktrees/*/.agentic/*|\
+  .agentic/worktrees/*/.aladdin/*|*/.agentic/worktrees/*/.aladdin/*|.agentic/worktrees/*/.agentic/*|*/.agentic/worktrees/*/.agentic/*) is_docs=0; is_ctl=1 ;;
+  .aladdin/worktrees/*|*/.aladdin/worktrees/*|.agentic/worktrees/*|*/.agentic/worktrees/*) is_docs=0; is_ctl=0 ;;
   .agentic/*|*/.agentic/*|.aladdin/*|*/.aladdin/*|.transcripts/*|*/.transcripts/*) is_docs=0; is_ctl=1 ;;
   # VCS hygiene the supervisor legitimately writes for the initial commit — never
   # application source, so allow without the SKIP_HOOKS dance.

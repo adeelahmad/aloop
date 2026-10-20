@@ -41,9 +41,11 @@ DEF = os.path.join(T, "docs", "agents", "defaults.md")
 
 # 1) the matrix is explicit for every host
 out = run(CAP).stdout
-for h in ("claude", "codex", "opencode"):
-    assert h in out and "gate_blocking=native" in out, out
+rows = {line.split()[0]: line for line in out.splitlines() if line.strip()}
+for h, gate in (("claude", "native"), ("codex", "native"), ("opencode", "outer"), ("dsh", "native")):
+    assert "gate_blocking=%s" % gate in rows[h], (h, rows.get(h))
 assert "codex     usage=exact; cache write not reported  compaction=unknown" in out, out
+assert "live_messaging=unknown" in rows["dsh"] and "compaction=unknown" in rows["dsh"], rows["dsh"]
 assert run(CAP, "vim").returncode == 64
 ok("capability matrix: usage, compaction, live messaging, lifecycle, gate blocking per host")
 
@@ -71,11 +73,11 @@ ok("SessionStart: clear → context.rotated, compact → context.compacted, star
 
 # 4) the sprint-close message names the host's own rotate command
 os.makedirs(os.path.join(T, ".aladdin", "state"), exist_ok=True)
-for host, cmd in (("claude", "/clear"), ("opencode", "/new")):
+for host, cmd in (("claude", "/clear"), ("opencode", "/new"), ("dsh", "a new `dsh --profile aloop` run")):
     open(os.path.join(T, ".aladdin", "state", "pending-close"), "w").write("Sprint 1 closed.")
     r = run(os.path.join(BIN, "stats"), "hook", inp=json.dumps({"hook_event_name": "Stop", "cwd": T}), AGENTIC_HOST=host)
     msg = json.loads(r.stdout)["reason"]
     assert "rotate: start a fresh session with %s" % cmd in msg, (host, msg)
-ok("sprint close tells the supervisor the host's rotate command (/clear, /new)")
+ok("sprint close tells the supervisor the host's rotate command (/clear, /new, a new dsh run)")
 
 print("\n%d checks passed" % PASS[0])

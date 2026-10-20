@@ -565,7 +565,8 @@ HELD_BY = {
     16: ("the handoff is produced and context rotated", ["handoff-resume.test.py", "context-boundary.test.py"]),
     17: ("compaction is used only when chosen and advertised", ["context-boundary.test.py"]),
     18: ("the model route is observable", ["model-routes.test.py"]),
-    19: ("memory injection is equivalent across hosts (SessionStart on Codex and OpenCode)", ["codex-hooks.test.py", "opencode-plugin.test.mjs"]),
+    19: ("memory injection is equivalent across hosts (SessionStart on Codex, OpenCode and dsh)",
+         ["codex-hooks.test.py", "opencode-plugin.test.mjs", "dsh-plugin.test.mjs"]),
     20: ("semantic capability gaps are explicit (Unsupported, LSP exit 4, capability matrix)", ["host-adapter.test.py", "lsp-adapter.test.py", "context-boundary.test.py"]),
 }
 TESTS = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "test")
