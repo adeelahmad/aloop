@@ -1170,4 +1170,29 @@ ok("lifting a block takes the human's typed `lift` line, recorded in the ledger 
    "--by alone, a run-log-only or replayed lift, a negated line, another code, an old line or a line typed for an "
    "earlier block lift nothing, and a lift of 3 failed goals covers those goals, whatever the clock")
 
+# 30) a hit cap holds on a fresh checkout (M9.24): the stop is a mission.budget_exhausted ledger row for the
+#     mission's content, one per content, so a clone (no run log, no token ledger) stays stopped until the
+#     human raises the cap
+p = Project(budget=("--budget-tokens", "1000")).init()
+cleared(p)
+p.ledger([(0.5, "claude-sonnet-5-5", 600, 0, 0, 500)])
+expect(p.tick(1), "STOP_BUDGET", 3, "1100")
+p.tick(1.1)
+stops = [r for r in M.ledger_rows(p.dir)[0] if r["event"] == "mission.budget_exhausted"]
+assert len(stops) == 1 and stops[0]["role"] == "mission-loop", stops
+assert stops[0]["data"]["sha256"] == M.digest(p.mission_doc()) and stops[0]["data"]["tokens"] == 1100, stops
+shutil.rmtree(os.path.join(p.dir, ".aladdin"))                             # a fresh checkout: no spend on record
+d = p.tick(1.2)
+expect(d, "STOP_BUDGET", 3, "1100")                                        # still stopped: the ledger says so
+assert d["budget"]["tokens"] == 0, d["budget"]
+doc = p.mission_doc()
+doc["budget"]["tokens"] = 5000
+doc["status"] = "draft"
+M.save(M.path_of(p.dir, "mission"), doc)
+assert p.mi("approve", "--by", "Adeel", "--reason", "raise the cap").returncode == 0
+p.review(p.mission_ref(), p.mission_doc(), "clear", 1.3)
+d = p.tick(1.4)
+assert d["action"] != "STOP_BUDGET", d                                     # the raised cap resumes the loop
+ok("a hit cap is a ledger row for the mission's content: a fresh checkout stays stopped until the cap is raised")
+
 print("mission-tick: %d checks passed" % PASS[0])
