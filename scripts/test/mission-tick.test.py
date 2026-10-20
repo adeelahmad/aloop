@@ -113,8 +113,25 @@ class Project:
             f.write(json.dumps({"schema": "aladdin.event/1", "event_id": "e%d" % SEQ[0], "ts": iso(self.at(hours)),
                                 "event": name, "ids": {}, "role": role, "refs": {}, "data": data}) + "\n")
 
-    def review(self, subject, doc, tier, hours, **data):
-        self.event("ethics.reviewed", hours, subject=subject, sha256=M.digest(doc), tier=tier, **data)
+    def review(self, subject, doc, tier, hours=None):
+        """A review as the Ethics Reviewer records it (`mission ethics new`, a finding of that tier for
+        every screened topic, `record`); returns (ethics_id, review_sha256). The verdict is the gate's."""
+        sid = "mission" if subject == self.mission_ref() else doc["goal_id"]
+        r = self.mi("ethics", "new", "--subject", sid)
+        assert r.returncode == 0, r.stderr
+        path = r.stdout.strip()
+        rev = json.load(open(path))
+        rev["findings"] = [{"category": c, "tier": tier, "reason": "the test's verdict"} for c in rev["screen"] + ["other"]]
+        rev["tier"] = tier
+        json.dump(rev, open(path, "w"))
+        r = self.mi("ethics", "record", path)
+        assert "recorded: tier %s" % tier in r.stderr, (tier, r.returncode, r.stderr)   # it exits with the verdict
+        rev = json.load(open(path))
+        return rev["ethics_id"], rev["sha256"]
+
+    def consent(self, sid):
+        r = self.mi("ethics", "consent", "--subject", sid, "--by", "Adeel", "--reason", "fine for this content")
+        assert r.returncode == 0, r.stderr
 
     @contextlib.contextmanager
     def clock(self, hours):
@@ -328,18 +345,22 @@ expect(p.tick(0.2), "BLOCKED", 2, "hard line")
 p.review(p.mission_ref(), p.mission_doc(), "clear", 0.3)                   # shopping for a better verdict
 expect(p.tick(0.4), "BLOCKED", 2, "hard line")
 p = Project().init()
-p.review(p.mission_ref(), p.mission_doc(), "gray", 0.1, ethics_id="eth_a", review_sha256="1" * 64)
+ea, _ = p.review(p.mission_ref(), p.mission_doc(), "gray", 0.1)
 d = p.tick(0.2)
-expect(d, "ASK_CONSENT", 3)
+expect(d, "ASK_CONSENT", 3, "ethics consent --subject mission")
 assert d["subject"] == p.mission_ref()
-p.approve("ethics.consent", p.mission_ref(), p.mission_doc(), 0.3, review="eth_a", review_sha256="2" * 64)
+p.approve("ethics.consent", p.mission_ref(), p.mission_doc(), 0.3, reason="ok", review=ea, review_sha256="2" * 64)
 expect(p.tick(0.35), "ASK_CONSENT", 3)                                     # it names another version of the review
-p.approve("ethics.consent", p.mission_ref(), p.mission_doc(), 0.36, review="eth_a", review_sha256="1" * 64)
+p.consent("mission")
 expect(p.tick(0.4), "RESEARCH", 0)
-p.review(p.mission_ref(), p.mission_doc(), "gray", 0.41, ethics_id="eth_b", review_sha256="3" * 64)
+p.review(p.mission_ref(), p.mission_doc(), "gray", 0.41)
 expect(p.tick(0.42), "ASK_CONSENT", 3)                                     # every gray review needs its consent
-p.approve("ethics.consent", p.mission_ref(), p.mission_doc(), 0.43, review="eth_b", review_sha256="3" * 64)
+p.consent("mission")
 expect(p.tick(0.44), "RESEARCH", 0)
+rev = M.load(M.path_of(p.dir, "ethics", ea))[0]
+rev["findings"][0]["reason"] = "edited after it was recorded"
+M.save(M.path_of(p.dir, "ethics", ea), rev)
+expect(p.tick(0.45), "BLOCKED", 2, "ethics review fails its check")       # the gate's rule, not a re-review
 doc = p.mission_doc()
 doc["constraints"] = ["no dark patterns"]
 doc["status"] = "draft"
@@ -360,15 +381,16 @@ p.review(p.ref("goal", gid), gdoc, "gray", 1.3)
 d = p.tick(1.4)
 expect(d, "ASK_CONSENT", 3)
 assert d["subject"] == p.ref("goal", gid)
-p.approve("ethics.consent", p.ref("goal", gid), gdoc, 1.5)
+p.consent(gid)
 expect(p.tick(1.6), "PLAN_INTENTS", 0)
+gdoc = p.load("goal", gid)
 gdoc["status"] = "blocked"
 M.save(M.path_of(p.dir, "goal", gid), gdoc)
 expect(p.tick(1.7), "DERIVE_GOAL", 0, "blocked")
 g2, g2doc = p.art("goal", "derived", 1.8)
 p.review(p.ref("goal", g2), g2doc, "gray", 1.9)
 expect(p.tick(2.0), "ASK_CONSENT", 3)                                      # the consent stayed with the first goal
-p.event("ethics.blocked", 2.1, subject=p.ref("goal", g2), sha256=M.digest(g2doc))
+p.review(p.ref("goal", g2), g2doc, "hard", 2.1)
 expect(p.tick(2.2), "DERIVE_GOAL", 0, "hard line")
 g3, g3doc = p.art("goal", "derived", 2.3)
 p.review(p.ref("goal", g3), g3doc, "hard", 2.4)
@@ -953,7 +975,23 @@ assert f1["facts"] != f2["facts"], f1["facts"]
 ok("a state file with no record is not a state; a repeat-guard grant leaves the failed-goal streak; the facts "
    "fingerprint changes with the spend")
 
-# 26) discovery and help: the three areas are found by name
+# 26) one ethics rule: the loop asks `mission ethics`'s verdict, so a hard-lined goal's words stay hard under a
+#     new goal id (no fresh review is handed out), and a broken review is the human's, not a re-review
+p = Project().init()
+cleared(p)
+p.art("state", "recorded", 1)
+p.art("eval", "recorded", 1.1, goal_met=False)
+g1, g1doc = p.art("goal", "derived", 1.2, statement="email every user a daily streak reminder")
+p.review(p.ref("goal", g1), g1doc, "hard", 1.3)
+expect(p.tick(1.4), "DERIVE_GOAL", 0, "hard line")
+g2, _ = p.art("goal", "derived", 1.5, statement="Email every user a daily streak reminder")
+d = p.tick(1.6)
+expect(d, "DERIVE_GOAL", 0, "crosses a hard line")                        # not ETHICS_REVIEW for g2
+assert g2 in d["reason"], d["reason"]
+ok("the loop takes ethics from the gate's verdict: a hard-lined goal's words stay hard under a new id")
+
+# 27) discovery and help: the three areas are found by name
+p = Project().init()
 listed = p.mi("--list").stdout.split()
 assert {"tick", "due", "cron"} <= set(listed), listed
 for a in ("tick", "due", "cron"):
