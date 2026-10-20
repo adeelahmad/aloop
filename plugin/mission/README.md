@@ -106,7 +106,9 @@ A gate checks structure and evidence, never whether a judgment is right.
 - A gap list (`evl_…`, sealed) is `{eval_id, state_id, baseline_id, goal_id, goal_met, regressions,
   gaps, earned, metrics}`; each gap is `{gap_id: "<journey_id>#<criterion_id>", journey_id,
   criterion_id, kind: regression|open|unscored, now, baseline, target, distance}`, regressions first,
-  then by distance. `eval.completed` carries `eval_id` and `sha256`. Every input is the content its
+  then by distance. `eval.completed` is a ledger record carrying `eval_id` and `sha256`: a gap list
+  counts (for `evaluate check`, `goal` and `tick`) only with the record of its content and a seal that
+  matches it, and the newest is the newest by the ledger's order. Every input is the content its
   record covers: the state a `state.assessed` ledger record (only `mission assess` measures), the
   baseline a confirmation, each journey the content the baseline froze, and the goal a `goal.derived`
   or `goal.approved` record (the newest such goal with no later `goal.met` record is the active one; a
@@ -138,8 +140,8 @@ A gate checks structure and evidence, never whether a judgment is right.
 - **M9.11 goals.** Add `mission` to the `intent` SOURCES. `gate-intake` checks the newest
   `int_*.json` by mtime and `ids freeze` links a plan to the last `intent.normalized` anywhere, so
   queued mission intents need an explicit link (built: `goal next` makes the intent it hands off the
-  newest file before normalizing it). `record_authority` also approves the latest plan:
-  record a goal's authority only after its sprint's `ids freeze`. `aladdin "<intent>"` refuses a
+  newest file before normalizing it). `events authority --sprint N` approves the sprint's latest
+  plan (M0.9): record it only after the sprint's `ids freeze` (reviewed mode refuses a sprint with no frozen plan). `aladdin "<intent>"` refuses a
   bare intent containing `/`; use `aladdin run`.
 - **M9.30 doors.** `doors.json` is the catalogue (anything unlisted is two-way; `{DEF}` is the default
   branch, `{DRY}` "not a dry run or a help page"); `doors.py` reads Bash as the shell does (with
@@ -157,7 +159,8 @@ A gate checks structure and evidence, never whether a judgment is right.
   `UserPromptSubmit` too. M9.9 denies roles writes under `.aladdin/transcripts/` and
   `docs/agents/mission/ledger.jsonl`, running `transcripts prompt`, and a Bash command that starts a host
   session with a grant line.
-  `events authority` (the sprint's `human.approval`) still trusts `--initiated-by`.
+  `events authority` no longer trusts `--initiated-by` alone (M0.9): a sprint's grant cites the human's typed
+  `approve SN <code>` / `autonomous SN <code>` line, or the approved autonomous mission, and `gate-dispatch` checks it.
 - **Rivals (M9.1 → M9.10).** A baseline's `rivals` are claim refs today; the Product Tester's values per
   benchmark and metric belong in a keyed object so `evaluate` can compare against them.
 - **M9.6 telemetry.** `journeys.GA4_RESERVED_NAMES` is the one reserved-name list (the union of both

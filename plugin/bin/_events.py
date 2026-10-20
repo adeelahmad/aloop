@@ -102,27 +102,32 @@ def authority_file(cwd=None):
     return os.path.join(_paths.home(cwd, "state"), "authority.json")
 
 
-def record_authority(cwd, initiated_by, autonomy_mode, scope, policy="default", overrides=None):
+def record_authority(cwd, initiated_by, autonomy_mode, scope, policy="default", overrides=None, sprint="", grant=None):
     """The run's authority record (who started it, under which policy and approval mode,
     for which scope, with which overrides). Stored in .agentic/state/authority.json and
-    emitted as human.approval; decisions point at it."""
+    emitted as human.approval; decisions point at it. `sprint` and `grant` are the human's
+    grant about that sprint (_approval.grant_for, ROADMAP M0.9): a plan grant also emits
+    plan.approved for the sprint's latest frozen plan."""
     if autonomy_mode not in AUTONOMY:
         raise ValueError("autonomy_mode must be one of %s" % ", ".join(AUTONOMY))
     if not initiated_by or not scope:
         raise ValueError("an authority record needs initiated_by and scope")
     auth = {"initiated_by": initiated_by, "policy": policy, "autonomy_mode": autonomy_mode,
             "scope": scope, "overrides": overrides or {}}
+    if sprint:
+        auth.update(sprint=sprint, grant=grant)
     eid = emit(cwd, "human.approval", role="human", authority=auth, refs={"authority": authority_file(cwd)})
     auth["event_id"] = eid
     with open(authority_file(cwd), "w") as f:
         json.dump(auth, f, indent=1)
     plan = None
     for ev in read(cwd):
-        if ev.get("event") in ("plan.created", "plan.revised"):
+        if ev.get("event") in ("plan.created", "plan.revised") and isinstance(ev.get("data"), dict) \
+                and ev["data"].get("sprint") == sprint:
             plan = ev
-    if plan:  # the approval covers the latest frozen plan
+    if plan and (grant or {}).get("kind") == "plan":  # the approval covers the sprint's latest frozen plan
         emit(cwd, "plan.approved", role="human", parent_event_id=eid, caused_by=plan.get("event_id"),
-             authority=auth, refs=plan.get("refs"), sprint=(plan.get("data") or {}).get("sprint", ""))
+             authority=auth, refs=plan.get("refs"), sprint=sprint, plan_sha256=grant.get("plan_sha256"))
     return eid
 
 

@@ -348,6 +348,36 @@ changed_paths() {
   fi
 }
 
+# The commit this change is measured from: BASE_REF if set, else where the branch left the
+# main tree's HEAD (as changed_paths). Empty when neither resolves.
+diff_base() {
+  local root common main_head; root="$(repo_dir)"
+  if [ -n "${BASE_REF:-}" ]; then echo "$BASE_REF"; return; fi
+  common="$(git -C "$root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
+  main_head="$(git -C "${common%/.git}" rev-parse HEAD 2>/dev/null)"
+  [ -n "$main_head" ] && git -C "$root" merge-base HEAD "$main_head" 2>/dev/null
+}
+
+# Supply chain (ROADMAP M10.2): a dependency added to a manifest must be named by the approved
+# plan (the story's tasks.md / targets.json / plan.md / validate.md / stories.md). exit 2 if not.
+assert_planned_dependencies() {
+  [ -n "${STORY_DIR:-}" ] || return 0
+  local base out; base="$(diff_base)"
+  [ -n "$base" ] || return 0
+  if ! out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/deps" unplanned --base "$base" --story "$STORY_DIR" --root "$(repo_dir)" 2>&1)"; then
+    fail "dependency added that the approved plan does not name: $(echo "$out" | tr '\t\n' ': ' | sed 's/ *$//'). Use what the project already has, or ask the planner to name the dependency in the plan (a re-plan, which the human approves)"
+  fi
+}
+
+# Secrets (ROADMAP M10.2): no credential in the project. With an argument, only lines added since
+# that ref (a task's diff); without, every file (the sprint sign-off). exit 2 if one is found.
+assert_no_secrets() {
+  local out
+  if ! out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/secrets" scan ${1:+--base "$1"} --root "$(repo_dir)" 2>&1)"; then
+    fail "credential in the project: $(echo "$out" | tr '\n' ';' | sed 's/; *$//'). Read it from the environment or a git-ignored file instead; a test fixture that must look like a key carries an \`aloop: allow-secret\` comment on its line"
+  fi
+}
+
 # True if $1 matches any space-separated glob in $2.
 # Test files by convention: Rust's tests/ and tests/common/, any tests/ dir, and the Python/Go/JS
 # test-file names. RED writes only these; GREEN may touch them besides its scope, to drop shims.

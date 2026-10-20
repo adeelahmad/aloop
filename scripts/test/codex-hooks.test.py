@@ -17,6 +17,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+from plan_fixture import approve_plan  # noqa: E402
+
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
 BIN = os.path.join(ROOT, "bin")
 HOOKS = json.load(open(os.path.join(ROOT, "hooks", "hooks.json")))["hooks"]
@@ -129,6 +132,20 @@ assert why and "co-author" in why.lower(); ok("commit-author blocks a Claude tra
 # the door gate (M9.30, M9.31): a root push to the default branch is a one-way door, stopped with ASK[door]
 why = [w for w in (denied([x]) for x in fire("PreToolUse", dict(base, tool_name="Bash", tool_input={"command": "git push origin main"}))) if w]
 assert any(w.startswith("doors:") and "ASK[door]" in w for w in why), why; ok("the door gate denies the root's `git push origin main`")
+
+# dispatch: Codex's spawn_agent ({agent_type, message}) runs gate-dispatch through the `Agent` matcher: the
+# TASK_ID line, the task contract, then the human's plan approval (ROADMAP M0.9); no model per call is fine
+spawn = lambda msg: dict(base, tool_name="spawn_agent", tool_input={"agent_type": "green-worker", "message": msg})  # noqa: E731
+why = denied(fire("PreToolUse", spawn("go green")))
+assert why and "TASK_ID: <id>" in why, why
+os.makedirs(os.path.join(T, ".aladdin/state/tasks"), exist_ok=True)
+open(os.path.join(T, ".aladdin/state/tasks/S1-01-T9.env"), "w").write(
+    "TASK_ID=S1-01-T9\nATTEMPT=1\nAGENT_ROLE=green-worker\nSTORY_DIR=%s\n" % os.path.join(T, "docs/agents/sprint1/s1-01-x"))
+why = denied(fire("PreToolUse", spawn("TASK_ID: S1-01-T9\nGREEN")))
+assert why and "has not approved the plan of S1" in why, why
+approve_plan(T, ENV)
+assert not denied(fire("PreToolUse", spawn("TASK_ID: S1-01-T9\nGREEN")))
+ok("spawn_agent is gated: its TASK_ID line, its contract and the human's approval of the sprint's plan")
 
 # worker: SubagentStart registers; unbound writes refused; bind; confinement
 worker = dict(base, agent_id="th-red", agent_type="red-worker")

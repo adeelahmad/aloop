@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# FINAL GATE (sprint sign-off): full standards matrix green, zero suppressions,
-# every plan-ready.md fully [x]. (Rust, Python, Go, JS; matrix from standards.md.)
+# FINAL GATE (sprint sign-off): full standards matrix green, zero suppressions, no credential
+# in the project, every plan-ready.md fully [x]. (Rust, Python, Go, JS; matrix from standards.md.)
 GATE_NAME="gate-final"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${CLAUDE_PLUGIN_ROOT:=$(cd "$HERE/.." && pwd)}"
@@ -17,6 +17,9 @@ root="$(repo_dir)"
 
 # 1) Zero suppressions anywhere.
 assert_no_suppression
+
+# 1b) No credential anywhere in the project (ROADMAP M10.2).
+assert_no_secrets
 
 # 2) Every plan-ready.md fully ticked — in this tree AND in the sprint's docs in the main
 #    tree (a worker worktree has docs/agents/ sparse-checked out, so look there too).
@@ -52,7 +55,7 @@ fi
 # 3) Full gate matrix (from standards.md) green.
 run_standards_matrix
 
-note "FINAL gate passed: matrix green, zero suppressions, all plan-ready ticked, every planned test on main"
+note "FINAL gate passed: matrix green, zero suppressions, no secrets, all plan-ready ticked, every planned test on main"
 
 # 4) Sprint close — by the harness, only on the real SubagentStop run (never a self-check):
 #    sprintN/stats.md, docs/agents/NEXT.md (the post-/clear handoff), token totals.

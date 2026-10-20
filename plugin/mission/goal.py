@@ -67,18 +67,10 @@ EVAL_ID = re.compile(r"^evl_[0-9a-f]{20}$")
 
 
 # ── evals (M9.10's gap list: plugin/mission/evaluate.py) ────────────────────────────
-def first(cwd, event, key, value):
-    """The first event of a kind whose data[key] is value (gate-owned events: the one its command wrote)."""
-    for e in _events.read(cwd):
-        if e.get("event") == event and (e.get("data") or {}).get(key) == value:
-            return e
-    return None
-
-
 def eval_record(cwd, eid):
-    """(doc, eval.completed event, problems) of one gap list: M9.10's own check (it follows from its
+    """(doc, eval.completed record, problems) of one gap list: M9.10's own check (it follows from its
     state, which a state.assessed ledger record covers, its baseline and goal) and the eval.completed
-    that recorded this content (written only by `mission evaluate`)."""
+    ledger record of this content (written only by `mission evaluate`; a fresh checkout keeps it)."""
     if not isinstance(eid, str) or not EVAL_ID.match(eid):
         return None, None, ["%r is not an eval id (evl_…)" % (eid,)]
     path = M.path_of(cwd, "eval", eid)
@@ -92,21 +84,17 @@ def eval_record(cwd, eid):
         return doc, None, ["eval %s is malformed (%s)" % (eid, e)]
     if doc.get("eval_id") != eid:
         bad.append("eval %s: eval_id does not match the file name" % eid)
-    ev = first(cwd, "eval.completed", "eval_id", eid)
+    ev = M.newest(cwd, "eval.completed", M.rel(cwd, path))
     if not ev:
-        bad.append("eval %s is not recorded (no eval.completed event names it)" % eid)
+        bad.append("eval %s is not recorded (no eval.completed record names it)" % eid)
     elif ev["data"].get("sha256") != sha:
         bad.append("eval %s is not the content its eval.completed recorded" % eid)
     return doc, ev, bad
 
 
 def latest_eval(cwd):
-    """The id of the latest recorded eval (stream order), or None."""
-    ids = [(e.get("data") or {}).get("eval_id") for e in _events.read(cwd) if e.get("event") == "eval.completed"]
-    for eid in reversed(ids):
-        if eid and os.path.exists(M.path_of(cwd, "eval", eid)):
-            return eid
-    return None
+    """The id of the newest intact eval (ledger order, as `mission tick` and `evaluate check` read it), or None."""
+    return (EV.latest(cwd)[1] or {}).get("eval_id")
 
 
 def gap_of(cwd, g):
@@ -133,13 +121,10 @@ def split_held(cwd, gaps):
     return [g for g in gaps if g not in held], held
 
 
-def stream_index(cwd, pred):
-    """The position of the last event matching pred in the stream, or -1."""
-    hit = -1
-    for i, e in enumerate(_events.read(cwd)):
-        if pred(e):
-            hit = i
-    return hit
+def ledger_index(cwd, event_id):
+    """The position of a ledger row in the ledger (a fresh checkout keeps the order), or -1."""
+    ids = [r.get("event_id") for r in M.ledger_rows(cwd)[0]]
+    return ids.index(event_id) if event_id in ids else -1
 
 
 # ── the goal's gate ──────────────────────────────────────────────────────────────────
@@ -538,8 +523,7 @@ def cmd_close(cwd, gid, eid):
         report(["eval %s is not an evaluation of goal %s (it evaluates %s): evaluate while the goal is active"
                 % (eid, gid, doc.get("goal_id") or "the whole mission")], [])
         return 2
-    born = stream_index(cwd, lambda e: e.get("event_id") == derived(cwd, gid)["event_id"])
-    seen = stream_index(cwd, lambda e: e.get("event_id") == ev.get("event_id"))
+    born, seen = ledger_index(cwd, derived(cwd, gid)["event_id"]), ledger_index(cwd, ev.get("event_id"))
     if born < 0 or seen <= born:
         report(["eval %s was recorded before goal %s was derived: it says nothing about the goal's work" % (eid, gid)], [])
         return 2

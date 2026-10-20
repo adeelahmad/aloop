@@ -126,6 +126,11 @@ assert p.load("journey", jid)["status"] == "active" == p.load("journey", twin)["
 assert "never retired without evidence" in p.run("journeys", "retire", jid, "--replaced-by", stricter).stderr
 r = p.run("journeys", "retire", jid, "--replaced-by", stricter, "--evidence", "x")
 assert r.returncode == 2 and "must be <research_id>#<claim_id> or an eval, state or research id" in r.stderr, r.stderr
+fake = "evl_" + "a" * 20                                                    # an eval file nobody computed (M9.27)
+M.save(M.path_of(p.dir, "eval", fake), {"eval_id": fake, "goal_met": True})
+r = p.run("journeys", "retire", jid, "--replaced-by", stricter, "--evidence", fake)
+assert r.returncode == 2 and "has no eval.completed record for this content" in r.stderr, r.stderr
+os.remove(M.path_of(p.dir, "eval", fake))
 r = p.run("journeys", "retire", jid, "--replaced-by", jid, "--evidence", rid + "#c2")
 assert r.returncode == 2 and "cannot replace itself" in r.stderr, r.stderr
 r = p.run("journeys", "retire", jid, "--replaced-by", looser, "--evidence", rid + "#c2")

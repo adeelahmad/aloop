@@ -11,12 +11,12 @@
 //   UserPromptSubmit   chat.message on a root session → transcripts prompt, intent-trigger
 //                      (its context goes into the next turn's system prompt)
 //   PreToolUse         tool.execute.before → host-adapter, gate-supervisor-scope,
-//                      gate-mission-scope, gate-commit-author, budget pre, then mission doors
-//                      hook LAST (it records door.crossed, so only once every other gate admitted
-//                      the call; not for read-only tools; a hang, crash or odd exit denies); a
-//                      deny THROWS (the tool call fails with the reason). Bound workers'
-//                      commands/edits are REWRITTEN into their worktree (bash workdir, file
-//                      paths, patch headers); the gates read bash's workdir as tool_input.workdir.
+//                      gate-mission-scope, gate-commit-author, gate-dispatch (task), budget pre,
+//                      then mission doors hook LAST (it records door.crossed, so only once every
+//                      other gate admitted the call; not for read-only tools; a hang, crash or odd
+//                      exit denies); a deny THROWS (the tool call fails with the reason). Bound
+//                      workers' commands/edits are REWRITTEN into their worktree (bash workdir,
+//                      file paths, patch headers); the gates read bash's workdir as tool_input.workdir.
 //   PostToolUse        tool.execute.after → transcripts record, budget post; context is
 //                      appended to the tool output; `continue: false` aborts the session
 //   SubagentStart      event session.created (child session) → host-adapter, transcripts
@@ -261,6 +261,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       if (EDITS.has(input.tool)) checks.push(["gate-supervisor-scope", []])
       if (EDITS.has(input.tool) || input.tool === "bash") checks.push(["gate-mission-scope", []])   // role path guards
       if (input.tool === "bash") checks.push(["gate-commit-author", []])
+      if (input.tool === "task") checks.push(["gate-dispatch", []])     // the task contract and the plan approval (M0.9)
       checks.push(["budget", ["hook", "pre"]])
       // the door rule, LAST: it records door.crossed (a once-grant is used up), so only for a call every
       // other gate admitted. Payload cwd stays the project; a bound worker's directory is tool_input.workdir

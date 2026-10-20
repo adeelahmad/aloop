@@ -10,6 +10,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import assert from "node:assert/strict"
+import { approvePlan } from "./fixtures/plan-fixture.mjs"
 
 const ROOT = join(fileURLToPath(import.meta.url), "..", "..", "..", "plugin")
 const BIN = join(ROOT, "bin")
@@ -156,9 +157,11 @@ assert.ok(denied(await pre(h, root, "subagent", red), /write the task contract/)
 mkdirSync(join(T, ".aladdin/state/tasks"), { recursive: true })
 writeFileSync(join(T, ".aladdin/state/tasks/S1-01-T1.env"), `TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=${story}\n`)
 const wt = sh(join(BIN, "task-worktree"), ["add", "S1-01-T1"]).trim()
+assert.ok(denied(await pre(h, root, "subagent", { ...red, cwd: wt }), /has not approved the plan of S1/))
+approvePlan(T, BIN)                     // the human's go on sprint 1 (M0.9)
 assert.ok(allowed(await pre(h, root, "subagent", { ...red, cwd: wt })))
 assert.ok(readFileSync(join(wt, ".aladdin/task.env"), "utf8").includes("STORY_DIR="), "gate-dispatch copies the contract into the worktree")
-ok("dispatch: no role, no TASK_ID line or no task contract is refused; a complete one is admitted")
+ok("dispatch: no role, no TASK_ID line, no task contract or no plan approval is refused; a complete, approved one is admitted")
 const stale = host({ root: ROOT, models: { subagent: "deepseek-v4-pro" } })     // rendered before MODEL_WORKER changed
 plugin.apply(stale.ctx, stale.config)
 await stale.on["agent/created"]({ agent: agentOf("root"), source: "startup" })

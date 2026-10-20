@@ -16,9 +16,10 @@ no active goal, every criterion the baseline froze is a target (the definition o
 Usage:
   mission evaluate [STATE_ID] [--rival REF]… [--json]
         evaluate a state report (default: the latest); writes docs/agents/mission/eval/<id>.json
-        (sealed) and emits eval.completed. Exit 0 · 2 block (the state is not intact or its runs disagree)
+        (sealed) and records eval.completed in the ledger. Exit 0 · 2 block (the state is not intact or
+        its runs disagree)
   mission evaluate check [EVAL_ID] [--json]
-        the gap list is intact and follows from its state, baseline and goal. Exit 0 · 2
+        the gap list is intact, recorded and follows from its state, baseline and goal. Exit 0 · 2
 """
 import json
 import os
@@ -180,9 +181,9 @@ def cmd_evaluate(cwd, sid, o):
                goal_id=(goal or {}).get("goal_id"), rival_refs=o.get("rival", []), status="recorded", created_at=M.now())
     M.seal(doc)
     path = M.save(M.path_of(cwd, KIND, eid), doc)
-    M.emit(cwd, "eval.completed", role="evaluator", refs={"eval": M.rel(cwd, path), "state": M.rel(cwd, spath)},
-           eval_id=eid, sha256=doc["sha256"], state_id=state["state_id"], goal_id=doc["goal_id"],
-           goal_met=res["goal_met"], gaps=len(res["gaps"]), regressions=res["regressions"])
+    M.record(cwd, "eval.completed", M.rel(cwd, path), "evaluator", eval_id=eid, sha256=doc["sha256"],
+             state_id=state["state_id"], goal_id=doc["goal_id"], goal_met=res["goal_met"], gaps=len(res["gaps"]),
+             regressions=res["regressions"])
     if o.get("json"):
         print(json.dumps(doc, indent=1))
     else:
@@ -193,17 +194,55 @@ def cmd_evaluate(cwd, sid, o):
     return 0
 
 
-def latest(cwd):
-    rows = M.artifacts(cwd, KIND)
-    return max(rows, key=lambda pd: (pd[1].get("created_at", ""), pd[0])) if rows else (None, None)
+def recorded(cwd, path, doc):
+    """The eval.completed ledger record of exactly this content (only `mission evaluate` writes it), or None."""
+    rec = M.newest(cwd, "eval.completed", M.rel(cwd, path))
+    return rec if rec and rec["data"].get("sha256") == M.digest(doc) else None
 
 
-def problems(cwd, path, doc):
+def intact(cwd, path, doc):
+    """Why a gap list is not what `mission evaluate` wrote: its shape, its seal (`status` and `sha256`
+    are outside the digest, so the seal must match it) and the eval.completed record of its content.
+    `mission tick` reads exactly these (ROADMAP M9.27); `problems` adds the recomputation."""
     out = M.problems(doc, KIND, path)
     if out:
         return out
-    if "sha256" not in doc:
-        out.append("a gap list is sealed when it is written")
+    if doc.get("sha256") != M.digest(doc):
+        out.append("a gap list is sealed when it is written (its sha256 is not its content's)")
+    if not recorded(cwd, path, doc):
+        out.append("eval %s has no eval.completed record for this content: only `mission evaluate` evaluates"
+                   % doc["eval_id"])
+    return out
+
+
+def evaluated(cwd):
+    """(path, doc) of every intact gap list in the ledger's order (oldest first): the order the
+    evaluations were made, whatever a machine's clock said. `mission tick`, `goal` and `evaluate
+    check` read the latest from here."""
+    at = {}
+    for i, r in enumerate(M.records(cwd, "eval.completed")):
+        at[r["data"].get("subject")] = i                 # its newest record (`recorded` reads that one)
+    rows = [(at.get(M.rel(cwd, path)), path, doc) for path, doc in M.artifacts(cwd, KIND)]
+    return [(p, d) for i, p, d in sorted((x for x in rows if x[0] is not None), key=lambda x: x[0])
+            if not intact(cwd, p, d)]
+
+
+def latest(cwd):
+    """The newest intact gap list (a file with no record, or edited since, is not one)."""
+    rows = evaluated(cwd)
+    return rows[-1] if rows else (None, None)
+
+
+def problems(cwd, path, doc):
+    out = intact(cwd, path, doc)
+    if M.malformed(out):
+        return out
+    return follows(cwd, doc) + out
+
+
+def follows(cwd, doc):
+    """A well-formed gap list's problems against its inputs: it is recomputed from them."""
+    out = []
     spath = M.path_of(cwd, "state", doc["state_id"])
     state, _ = M.load(spath)
     if not isinstance(state, dict):

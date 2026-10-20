@@ -21,7 +21,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
-from mission_fixture import Project, M, BIN  # noqa: E402
+from mission_fixture import Project, M, BIN, as_human  # noqa: E402
 
 sys.path.insert(0, M.AREAS_DIR)
 import _events  # noqa: E402
@@ -394,7 +394,11 @@ assert r.returncode == 0, r.stderr
 assert open(os.path.join(s1.dir, ".aladdin", "state", "sprint.lock")).readline().strip() == "S1"   # the lock is armed
 assert ask_in(s1, plan_q).stdout == ""                                      # planning: the approval is asked
 _events.emit(s1.dir, "plan.created", role="planner", sprint="S1")      # as plugin/bin/ids names it
-_events.record_authority(s1.dir, "Adeel", "reviewed", "sprint1")            # the human approved the plan
+os.makedirs(os.path.join(s1.dir, "docs", "agents", "sprint1"), exist_ok=True)
+r = as_human(lambda: subprocess.run([EVENTS, "authority", "--initiated-by", "Adeel", "--mode", "reviewed", "--scope",
+                                     "sprint1", "--sprint", "1"], cwd=s1.dir, env=s1.env, capture_output=True, text=True),
+             s1.dir, s1.env)                                         # the human approved the plan: their typed line (M0.9)
+assert r.returncode == 0 and any(e.get("event") == "plan.approved" for e in _events.read(s1.dir)), r.stderr
 assert "two-way" in denied(ask_in(s1, "parse_row or parse_line?"))           # executing: decide it
 assert ask_in(s1, "parse_row or parse_line?", session="S2").stdout == ""      # another session's sprint
 assert "two-way" in denied(ask_in(Project(mode="spoon-fed"), "parse_row or parse_line?",
