@@ -30,12 +30,13 @@ if [ -n "$test_rows" ]; then
     fi
     fail "a NEW test PASSED in RED (test exercises nothing) — latest output.md block has a PASS row: ${fn:-$row}"
   done < <(printf '%s\n' "$test_rows" | grep -iE '\|[[:space:]]*PASS[[:space:]]*\|')
-  printf '%s\n' "$test_rows" | grep -qiE '\|[[:space:]]*FAIL[[:space:]]*\|' \
+  # here-strings: a `printf | grep -q` cut off by grep's early exit fails under pipefail (validate_comms)
+  grep -qiE '\|[[:space:]]*FAIL[[:space:]]*\|' <<<"$test_rows" \
     || fail "no FAILing test row in the latest output.md block — RED produced no failing test"
 else
   warn "latest output.md block has no recognizable test rows (path::fn); relying on cargo run"
 fi
-if printf '%s\n' "$block" | grep -qiE 'regressed=[1-9]'; then
+if grep -qiE 'regressed=[1-9]' <<<"$block"; then
   fail "RED regressed a previously-passing test (regressed>0 in latest output.md block)"
 fi
 

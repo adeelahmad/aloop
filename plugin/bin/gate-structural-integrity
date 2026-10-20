@@ -19,8 +19,9 @@ if have_ctx_symbols; then
   if [ -n "$findings" ]; then
     echo "$findings" >&2
   fi
-  # Foundation-poisoning = any HIGH finding (duplicate definition / parallel impl).
-  if echo "$findings" | grep -q '^HIGH'; then
+  # Foundation-poisoning = any HIGH finding (duplicate definition / parallel impl). A here-string:
+  # `echo | grep -q` under pipefail read the SIGPIPE of an echo still writing as "no HIGH".
+  if grep -q '^HIGH' <<<"$findings"; then
     fail "HIGH-severity structural finding (foundation-poisoning) — HALT the chain"
   fi
   note "structural review clean (no HIGH findings)"
