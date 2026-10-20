@@ -5,9 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aladdin — intent is all you need</title>
 <meta name="description" content="aloop (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. Models explore. Gates decide.">
+<link rel="icon" href="brand/favicon.svg" type="image/svg+xml" />
+<link rel="icon" href="brand/favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="apple-touch-icon" href="brand/app-icon-180.png" />
+<meta property="og:title" content="aloop: intent is all you need">
+<meta property="og:description" content="One line of intent becomes planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. Models explore. Gates decide.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://github.com/adeelahmad/aloop">
+<meta property="og:image" content="https://raw.githubusercontent.com/adeelahmad/aloop/master/docs/brand/og-card.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://raw.githubusercontent.com/adeelahmad/aloop/master/docs/brand/og-card.png">
+<meta name="theme-color" content="#0f1117">
 <style>
-  :root { --bg:#0f1117; --panel:#171a23; --ink:#e8e6df; --muted:#9a9890; --gold:#d9a441; --red:#d9534f; --green:#5cb85c; --line:#2a2e3a; }
-  @media (prefers-color-scheme: light) { :root { --bg:#faf8f2; --panel:#ffffff; --ink:#1d1d1b; --muted:#5f5e58; --line:#e2dfd4; } }
+  :root { --bg:#0f1117; --panel:#171a23; --ink:#e8e6df; --muted:#9a9890; --gold:#d9a441; --red:#dc5a56; --green:#5cb85c; --line:#2a2e3a; }
+  @media (prefers-color-scheme: light) { :root { --bg:#faf8f2; --panel:#ffffff; --ink:#1d1d1b; --muted:#5f5e58; --gold:#8a5a12; --red:#c0392b; --green:#2e7d32; --line:#e2dfd4; } }
   * { box-sizing:border-box }
   body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif }
   main { max-width:880px; margin:0 auto; padding:0 16px 64px }
@@ -39,14 +52,14 @@
     <path d="M28 74 q-16 2 -18 14 q-1 8 8 10" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/>
     <ellipse cx="70" cy="62" rx="10" ry="4" fill="#b47a1e"/>
     <!-- the flame is a loop: red (failing) → green (passing) -->
-    <path d="M70 58 q-14 -14 -4 -30 q2 10 10 12 q8 -8 2 -22 q18 14 8 36 q-6 8 -16 4 z" fill="#d9534f"/>
+    <path d="M70 58 q-14 -14 -4 -30 q2 10 10 12 q8 -8 2 -22 q18 14 8 36 q-6 8 -16 4 z" fill="#dc5a56"/>
     <path d="M70 56 q-8 -10 -2 -20 q2 6 7 8 q5 -6 2 -14 q10 10 4 24 q-4 5 -11 2 z" fill="#5cb85c"/>
   </svg>
   <div class="tag">aloop · Aladdin's Loop</div>
   <h1>Intent is all you need.</h1>
   <p class="lead">One line of intent becomes planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. A human approves the plan; cheap workers build it in isolated worktrees; deterministic hooks decide what is accepted.</p>
   <pre>aladdin "add CSV export to the report"</pre>
-  <p><a href="https://github.com/adeelahmad/agentic-agile">GitHub</a> · <a href="https://github.com/adeelahmad/agentic-agile#install--run">Install</a> · <a href="https://github.com/adeelahmad/agentic-agile/blob/master/docs/ROADMAP.md">Roadmap</a></p>
+  <p><a href="https://github.com/adeelahmad/aloop">GitHub</a> · <a href="https://github.com/adeelahmad/aloop#install--run">Install</a> · <a href="https://github.com/adeelahmad/aloop/blob/master/docs/ROADMAP.md">Roadmap</a></p>
 </header>
 
 <h2 id="red">Give the agent something to make false.</h2>
@@ -81,9 +94,9 @@ commit 3e555af   feat: csv export (built from the task's rationale)
 <p>Decisions carry a one-line reason, evidence refs and an authority ref. Usage is reported by class (fresh input, cache read, cache write, output, context) and marked <em>estimated</em> where a host does not report it.</p>
 
 <h2 id="evidence">Evidence, not claims</h2>
-<p>Every public number comes from the harness's own <code>stats.md</code> and is reproducible with <code>make e2e-live YES=1</code>: a one-line intent through intake, standards, planning, RED/SCAFFOLD/GREEN per task, structural review and the final gate, to merged and tested code in a real session. The semver intent ran end to end in 11m10s for $0.65 (run 6); a two-story word-frequency tool in 19m42s for $1.56 (run 9), and in 10m58s for $0.76 with no gate block once every dispatch ran on the project's model (run 23), and in 9m54s for $0.70 on today's master (run 27). Every number here is a row in <a href="https://github.com/adeelahmad/agentic-agile/blob/master/docs/evidence/README.md">docs/evidence/README.md</a> with the command that reproduces it, and every requirement on the roadmap is tracked with the test that proves it in <a href="https://github.com/adeelahmad/agentic-agile/blob/master/docs/TRACKING.md">docs/TRACKING.md</a>.</p>
+<p>Every public number comes from the harness's own <code>stats.md</code> and is reproducible with <code>make e2e-live YES=1</code>: a one-line intent through intake, standards, planning, RED/SCAFFOLD/GREEN per task, structural review and the final gate, to merged and tested code in a real session. The semver intent ran end to end in 11m10s for $0.65 (run 6); a two-story word-frequency tool in 19m42s for $1.56 (run 9), and in 10m58s for $0.76 with no gate block once every dispatch ran on the project's model (run 23), and in 9m54s for $0.70 on today's master (run 27). Every number here is a row in <a href="https://github.com/adeelahmad/aloop/blob/master/docs/evidence/README.md">docs/evidence/README.md</a> with the command that reproduces it, and every requirement on the roadmap is tracked with the test that proves it in <a href="https://github.com/adeelahmad/aloop/blob/master/docs/TRACKING.md">docs/TRACKING.md</a>.</p>
 
-<footer>MIT. <code>md-db</code> is vendored under AGPL-3.0. Formerly <em>agentic-agile</em>; the old names keep working. The lamp is an original drawing: a lantern whose flame is a red-to-green loop.</footer>
+<footer>MIT. <code>md-db</code> is vendored under AGPL-3.0. Formerly <em>agentic-agile</em>; the old names keep working. Brand assets and their usage rules: <a href="https://github.com/adeelahmad/aloop/tree/master/docs/brand">docs/brand</a>. The lamp is an original drawing: a lantern whose flame is a red-to-green loop.</footer>
 </main>
 </body>
 </html>

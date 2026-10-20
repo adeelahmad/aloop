@@ -77,13 +77,13 @@ paste artifacts into it. A role writes its artifact only through `aloop mission 
 | `DEFINE_JOURNEYS` | `market-researcher` | User journeys from the research: scripted steps, pass criteria, an event per step, sources (`aloop mission journeys`). A baseline with nothing to earn: raise the bar (new or stricter journeys). A listed journey that no longer runs as pinned: a journey that supersedes it. | a proposed journey |
 | `BASELINE` | `state-assessor`, `product-tester` | Ours with pinned scripts, the rivals on the same tasks: `aloop mission baseline new` (a replacement names the current one, with evidence), then `measure` (twice). A replacement past its veto window: `aloop mission baseline apply <id>`. A version that can no longer be measured, or vetoed content: propose a new, different version. | a measured or applied version |
 | `CONFIRM_BASELINE` | human | In plain words: the journeys, where we are, where the rivals are. On their explicit yes `aloop mission baseline confirm <id> --by`; a no is `veto <id> --by --reason`. | a confirmed or vetoed version |
-| `OFFER_OPTIONS` | `mission-planner`, then human | Spoon-fed: the planner ranks the goal's options; show one line each, recommended first; record their pick (`aloop mission goal`). | `goal.approved` for that goal |
-| `PLAN_INTENTS` | `mission-planner` | Turn the goal's top gaps into Aladdin intents, source `mission` (`aloop mission goal`). | the goal is active |
-| `SPRINT` | supervisor | Load the aloop skill and run one sprint on the goal's intents. Autonomous: `aloop events authority --initiated-by "<who approved the mission>" --mode autonomous --scope "mission <id>, goal <id>"`; spoon-fed: reviewed mode, one intent at a time. | Aladdin's final gate closes the sprint |
+| `OFFER_OPTIONS` | `mission-planner`, then human | Spoon-fed: show the eval's ranked gaps (`aloop mission goal options`), one line each, recommended first; their pick derives the goal (`aloop mission goal derive --pick GAP_ID --by "<their name>"`). | a goal with `goal.approved` |
+| `PLAN_INTENTS` | `mission-planner` | Turn the goal's gaps into Aladdin intents, source `mission` (`aloop mission goal intents <goal_id>`). | the goal is active |
+| `SPRINT` | supervisor | `aloop mission goal next <goal_id>` makes the next intent current; load the aloop skill and run one sprint on it. Autonomous: `aloop events authority --initiated-by "<who approved the mission>" --mode autonomous --scope "mission <id>, goal <id>"`; spoon-fed: reviewed mode, one intent at a time. | Aladdin's final gate closes the sprint |
 | `APPROVE_PLAN` | human | Spoon-fed: show the sprint's plan in one screen. On their go, `aloop events authority --initiated-by "<their name>" --mode reviewed --scope "mission <id>, goal <id>"` (it records `plan.approved`). | the plan is approved |
 | `ASSESS` | `state-assessor` | Measure the product with the pinned scripts; numbers only, no opinions (`aloop mission assess`). | a new state report |
-| `EVALUATE` | `evaluator` | Compare the state with the baseline and the rivals: the gap list and `goal_met` (`aloop mission evaluate`); it never builds. | a new eval |
-| `DERIVE_GOAL` | `mission-planner` | The eval's top gaps become one goal, with the standing principles for the mode (`aloop mission principles`, `aloop mission goal`). | a derived goal |
+| `EVALUATE` | `evaluator` | Compare the state with the baseline and the rivals: the gap list and `goal_met` (`aloop mission evaluate`); it never builds. A goal met in its eval: `aloop mission goal close <goal_id> --eval <eval_id>`. | a new eval, or a closed goal |
+| `DERIVE_GOAL` | `mission-planner` | The eval's top gaps become one goal, with the standing principles for the mode (`aloop mission goal derive`). | a derived goal |
 | `WAIT` | — | A sprint is running, planning is under way, or the raised bar is still met. Stop. | the cron wakes the loop |
 
 Usage telemetry (Google Analytics) is opt-in (`aloop mission telemetry`): it feeds research
@@ -95,6 +95,10 @@ and goals once there is usage, and is never a gate.
   `aloop mission <area>`. `mission.json` changes only with a new human approval.
 - You record a human approval (the mission, the baseline, a goal pick, a consent) only on the
   human's explicit yes in this session, with `--by` naming them. Never infer one.
+- A grant counts only in the human's own typed words (M9.17). Run the command; it exits 3 with
+  `they reply  <verb> <id> <code>`. Give them that exact line once and stop; once they have
+  typed it, run the command the ASK names after "then" (usually the same command; a spoon-fed
+  pick names `goal approve`). A yes in other words, or your `--by` alone, grants nothing.
 - A hard line is final: no consent unlocks it, and re-running the review never helps (the most
   severe verdict for a content stands).
 - You never weaken or drop a journey or a metric; a new idea is a new journey.

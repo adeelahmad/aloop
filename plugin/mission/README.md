@@ -71,10 +71,17 @@ A gate checks structure and evidence, never whether a judgment is right.
   `git checkout -- docs/agents/mission/ledger.jsonl`. `mission init` marks it `merge=union`.
   **Not detectable here:** a forged row appended with a valid hash, and, on a checkout without the run
   log, the newest rows removed. M9.9 denies roles direct writes to the ledger and to the prompt log.
+- `M.history(cwd)` is the ledger's intact rows plus the run-log events that are not ledger rows, oldest
+  first: a reader of past decisions (ethics verdicts, hard lines) iterates it, so a fresh clone decides
+  the same. A run-log copy of a ledger row is ignored, and a reader that decides checks
+  `M.ledger_problems` first (`ethics.verdict` is `broken` while the ledger has any).
 - A confirmation record carries the journeys it froze (`data.journeys`), and a retirement record its
   replacement (`replaced_by`, `replaced_by_sha256`): `journeys.pins` and `journeys.lifecycle` read
   those records, so hiding or editing a file never unfreezes, unpins or un-retires a journey.
   `baseline.current` is the version the newest `baseline.confirmed` record names.
+- A baseline is confirmed for the mission's direction, not its caps: `direction_sha256` is
+  `M.direction(mission)` over `DIRECTION` (`mission_id`, `statement`, `mode`, `constraints`), so a new
+  budget, deadline or cadence keeps it once the mission is approved again (M9.25).
 - `plugin/mission/_runner.py` runs a pinned script: each `pinned` tool's probe must print its
   version, then the command's last stdout line is the result
   `{"steps": {id: bool}, "metrics": {id: number|bool}}` (NaN and Infinity are refused). The files the
@@ -177,7 +184,7 @@ loop to move on records them:
 | the baseline | as `baseline.py` decides it: `current` (the newest `baseline.confirmed` row), `measured_ok`, `vetoed`, `evaluate`; a replacement applies after the mission's `veto_window_h` from its `baseline.measured` row |
 | journeys defined | a journey that `journeys.lifecycle` does not call retired |
 | a state report or eval | its `baseline_id` (another than the current one: re-assess, re-evaluate) and the eval's boolean `goal_met` |
-| a goal's progress | status `derived` → `approved` → `active` (intents handed to Aladdin) → `met` · `retired` · `blocked` |
+| a goal's progress | a goal is one a `goal.derived` (or `goal.approved`) ledger row covers at its content, closed by its `goal.met` row; status `derived` → `approved` → `active` (`goal intents` handed it to Aladdin) · `retired` · `blocked`; an eval narrowed to it (`goal_id`) decides its close |
 | a goal's sprints | `intent.received` {goal_id, intent_id} → `plan.created` {sprint: "S<N>", intent_id}; with no linked intent, the sprints planned since the loop handed out its `SPRINT`. Closes: `.aladdin/state/sprints.json`; `plan.approved` (spoon-fed) |
 
 Time is the ms in each harness id, so artifacts order exactly; an event stamp kept to the second

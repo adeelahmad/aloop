@@ -259,6 +259,10 @@ def main(argv):
     except M.NeedsHuman as e:
         print("ASK[%s]: %s" % (argv[0], e), file=sys.stderr)
         return 3
+    except M.LedgerBroken as e:      # nothing is recorded past a broken ledger
+        print("BLOCK[%s]: %s (restore it: git checkout -- docs/agents/mission/ledger.jsonl)" % (argv[0], e),
+              file=sys.stderr)
+        return 2
 
 
 def dispatch(argv):

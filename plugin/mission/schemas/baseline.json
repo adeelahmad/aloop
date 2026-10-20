@@ -4,7 +4,7 @@
  "required": [
   "baseline_id",
   "version",
-  "mission_sha256",
+  "direction_sha256",
   "definition_of_best",
   "journeys",
   "benchmarks",
@@ -23,7 +23,7 @@
    "type": "integer",
    "minimum": 1
   },
-  "mission_sha256": {
+  "direction_sha256": {
    "type": "string",
    "pattern": "^[0-9a-f]{64}$"
   },

@@ -77,7 +77,16 @@ rules = SKILL[SKILL.index("## Hard rules"):]
 for phrase in ("never write", "docs/agents/mission/", "explicit yes", "--by", "hard line", "never weaken",
                "never gates", "every action comes from", "STOP_BUDGET"):
     assert phrase.lower() in rules.lower(), "the hard rules do not say %r" % phrase
-ok("hard rules: no mission artifact by hand, approvals only on the human's yes, hard lines final, telemetry never gates")
+# M9.17: a grant is the human's typed line, so the supervisor relays the line the command asks for, verbatim
+for phrase in ("they reply", "exact line", "typed", 'the command the ASK names after "then"', "goal approve",
+               "grants nothing"):
+    assert phrase in rules, "the hard rules do not say how a grant is made (M9.17): %r" % phrase
+for src, forms in (("bin/_mission.py", ("they reply  ", "then run this again")),          # what the CLI prints
+                   ("mission/goal.py", ("then aloop mission goal approve",))):
+    text = open(os.path.join(PLUGIN, src)).read()
+    assert all(f in text for f in forms), (src, forms)
+ok("hard rules: no mission artifact by hand, approvals only in the human's own typed line, hard lines final, "
+   "telemetry never gates")
 
 # 6) setting a mission asks the human only for what requirement 1 gives them
 setup = SKILL[SKILL.index("## Setting a mission"):]

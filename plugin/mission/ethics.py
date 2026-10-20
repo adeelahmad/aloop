@@ -39,7 +39,6 @@ import sys
 import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "bin"))
-import _events  # noqa: E402
 import _mission as M  # noqa: E402
 
 TIERS = ("clear", "gray", "hard")
@@ -174,14 +173,9 @@ def word_keys(kind, doc, only=None):
 
 
 def rows(cwd):
-    """The ethics records a verdict decides from: the ledger's intact rows (reviews, hard lines and the
-    human's consents), so a hard line holds on a fresh checkout, where the git-ignored stream is gone;
-    plus the run log's hard lines the ledger does not have (recorded before it held them): a hard
-    line only ever closes, so the log may add one but never clears or consents."""
-    led = [r for r in M.ledger_rows(cwd)[0] if str(r.get("event", "")).startswith("ethics.")]
-    have = {r.get("event_id") for r in led}
-    return led + [e for e in _events.read(cwd) if isinstance(e.get("data"), dict) and isinstance(e.get("event_id"), str)
-                  and is_hard(e) and e["event_id"] not in have]
+    """M.history (the ledger's rows, then the run log's other events) without a malformed run-log line: an
+    event whose data is not an object is skipped, never a traceback."""
+    return [e for e in M.history(cwd) if isinstance(e.get("data"), dict)]
 
 
 def hard_words(cwd):
@@ -192,8 +186,8 @@ def hard_words(cwd):
 
 def held_gaps(cwd):
     """Every gap id a hard line has fixed: the gap is held by its id as well as by its words."""
-    return {g for e in rows(cwd) if e.get("event") == "ethics.blocked"
-            for g in ((e.get("data") or {}).get("gaps") or []) if isinstance(g, str)}
+    return {g for e in rows(cwd) if e.get("event") == "ethics.blocked" and isinstance(e["data"].get("gaps"), list)
+            for g in e["data"]["gaps"] if isinstance(g, str)}
 
 
 def screen(text):
@@ -324,14 +318,14 @@ def verdict(cwd, kind, sid):
     except LookupError as e:
         return 2, [str(e)], {"state": "unresolved"}
     ref, sha = subj["ref"], subj["sha256"]
-    broken = M.ledger_problems(cwd)
-    if broken:      # an edited or lost row could be the hard line itself: nothing is decided past it
-        return 2, ["the mission ledger is broken (%s): restore it (git checkout -- %s)"
-                   % ("; ".join(broken), M.rel(cwd, M.ledger(cwd)))], {"state": "broken"}
     matched, words, mine = screen(text_of(doc)), text_digest(doc), set(word_keys(kind, doc))
     facts = {"subject": ref, "kind": kind, "id": subj["id"], "sha256": sha, "state": "none",
              "screen": {c: p for c, p in matched}, "tier": None, "review": None, "reviews": [],
              "consent_event": None}
+    broken = M.ledger_problems(cwd)          # reviews and hard lines are its rows: what is left of it decides nothing
+    if broken:
+        facts["state"] = "broken"
+        return 2, ["%s (restore it: git checkout -- %s)" % (b, M.rel(cwd, M.ledger(cwd))) for b in broken], facts
     every, recs, hard, consents = [], {}, [], []
     for e in rows(cwd):
         d = e.get("data") or {}
@@ -477,14 +471,11 @@ def cmd_record(cwd, path):
     mine = [e for e in rows(cwd) if e.get("event") == "ethics.reviewed"
             and (e.get("data") or {}).get("ethics_id") == eid]
     if not mine or mine[-1]["data"].get("review_sha256") != rev["sha256"]:   # re-recording the same file is a no-op
-        words = text_digest(doc)
-        try:
-            M.record(cwd, "ethics.reviewed", cur["ref"], "ethics-reviewer", ethics_id=eid, review=M.rel(cwd, path),
-                     sha256=cur["sha256"], text_sha256=words, review_sha256=rev["sha256"], tier=rev["tier"], kind=kind)
-        except M.LedgerBroken as e:
-            report(2, ["the mission ledger is broken, so no verdict is recorded (%s): git checkout -- %s"
-                       % (e, M.rel(cwd, M.ledger(cwd)))])
+        if M.ledger_block(cwd, "ethics"):
             return 2
+        words = text_digest(doc)     # a ledger row: a fresh checkout keeps every review and hard line
+        M.record(cwd, "ethics.reviewed", cur["ref"], "ethics-reviewer", ethics_id=eid, review=M.rel(cwd, path),
+                 sha256=cur["sha256"], text_sha256=words, review_sha256=rev["sha256"], tier=rev["tier"], kind=kind)
         if rev["tier"] == "hard":
             cats = [c for c in list(CATEGORIES) + ["other"]
                     if any(f["category"] == c and f["tier"] == "hard" for f in rev["findings"])]

@@ -234,7 +234,7 @@ keep = open(led).read()
 open(led, "w").write(keep.replace('"categories": ["illegal"]', '"categories": ["other"]'))
 assert keep != open(led).read()
 r = run(MI, "ethics", "check", "--subject", gid3)
-assert r.returncode == 2 and "ledger is broken" in r.stderr, r.stderr   # an edited hard line decides nothing
+assert r.returncode == 2 and "was edited" in r.stderr and "git checkout --" in r.stderr, r.stderr   # it decides nothing
 open(led, "w").write(keep)
 ok("hard: record blocks and records ethics.blocked in the ledger; consent refused; a later softer review, a deleted file, a lost run log or an edited row never unlocks")
 
@@ -319,7 +319,7 @@ sub = fd["subject"]
 M.emit(T, "ethics.reviewed", role="ethics-reviewer", ethics_id=fd["ethics_id"], subject=sub["ref"],
        sha256=sub["sha256"], review_sha256=fd["sha256"], tier="clear")
 r = run(MI, "ethics", "check", "--subject", gF)
-assert r.returncode == 3 and "gray area" in r.stderr, r.stderr      # a stream-only record decides nothing
+assert r.returncode == 2 and "is not the sealed review's" in r.stderr, r.stderr   # a stream record must agree
 M.record(T, "ethics.reviewed", sub["ref"], "ethics-reviewer", ethics_id=fd["ethics_id"], sha256=sub["sha256"],
          review_sha256=fd["sha256"], tier="clear")
 r = run(MI, "ethics", "check", "--subject", gF)
@@ -374,13 +374,6 @@ assert fill(rT2, [{"category": "other", "tier": "gray", "reason": "hides tips"}]
 assert run(MI, "ethics", "consent", "--subject", gT, "--by", "Sam", "--reason", "tips move to help").returncode == 0
 cs = json.load(open(M.path_of(T, "goal", gT)))["approval"]["ethics"]["consents"]
 assert [cs[json.load(open(x))["ethics_id"]]["by"] for x in (rT1, rT2)] == ["Adeel", "Sam"], cs
-before = run(MI, "ethics", "check", "--subject", gT)
-with open(_events.path(T), "a") as f:       # malformed run-log lines are skipped, never a traceback
-    f.write(json.dumps({"event": "ethics.reviewed", "event_id": "x1", "ts": "2026-10-20T00:00:00Z", "data": "tier=hard"}) + "\n")
-    f.write(json.dumps({"event": "ethics.blocked", "event_id": "x2", "ts": "2026-10-20T00:00:00Z",
-                        "data": {"subject": "mission/x.json", "kind": "goal", "words": 5}}) + "\n")
-r = run(MI, "ethics", "check", "--subject", gT)
-assert (r.returncode, r.stdout) == (before.returncode, before.stdout) and "Traceback" not in r.stderr, r.stderr
 ok("hardening: no reordering, edit, re-id, forged event, symlink, invisible character or nested field clears a gate")
 
 # 10) second review round: the screen reads mechanics and modifiers; a hard line follows a goal's own words
@@ -441,12 +434,75 @@ r = run(MI, "ethics", "check", "--subject", gN, "--json")
 assert r.returncode == 2 and json.loads(r.stdout)["state"] == "broken" and "restore it" in r.stderr, r.stderr
 ok("second round: mechanics and modifiers screened; a hard line follows a goal's words to any re-derived goal; state")
 
+# 12) a fresh checkout keeps every verdict (M9.24): reviews and hard lines are ledger rows, not run data
+logs = os.path.join(T, ".aladdin", "logs")
+
+
+def clone(fn):
+    """fn() as a fresh checkout sees it: the run log is git-ignored, so a clone has none."""
+    shutil.move(logs, logs + ".aside")
+    try:
+        return fn()
+    finally:
+        shutil.rmtree(logs, ignore_errors=True)      # what the commands wrote meanwhile
+        shutil.move(logs + ".aside", logs)
+
+
+here = [st(s) for s in (gX, gX2, gN, "mission")]
+assert here[:2] == ["hard", "hard"], here
+assert clone(lambda: [st(s) for s in (gX, gX2, gN, "mission")]) == here, here
+assert os.path.exists(os.path.join(logs, "events.jsonl"))
+ok("a fresh checkout keeps every review and hard line (ledger rows): nothing is unlocked or asked again")
+
+# 13) the ledger decides (M9.24): an edited run-log copy of a ledger row changes nothing; a broken ledger decides nothing
+log = os.path.join(logs, "events.jsonl")
+kept = open(log).read()
+mine = lambda e: e["event"] in ("ethics.reviewed", "ethics.blocked") and e["data"].get("subject", "").endswith(gX + ".json")  # noqa: E731
+evs = [json.loads(l) for l in kept.splitlines() if l.strip()]
+assert [e["event"] for e in evs if mine(e)] == ["ethics.reviewed", "ethics.blocked"], evs
+with open(log, "w") as f:                           # same event_ids, other events: the run log is not the record
+    f.write("".join(json.dumps(dict(e, event="judge.run") if mine(e) else e) + "\n" for e in evs))
+assert M.ledger_problems(T) == [] and st(gX) == "hard" and E.held_gaps(T) == {GX["gap_id"]}, st(gX)
+assert clone(lambda: E.held_gaps(T)) == {GX["gap_id"]}        # a clone holds the gap by its id too
+with open(log, "w") as f:
+    f.write(kept)
+led = M.ledger(T)
+chain = open(led).read()
+rows = chain.splitlines()
+at = next(i for i, l in enumerate(rows) if json.loads(l)["event"] == "ethics.blocked")
+assert at < len(rows) - 1                           # a row follows it: the cut is mid-chain
+with open(led, "w") as f:
+    f.write("".join(l + "\n" for i, l in enumerate(rows) if i != at))
+
+
+def broken():
+    for s in (gX, gN, "mission"):
+        r = run(MI, "ethics", "check", "--subject", s, "--json")
+        assert r.returncode == 2 and json.loads(r.stdout)["state"] == "broken", (s, r.stdout, r.stderr)
+        assert "ledger" in r.stderr and "restore it" in r.stderr, r.stderr
+
+
+broken()                                             # this checkout
+clone(broken)                                        # and a fresh clone: nothing decides from what is left
+with open(led, "w") as f:
+    f.write(chain)
+assert [st(s) for s in (gX, gX2, gN, "mission")] == here
+ok("the ledger decides: an edited run-log copy of a hard line changes nothing, and a ledger cut mid-chain blocks every "
+   "verdict, in this checkout and a clone")
+
 # 11) usage: unknown subjects and commands; the area is discovered; --help is the docstring
 assert run(MI, "ethics", "check", "--subject", "gol_000000000000deadbeef").returncode == 2
 assert run(MI, "ethics", "check").returncode == 64
 assert run(MI, "ethics", "nope").returncode == 64
 assert "ethics" in run(MI, "--list").stdout.split()
 assert "three tiers" in run(MI, "ethics", "--help").stdout
+before = run(MI, "ethics", "check", "--subject", gT)
+with open(_events.path(T), "a") as f:       # malformed run-log lines are skipped, never a traceback
+    f.write(json.dumps({"event": "ethics.reviewed", "event_id": "x1", "ts": "2026-10-20T00:00:00Z", "data": "tier=hard"}) + "\n")
+    f.write(json.dumps({"event": "ethics.blocked", "event_id": "x2", "ts": "2026-10-20T00:00:00Z",
+                        "data": {"subject": "mission/x.json", "kind": "goal", "words": 5}}) + "\n")
+r = run(MI, "ethics", "check", "--subject", gT)
+assert (r.returncode, r.stdout) == (before.returncode, before.stdout) and "Traceback" not in r.stderr, r.stderr
 shutil.rmtree(T, ignore_errors=True)
 ok("unknown subject (2) and missing --subject or command (64); discovered as an area")
 

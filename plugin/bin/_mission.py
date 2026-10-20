@@ -72,6 +72,8 @@ NEGATION = re.compile(r"\b(?:not|no|never|don'?t|veto\w*|reject\w*|cancel\w*|sto
 
 # fields left out of the digest: the digest itself and the bookkeeping that changes on approval
 UNHASHED = ("sha256", "status", "approval")
+# what "best" is measured for: a baseline binds these, so a new budget cap or cadence keeps it
+DIRECTION = ("mission_id", "statement", "mode", "constraints")
 
 
 def now():
@@ -116,6 +118,11 @@ def canonical(doc, drop=UNHASHED):
 
 def digest(doc, drop=UNHASHED):
     return hashlib.sha256(canonical(doc, drop)).hexdigest()
+
+
+def direction(mission_doc):
+    """The digest of the mission's direction (DIRECTION): what a baseline is confirmed for."""
+    return digest({k: (mission_doc or {}).get(k) for k in DIRECTION}, drop=())
 
 
 def load(path):
@@ -467,6 +474,17 @@ def approve(cwd, event, subject_ref, sha, by, reason="", **data):
     if event not in APPROVAL_EVENTS:
         raise ValueError("not an approval event: %r" % event)
     return record_human(cwd, event, subject_ref, by, reason, sha256=sha, **data)
+
+
+def history(cwd):
+    """The ledger's intact rows, plus the run log's events that are not ledger rows, oldest first:
+    what a reader of past decisions iterates, so a clone decides the same. The ledger is the record:
+    a run-log copy of a row (same event_id) is ignored, whatever it says, and ledger rows keep their
+    file order (their ts never goes back). A reader that decides checks `ledger_problems` first."""
+    rows = ledger_rows(cwd)[0]
+    have = set(r.get("event_id") for r in rows)
+    return sorted(rows + [e for e in _events.read(cwd) if isinstance(e, dict) and e.get("event_id") not in have],
+                  key=lambda e: str(e.get("ts") or ""))
 
 
 def records(cwd, event, subject_ref=None, role=None):
