@@ -4,7 +4,8 @@
 mission (the human's typed line approves it) → an ethics review → sourced research → a journey → a
 baseline measured twice and confirmed by the human → a state report → a gap list → a goal → its ethics
 review → one Intent Contract per gap → one Aladdin sprint per intent (planned at `ids freeze`, closed
-by `stats sprint-close`) → a state report → GOAL MET → the goal closes → RESEARCH raises the bar. A
+by `stats sprint-close`) → a state report → GOAL MET → the goal closes → a whole-mission eval →
+RESEARCH raises the bar. A
 raised budget keeps the baseline (M9.25); a fresh clone decides the same.
     python3 scripts/test/mission-e2e.test.py
 """
@@ -171,8 +172,13 @@ r = must("evaluate")
 assert "GOAL MET" in r.stderr and "0 gap(s)" in r.stderr, r.stderr
 ev = json.load(open(r.stdout.strip().splitlines()[-1]))
 assert ev["goal_id"] == gid and ev["goal_met"] is True, ev
+d = tick("EVALUATE")                                             # the loop hands out the close
+assert "goal close %s --eval %s" % (gid, ev["eval_id"]) in d["reason"], d["reason"]
 must("goal", "close", gid, "--eval", ev["eval_id"])
 assert p.load("goal", gid)["status"] == "met"
+tick("EVALUATE")                                                 # the narrowed eval says nothing about the mission
+r = must("evaluate")
+assert "GOAL MET" in r.stderr and json.load(open(r.stdout.strip().splitlines()[-1])).get("goal_id") in (None, ""), r.stderr
 tick("RESEARCH")
 assert must("evaluate", "check").returncode == 0 and must("check").returncode == 0
 assert M.ledger_problems(p.dir) == []
