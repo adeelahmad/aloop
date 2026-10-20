@@ -51,11 +51,14 @@ import _paths  # noqa: E402
 # events only their own command may write (ROADMAP §4.12): human decisions, the ethics and door gates'
 # records and the goal lineage (`events trace` and `mission goal close` read them)
 GATE_OWNED = set(_mission.HUMAN_EVENTS) | {"ethics.reviewed", "ethics.blocked", "goal.derived", "goal.met",
+                                          "goal.retired",                      # `mission goal retire` (M9.50)
                                           "door.denied", "door.crossed",       # the door gate's own records (M9.30)
                                           "state.assessed", "eval.completed",  # what goals are derived and closed from
                                           "intent.received"}                   # an intent's lineage (`intent new`)
 # the human's grant of a sprint (ROADMAP M0.9): only `events authority` writes it, from their typed line
 GATE_OWNED |= {"human.approval", "plan.approved", "plan.gated"}
+# the project stop (ROADMAP M10.4): only `aloop stop` writes it
+GATE_OWNED |= {"run.stopped", "run.resumed"}
 
 
 def parse(argv):

@@ -26,7 +26,7 @@ EVENT_TYPES = {
     "artifact.created", "artifact.updated", "semantic_target.created", "semantic_target.resolved",
     "decision.recorded", "commit.created",
     "memory.candidate", "memory.promoted", "memory.retired",
-    "human.approval", "human.override", "run.completed", "run.aborted",
+    "human.approval", "human.override", "run.completed", "run.aborted", "run.stopped", "run.resumed",
     # the mission layer (ROADMAP §4.12): registered up front so its parallel tracks never edit this set
     "mission.set", "mission.approved", "mission.tick", "mission.budget_exhausted", "mission.lifted",
     "research.recorded",

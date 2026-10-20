@@ -244,6 +244,8 @@ def views(cmd, depth=0, cur=""):
                 cur, group = stack.pop()
             fed = None
             continue
+        if isinstance(c, str):              # "cwd+" / "cwd|" / "cwd-": a compound's bounds (the scope gate's)
+            continue
         for sub in c.subs:
             out += views(sub, depth + 1, cur)
         vs = simple(c, depth, cur)
@@ -251,7 +253,9 @@ def views(cmd, depth=0, cur=""):
             v.setdefault("end", c.end)
             v.setdefault("depth", depth)
         prog = vs[0]["prog"] if vs else ""
-        if prog in ("cd", "pushd"):
+        if c.pipe:                          # a pipeline element runs in a subshell: its `cd` does not leak
+            pass
+        elif prog in ("cd", "pushd"):
             if prog == "pushd":
                 dirs.append(cur)
             cur = chdir(cur, next((a for a in vs[0]["args"] if not a.startswith("-")), ""))

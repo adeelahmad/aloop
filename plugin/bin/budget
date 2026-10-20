@@ -66,6 +66,7 @@ import _paths  # noqa: E402  (the one file-layout definition)
 import _usage  # noqa: E402  (token usage from any host's session log)
 import _events  # noqa: E402  (the aladdin.event/1 stream)
 import _timebox  # noqa: E402  (AGENTIC_TIME_MODE=auto)
+import _stop  # noqa: E402  (the project stop flag, M10.4)
 
 BUDGET_KEYS = ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS")
 WORKERS = ("red-worker", "scaffolder", "green-worker")
@@ -385,6 +386,24 @@ def save_state(path, st):
 
 
 # ── hook mode ─────────────────────────────────────────────────────────
+def project_stop(mode, raw):
+    """The human stopped the project (`aloop stop`, ROADMAP M10.4): refuse every acting call of every
+    agent, and end it at its next read. True when the stop decided this call."""
+    try:
+        payload = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        payload = {}
+    rec = _stop.read(payload.get("cwd") or os.getcwd()) if mode in ("pre", "post") else None
+    if not rec:
+        return False
+    msg = _stop.message(rec)
+    if mode == "pre" and payload.get("tool_name") not in _stop.READS:
+        emit("PreToolUse", deny=msg)
+    elif mode == "post":
+        emit("PostToolUse", context=msg, stop="aloop: project stopped by the human (%s)" % (rec.get("reason") or "no reason given"))
+    return True
+
+
 def emit(event, context=None, deny=None, stop=None):
     out = {"hookSpecificOutput": {"hookEventName": event}}
     if stop:                       # PostToolUse `continue: false` ends the sub-agent (verified)
@@ -591,9 +610,11 @@ def observe(mode, payload, agent_id, role):
 
 
 def hook(mode):
+    raw = sys.stdin.read()
+    if project_stop(mode, raw):                  # before every opt-out: a stop holds for all (M10.4)
+        return
     if os.environ.get("SKIP_HOOKS") == "1" or os.environ.get("AGENTIC_NO_BUDGET") == "1":
         return
-    raw = sys.stdin.read()
     if not any(w in raw for w in WORKERS + tuple(ROLE_PROFILES)):   # cheap exit: no model role
         return
     payload = json.loads(raw)
