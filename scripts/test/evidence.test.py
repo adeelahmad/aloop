@@ -75,7 +75,7 @@ def cells_of(line):
 def ledger_row(c):
     if len(c) < 8 or not c[2] or "make e2e-live YES=1" not in c[-1]:
         return False
-    host = (re.search(r"\bHOST=(\w+)", c[-1]) or [None, "claude"])[1]
+    host = (re.search(r"\bHOST=(\S+?)(?=`|\s|$)", c[-1]) or [None, "claude"])[1]   # the whole token: HOST=dsh-x is no dsh
     return bool(re.fullmatch(r"\d+/\d+", c[3]) and re.fullmatch(r"\d+m\d+s", c[4]) and host in COST and re.fullmatch(COST[host], c[5]))
 
 
@@ -111,7 +111,7 @@ assert [c[5] for c in dsh_rows.values()] == ["$0.0231", "<$0.0001"], dsh_rows
 for c in dsh_rows.values():
     assert ledger_row(c), c
 for host, cost in (("dsh", "$0.02"), ("dsh", "—"), ("claude", "$0.0231"), ("claude", "<$0.0001"), ("claude", "—"),
-                   ("codex", "—"), ("codex", "$0.00"), ("opencode", "$0.65")):
+                   ("codex", "—"), ("codex", "$0.00"), ("opencode", "$0.65"), ("dsh-x", "$0.0231"), ("dsh.x", "<$0.0001")):
     c = list(dsh_rows["dsh-cents"])
     c[5], c[-1] = cost, "`make e2e-live YES=1 INTENT=semver%s`" % ("" if host == "claude" else " HOST=" + host)
     assert not ledger_row(c), c
@@ -121,7 +121,11 @@ ok("the evidence row run-summary prints passes the ledger check on Claude Code a
 # 3) every public time/cost figure is a ledger row; the demo rows link to the ledger
 readme = open(os.path.join(ROOT, "README.md")).read()
 site = open(os.path.join(ROOT, "docs", "index.html")).read()
-figures = set(re.findall(r"^\| .+ \| .+ \| (\d+m\d+s) \| (\$\d+\.\d+) \|$", readme, re.M)) | set(re.findall(r"(\d+m\d+s) for (\$\d+\.\d+)", site))
+FIG_README = r"^\| .+ \| .+ \| (\d+m\d+s) \| (<?\$\d+\.\d+) \|$"     # a dsh cost below a hundredth of a cent reads <$0.0001
+FIG_SITE = r"(\d+m\d+s) for (<?\$\d+\.\d+)"
+assert re.findall(FIG_README, "| a | semver (dsh) | 9m10s | <$0.0001 |\n| b | semver | 9m10s | $0.0231 |", re.M) == [("9m10s", "<$0.0001"), ("9m10s", "$0.0231")]
+assert re.findall(FIG_SITE, "9m10s for <$0.0001 and 7m2s for $0.94") == [("9m10s", "<$0.0001"), ("7m2s", "$0.94")]
+figures = set(re.findall(FIG_README, readme, re.M)) | set(re.findall(FIG_SITE, site))
 assert figures
 pairs = {(c[4], c[5]) for c in cells}
 for f in figures:

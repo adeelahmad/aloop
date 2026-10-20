@@ -4,7 +4,7 @@ Every time or cost figure in the [README](../../README.md), on the [site](../ind
 [ROADMAP §0](../ROADMAP.md#0-at-a-glance) is a row here. Each row is one live run of the whole
 loop (`scripts/smoke/e2e-live.sh`): a one-line intent through intake, standards, planning,
 RED/SCAFFOLD/GREEN per task, structural review and the final gate, to merged, tested code in a
-real host session (Claude Code, or Codex/OpenCode/dsh with `HOST=`) with the approval given up front. The numbers come from the harness
+real host session (Claude Code, or dsh with `HOST=dsh`; a Codex or OpenCode run measures no cost, see below) with the approval given up front. The numbers come from the harness
 (`run-summary` reads the session's `result` lines and the gate log), never from the model.
 `scripts/test/evidence.test.py` fails if a public figure has no row, or a row has no reproduce
 command or a cost cell other than a measured cost as `run-summary` prints it for the row's host.

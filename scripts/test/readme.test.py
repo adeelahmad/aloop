@@ -87,9 +87,11 @@ ok("the README's offline suite count is the Makefile's (%d, plus its globbed sui
 # 7) every CI job that runs the host tests (the README: macos runs "the same host tests") runs the dsh
 # runtime test for real: without DSH_BIN and ALOOP_REQUIRE_DSH=1 it prints "skip" and exits 0, so the
 # macos job went green with none of its checks run. One install step, the pin the test names, in each job,
-# and nothing that skips or forgives it or the host tests (`if:`, `continue-on-error`, another `shell:`, a
-# `|| true`), or that clears DSH_BIN or sets ALOOP_REQUIRE_DSH to anything but 1 (workflow, job or step env,
-# a later $GITHUB_ENV write), since each leaves the job green with the runtime test skipped or off its pin.
+# and none of the plain edits that skip or forgive it or the host tests (`if:`, `continue-on-error`, another
+# `shell:` or `defaults:`, a `|| true`, a quoted key, an env on the tests step other than BASH32 such as
+# MAKEFLAGS=-n), or that clear DSH_BIN or set ALOOP_REQUIRE_DSH to anything but 1 (workflow, job or step
+# env, a later $GITHUB_ENV write), since each leaves the job green with the runtime test skipped or off its
+# pin. A text check, not a YAML reader: an edit written to hide (a YAML escape, an anchor) is review's.
 ci = open(os.path.join(ROOT, ".github", "workflows", "ci.yml")).read()
 pin = re.search(r"npm install (@deepseek-ai/dsh@[\w.-]*\w)", open(os.path.join(ROOT, "scripts", "test", "dsh-runtime.test.mjs")).read()).group(1)
 ci_head, ci_jobs = ci.split("\njobs:\n", 1)
@@ -101,8 +103,11 @@ REQUIRE_1 = re.compile(r"""ALOOP_REQUIRE_DSH\s*[:=]\s*(["']?)1\1(?=\s|$|[;&|)])"
 INSTALL = r"^      - name: Install the pinned DeepSeek Harness \(dsh\) runtime\n(?:(?!      - ).*\n)*"
 
 
+KEY = r"""(["']?)([\w-]+)\1\s*:"""   # YAML reads `"if":` and `'if':` as `if`
+
+
 def step_keys(step):
-    return re.findall(r"^(?:      - |        )([\w-]+)\s*:", step, re.M)
+    return [k for _, k in re.findall(r"^(?:      - |        )" + KEY, step, re.M)]
 
 
 def overrides(text):
@@ -112,6 +117,7 @@ def overrides(text):
 
 
 assert not overrides(ci_head), "the workflow env overrides dsh's: %r" % overrides(ci_head)
+assert "defaults" not in [k for _, k in re.findall(r"^" + KEY, ci_head, re.M)], "the workflow sets `defaults:` (a run shell can no-op every step)"
 steps = {}
 for k in host_jobs:
     job = jobs[k]
@@ -129,8 +135,10 @@ for k in host_jobs:
     tests = [s for s in re.split(r"^(?=      - )", job, flags=re.M) if "make test-hosts" in s]
     assert len(tests) == 1 and re.search(r"^        run: make test-hosts\n", tests[0], re.M) \
         and set(step_keys(tests[0])) <= {"name", "run", "env"}, "CI job %r: the host tests step must be a bare `run: make test-hosts` (with name and env only): %r" % (k, tests)
-    job_keys = re.findall(r"^    ([\w-]+)\s*:", job, re.M)
-    assert not {"if", "continue-on-error"} & set(job_keys), "CI job %r is skipped or forgiven (%r)" % (k, job_keys)
+    env_keys = [k2 for _, k2 in re.findall(r"^          " + KEY, tests[0], re.M)]
+    assert set(env_keys) <= {"BASH32"}, "CI job %r: the host tests step's env may set only BASH32 (MAKEFLAGS=-n or -i runs or forgives nothing): %r" % (k, env_keys)
+    job_keys = [k2 for _, k2 in re.findall(r"^    " + KEY, job, re.M)]
+    assert not {"if", "continue-on-error", "defaults"} & set(job_keys), "CI job %r is skipped or forgiven (%r)" % (k, job_keys)
     assert not overrides(job.replace(step, "", 1)), "CI job %r overrides dsh's env: %r" % (k, overrides(job.replace(step, "", 1)))
 assert len(set(steps.values())) == 1, "the dsh install step differs between CI jobs: %r" % steps
 ok("every CI job running the host tests installs dsh (%s) and requires it, unskipped and unforgiven (%s)" % (pin, ", ".join(host_jobs)))
@@ -142,11 +150,13 @@ m = re.search(r"^# .*\b(\w+) independent jobs:", ci_head, re.M)
 assert m and NUM.get(m.group(1).lower()) == len(jobs), "ci.yml header says %r jobs, it has %d" % (m and m.group(1), len(jobs))
 listed = re.findall(r"^#   ([\w-]+)\s+—", ci_head, re.M)
 assert sorted(listed) == sorted(jobs), "ci.yml header lists jobs %r, the workflow runs %r" % (listed, sorted(jobs))
-unnamed = [k for k in jobs if "- **%s**:" % k not in readme]
-assert not unnamed, "README's CI list does not name job(s) %r" % unnamed
 m = re.search(r'^# Documented in README\.md \("([^"]+)"\)', ci_head, re.M)
-assert m and re.search(r"^(?:#+ |<summary><b>)%s\b" % re.escape(m.group(1)), readme, re.M), \
-    "ci.yml header points to README section %r, which README does not have" % (m and m.group(1))
+sec = m and re.search(r"^(?:#+ |<summary><b>)%s\b" % re.escape(m.group(1)), readme, re.M)
+assert sec, "ci.yml header points to README section %r, which README does not have" % (m and m.group(1))
+nxt = re.compile(r"^(?:#+ |<summary><b>)", re.M).search(readme, sec.end())
+section = readme[sec.end():nxt.start() if nxt else len(readme)]
+unnamed = [k for k in jobs if "\n- **%s**:" % k not in section]
+assert not unnamed, "README's CI list (section %r) does not name job(s) %r" % (m.group(1), unnamed)
 ok("the ci.yml header counts and names its %d jobs and points to the README section that lists each" % len(jobs))
 
 print("\n%d checks passed" % PASS[0])
