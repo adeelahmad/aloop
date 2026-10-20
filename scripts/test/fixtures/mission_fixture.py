@@ -11,6 +11,7 @@ tools/journey.py is the pinned runner that reads it and prints the result line. 
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -35,6 +36,27 @@ print(json.dumps({"steps": {s: s in app["working_steps"] for s in ("open", "add"
                   "metrics": {"secs": secs, "tasks_shown": app["tasks_shown"]}}))
 '''
 PIN = {"python3": {"version": "Python 3", "probe": ["python3", "--version"]}}
+HOOK = os.path.join(BIN, "transcripts")
+ASKED = re.compile(r"they reply  (.+?)  \(the code")
+
+
+def say(cwd, env, text, session="s-human"):
+    """The human types `text`: the UserPromptSubmit hook captures it, exactly as a host runs it."""
+    r = subprocess.run([HOOK, "prompt"], cwd=cwd, env=env, capture_output=True, text=True,
+                       input=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": session, "prompt": text}))
+    assert r.returncode == 0, r.stderr
+
+
+def as_human(go, cwd, env):
+    """Run go(); when a grant asks for the human's own words, the human types the line it names and the
+    command runs again (the real flow: the role relays the line, the human replies, the role reruns)."""
+    r = go()
+    err = r.stderr if isinstance(r.stderr, str) else r.stderr.decode("utf-8", "replace")
+    m = r.returncode == 3 and ASKED.search(err)
+    if m:
+        say(cwd, env, m.group(1))
+        r = go()
+    return r
 
 
 class Project:
@@ -58,8 +80,15 @@ class Project:
             assert r.returncode == 0, r.stderr
 
     def run(self, *args):
+        """`aloop mission …` as a role runs it, with a human who types every grant it asks for."""
+        return as_human(lambda: self.raw(*args), self.dir, self.env)
+
+    def raw(self, *args):
         return subprocess.run([os.path.join(BIN, "mission")] + list(args), cwd=self.dir, env=self.env,
                               capture_output=True, text=True)
+
+    def say(self, text):
+        say(self.dir, self.env, text)
 
     def app(self, **state):
         with open(os.path.join(self.dir, "app.json"), "w") as f:

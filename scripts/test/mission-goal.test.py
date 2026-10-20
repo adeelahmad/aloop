@@ -16,7 +16,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
-from mission_fixture import Project, M, BIN  # noqa: E402
+from mission_fixture import ASKED, Project, M, BIN  # noqa: E402
 
 sys.path.insert(0, M.AREAS_DIR)
 import _events  # noqa: E402
@@ -317,9 +317,13 @@ r = s.run("goal", "derive", "--eval", ev)
 assert r.returncode == 64 and "--pick" in r.stderr, r.stderr
 assert s.run("goal", "derive", "--eval", ev, "--pick", s1 + "#all").returncode == 64     # who picked: --by
 assert s.run("goal", "derive", "--eval", ev, "--pick", "nope", "--by", "Adeel").returncode == 2
-r = s.run("goal", "derive", "--eval", ev, "--pick", "%s#all,%s#fast" % (s1, s1), "--by", "Adeel")
-assert r.returncode == 0, r.stderr
-sg = json.load(open(r.stdout.strip()))
+r = s.raw("goal", "derive", "--eval", ev, "--pick", "%s#all,%s#fast" % (s1, s1), "--by", "Adeel")
+assert r.returncode == 3 and "then aloop mission goal approve" in r.stderr, r.stderr   # the pick waits for their words
+gpath = r.stdout.strip()
+assert json.load(open(gpath))["status"] == "derived" and not s.events("goal.approved")
+s.say(ASKED.search(r.stderr).group(1))
+assert s.raw("goal", "approve", json.load(open(gpath))["goal_id"], "--by", "Adeel", "--reason", "picked").returncode == 0
+sg = json.load(open(gpath))
 assert [x["gap_id"] for x in sg["gaps"]] == [s1 + "#all", s1 + "#fast"] and sg["autonomy"] == "reviewed"
 assert sg["status"] == "approved" and sg["principles"] == P.stamp("spoon-fed")
 ap = s.events("goal.approved")

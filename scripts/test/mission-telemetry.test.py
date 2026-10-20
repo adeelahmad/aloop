@@ -29,6 +29,8 @@ T2 = tempfile.mkdtemp(prefix="aloop-telemetry-probe-")
 PASS = [0]
 sys.path[:0] = [BIN, os.path.join(ROOT, "mission")]
 import _mission as M  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
+from mission_fixture import as_human, say  # noqa: E402
 import journeys as J  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("telemetry", os.path.join(ROOT, "mission", "telemetry.py"))
@@ -51,7 +53,8 @@ def ok(name):
 
 
 def run(*args, env=None, cwd=T):
-    return subprocess.run([MI, "telemetry"] + list(args), cwd=cwd, env=env or ENV, capture_output=True, text=True)
+    return as_human(lambda: subprocess.run([MI, "telemetry"] + list(args), cwd=cwd, env=env or ENV,
+                                           capture_output=True, text=True), cwd, env or ENV)
 
 
 def fake(path, body=None):
@@ -91,7 +94,9 @@ def journey(title, steps, frozen=True, status="active"):
         bid = M.new_id("baseline")
         bp = M.path_of(T, "baseline", bid)
         M.save(bp, {"baseline_id": bid, "journeys": [{"journey_id": jid, "sha256": M.digest(json.load(open(jp)))}]})
-        M.approve(T, "baseline.confirmed", M.rel(T, bp), M.digest(json.load(open(bp))), "Adeel")
+        bsha = M.digest(json.load(open(bp)))
+        say(T, ENV, "confirm %s %s" % (bid, M.code(bsha)))          # the human's own words (M9.17)
+        M.approve(T, "baseline.confirmed", M.rel(T, bp), bsha, "Adeel")
     return jid
 
 
@@ -541,6 +546,8 @@ try:
                           ("2099-01-01T00:00:02Z", "telemetry.consent", {"sha256": TM.terms_sha(record(T2)[1])})):
         row = {"event_id": ev + ts, "ts": ts, "event": ev, "role": "human", "prev": last["hash"],   # a branch's
                "data": dict(extra, subject=ref2, by="Adeel", reason="")}                          # older consent
+        if ev == "telemetry.consent":                                    # a grant cites the human's line
+            row["data"]["prompt"] = {"ts": ts, "sha256": "0" * 64, "session": "s", "line": "consent %s" % extra["sha256"][:8]}
         row["hash"] = M._row_hash(row)
         rows.append(json.dumps(row, sort_keys=True) + "\n")
     open(led2, "a").write("".join(rows))                     # a union merge puts the older consent last

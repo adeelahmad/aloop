@@ -353,6 +353,17 @@ QD = os.path.join(Q, "docs", "agents", "mission")
 os.makedirs(QD)
 
 
+def grant(event, rel, sha, by="Adeel"):
+    """The human's approval in Q: M9.17 records it only once the human typed the line it names."""
+    sys.path.insert(0, os.path.join(REPO, "scripts", "test", "fixtures"))
+    from mission_fixture import ASKED, say
+    try:
+        return M.approve(Q, event, rel, sha, by=by)
+    except M.NeedsHuman as e:
+        say(Q, ENV, ASKED.search(str(e)).group(1))
+        return M.approve(Q, event, rel, sha, by=by)
+
+
 def hook(agent_type, agent_id, *args, env=None):
     p = {"session_id": "s1", "cwd": Q, "agent_type": agent_type, "agent_id": agent_id,
          "hook_event_name": "SubagentStart" if args else "SubagentStop"}
@@ -454,7 +465,7 @@ assert hook(S, "sa4").returncode == 0
 hook(S, "sa6", "start")
 artifact("state", numbers={"journeys_passed": 8})
 rel = "docs/agents/mission/eval/%s.json" % fd["eval_id"]
-M.approve(Q, "journey.approved", rel, M.digest(fd), by="Adeel")
+grant("journey.approved", rel, M.digest(fd))
 fd["approval"] = {"event": "journey.approved"}
 M.save(fp, fd)
 r = hook(S, "sa6")
@@ -495,7 +506,7 @@ ok("selfcheck <role> judges the role's open run the same way, with no events and
 
 hook(E, "ev10", "start")
 artifact("eval", gaps=[{"gap": "g11"}])
-M.approve(Q, "goal.approved", "docs/agents/mission/goals/gol_x.json", "0" * 64, by="Adeel")   # however it was spelled
+grant("goal.approved", "docs/agents/mission/goals/gol_x.json", "0" * 64)   # however it was spelled
 r = hook(E, "ev10")
 assert r.returncode == 0 and "`goal.approved` (docs/agents/mission/goals/gol_x.json, by Adeel) was recorded while you ran" in r.stderr, r.stderr
 assert [e for e in events() if e["event"] == "gate.passed"][-1]["data"]["human_events"] == [
@@ -504,7 +515,7 @@ hook("aloop:mission-planner", "mp2", "start")
 gp, gd = artifact("goal", eval_id="evl_x", gaps=["g1"])
 assert hook("aloop:mission-planner", "mp2").returncode == 0
 hook("aloop:mission-planner", "mp3", "start")
-M.approve(Q, "goal.approved", "docs/agents/mission/goals/%s.json" % gd["goal_id"], M.digest(gd), by="Adeel")
+grant("goal.approved", "docs/agents/mission/goals/%s.json" % gd["goal_id"], M.digest(gd))
 gd["status"], gd["approval"] = "approved", {"event": "goal.approved"}
 M.save(gp, gd)
 assert gblocked(hook("aloop:mission-planner", "mp3"), "you wrote no artifact")   # the human's approval is not its write
