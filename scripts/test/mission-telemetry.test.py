@@ -28,6 +28,8 @@ T2 = tempfile.mkdtemp(prefix="aloop-telemetry-probe-")
 PASS = [0]
 sys.path.insert(0, BIN)
 import _mission as M  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
+from mission_fixture import as_human  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("telemetry", os.path.join(ROOT, "mission", "telemetry.py"))
 TM = importlib.util.module_from_spec(spec)
@@ -49,7 +51,8 @@ def ok(name):
 
 
 def run(*args, env=None, cwd=T):
-    return subprocess.run([MI, "telemetry"] + list(args), cwd=cwd, env=env or ENV, capture_output=True, text=True)
+    return as_human(lambda: subprocess.run([MI, "telemetry"] + list(args), cwd=cwd, env=env or ENV,
+                                           capture_output=True, text=True), cwd, env or ENV)
 
 
 def fake(path, body=None):

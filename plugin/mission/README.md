@@ -30,6 +30,19 @@ Then flip the task's own row in ROADMAP §4.12 and its row in `docs/TRACKING.md`
   records it and `approved(cwd, event, subject_ref, sha)` returns the subject's **newest** human
   approval when it covers exactly that content (restoring older approved content is a rollback, not
   approved). The approval events are `APPROVAL_EVENTS`.
+- **A grant is the human's own words (M9.17).** An approval, confirmation, restore, retirement or consent
+  records only when a prompt the `UserPromptSubmit` hook captured (`transcripts prompt`, in the
+  checkout's `transcripts/*/events.jsonl`) has a line that starts with its verb (`GRANT_VERBS`, or the
+  record's `action`: `restore`, `retire`) and names the content's code, the first 8 hex of its sha256:
+  `approve msn_… 3f2a9c1b`. Until then the command asks (exit 3) with that exact line, so the role relays
+  it and runs again once the human has replied. A negated line ("don't approve …"), another code or verb,
+  and a line captured before a later decision about the subject grant nothing: other content granted, a
+  veto or a revocation, and for a baseline any version's confirmation (so an old "approve" or "restore"
+  never rolls back). Every human decision records `prompt_log: {id, seen}` (how many prompts this
+  checkout had captured), which orders a line against it even within one second. The grant carries
+  `prompt: {ts, sha256, session, line}`, and a human grant row whose line does not grant its content is a
+  ledger problem. A veto and the mission's own records (an autonomous veto window) need no words.
+  `--by` only names who. `telemetry.revoked` is a human decision the ledger accepts (`M.record_human`).
 - `status` is outside the digest, so it proves nothing: a gate reads what an artifact *is* from the
   ledger (`records`, `newest`, `covered`) and reports a status field that disagrees.
 - Exit codes, like every aloop check: `0` pass · `2` block (with `BLOCK[<area>]:` lines on
@@ -57,8 +70,7 @@ A gate checks structure and evidence, never whether a judgment is right.
   `M.LedgerBroken` rather than chain a row past a broken one. Recovery is
   `git checkout -- docs/agents/mission/ledger.jsonl`. `mission init` marks it `merge=union`.
   **Not detectable here:** a forged row appended with a valid hash, and, on a checkout without the run
-  log, the newest rows removed. M9.9 denies roles direct writes to the ledger and M9.17 ties each human
-  record to a captured prompt.
+  log, the newest rows removed. M9.9 denies roles direct writes to the ledger and to the prompt log.
 - A confirmation record carries the journeys it froze (`data.journeys`), and a retirement record its
   replacement (`replaced_by`, `replaced_by_sha256`): `journeys.pins` and `journeys.lifecycle` read
   those records, so hiding or editing a file never unfreezes, unpins or un-retires a journey.
@@ -118,9 +130,13 @@ A gate checks structure and evidence, never whether a judgment is right.
   queued mission intents need an explicit link. `record_authority` also approves the latest plan:
   record a goal's authority only after its sprint's `ids freeze`. `aladdin "<intent>"` refuses a
   bare intent containing `/`; use `aladdin run`.
-- **M9.17 approvals.** Any session can run `mission approve --by anyone` or `events authority`, or
-  append a well-formed ledger row; an approval has to cite a captured human prompt before it means a
-  human approved.
+- **M9.17 approvals (done; what M9.9 must close).** A grant cites a captured prompt line, but the prompt log
+  is run data any shell can append to, the hook's own command (`transcripts prompt`) reads its payload from
+  stdin, and a headless session a role starts (`claude -p`, `codex exec`, `opencode run`) fires
+  `UserPromptSubmit` too. M9.9 denies roles writes under `.aladdin/transcripts/` and
+  `docs/agents/mission/ledger.jsonl`, running `transcripts prompt`, and a Bash command that starts a host
+  session with a grant line.
+  `events authority` (the sprint's `human.approval`) still trusts `--initiated-by`.
 - **Rivals (M9.1 → M9.10).** A baseline's `rivals` are claim refs today; the Product Tester's values per
   benchmark and metric belong in a keyed object so `evaluate` can compare against them.
 - **M9.6 telemetry.** `journeys.GA4_RESERVED_NAMES` is the one reserved-name list (the union of both

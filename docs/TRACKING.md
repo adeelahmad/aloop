@@ -73,4 +73,4 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.11 | Goals become Aladdin intents; lineage reaches the mission | NOT_IMPLEMENTED | §4.12 |
 | M9.12 | `/aloop:mission` skill | NOT_IMPLEMENTED | §4.12 |
 | M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12 |
-| M9.17 | Approvals name the captured human prompt | NOT_IMPLEMENTED | §4.12 |
+| M9.17 | Approvals name the captured human prompt | IMPLEMENTED_TESTED | `scripts/test/mission-core.test.py` |
