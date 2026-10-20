@@ -10,7 +10,8 @@ Usage:
   events lineage TASK_ID               the task's chain: dispatch → attempts → gates →
                                        limits/decisions → worktree outcome (no transcripts)
   events trace SHA                     commit → task → gates/decisions → plan → intent →
-                                       approver, from the stream alone (exit 1: unknown commit)
+                                       approver, from the stream alone (exit 1: unknown commit);
+                                       a mission intent adds goal → eval → ethics → mission
   events commit-msg TASK_ID           a commit message built from the task's title (tasks.md),
                                        its recorded decisions and the intent, never model prose
   events graph [--format json|dot]     the stream as a graph (events, tasks, commits, intents;
@@ -23,7 +24,7 @@ Usage:
                                        structured rationale (plan|split|target|
                                        implementation|replan|acceptance)
 Emitting never fails a hook: an unknown event type is the only error (exit 64), besides the
-human approvals and ethics verdicts of the mission layer, which only their own commands write.
+human approvals, ethics verdicts and goal lineage of the mission layer, which only their own commands write.
 """
 import glob
 import json
@@ -36,8 +37,11 @@ import _events  # noqa: E402
 import _mission  # noqa: E402
 import _paths  # noqa: E402
 
-# events only their own command may write (ROADMAP §4.12): human approvals and the ethics gate's verdicts
-GATE_OWNED = set(_mission.APPROVAL_EVENTS) | {"ethics.reviewed", "ethics.blocked"}
+# events only their own command may write (ROADMAP §4.12): human approvals, the ethics gate's verdicts
+# and the goal lineage (`events trace` and `mission goal close` read them)
+GATE_OWNED = set(_mission.APPROVAL_EVENTS) | {"ethics.reviewed", "ethics.blocked", "goal.derived", "goal.met",
+                                             "state.assessed", "eval.completed",   # what goals are derived and closed from
+                                             "intent.received"}                    # an intent's lineage (`intent new`)
 
 
 def parse(argv):
@@ -97,6 +101,7 @@ def trace(cwd, sha):
         iid = (intent.get("data") or {}).get("intent_id", "")
         recv = next((e for e in evs if e.get("event") == "intent.received" and (e.get("data") or {}).get("intent_id") == iid), {})
         print("intent   %s %s raw=%s" % (iid, (intent.get("refs") or {}).get("intent", ""), (recv.get("refs") or {}).get("raw", "-")))
+        mission_trace(evs, recv)
     else:
         print("intent   (missing: the plan names no intent.normalized)")
     appr = [e for e in evs if e.get("event") == "plan.approved" and e.get("caused_by") == plan.get("event_id")]
@@ -106,6 +111,37 @@ def trace(cwd, sha):
     else:
         print("approved (missing: no plan.approved for this plan)")
     return 0
+
+
+def mission_trace(evs, recv):
+    """intent → goal → eval → ethics → mission → its approver (ROADMAP §4.12), for an intent a
+    mission goal handed off (`intent new --source mission --goal`)."""
+    gid = (recv.get("data") or {}).get("goal_id")
+    if not gid:
+        return
+    gd = None
+    for e in evs:
+        if e.get("event") == "goal.derived" and (e.get("data") or {}).get("goal_id") == gid:
+            gd = e
+    if not gd:
+        print("goal     %s (missing: no goal.derived)" % gid)
+        return
+    d = gd.get("data") or {}
+    ref = d.get("subject")              # the goal file the ledger row covers
+    print("goal     %s from eval %s gaps=%s (%s)" % (gid, d.get("eval_id"), ",".join(d.get("gaps") or []), d.get("autonomy")))
+    about = [e for e in evs if (e.get("data") or {}).get("subject") == ref and (e.get("data") or {}).get("sha256") == d.get("sha256")]
+    tiers = [e["data"].get("tier") for e in about if e.get("event") == "ethics.reviewed"]
+    consent = [e for e in about if e.get("event") == "ethics.consent"]
+    if not tiers:
+        print("ethics   (missing: no review of this goal's content)")
+    else:
+        tier = "hard" if "hard" in tiers else "gray" if "gray" in tiers else "clear"
+        print("ethics   %s%s" % (tier, " (consent by %s)" % consent[-1]["data"].get("by") if tier == "gray" and consent else ""))
+    ok = [e for e in evs if e.get("event") == "mission.approved" and (e.get("data") or {}).get("sha256") == d.get("mission_sha256")]
+    if ok:
+        print("mission  %s approved by %s" % (d.get("mission_id"), ok[-1]["data"].get("by")))
+    else:
+        print("mission  %s (missing: no mission.approved for the content the goal served)" % d.get("mission_id"))
 
 
 def task_title(cwd, task):
@@ -187,8 +223,8 @@ def main(argv):
             print("events emit: need an EVENT", file=sys.stderr)
             return 64
         if pos[0] in GATE_OWNED:
-            print("events emit: %s is a human approval or a gate's verdict; only its own command writes it "
-                  "(aloop mission … approve / consent / record)" % pos[0], file=sys.stderr)
+            print("events emit: %s is a human approval or a gate's record; only its own command writes it "
+                  "(aloop mission … approve / consent / record / goal / assess / evaluate; intent new)" % pos[0], file=sys.stderr)
             return 64
         try:
             eid = _events.emit(cwd, pos[0], task=opts.get("task", ""), attempt=opts.get("attempt", ""),
