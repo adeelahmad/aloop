@@ -1,12 +1,13 @@
 # CI — the checks `make ci` + `make validate` run, mirrored on every push/PR.
-# Documented in README.md ("Continuous integration"). Four independent jobs:
+# Documented in README.md ("Versioning, changelog and CI"). Five independent jobs:
 #   rust       — ctx-symbols + md-db: fmt-check, clippy -D warnings, tests; §6 conformance fixtures
 #   shellcheck — lints every gate script (errors fail the build)
 #   plugin     — JSON sanity + eval-suite validation + `claude plugin validate --strict`
 #   hosts      — Codex hooks emulation + OpenCode plugin end-to-end + the dsh plugin on the real,
 #                pinned DeepSeek Harness runtime against a scripted model (no network, no tokens)
-#   macos      — the host tests and the conformance fixtures on macOS (symlinked /var temp dirs,
-#                BSD userland): the v0.12.0 release run found two bugs Linux CI never saw
+#   macos      — the host tests (the real dsh runtime too) and the conformance fixtures on macOS
+#                (symlinked /var temp dirs, BSD userland): the v0.12.0 release run found two bugs
+#                Linux CI never saw
 name: CI
 
 on:
@@ -96,7 +97,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Host tests (budget, events, Codex hooks, OpenCode plugin)
+      - name: Install the pinned DeepSeek Harness (dsh) runtime
+        # dsh is a preview: pinned, and re-verified on each release (ROADMAP §4.9)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/dsh" --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.2
+          echo "DSH_BIN=$RUNNER_TEMP/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js" >> "$GITHUB_ENV"
+          echo "ALOOP_REQUIRE_DSH=1" >> "$GITHUB_ENV"
+      - name: Host tests (budget, events, Codex hooks, OpenCode and dsh plugins)
         run: make test-hosts
         env:
           BASH32: /bin/bash   # stock macOS bash 3.2: bash-portable.test.py runs the gate matrix on it
