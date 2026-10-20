@@ -60,11 +60,11 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 7 | The sprint and every STORY_DIR live in `docs/agents/sprintN/`, never in the git-ignored run-data dir (`gate-stage2-complete`, `gate-dispatch`) | IMPLEMENTED_TESTED | `scripts/test/planner-stuck.test.py`, `scripts/test/dispatch.test.py` |
 | 4.11 | The supervisor's playbook keeps on-demand sections in `skills/aloop/reference.md`, installed beside it on OpenCode | IMPLEMENTED_TESTED | `scripts/test/aladdin-cli.test.py` |
 | M9.0 | Mission layer core: sealed mission file, approval events for exact content, harness ids, schema subset, snapshot, area discovery | IMPLEMENTED_TESTED | `scripts/test/mission-core.test.py` |
-| M9.1 | Research: every claim has a source ref; sources archived with a matching sha256 | NOT_IMPLEMENTED | §4.12 |
+| M9.1 | Research: every claim has a source ref; sources archived with a matching sha256 | IMPLEMENTED_TESTED | `scripts/test/mission-research.test.py` |
 | M9.2 | Baseline: re-runnable, measured twice within tolerance, frozen and versioned on human confirmation | IMPLEMENTED_TESTED | `scripts/test/mission-baseline.test.py` |
 | M9.3 | Journeys and metrics: events per step, query definitions, no removal or weakening without approval | IMPLEMENTED_TESTED | `scripts/test/mission-journeys.test.py` |
 | M9.4 | Ethics: three tiers; gray consent bound to the goal; hard line never unlocked | IMPLEMENTED_TESTED | `scripts/test/mission-ethics.test.py` |
-| M9.5 | LLM judges: pinned model, hashed rubric, several runs, agreement threshold | NOT_IMPLEMENTED | §4.12 |
+| M9.5 | LLM judges: pinned model, hashed rubric, several runs, agreement threshold | IMPLEMENTED_TESTED | `scripts/test/mission-judge.test.py` |
 | M9.6 | Telemetry (GA4): opt-in, Admin API setup, debug hit, fixed reports, minimum sample; never a gate | IMPLEMENTED_TESTED | `scripts/test/mission-telemetry.test.py` |
 | M9.7 | Standing principles in two variants (autonomous, spoon-fed) | IMPLEMENTED_TESTED | `scripts/test/mission-principles.test.py` |
 | M9.8 | Mission loop: `tick` from facts, zero-token `due`, cron, budget caps | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |

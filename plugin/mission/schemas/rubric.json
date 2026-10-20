@@ -1,0 +1,38 @@
+{
+ "title": "rubric — an LLM judge's pinned setup (ROADMAP §4.12, M9.5): docs/agents/mission/judges/<rubric_id>.json",
+ "type": "object",
+ "required": ["rubric_id", "title", "question", "criteria", "scale", "pass", "model", "runs", "agree", "tolerance",
+              "sources", "status", "created_at", "sha256"],
+ "additionalProperties": false,
+ "properties": {
+  "rubric_id": {"type": "string", "pattern": "^rub_"},
+  "title": {"type": "string", "minLength": 1},
+  "question": {"type": "string", "minLength": 1},
+  "criteria": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+  "scale": {
+   "type": "object",
+   "required": ["min", "max"],
+   "additionalProperties": false,
+   "properties": {
+    "min": {"type": "integer"},
+    "max": {"type": "integer"},
+    "anchors": {"type": "object"}
+   }
+  },
+  "pass": {"type": "integer"},
+  "model": {"type": "string", "minLength": 1},
+  "runs": {"type": "integer"},
+  "agree": {"type": "integer"},
+  "tolerance": {"type": "integer"},
+  "sources": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+  "status": {"enum": ["proposed", "active", "retired"]},
+  "created_at": {"type": "string", "minLength": 1},
+  "retired": {
+   "type": "object",
+   "required": ["reason", "at"],
+   "additionalProperties": false,
+   "properties": {"reason": {"type": "string", "minLength": 1}, "at": {"type": "string", "minLength": 1}}
+  },
+  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+ }
+}
