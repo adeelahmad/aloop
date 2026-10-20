@@ -6,16 +6,16 @@
 It plays the human in three ways only, then checks the run:
   first    the first message (plan.json's first_prompt: the SET_MISSION answers, set now)
   reply    a grant line, typed in a NEW session (its own --session-id, never --resume) whose prompt is
-           "/aloop:mission\\n<line>". Only mission approve and baseline confirm, and only a line that
-           (1) is the one `mission tick --peek --json`'s reason names, (2) equals the line recomputed on
-           disk (the code: the mission's sha256 from `mission check --json`, or the baseline's digest),
-           (3) passes the pre-grant checks (mission.json is the typed answers, whole; one journey on the
-           seeded runner run as `python3 <runner>` with nothing else beside it, no benchmark, no rival, no
-           looser tolerance, measured twice and agreeing, failing at baseline), and (4) the previous session
-           showed the human: its final result text holds the exact line. The relay records the subject and
-           sha256 it checked; its grant must cover exactly them. A line not shown gets ONE surface session
-           (prompt "/aloop:mission"); a line relayed once and still pending stops the run, as "hook did
-           not capture" (its prompt never reached the prompt log) or "captured, not granted"
+           "/aloop:mission\\n<line>\\nName for the records (--by): <BY>". Only mission approve and baseline
+           confirm, and only a line that (1) is the one `mission tick --peek --json`'s reason names, (2) equals
+           the line recomputed on disk (the code: the mission's sha256 from `mission check --json`, or the
+           baseline's digest), (3) passes the pre-grant checks (mission.json is the typed answers, whole; one
+           journey on the seeded runner run as `python3 <runner>` with nothing else beside it, no benchmark, no
+           rival, no looser tolerance, measured twice and agreeing, failing at baseline), and (4) the previous
+           session showed the human: its final result text holds the exact line. The relay records the subject and
+           sha256 it checked; its grant must cover exactly them. A line not shown gets ONE surface session (prompt
+           "/aloop:mission"); a line relayed once and still pending stops the run, as "hook did not capture" (its
+           prompt never reached the prompt log) or "captured, not granted"
   cron     "/aloop:mission" when the peek names a role or the supervisor and `due` says due (called in
            process with record=False and the peek's own --now, so it records nothing)
 
@@ -329,17 +329,21 @@ def pregrant(repo, plan, action, ident=None):
     extras = runner_extras(repo)
     if extras:
         probs.append("other files beside the seeded runner under %s/: %s" % (os.path.dirname(RUNNER), ", ".join(extras)))
-    if journeys and bj:
-        j, want = journeys[0], plan["seed"]["fixture_runner_sha256"]
-        if bj[0].get("journey_id") != j.get("journey_id") or bj[0].get("sha256") != M.digest(j):
+    if sha_file(os.path.join(repo, RUNNER)) != plan["seed"]["fixture_runner_sha256"]:
+        probs.append("the runner on disk is not the seeded one (sha256 differs)")
+    if journeys and bj:      # the baseline's own journey is the one judged: a stray draft is only counted above
+        want, jid = plan["seed"]["fixture_runner_sha256"], bj[0].get("journey_id")
+        j = next((d for d in journeys if d.get("journey_id") == jid), None)
+        if j is None or bj[0].get("sha256") != M.digest(j):
             probs.append("the baseline's journey is not the journey on disk")
+            j = j or (journeys[0] if len(journeys) == 1 else None)
+        if j is None:
+            return probs
         rn = j.get("runner") if isinstance(j.get("runner"), dict) else {}
         if rn.get("files") != {RUNNER: want}:
             probs.append("the journey's runner pins %r, not the seeded runner %s at %s" % (rn.get("files"), RUNNER, want[:12]))
         if rn.get("command") != ["python3", RUNNER]:
             probs.append("the journey's runner command %r is not `python3 %s`" % (rn.get("command"), RUNNER))
-        if sha_file(os.path.join(repo, RUNNER)) != want:
-            probs.append("the runner on disk is not the seeded one (sha256 differs)")
         if [s.get("id") for s in j.get("steps") or [] if isinstance(s, dict)] != ["open", "add", "see"]:
             probs.append("the journey's steps are not open, add, see")
         pc = j.get("pass_criteria") or []
@@ -349,7 +353,7 @@ def pregrant(repo, plan, action, ident=None):
         runs = ms.get("runs") if isinstance(ms.get("runs"), list) else []
         if len(runs) != 2 or ms.get("agreed") is not True:
             probs.append("baseline measured %d time(s), agreed %r: not twice and agreeing" % (len(runs), ms.get("agreed")))
-        jid = j.get("journey_id")
+        jid = j.get("journey_id")      # the runs measured this id: the one on disk when it is not the baseline's
         failing = runs and all(((r.get("journeys") or {}).get(jid) or {}).get("passed") is False for r in runs) \
             and jid in (ms.get("not_passing") or [])
         if not failing:
@@ -933,7 +937,7 @@ class Run:
             subject, digest = granted_subject(self.repo, action, line.split()[1])
             print("relay: `%s` (shown in session %d; the line on disk; the pre-grant checks hold on %s @ %s)" % (
                 line, last["n"], subject, (digest or "")[:12]), flush=True)
-            return ("reply", LEAD + "\n" + line, line, {"subject": subject, "sha256": digest})
+            return ("reply", MP.reply_prompt(LEAD, line, BY), line, {"subject": subject, "sha256": digest})
         if line not in self.surfaced:
             self.surfaced.add(line)
             print("surface: session %d never showed `%s`%s; one surface session" % (

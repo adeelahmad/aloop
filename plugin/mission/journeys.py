@@ -10,7 +10,8 @@ runner's script is pinned by its sha256 like the tools it runs.
 Usage:
   mission journeys new (--from DRAFT.json | --title T --persona P)
         issue the harness id and write docs/agents/mission/journeys/<id>.json (proposed);
-        emits journey.proposed. Prints the path.
+        emits journey.proposed. Prints the path. Only a complete journey is written: a draft
+        that `check` would block is refused with every problem, and nothing is written. Exit 0 · 2
   mission journeys check [ID…] [--json]
         every journey that is not retired (or the ones named): schema; unique ids; each step's
         event is a valid GA4 event name; each metric has a query definition; a pass criterion
@@ -313,6 +314,13 @@ def cmd_new(cwd, o):
                 print("BLOCK[journeys]: %s" % b, file=sys.stderr)
             return 2
         doc["runner"] = dict(doc["runner"], files=files)
+    bad = problems(cwd, jpath(cwd, jid), doc)
+    if bad:     # its role can never rewrite or delete a written journey, so a broken one would block for good
+        for b in bad:
+            print("BLOCK[journeys]: %s" % b, file=sys.stderr)
+        print("journeys: nothing written: fix the draft (keep it outside the project) and run "
+              "`mission journeys new --from DRAFT.json` again", file=sys.stderr)
+        return 2
     path = M.save(jpath(cwd, jid), doc)
     M.emit(cwd, "journey.proposed", role="mission", refs={"journey": M.rel(cwd, path)}, journey_id=jid)
     print(path)

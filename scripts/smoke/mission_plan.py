@@ -151,9 +151,14 @@ def answers(today=None):
             "constraints": [
                 "Measure the product only with %s as it is (one journey; its docstring names the steps and the pin)."
                 % RUNNER,
-                "No rival product is installed or run (record each named rival as ruled out by this constraint).",
+                "No rival product is installed or run, and the baseline lists none (record each named rival in the research as ruled out by this constraint).",
                 "Research uses at most 3 sources."],
             "by": BY}
+
+
+def reply_prompt(lead, line, by):
+    """A reply session's prompt: the slash command, the grant line, and who typed it (a new session knows no name)."""
+    return "%s\n%s\nName for the records (--by): %s" % (lead, line, by)
 
 
 def first_prompt(a, lead):
@@ -232,7 +237,7 @@ def plan(o):
     sessions = {
         "first": {"when": "once, at the start", "prompt": first},
         "reply": {"when": "a grant on the allowlist is pending and the previous session's final result text "
-                          "showed the human its exact line", "prompt": lead + "\n<LINE>"},
+                          "showed the human its exact line", "prompt": reply_prompt(lead, "<LINE>", a["by"])},
         "surface": {"when": "a grant is pending but the previous session never showed its line (once per grant)",
                     "prompt": lead},
         "cron": {"when": "tick --peek names a role or the supervisor and due (recording nothing) says due",
@@ -317,7 +322,7 @@ def run_events(repo):
 
 def budget_released(events):
     """(task, attempt) of every attempt bin/budget stopped at its hard limit. _gatelib's budget_release lets its
-    SubagentStop gate exit 0 with no `released` field, so the gate log alone shows a pass (ROADMAP M9.60)."""
+    SubagentStop gate exit 0 with no `released` field, so the gate log alone shows a pass (ROADMAP M9.63)."""
     out = set()
     for e in events:
         ids = e.get("ids") if isinstance(e.get("ids"), dict) else {}

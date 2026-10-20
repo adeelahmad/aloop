@@ -64,6 +64,7 @@ import _mission as M  # noqa: E402
 
 PASS = [0]
 BY = "scripted-human (e2e)"
+NAME_LINE = "Name for the records (--by): " + BY      # every reply says who is typing: a new session knows no name
 T = tempfile.mkdtemp(prefix="aloop-e2e-mission-")
 STUBS = os.path.join(T, "stubs")
 TOOLS = os.path.join(T, "tools")         # python3 and git only: a PATH with no host CLI on it
@@ -465,6 +466,13 @@ def t_pregrant():
         with doctored(path, text=text):
             got = D.pregrant(REPO1, plan, "CONFIRM_BASELINE", BID1)
         assert any(want in x for x in got), (want, got)
+    # a stray draft that sorts before the baseline's journey (the first live run's "probe"): the count is the reason,
+    # and the baseline's own journey is the one judged, so nothing about the stray's runner or steps is reported
+    stray = M.path_of(REPO1, "journey", "jrn_" + "0" * 20)
+    with doctored(stray, text=json.dumps({"journey_id": "jrn_" + "0" * 20, "title": "probe", "status": "proposed",
+                                          "steps": [], "pass_criteria": [], "runner": {"command": [], "files": {}}})):
+        got = D.pregrant(REPO1, plan, "CONFIRM_BASELINE", BID1)
+    assert got == ["2 journeys, not exactly 1 (the constraint: one journey)"], got
     assert D.pregrant(REPO1, plan, "CONFIRM_MISSION") == [] and D.pregrant(REPO1, plan, "CONFIRM_BASELINE", BID1) == []
 
 
@@ -598,7 +606,7 @@ for kind, s in S.items():
     assert "--strict-mcp-config" in flags and "--verbose" in flags and "--model" in flags, flags
     assert not [x for x in argv if re.search(r"resume|continue|bypass|skip-permission|dangerous", x, re.I)], argv
     assert s["new_session"] is True
-assert S["first"]["prompt"] == prompt and S["reply"]["prompt"] == "/aloop:mission\n<LINE>"
+assert S["first"]["prompt"] == prompt and S["reply"]["prompt"] == "/aloop:mission\n<LINE>\n" + NAME_LINE
 assert S["surface"]["prompt"] == S["cron"]["prompt"] == "/aloop:mission" == cron.PROMPT["claude"]
 sup = subprocess.run([os.path.join(BIN, "models"), "routes", "--host", "claude"], env=ENV, capture_output=True,
                      text=True).stdout
@@ -1062,8 +1070,9 @@ assert len(appr) == 1 and len(conf) == 1, (appr, conf)
 aline, cline = appr[0]["data"]["prompt"]["line"], conf[0]["data"]["prompt"]["line"]
 LINE_RE = re.compile(plan_h["line_re"])
 assert LINE_RE.match(aline) and aline.startswith("approve msn_") and LINE_RE.match(cline) and cline.startswith("confirm bln_")
-# (a) a reply is a new session whose prompt is exactly the slash command and the line, and the grant cites it
-assert H.calls[1]["prompt"] == "/aloop:mission\n" + aline and H.calls[2]["prompt"] == "/aloop:mission\n" + cline, H.calls[1:3]
+# (a) a reply is a new session whose prompt is exactly the slash command, the line and the name, and the grant cites it
+assert H.calls[1]["prompt"] == "/aloop:mission\n%s\n%s" % (aline, NAME_LINE) \
+    and H.calls[2]["prompt"] == "/aloop:mission\n%s\n%s" % (cline, NAME_LINE), H.calls[1:3]
 assert H.calls[3]["prompt"] == "/aloop:mission"
 assert appr[0]["data"]["prompt"]["session"] == H.calls[1]["session_id"] == H.sessions[1]["session_id"]
 assert conf[0]["data"]["prompt"]["session"] == H.calls[2]["session_id"] == H.sessions[2]["session_id"]

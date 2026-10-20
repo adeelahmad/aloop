@@ -158,8 +158,8 @@ class Session:
         return '"event": "goal.met"' in rows
 
     def by(self):
-        m = BY_LINE.search(self.prompt)
-        return m.group(1).strip() if m else "scripted-human (e2e)"
+        m = BY_LINE.search(self.prompt)    # a prompt that names no one: the host picks a name of its own, as the
+        return m.group(1).strip() if m else "Account Holder"   # first live run's took the account's
 
     def set_mission(self):
         p = self.prompt
