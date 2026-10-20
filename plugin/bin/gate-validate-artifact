@@ -4,6 +4,7 @@
 # false block, never a silent pass of a real check.
 set -uo pipefail
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; export PATH="$BIN_DIR:$PATH"  # md-db shim -> real binary
+: "${CLAUDE_PLUGIN_ROOT:=$(cd "$BIN_DIR/.." && pwd)}"   # the schemas; a host that sets no plugin root still validates
 
 # Resolve the written file path: arg, env, or the PostToolUse stdin JSON.
 f="${1:-${TOOL_FILE_PATH:-}}"

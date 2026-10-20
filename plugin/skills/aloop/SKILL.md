@@ -78,7 +78,7 @@ decisions, task and intent ids), not free prose. This
 skill's `model: sonnet` covers the turn it loads in; for a long autonomous run the human
 starts the session on Sonnet (`/model sonnet` or `claude --model sonnet`).
 
-On **Codex or OpenCode**, read `reference.md` § "Running on Codex or OpenCode" (host vocabulary, worktrees, model routes) before anything else.
+On **Codex, OpenCode or dsh**, read `reference.md` § "Running on Codex, OpenCode or dsh" (host vocabulary, worktrees, model routes) before anything else.
 
 ## Tools are on PATH — never search for them
 

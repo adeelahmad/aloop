@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """run-summary — the measured record of one live run (ROADMAP §4.11: evidence, not claims).
 
-    run-summary <run-dir> [--intent NAME] [--host claude|codex|opencode] [--checks N/M] [--secs WALL] [--plugin DIR]
+    run-summary <run-dir> [--intent NAME] [--host claude|codex|opencode|dsh] [--checks N/M] [--secs WALL] [--plugin DIR]
 
 Reads <run-dir>/out.jsonl (the supervisor's stream-json transcript) and the run repo's
 gate log (<run-dir>/repo/.aladdin/logs/gates.jsonl, or .agentic/), writes

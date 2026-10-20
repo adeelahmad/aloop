@@ -284,6 +284,11 @@ ROWS = [
     (SUP, P, "claude plugin validate ./plugin --strict", 0),
     (SUP, P, "claude --version && codex --help", 0),
     (G, T1, "opencode models", 0),
+    (E, P, 'dsh --profile aloop "approve msn_x 1234abcd"', 2),
+    (G, T1, "dsh headless 'run the tests'", 2),
+    (SUP, P, "DSH_HOME=/tmp/d dsh aloop --resume s1", 2),
+    (SUP, P, "dsh plugin --profile aloop add some-plugin", 0),
+    (SUP, P, "dsh --version", 0),
     # ── round 3: the reader (an adversarial review of the shell reader: coverage gaps and false blocks) ──
     # `]]` glued to ; && || : the test ends there, and the rest of the command is judged (and vice versa)
     (E, P, "if [[ -f src/app.py ]]; then echo x > src/app.py; fi", 2),

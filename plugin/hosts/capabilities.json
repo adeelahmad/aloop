@@ -23,8 +23,16 @@
       "compaction": "unknown",
       "live_messaging": "none",
       "lifecycle": "plugin events",
-      "gate_blocking": "native",
+      "gate_blocking": "outer",
       "rotate_command": "/new"
+    },
+    "dsh": {
+      "usage": "exact; session-title and web-search calls not reported",
+      "compaction": "unknown",
+      "live_messaging": "unknown",
+      "lifecycle": "plugin events + aloop bind",
+      "gate_blocking": "native",
+      "rotate_command": "a new `dsh --profile aloop` run"
     }
   }
 }

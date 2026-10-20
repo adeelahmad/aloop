@@ -6,7 +6,7 @@ to its own concrete id (plugin/hosts/routes.json). docs/agents/defaults.md sets 
 (or a pinned id) per group: AGENTIC_MODEL_PLANNING, AGENTIC_MODEL_WORKER.
 
 Usage:
-  models resolve planning|worker|<role> [--host claude|codex|opencode] [--json]
+  models resolve planning|worker|<role> [--host claude|codex|opencode|dsh] [--json]
         the concrete model id for this host (empty = the host session's own model).
         --json adds group, host, route and the setting it came from (conformance 18:
         the route is observable).

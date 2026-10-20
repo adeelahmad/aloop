@@ -24,7 +24,8 @@ A builder never grades its own work, and a grader never builds:
     undone by putting the file back — `git checkout --` when docs/ is tracked, else the human reverts it) or
     the captured prompts (<run data>/transcripts/, the UserPromptSubmit hook's), runs a hook's
     `transcripts prompt|record|…`, or, where a mission is set, starts a host session from a tool call
-    (`claude -p`, `codex exec`, `opencode run`: its prompt would be captured as the human's words, M9.17).
+    (`claude -p`, `codex exec`, `opencode run`, `dsh <profile>`: its prompt would be captured as the human's
+    words, which a grant reads, M9.17).
 
 Write/Edit/patch paths are exact. A Bash command is read as the shell would read it (_shellread.py:
 quotes, escapes, line continuations, comments, heredoc bodies as data, reserved words, subshells,
@@ -97,7 +98,8 @@ HOSTS = {"claude": {"plugin", "plugins", "mcp", "config", "doctor", "update", "i
                     "setup-token"},
          "codex": {"login", "logout", "mcp", "completion", "debug", "apply", "a", "help", "features"},
          "opencode": {"auth", "models", "upgrade", "mcp", "agent", "github", "stats", "export", "import",
-                      "uninstall", "debug", "help"}}
+                      "uninstall", "debug", "help"},
+         "dsh": {"plugin"}}                           # dsh's first word is a profile to boot (aloop, headless…)
 
 
 class Block(Exception):
@@ -349,7 +351,7 @@ class Scope:
                         % (sub or "…"))
 
     def host(self, name, args):
-        """A host session started from a tool call (`claude -p`, `codex exec`, `opencode run`) fires its own
+        """A host session started from a tool call (`claude -p`, `codex exec`, `opencode run`, `dsh`) fires its own
         UserPromptSubmit hook, so its prompt would be captured as the human's words (M9.17)."""
         if self.role not in self.R.ROLES and not os.path.isdir(os.path.join(self.main, self.R.MISSION)):
             return                                        # no mission here: no grant to forge

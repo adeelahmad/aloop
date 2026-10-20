@@ -8,7 +8,7 @@
 [![CI](https://github.com/adeelahmad/aloop/actions/workflows/ci.yml/badge.svg)](https://github.com/adeelahmad/aloop/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/adeelahmad/aloop?color=d9a441&label=release)](https://github.com/adeelahmad/aloop/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Runs on Claude Code, Codex and OpenCode](https://img.shields.io/badge/runs_on-Claude_Code_%C2%B7_Codex_%C2%B7_OpenCode-1d1d1b)](#supported-harnesses)
+[![Runs on Claude Code, Codex, OpenCode and DeepSeek Harness](https://img.shields.io/badge/runs_on-Claude_Code_%C2%B7_Codex_%C2%B7_OpenCode_%C2%B7_DeepSeek_Harness-1d1d1b)](#supported-harnesses)
 [![Stars](https://img.shields.io/github/stars/adeelahmad/aloop?style=social)](https://github.com/adeelahmad/aloop/stargazers)
 
 </div>
@@ -16,8 +16,8 @@
 # Aladdin: intent is all you need
 
 **aloop** (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified
-code on Claude Code, Codex and OpenCode. You approve the plan. Cheap workers build it in
-isolated git worktrees. Deterministic hooks decide what is accepted, so no model is trusted
+code on Claude Code, Codex, OpenCode and DeepSeek Harness. You approve the plan. Cheap workers
+build it in isolated git worktrees. Deterministic hooks decide what is accepted, so no model is trusted
 to say "done": a gate has to see it.
 
 ```console
@@ -57,8 +57,9 @@ About a dollar and ten minutes per tested feature in [measured runs](#demo), on 
 - **🚪 One-way and two-way doors (draft, [#86](https://github.com/adeelahmad/aloop/pull/86)).** Core principles for every agent, inspired by
   Amazon's Leadership Principles: a reversible decision is the agent's to make and record; an
   irreversible one is stopped by a gate until the human authorizes it. [More below](#agent-principles).
-- **🐋 A fourth host (in progress): DeepSeek Harness.** The same gates and roles on the
-  official DeepSeek Harness (`dsh`), next to Claude Code, Codex and OpenCode.
+- **🐋 A fourth host: DeepSeek Harness.** The same gates and roles, the mission layer's included, on
+  the official DeepSeek Harness (`dsh`), next to Claude Code, Codex and OpenCode, tested in CI on
+  dsh's real runtime. A measured live run is next (it needs a DeepSeek key).
 - **🌐 Any language.** RED is verified on Rust, Python, Go and JS (live runs 21 and 37 to 41), and on
   existing code: runs 42 and 43 extend and change a tested library without touching its seed tests.
 - **🔁 Renamed.** agentic-agile is now **aloop** (Aladdin's Loop), on the way to **Aladdin 1.0**.
@@ -250,8 +251,10 @@ deliver results, grow adoption vs keep it simple.
 **Codex:** from a clone, `plugin/bin/aloop install codex` (agent TOMLs and `aloop` on PATH), then
 `codex plugin marketplace add adeelahmad/aloop`, `codex plugin add aloop@aloop-marketplace`, and trust
 the hooks once in Codex's `/hooks`. **OpenCode:** `plugin/bin/aloop install opencode` renders
-everything. Either way you get full parity (hooks, agents, gates, time box, ledger, stats, handoff).
-See [`plugin/README.md` → Codex and OpenCode](plugin/README.md#codex-and-opencode).
+everything. **DeepSeek Harness:** `plugin/bin/aloop install dsh --project .` renders a `dsh` profile,
+then run `dsh --profile aloop`. Every way you get full parity (hooks, agents, gates, time box, ledger,
+stats, handoff). See [`plugin/README.md` → Codex and OpenCode](plugin/README.md#codex-and-opencode)
+and [→ DeepSeek Harness](plugin/README.md#deepseek-harness-dsh).
 
 > **Staying current:** third-party marketplaces don't auto-update by default. Run
 > `/plugin marketplace update aloop-marketplace` (or enable auto-update in
@@ -264,7 +267,7 @@ See [`plugin/README.md` → Codex and OpenCode](plugin/README.md#codex-and-openc
 - **Just ask** inside the host: the skill is model-invoked and triggers on build / fix /
   improve / add requests even if you never say "agile", or invoke `/aladdin`, `/aloop` or `/aloop:init`.
 - **From a shell:** `aladdin "<intent>"` records the intent (on PATH inside host sessions; in your
-  own terminal after `aloop install codex|opencode` links it into `~/.local/bin`, or from a clone as
+  own terminal after `aloop install codex|opencode|dsh` links it into `~/.local/bin`, or from a clone as
   `plugin/bin/aladdin`); `aladdin status` (one line per task from
   the harness files, tasks to re-gate, token totals); `aladdin resume` (what the next session
   loads); `aladdin report` (the sprint's `stats.md`); `aladdin target | context | refs | callers`
@@ -295,10 +298,10 @@ Nothing in your project changes: `.agentic/`, `docs/agents/` and the `AGENTIC_*`
 | **Claude Code** | `/plugin install aloop@aloop-marketplace` | native hooks | host worktrees (`isolation: "worktree"`) | ✅ reference host, every measured run |
 | **Codex** | `aloop install codex` + `codex plugin add aloop@aloop-marketplace` (trust in `/hooks`) | native hooks | `task-worktree` + `aloop bind` | ✅ hooks emulated in CI; live run pending |
 | **OpenCode** | `aloop install opencode` | outer (the plugin wraps every tool call) | `task-worktree` + `aloop bind` | ✅ plugin end to end in CI; live run pending |
+| **DeepSeek Harness** (`dsh`) | `aloop install dsh`, then `dsh --profile aloop` | native (a plugin on dsh's own deny, block and steer points) | `task-worktree` + `aloop bind` (denial) | ✅ plugin end to end in CI, also on the real dsh runtime; live run pending (needs a DeepSeek key) |
 
 One `HostAdapter` interface behind every host (`aloop host describe`); the same conformance suite
 runs on each (`make test-hosts`), and a sprint can move between them from portable state.
-**Next:** the DeepSeek Harness (`dsh`) as a fourth host, in progress.
 
 ## Evidence
 
@@ -327,7 +330,7 @@ structural, not luck:
   blocking it from doing the context-heavy work itself.
 
 Live runs: `make smoke-live YES=1` (hook wiring, ~$0.004) and `make e2e-live YES=1` (the whole
-loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci`, which runs Rust fmt/clippy/tests, shellcheck, 50 Python/Node suites plus every `mission-*.test.py`,
+loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci`, which runs Rust fmt/clippy/tests, shellcheck, 53 Python/Node suites plus every `mission-*.test.py`,
 the gate conformance fixtures (`make conformance`) and eval-suite validation. Every ROADMAP
 requirement is tracked with its test in [docs/TRACKING.md](docs/TRACKING.md).
 
@@ -355,7 +358,7 @@ change rationale.
 plugin/                           the installable plugin (see plugin/README.md)
   bin/        the tools and gates (aladdin, aloop, gate-*, budget, sweep, targets, events, host, mission …)
   agents/     the 15 roles (Aladdin's 9 + the mission layer's 6) · skills/ the supervisor playbooks (aloop, aladdin, init, mission)
-  hooks/      hooks.json (aloop:<role> matchers) · hosts/ capabilities, routes, the OpenCode plugin
+  hooks/      hooks.json (aloop:<role> matchers) · hosts/ capabilities, routes, the OpenCode and dsh plugins
   mission/    the mission layer's areas (journeys, baseline, assess, evaluate …) and their schemas
   schemas/    KDL schemas for the planning artifacts · tools/ ctx-symbols + md-db sources
 docs/                             OVERVIEW.md ROADMAP.md TRACKING.md, the evidence ledger, brand/
@@ -418,7 +421,8 @@ enforce this. Tag releases `vMAJOR.MINOR.PATCH`.
 - **rust**: `cargo fmt --check`, `cargo clippy -D warnings`, tests for `ctx-symbols` + `md-db`.
 - **shellcheck**: lints every gate script (`plugin/bin/*`), errors fail the build.
 - **hosts**: byte-compiles the Python hooks, then Codex hooks emulation + the OpenCode
-  plugin end-to-end (no network, no tokens).
+  and dsh plugins end-to-end, the dsh one also on the real (pinned) dsh runtime against a
+  scripted model (no network, no tokens).
 - **macos**: the same host tests and the conformance fixtures on macOS, where temp dirs sit
   behind a symlink and the userland is BSD.
 - **plugin**: JSON sanity on the manifest + marketplace, eval-suite validation, version
@@ -433,7 +437,7 @@ enforce this. Tag releases `vMAJOR.MINOR.PATCH`.
 | M0 to M7 | hygiene, trustworthy state, budgets that plan, clean boundaries, intent contracts, narrow context, audit, any host | ✅ shipped in v0.12.0 |
 | M8, Aladdin 1.0 | `/aladdin` and the CLI, the site, measured public runs on every host | 🔄 in progress |
 | M9, mission layer | Missionary Aladdin Genie: missions, journeys, baseline, goals | 🔄 in progress |
-| Next | the door gate ([#86](https://github.com/adeelahmad/aloop/pull/86)), the DeepSeek Harness host, Codex and OpenCode public runs | 🔄 in progress |
+| Next | the door gate ([#86](https://github.com/adeelahmad/aloop/pull/86)), Codex, OpenCode and DeepSeek Harness public runs | 🔄 in progress |
 
 The full spec, every requirement's status and the reason behind each call: [docs/ROADMAP.md](docs/ROADMAP.md)
 and [docs/TRACKING.md](docs/TRACKING.md).
@@ -448,8 +452,8 @@ and [docs/TRACKING.md](docs/TRACKING.md).
 - `refs` / `callers` / `callees` need a configured LSP server (`AGENTIC_LSP_COMMAND`); without one
   they say so and exit 4 rather than guess.
 - CI validates the plugin and runs every offline suite, but not a live session; the live runs
-  (`make smoke-live`, `make e2e-live`) spend tokens and are run by hand. Codex and OpenCode have
-  no measured public run yet.
+  (`make smoke-live`, `make e2e-live`) spend tokens and are run by hand. Codex, OpenCode and
+  DeepSeek Harness have no measured public run yet.
 - The mission layer has not run end to end yet: every part is shipped, but the offline and live
   mission runs (M9.13) are still to come.
 - Run data lives in `.aladdin/`, whose own `.gitignore` keeps everything but `config.yaml` (the
