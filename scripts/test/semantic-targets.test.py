@@ -144,4 +144,19 @@ r = run(TG, "check", SD)
 assert r.returncode == 2 and "C3 (#2): create needs planned_symbol" in r.stderr, r.stderr
 ok("a create of a test file the task's tests name gets its planned_symbol from them; with none it is still required")
 
+# 8) a later task may modify a symbol an earlier task plans in an existing file (live run 46: T2
+#    extended src/main.rs with parse_args and run, T3 modified them, and the planner was blocked
+#    4 times with "not defined"); a symbol no target plans is still not defined
+C4 = {"change_ref": "C4", "task": "T1", "operation": "extend", "path": "src/report.py",
+      "planned_symbol": "export_rows", "reason": "rows for the export", "evidence_refs": [], "constraints": []}
+C5 = dict(C2, change_ref="C5", symbol="export_rows")
+targets(C1, C2, C4, C5)
+r = run(TG, "check", SD)
+assert r.returncode == 0, r.stderr
+assert "src/report.py export_rows (planned, shadow)" in run(TG, "target", "T2", SD).stdout
+targets(C1, C2, C5)
+r = run(TG, "check", SD)
+assert r.returncode == 2 and "C5 (#2): symbol export_rows is not defined in src/report.py" in r.stderr, r.stderr
+ok("a modify of a symbol another task plans in an existing file passes; an unplanned one is still not defined")
+
 print("\n%d checks passed" % PASS[0])
