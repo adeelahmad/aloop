@@ -6,7 +6,8 @@
       "persona": "The Scout",
       "job": "Finds rival products, papers and benchmarks, writes a sourced landscape report (every claim cites an archived source), and derives the user journeys, metrics and pass criteria from it",
       "writes": ["docs/agents/mission/research/", "docs/agents/mission/journeys/"],
-      "group": "planning"
+      "group": "planning",
+      "web": "archive"
     },
     "product-tester": {
       "persona": "The Field Tester",

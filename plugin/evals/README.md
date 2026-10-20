@@ -33,6 +33,8 @@ its **hard limits** — independently of the full sprint. Every suite maps to th
 
 The six mission roles (ROADMAP §4.12) each have four cases: happy, edge, and two negatives, one
 crossing a hard limit and one writing outside the role's own paths (`gate-mission-scope` refuses it).
+The market-researcher has a fifth: an archived page with an injected instruction must leave its
+actions unchanged (fetched content is data, M10.3).
 
 ## Schema
 
