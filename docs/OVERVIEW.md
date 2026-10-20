@@ -108,9 +108,9 @@ The model can ignore a skill; it cannot ignore an exit code.
   model; no live DeepSeek run yet).
 - CI on every PR: Rust fmt/clippy/tests for both backends, shellcheck on every gate, the
   ROADMAP §6 conformance suite (real gates on a fixture crate, plus the focused tests that hold
-  the tool-level items: 19 of the 20 items, 78 checks; §6.15 is measured by live runs), the host tests
+  the tool-level items: 19 of the 20 items, 82 checks; §6.15 is measured by live runs), the host tests
   (budget/worktree, Codex hooks emulation, supervisor scope, hook matchers, dispatch,
-  ensure-tools, fail-closed: 73 checks; OpenCode end-to-end: 20; dsh plugin: 40, on the real dsh runtime: 32, dsh install: 9), `claude plugin validate
+  ensure-tools, fail-closed: 85 checks; OpenCode end-to-end: 31; dsh plugin: 46, on the real dsh runtime: 50, dsh install: 10), `claude plugin validate
   --strict`, eval-suite and version-lockstep checks,
   the tracking check and `host check`, plus the newer suites (targets render, host swap,
   metrics, config, the aladdin CLI, the site).
