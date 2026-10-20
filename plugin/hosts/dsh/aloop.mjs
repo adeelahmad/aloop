@@ -10,8 +10,11 @@
 //   UserPromptSubmit   agent/pre-step of a root agent with a user message → transcripts prompt,
 //                      intent-trigger; exit 2 rejects the step, context joins it
 //   PreToolUse         tools/pre-execute → host-adapter, gate-supervisor-scope, gate-mission-scope,
-//                      gate-commit-author, gate-dispatch, budget pre; a deny hands the reason to the model. dsh cannot
-//                      rewrite a call, so a bound worker is confined by denial (host-adapter)
+//                      gate-commit-author, gate-dispatch, budget pre, then mission doors hook LAST: it records
+//                      the crossing (uses up a once-authorization), so only once every other gate admitted the
+//                      call. A read-only tool skips it; a hang (15 s), a kill, a crash or an exit but 0/2 denies
+//                      (fail closed). A deny hands the reason to the model. dsh cannot rewrite a call, so a
+//                      bound worker is confined by denial (host-adapter)
 //   PostToolUse        tools/post-execute → gate-validate-artifact, transcripts record, budget post;
 //                      exit 2 turns the result into the gate's feedback, context joins the next
 //                      request, `continue: false` cancels the agent
@@ -51,7 +54,11 @@ const GATES = {
 }
 const MISSION = new Set(Object.keys(GATES).filter((r) => GATES[r] === "gate-mission-artifact"))
 const DISPATCH = new Set(["subagent", "subagent_planning"])
-const TOOL = { bash: "Bash", write: "Write", edit: "Edit", read: "Read", glob: "Glob", grep: "Grep", subagent: "Agent", subagent_planning: "Agent" }
+const TOOL = { bash: "Bash", write: "Write", edit: "Edit", read: "Read", glob: "Glob", grep: "Grep", subagent: "Agent", subagent_planning: "Agent",
+  ask_user_question: "AskUserQuestion" }
+// the built-ins the door gate passes unread (doors.py QUIET: Read, Glob, Grep, TodoWrite, WebFetch, WebSearch): no spawn
+const READ_ONLY = new Set(["read", "read_image", "glob", "grep", "todo_write", "web_fetch", "web_search"])
+const DOORS_MS = 15000      // the door gate's timeout, as in hooks/hooks.json
 const STUCK = /\bSTUCK\b.*NOT verified/
 const TOOLS_NOTE = "aloop tools: call `aloop <tool>` (e.g. `aloop selfcheck`, `aloop stats show`); never search for them."
 
@@ -163,19 +170,24 @@ export function apply(ctx, config = {}) {
     if (s.child) { p.agent_id = s.id; p.agent_type = s.role; p.agent_transcript_path = transcriptOf(s) }
     return p
   }
+  const UNREAD = Object.freeze({})      // arguments that are not JSON: read as none
   const argsOf = (exec) => {
     if (typeof exec.arguments !== "string") return exec.arguments || {}
-    try { return JSON.parse(exec.arguments) } catch { return {} }
+    try { return JSON.parse(exec.arguments) } catch { return UNREAD }
   }
   // Claude-shaped tool_input, built from each tool's declared arguments only: dsh accepts extra
   // keys, and a gate must never read a field the model made up (an `agent_type` beside a
-  // file_path). Any other tool's arguments travel as one JSON string. `workdir` is the directory
-  // dsh really runs in (bash's own `workdir`, else the agent's). Relative paths are joined the
-  // way dsh joins them (`<dir>/<path>`, `..` kept), never normalised here: like dsh,
-  // host-adapter follows a symlink before `..`.
+  // file_path). An MCP tool's arguments object is its input, as on Claude Code, so a door that
+  // names an input field (push_files to the default branch) matches; a key of its own named
+  // `arguments` carries the whole object, so a gate reading the older shape sees the same fields.
+  // Any other tool's arguments (and MCP arguments that are no object) travel as one JSON string.
+  // `workdir` is the directory dsh really runs in (bash's own `workdir`, else the agent's).
+  // Relative paths are joined the way dsh joins them (`<dir>/<path>`, `..` kept), never
+  // normalised here: like dsh, host-adapter follows a symlink before `..`.
   function toolInput(tool, a, wd) {
     const str = (v) => (typeof v === "string" ? v : undefined)
     const at = (p) => (p === undefined || isAbsolute(p) ? p : `${wd}${sep}${p}`)
+    const obj = (v) => !!v && typeof v === "object" && !Array.isArray(v) && v !== UNREAD
     if (DISPATCH.has(tool)) return { subagent_type: String(a.agent_preset || "").replace(/^aloop-/, ""), description: str(a.description),
       prompt: str(a.prompt) || "", cwd: str(a.cwd), model: MODELS[tool] || "" }
     switch (tool) {
@@ -187,36 +199,49 @@ export function apply(ctx, config = {}) {
       case "read": return { file_path: at(str(a.file_path)), offset: a.offset, limit: a.limit, workdir: wd }
       case "read_image": return { file_path: at(str(a.file_path)), workdir: wd }
       case "glob": case "grep": return { pattern: str(a.pattern), path: at(str(a.path)), include: str(a.include), workdir: wd }
-      default: return { arguments: JSON.stringify(a), workdir: wd }
+      // what the human is shown; no workdir: a directory named `[door:<id>]` is no tag
+      case "ask_user_question": return { questions: (Array.isArray(a.questions) ? a.questions : []).map((q) => ({
+        id: str(q?.id), question: str(q?.question), header: str(q?.header),
+        options: Array.isArray(q?.options) ? q.options.map((o) => ({ label: str(o?.label), description: str(o?.description) })) : undefined,
+        multi_select: typeof q?.multi_select === "boolean" ? q.multi_select : undefined })) }
+      default:
+        if (tool.startsWith("mcp__") && obj(a))
+          return { ...a, ...(Object.hasOwn(a, "arguments") ? { arguments: JSON.stringify(a) } : {}), workdir: wd }
+        return { arguments: JSON.stringify(a), workdir: wd }
     }
   }
 
   // Run one of this plugin's bin/ scripts with the hook JSON on stdin. Async: one Node process
   // drives every agent, so a synchronous wait would stall all of them.
-  function run(script, args, input, cwd) {
+  function run(script, args, input, cwd, ms = 600000) {
     return new Promise((done) => {
       let out = "", err = "", settled = false, timer = null
-      const finish = (code, error) => {
+      const finish = (code, error, extra = {}) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
         let json = null
         const last = out.trim().split("\n").filter((l) => l.startsWith("{")).pop()
         try { if (last) json = JSON.parse(last) } catch {}
-        done({ code, stdout: out, stderr: err.trim(), json, error })
+        done({ code, stdout: out, stderr: err.trim(), json, error, ...extra })
       }
       let child
       try {
         child = spawn(join(BIN, script), args, { cwd, env: gateEnv(ROOT, FROM_FILE) })
       } catch (e) { return finish(1, e) }
-      // a hung script is killed after 10 minutes (as on OpenCode); spawn's own `timeout` would keep a
-      // timer alive for a script that never started
-      timer = setTimeout(() => { try { child.kill("SIGKILL") } catch {} }, 600000)
+      // a hung script is killed after `ms` (10 minutes, as on OpenCode) and answers at once: a child it
+      // left holding the pipes does not keep the call waiting. spawn's own `timeout` would keep a timer
+      // alive for a script that never started
+      timer = setTimeout(() => {
+        try { child.kill("SIGKILL") } catch {}
+        child.stdout.destroy(); child.stderr.destroy()
+        finish(1, undefined, { timedOut: true })
+      }, ms)
       timer.unref?.()
       child.stdout.on("data", (d) => (out += d))
       child.stderr.on("data", (d) => (err += d))
       child.on("error", (e) => finish(1, e))
-      child.on("close", (code) => finish(code ?? 1))
+      child.on("close", (code, signal) => finish(code ?? 1, undefined, { signal }))
       child.stdin.on("error", () => {})
       child.stdin.end(JSON.stringify(input || {}))
     })
@@ -230,6 +255,18 @@ export function apply(ctx, config = {}) {
     return null
   }
   const gate = async (script, args, input, cwd) => denyOf(await run(script, args, input, cwd), script)
+  // The door gate fails closed: it decides with exit 0 (a deny is its JSON) or 2 (it could not
+  // decide); a hang, a kill, a crash or any other exit denies, never a silent pass.
+  const DOORS = Number.isInteger(config.doorsTimeoutMs) ? config.doorsTimeoutMs : DOORS_MS    // a test knob
+  const doorGate = async (script, args, input, cwd) => {
+    const res = await run(script, args, input, cwd, DOORS)
+    const why = res.timedOut ? `did not answer within ${DOORS / 1000} s`
+      : res.error ? `could not run (${res.error.code || res.error.message})`
+      : res.signal ? `was killed (${res.signal})`
+      : res.code !== 0 && res.code !== 2 ? `exited ${res.code}${res.stderr ? `: ${res.stderr.slice(-300)}` : ""}` : ""
+    return why ? `aloop: the door gate (mission doors hook) ${why}, so the call is refused (fail closed); \`aloop mission doors check\` says what is wrong`
+      : denyOf(res, script)
+  }
 
   async function preTool(exec) {
     const s = info(exec.agent)
@@ -253,7 +290,8 @@ export function apply(ctx, config = {}) {
     if (tool === "bash") checks.push(["gate-commit-author", []])
     if (DISPATCH.has(tool)) checks.push(["gate-dispatch", []])
     checks.push(["budget", ["hook", "pre"]])
-    for (const [script, args] of checks) if ((why = await gate(script, args, p, s.project))) return why
+    if (!READ_ONLY.has(tool)) checks.push(["mission", ["doors", "hook"], doorGate])    // last: it records the crossing
+    for (const [script, args, judge = gate] of checks) if ((why = await judge(script, args, p, s.project))) return why
     return null
   }
 
