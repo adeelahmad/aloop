@@ -123,10 +123,17 @@ assert why and "production source" in why; ok("supervisor-scope blocks the super
 why = denied(fire("PreToolUse", dict(base, tool_name="Bash", tool_input={"command": "git commit -m 'x\n\nCo-Authored-By: Claude <noreply@anthropic.com>'"})))
 assert why and "co-author" in why.lower(); ok("commit-author blocks a Claude trailer")
 
+# the door gate (M9.30, M9.31): a root push to the default branch is a one-way door, stopped with ASK[door]
+why = [w for w in (denied([x]) for x in fire("PreToolUse", dict(base, tool_name="Bash", tool_input={"command": "git push origin main"}))) if w]
+assert any(w.startswith("doors:") and "ASK[door]" in w for w in why), why; ok("the door gate denies the root's `git push origin main`")
+
 # worker: SubagentStart registers; unbound writes refused; bind; confinement
 worker = dict(base, agent_id="th-red", agent_type="red-worker")
-fire("SubagentStart", worker)
+r = fire("SubagentStart", worker)
 assert os.path.isfile(os.path.join(T, ".aladdin/state/agents/th-red.json")); ok("SubagentStart registers the worker")
+core = subprocess.run([os.path.join(BIN, "mission"), "principles", "show", "--core"], cwd=T, env=ENV, capture_output=True, text=True).stdout
+assert core.startswith("Core principles") and core in context(r), context(r)
+ok("SubagentStart hands the role the core principles (the door rule first) as additionalContext")
 assert denied(fire("PreToolUse", dict(worker, tool_name="Bash", tool_input={"command": "ls"})))
 ok("unbound worker's shell command is refused")
 wt = sh(os.path.join(BIN, "task-worktree"), "add", "S1-01-T1")

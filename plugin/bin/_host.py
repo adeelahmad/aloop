@@ -52,6 +52,7 @@ class HostAdapter:
     INSTALL_GATE = ""       # how the hooks reach the host
     ENFORCE_GATE = "native"  # native | outer — never warn
     TOOL_POLICY = ""        # what the hooks deny a worker
+    QUESTION = ""           # the tool a role asks the human with (in a live run, only about a one-way door)
 
     # ── capabilities ────────────────────────────────────────────────
     def capabilities(self):
@@ -139,6 +140,7 @@ class HostAdapter:
                 d[m] = getattr(self, m)()
             except Unsupported as e:
                 d[m] = {"unsupported": str(e)}
+        d["question"] = self.QUESTION
         d["models"] = {g: self.resolve_model(g, cwd) for g in ("planning", "worker")}
         return d
 
@@ -153,7 +155,9 @@ class Claude(HostAdapter):
     ISOLATION = "host-native: isolation: \"worktree\" creates .claude/worktrees/agent-<id> at dispatch"
     INSTALL_GATE = "plugin/hooks/hooks.json, loaded by the plugin install (/plugin install)"
     ENFORCE_GATE = "native"
-    TOOL_POLICY = "gate-supervisor-scope · gate-commit-author · budget hook pre (PreToolUse, exit 2 denies)"
+    TOOL_POLICY = ("gate-supervisor-scope · gate-commit-author · budget hook pre · mission doors hook, the door gate "
+                   "(PreToolUse, exit 2 or a deny denies)")
+    QUESTION = "AskUserQuestion"
 
 
 class Codex(HostAdapter):
@@ -164,7 +168,9 @@ class Codex(HostAdapter):
     ISOLATION = "aloop task-worktree add <TASK>; the worker's first command is `aloop bind <path>` (host-adapter confines it)"
     INSTALL_GATE = "codex plugin add aloop@aloop-marketplace, then trust the hooks once in /hooks"
     ENFORCE_GATE = "native"
-    TOOL_POLICY = "host-adapter hook: writers denied until bound; then every command/patch must stay under the worktree"
+    TOOL_POLICY = ("host-adapter hook: writers denied until bound; then every command/patch must stay under the worktree; "
+                   "mission doors hook (the door gate) on every tool call")
+    QUESTION = "request_user_input (Plan mode, root thread only; otherwise it asks in chat)"
 
 
 class OpenCode(HostAdapter):
@@ -175,7 +181,9 @@ class OpenCode(HostAdapter):
     ISOLATION = "aloop task-worktree add <TASK>; `aloop bind <path>`; the plugin rewrites commands/edits into it"
     INSTALL_GATE = "aloop install opencode writes .opencode/plugins/aloop.js, agents and skills"
     ENFORCE_GATE = "outer"      # the plugin runs the gates around the host's tool calls and sub-agent ends
-    TOOL_POLICY = "aloop.js: tool.execute.before rewrites or denies; a gate's exit 2 denies the call"
+    TOOL_POLICY = ("aloop.js: tool.execute.before rewrites or denies; a gate's exit 2 denies the call; "
+                   "mission doors hook (the door gate) runs last")
+    QUESTION = "question"
 
 
 class Dsh(HostAdapter):
@@ -190,7 +198,9 @@ class Dsh(HostAdapter):
                  "`aloop bind <path>`; host-adapter then denies any command or path outside it (dsh cannot rewrite a call)")
     INSTALL_GATE = "aloop install dsh writes the aloop profile ($DSH_HOME/profiles/aloop): run `dsh --profile aloop`"
     ENFORCE_GATE = "native"     # a block is dsh's own deny / post-execute block / steer before the child settles
-    TOOL_POLICY = "aloop.mjs: tools/pre-execute denies on a gate's exit 2; a writer is denied until bound, then confined"
+    TOOL_POLICY = ("aloop.mjs: tools/pre-execute denies on a gate's exit 2; a writer is denied until bound, then confined; "
+                   "mission doors hook (the door gate) runs last")
+    QUESTION = "ask_user_question (not mounted in the aloop profile; the supervisor's final answer asks)"
 
 
 ADAPTERS = {"claude": Claude, "codex": Codex, "opencode": OpenCode, "dsh": Dsh}

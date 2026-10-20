@@ -32,7 +32,8 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-mission-artifact\" start", "timeout": 30 } ] },
       { "matcher": "*", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/host-adapter\" hook", "timeout": 15 },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" stage-in" } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" stage-in" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/mission\" principles hook", "timeout": 10 } ] }
     ],
     "PostToolUse": [
       { "matcher": "Write", "hooks": [
