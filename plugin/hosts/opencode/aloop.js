@@ -36,6 +36,10 @@ const GATES = {
   "red-worker": "gate-red-verify", scaffolder: "gate-scaffold-verify", "green-worker": "gate-green-verify",
   "structural-reviewer": "gate-structural-integrity", "final-gate": "gate-final",
   intake: "gate-intake", standards: "gate-standards-cited", planner: "gate-stage2-complete", archivist: "gate-memory",
+  // the mission roles (ROADMAP §4.12): each one's artifacts are checked when it stops
+  "market-researcher": "gate-mission-artifact", "product-tester": "gate-mission-artifact",
+  "state-assessor": "gate-mission-artifact", "evaluator": "gate-mission-artifact",
+  "mission-planner": "gate-mission-artifact", "ethics-reviewer": "gate-mission-artifact",
 }
 const TOOL = { bash: "Bash", write: "Write", edit: "Edit", apply_patch: "apply_patch", read: "Read", task: "Agent" }
 const EDITS = new Set(["write", "edit", "apply_patch"])
@@ -192,6 +196,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       }
       const checks = []
       if (EDITS.has(input.tool)) checks.push(["gate-supervisor-scope", []])
+      if (EDITS.has(input.tool) || input.tool === "bash") checks.push(["gate-mission-scope", []])   // role path guards
       if (input.tool === "bash") checks.push(["gate-commit-author", []])
       checks.push(["budget", ["hook", "pre"]])
       for (const [script, a] of checks) {
@@ -237,6 +242,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
         } else {
           const p = await payload("SubagentStart", id)
           run("host-adapter", ["hook"], p)
+          run("gate-mission-artifact", ["start"], p)     // what exists before a (mission) sub-agent writes: its stop gate diffs it
           run("transcripts", ["stage-in"], p)
         }
       }

@@ -68,7 +68,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.6 | Telemetry (GA4): opt-in, Admin API setup, debug hit, fixed reports, minimum sample; never a gate | NOT_IMPLEMENTED | §4.12 |
 | M9.7 | Standing principles in two variants (autonomous, spoon-fed) | NOT_IMPLEMENTED | §4.12 |
 | M9.8 | Mission loop: `tick` from facts, zero-token `due`, cron, budget caps | NOT_IMPLEMENTED | §4.12 |
-| M9.9 | Six fixed mission roles, wired; role path guards; artifact check at stop | NOT_IMPLEMENTED | §4.12 |
+| M9.9 | Six fixed mission roles, wired; role path guards; artifact check at stop | IMPLEMENTED_TESTED | `scripts/test/mission-roles.test.py` |
 | M9.10 | State Assessor report and Evaluator gap list | NOT_IMPLEMENTED | §4.12 |
 | M9.11 | Goals become Aladdin intents; lineage reaches the mission | NOT_IMPLEMENTED | §4.12 |
 | M9.12 | `/aloop:mission` skill | NOT_IMPLEMENTED | §4.12 |

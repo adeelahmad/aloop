@@ -88,6 +88,8 @@ done) AND a `SubagentStop` hook backstop running the same gate:
 | planner | `gate-stage2-complete` (auto-discovers sprint dir) | SubagentStop · `planner` |
 | archivist | `gate-memory` (valid + never relaxes an invariant) | SubagentStop · `archivist` |
 | red/scaffold/green/structural/final | as above | SubagentStop · role |
+| the six mission roles (`plugin/mission/roles.json`) | `gate-mission-artifact`: the run wrote an artifact in its own paths, each passes the core contract and its area's check, nothing deleted, no other role's artifact changed; a pass records `artifact.created` (provenance) | SubagentStart (`start`: what exists) · SubagentStop · role |
+| every agent and the supervisor | `gate-mission-scope`: a mission role writes only its own paths (never source); any other agent never writes `docs/agents/mission/` or runs a writing `mission` command; the supervisor never hand-writes a role's artifact | PreToolUse · Write/Edit/MultiEdit/NotebookEdit/Bash |
 
 `bin/selfcheck [role]` resolves the role from `$AGENT_ROLE` (task.env) and runs that
 gate; exit `0` PASS · `2` FAIL · `64` unknown role. A PASS here means the hook passes.

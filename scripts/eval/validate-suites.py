@@ -61,8 +61,9 @@ def main():
     agent_suites = sorted(glob.glob(os.path.join(PLUGIN, "evals", "agents", "*.json")))
     if not skill_suites:
         _err(errs, "no skill eval suite found under plugin/skills/*/evals/evals.json")
-    if len(agent_suites) != 9:
-        _err(errs, f"expected 9 per-agent suites, found {len(agent_suites)}")
+    agent_files = glob.glob(os.path.join(PLUGIN, "agents", "*.md"))
+    if len(agent_suites) != len(agent_files):
+        _err(errs, f"expected one per-agent suite per plugin/agents/*.md ({len(agent_files)}), found {len(agent_suites)}")
 
     for s in skill_suites:
         d = json.load(open(s))

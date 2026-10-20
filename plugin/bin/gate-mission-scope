@@ -1,0 +1,296 @@
+#!/usr/bin/env python3
+"""gate-mission-scope — PreToolUse(Write|Edit|MultiEdit|NotebookEdit|Bash; Codex apply_patch): the
+mission layer's role path guards (ROADMAP §4.12, "Role separation"; M9.9).
+
+A builder never grades its own work, and a grader never builds:
+  - a MISSION ROLE (market-researcher, product-tester, state-assessor, evaluator, mission-planner,
+    ethics-reviewer) writes only its own paths (plugin/mission/roles.json `writes`) in the main tree,
+    plus run data (.aladdin/) and anything outside the project: never source, mission.json, another
+    role's dir or a task worktree. It never commits, never runs the loop (`mission tick|cron|init`)
+    and never runs a human's step (`mission approve`, `mission <area> approve|confirm|consent|veto…`);
+  - ANY OTHER DISPATCHED AGENT (a builder, an Aladdin planner) never writes docs/agents/mission/ in any
+    tree, and runs only the read-only `mission` commands (status, show, check, list, diff, --help);
+  - the SUPERVISOR (no agent_type) never hand-writes a role's artifact: everything under
+    docs/agents/mission/ but mission.json (the human's, sealed by `mission approve`) is dispatched.
+
+Write/Edit/patch paths are exact. A Bash command is read per simple command, quotes and heredoc
+bodies respected: redirect and `tee` targets, cp/mv/ln/install destinations, rm/touch/truncate/mkdir
+and sed -i / perl -i files, dd of=, `cd` followed, `git` write subcommands in the project, and the
+`mission` CLI. A write made inside a program (a script) is invisible here: gate-mission-artifact
+checks what changed in docs/agents/mission/ when the role stops.
+
+Exit: 0 allow · 2 block (stderr, handed back to the model). Honors SKIP_HOOKS=1. Not an aloop project
+(no docs/agents/) → allow. A crash once the call is ours to judge blocks (fail closed).
+"""
+import json
+import os
+import re
+import shlex
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+GATE = "mission-scope"
+EDIT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "write", "edit")
+SHELL_TOOLS = ("Bash", "bash", "shell")
+PATCH_PATHS = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
+GIT_WRITES = {"commit", "push", "pull", "merge", "rebase", "cherry-pick", "am", "apply", "reset", "restore",
+              "checkout", "switch", "stash", "rm", "mv", "add", "revert", "clean", "tag", "worktree", "notes",
+              "update-ref", "branch"}
+GIT_READS = {"list", "show", "-l", "--list"}          # `git stash list`, `git tag -l`, `git worktree list` …
+LAST_ARG = {"cp", "mv", "ln", "install"}
+ALL_ARGS = {"rm", "rmdir", "touch", "truncate", "unlink", "shred", "mkdir", "tee"}
+CLI = {"aloop", "aladdin", "agentic"}
+WRAPPERS = {"sudo", "command", "exec", "env", "nohup", "time", "nice"}
+LOOP = {"init", "approve", "tick", "cron"}             # the human's and the supervisor's, never a dispatched agent's
+REDIRECT = {">", ">>", "&>", "&>>", ">|"}
+HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+class Block(Exception):
+    pass
+
+
+# ── reading a Bash command ─────────────────────────────────────────────────────────
+def segments(cmd):
+    """Simple commands: split on ; & | and newlines outside quotes; heredoc bodies are data, skipped."""
+    out, cur, q, lines = [], [], None, cmd.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        for ch in line:
+            if q:
+                cur.append(ch)
+                if ch == q:
+                    q = None
+            elif ch in "'\"":
+                q = ch
+                cur.append(ch)
+            elif ch in ";&|":
+                out.append("".join(cur))
+                cur = []
+            else:
+                cur.append(ch)
+        delims = [m.group(2) for m in HEREDOC.finditer(line)] if not q else []
+        if q:
+            cur.append("\n")
+        else:
+            out.append("".join(cur))
+            cur = []
+        i += 1
+        for d in delims:                                  # skip each heredoc body up to its delimiter line
+            while i < len(lines) and lines[i].strip() != d:
+                i += 1
+            i += 1
+    out.append("".join(cur))
+    return [s.strip() for s in out if s.strip()]
+
+
+def tokens(seg):
+    """(words, redirect targets) of one simple command."""
+    try:
+        lex = shlex.shlex(seg, posix=True, punctuation_chars="<>&|;()")
+        lex.whitespace_split = True
+        lex.commenters = "#"
+        toks = list(lex)
+    except ValueError:
+        toks = seg.split()
+    words, targets, skip = [], [], False
+    for j, t in enumerate(toks):
+        if skip:
+            skip = False
+            continue
+        if t in REDIRECT and j + 1 < len(toks):
+            targets.append(toks[j + 1])
+            skip = True
+        elif re.fullmatch(r"[0-9]+", t) and j + 1 < len(toks) and toks[j + 1] in REDIRECT | {">&", "<", "<<", "<<<"}:
+            continue                                      # an fd number: `2>`, `2>&1`
+        elif t in (">&", "<", "<<", "<<<", "<&") and j + 1 < len(toks):
+            skip = True                                   # fd duplication or input: not a write
+        elif not set(t) <= set("<>&|;()"):
+            words.append(t)
+    return words, targets
+
+
+def command_word(ws):
+    """(index of the command word, its basename) after env assignments and wrappers."""
+    i = 0
+    while i < len(ws) and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", ws[i]) or os.path.basename(ws[i]) in WRAPPERS):
+        i += 1
+    return (i, os.path.basename(ws[i])) if i < len(ws) else (i, "")
+
+
+def write_targets(ws):
+    """Files a simple command writes: cp/mv/ln/install destinations, rm/touch/mkdir/tee… files,
+    sed -i / perl -i files, dd of=."""
+    i, cmd = command_word(ws)
+    args = ws[i + 1:]
+    pos = [a for a in args if not a.startswith("-")]
+    if cmd in LAST_ARG:
+        if "-t" in args and args.index("-t") + 1 < len(args):
+            return [args[args.index("-t") + 1]]
+        return pos[-1:] if len(pos) >= 2 else []
+    if cmd in ALL_ARGS:
+        return pos
+    if cmd == "sed" and any(a.startswith("-i") or a == "--in-place" for a in args):
+        return pos if any(a in ("-e", "--expression", "-f") for a in args) else pos[1:]
+    if cmd == "perl" and any(re.match(r"^-\w*i", a) for a in args):
+        return pos if any(re.match(r"^-\w*e$", a) for a in args) else pos[1:]
+    if cmd == "dd":
+        return [a[3:] for a in args if a.startswith("of=")]
+    return []
+
+
+def git_write(ws, base):
+    """(dir, subcommand) when a simple command is a git write, else None."""
+    i, cmd = command_word(ws)
+    if cmd != "git":
+        return None
+    d, j = base, i + 1
+    while j < len(ws) and ws[j].startswith("-"):
+        if ws[j] in ("-C", "-c", "--git-dir", "--work-tree") and j + 1 < len(ws):
+            if ws[j] == "-C":
+                d = os.path.join(d, os.path.expanduser(ws[j + 1]))
+            j += 2
+        else:
+            j += 1
+    sub = ws[j] if j < len(ws) else ""
+    if sub not in GIT_WRITES or (sub in ("stash", "tag", "worktree", "notes", "branch") and
+                                 (len(ws) == j + 1 or ws[j + 1] in GIT_READS)):
+        return None
+    return d, sub
+
+
+def mission_args(ws):
+    """The arguments of `aloop mission …`, `aladdin mission …` or `mission …`, else None."""
+    i, cmd = command_word(ws)
+    if cmd in CLI and i + 1 < len(ws) and ws[i + 1] == "mission":
+        return ws[i + 2:]
+    if cmd == "mission":
+        return ws[i + 1:]
+    return None
+
+
+# ── the rules ──────────────────────────────────────────────────────────────────────
+class Scope:
+    def __init__(self, R, payload, project):
+        self.R = R
+        self.agent_type = payload.get("agent_type") or ""
+        self.role = R.role_of(self.agent_type)
+        self.main = os.path.realpath(project)
+        self.roots = R.roots(project)
+        self.who = self.role or self.agent_type
+
+    def path(self, target, base, what):
+        """Raise Block when writing `target` is not this caller's to do."""
+        R = self.R
+        root, rel = R.locate(target, base, self.roots)
+        if rel is None:
+            return                                        # outside the project: a scratch dir
+        in_mission = R.under(rel, R.MISSION)
+        if self.role in R.ROLES:
+            if R.is_run_data(rel) or (root == self.main and any(R.under(rel, p) for p in R.writes(self.role))):
+                return
+            own = R.owners(rel)
+            where = ("a task worktree" if root != self.main else
+                     "another role's artifacts (%s)" % ", ".join(own) if own else
+                     "the mission itself (the human's, sealed by `mission approve`)" if in_mission else
+                     "Aladdin's planning docs" if R.under(rel, "docs/agents/") else "source")
+            raise Block("%s writes only %s (plus run data, or a scratch dir outside the project); this %s is %s:\n"
+                        "    %s\n  A grader never builds: the mission roles never write source, and each writes only its own"
+                        " artifacts.\n  If the work needs a change there, say so in your artifact: its owner is dispatched for it."
+                        % (self.role, ", ".join("`%s`" % p for p in R.writes(self.role)), what, where, rel))
+        if self.agent_type:
+            if in_mission:
+                raise Block("%s may not write the mission layer's artifacts (%s):\n    %s\n  A builder never grades its own"
+                            " work: docs/agents/mission/ is written only by the six mission roles (ROADMAP §4.12)."
+                            % (self.who, what, rel))
+            return
+        if in_mission and rel != R.MISSION + "mission.json":   # the supervisor
+            own = R.owners(rel)
+            raise Block("the supervisor never hand-writes a mission role's artifact (%s):\n    %s\n  Dispatch %s: it writes"
+                        " it, and its stop gate checks it. You run `aloop mission tick` and dispatch (ROADMAP §4.12).\n"
+                        "  (Deliberate out-of-band edit outside the loop? Re-run with SKIP_HOOKS=1.)"
+                        % (what, rel, " or ".join("`%s`" % o for o in own) if own else "the role that owns it"))
+
+    def mission_cli(self, args):
+        R = self.R
+        if args is None or not self.agent_type:
+            return                                        # the supervisor relays the human (M9.17 binds approvals)
+        cmd = args[0] if args else ""
+        verbs = [a for a in args[1:] if not a.startswith("-")]
+        sub = verbs[0] if verbs and cmd not in LOOP else ""
+        if cmd in LOOP or sub in R.HUMAN_VERBS:
+            raise Block("`mission %s` is not a dispatched agent's to run: approvals, confirmations, consents and vetoes are"
+                        " the human's, and the loop (init, tick, cron) is the supervisor's.\n  If the loop needs the"
+                        " human, say so in your artifact: the supervisor asks them." % " ".join(args[:2]))
+        if self.role in R.ROLES:
+            return
+        if not args or cmd in R.READ_ONLY or sub in R.READ_ONLY or (not sub and set(args[1:]) <= {"--help", "-h"}):
+            return
+        raise Block("%s may run only the read-only mission commands (status, show, check, list, diff, --help), not:\n"
+                    "    mission %s\n  The mission layer's artifacts are written only by the six mission roles."
+                    % (self.who, " ".join(args)))
+
+    def shell(self, cmd, base):
+        for seg in segments(cmd):
+            ws, redirs = tokens(seg)
+            i, cw = command_word(ws)
+            if cw == "cd" and i + 1 < len(ws):
+                base = os.path.join(base, os.path.expanduser(ws[i + 1]))
+                continue
+            for t in redirs + write_targets(ws):
+                if t and not t.startswith("$") and t != "-":
+                    self.path(t, base, "Bash write")
+            self.mission_cli(mission_args(ws))
+            g = git_write(ws, base)
+            if g and self.role in self.R.ROLES and self.R.locate(g[0], base, self.roots)[0] is not None:
+                raise Block("%s never runs `git %s` in the project: a mission role writes only its own artifacts, and"
+                            " committing them is the supervisor's call outside the loop." % (self.role, g[1]))
+
+
+def main(state):
+    if os.environ.get("SKIP_HOOKS") == "1":
+        return 0
+    raw = "" if sys.stdin.isatty() else sys.stdin.read()
+    try:
+        p = json.loads(raw or "{}")
+    except ValueError:
+        return 0
+    tool = p.get("tool_name") or ""
+    if tool not in EDIT_TOOLS + SHELL_TOOLS + ("apply_patch",):
+        return 0
+    cwd = p.get("cwd") or os.getcwd()
+    import _paths
+    if not os.path.isdir(_paths.docs(cwd)):
+        return 0                                          # not an aloop project
+    state["ours"] = True
+    import _mission_roles as R
+    s = Scope(R, p, _paths.project(cwd))
+    ti = p.get("tool_input") or {}
+    if tool in EDIT_TOOLS:
+        target = ti.get("file_path") or ti.get("filePath") or ti.get("notebook_path") or ""
+        if target:
+            s.path(target, cwd, tool)
+    elif tool == "apply_patch":
+        for a, b in PATCH_PATHS.findall(ti.get("command") or ti.get("patchText") or ""):
+            s.path((a or b).strip(), cwd, "apply_patch")
+    else:
+        s.shell(ti.get("command") or "", ti.get("workdir") or cwd)
+    return 0
+
+
+if __name__ == "__main__":
+    st = {"ours": False}
+    try:
+        rc = main(st)
+    except Block as e:
+        print("BLOCK[%s]: %s" % (GATE, e), file=sys.stderr)
+        rc = 2
+    except Exception as e:                                # noqa: BLE001 — a crashed gate blocks, once the call is ours
+        if not st["ours"]:
+            sys.exit(0)
+        print("BLOCK[%s]: the gate itself failed (%s: %s), failing closed. This is a gate bug, not your work:"
+              " report it with this line. (Deliberate bypass? SKIP_HOOKS=1.)" % (GATE, type(e).__name__, e), file=sys.stderr)
+        rc = 2
+    sys.exit(rc)
