@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""install (aloop install) — make this plugin work in Codex and OpenCode (Claude Code needs nothing).
+"""install (aloop install) — make this plugin work in Codex, OpenCode and DeepSeek Harness (Claude Code needs nothing).
 
   aloop install codex    [--project DIR | --global]
   aloop install opencode [--project DIR | --global]
+  aloop install dsh      [--project DIR | --global]   (alias: deepseek)
   aloop install claude                        print the Claude Code install commands
   aloop install <host> --uninstall [...]      remove what the installer wrote
   aloop install status   [--project DIR]      what is installed where
 
 Everything is RENDERED from this plugin's own sources (agents/*.md, skills/*/SKILL.md,
 hosts/opencode/aloop.js), so the hosts never drift from Claude Code. Models come
-from docs/agents/defaults.md (MODEL_*_CODEX / MODEL_*_OPENCODE); `aloop-init --apply`
+from docs/agents/defaults.md (MODEL_*_CODEX / MODEL_*_OPENCODE / MODEL_*_DSH); `aloop-init --apply`
 re-renders installed hosts after a change.
 
 codex:    <DIR>/.codex/agents/<role>.toml  (or ~/.codex/agents with --global)
@@ -21,6 +22,12 @@ codex:    <DIR>/.codex/agents/<role>.toml  (or ~/.codex/agents with --global)
           then approve the hooks once with /hooks (Codex runs only trusted hooks).
 opencode: <DIR>/.opencode/{agents,skills,commands,plugins}/ (or ~/.config/opencode)
           + ~/.local/bin/aloop (+ legacy alias agentic)
+dsh:      $DSH_HOME/profiles/aloop/ (DSH_HOME defaults to ~/.dsh): the `aloop` profile — the roles
+          as agent presets aloop-<role>, the two delegation tools (subagent: execution roles,
+          subagent_planning: planning roles) with their models, and the plugin
+          hosts/dsh/aloop.mjs, loaded in place. dsh has no project-scoped plugin layer, so the
+          profile is always under $DSH_HOME; the skills go to <DIR>/.dsh/skills (or
+          $DSH_HOME/skills with --global). + ~/.local/bin/aloop. Run: dsh --profile aloop
 """
 import json
 import os
@@ -88,6 +95,11 @@ def host_body(body, host):
         "opencode": "\n\n## On OpenCode\nTools: call `aloop <tool>` (e.g. `aloop selfcheck`). If you were dispatched "
                     "with a worktree path, your FIRST command is `aloop bind <that path>`; the plugin then runs your "
                     "commands and edits inside it.\n",
+        "dsh": "\n\n## On DeepSeek Harness (dsh)\nTools: call `aloop <tool>` (e.g. `aloop selfcheck`). Roles are "
+               "dispatched with `subagent` (red-worker, scaffolder, green-worker, structural-reviewer, final-gate) or "
+               "`subagent_planning` (intake, standards, planner, archivist), `agent_preset: aloop-<role>`. If you were "
+               "dispatched with a worktree path, your FIRST command is `aloop bind <that path>`; then work only inside "
+               "it (your commands run there; use absolute paths under it for every file). Calls outside it are refused.\n",
     }.get(host, "")
     return body.rstrip() + "\n" + note
 
@@ -211,6 +223,130 @@ def install_opencode(opts, st):
     return written, ["restart opencode in the project — the plugin, agents, skills and /aloop-init load at startup"]
 
 
+# ── dsh (DeepSeek Harness) ────────────────────────────────────────────
+DSH_PROVIDER = "deepseek-official"
+DSH_BUNDLES = ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-headless"]
+
+
+def dsh_home():
+    return os.environ.get("DSH_HOME") or os.path.join(os.path.expanduser("~"), ".dsh")
+
+
+def dsh_profile():
+    return os.path.join(dsh_home(), "profiles", "aloop")
+
+
+def dsh_skills_dir(opts):
+    return os.path.join(dsh_home(), "skills") if opts.get("global") else os.path.join(opts["project"], ".dsh", "skills")
+
+
+def yq(v):
+    """A YAML scalar: a JSON string is valid YAML (double-quoted, JSON escapes)."""
+    return json.dumps(v, ensure_ascii=False)
+
+
+def dsh_agent_options(model):
+    """agentOptions for a delegation tool; an empty model is the session's default model."""
+    if not model:
+        return None
+    provider, _, mid = model.rpartition("/")
+    return {"provider": provider or DSH_PROVIDER, "model": mid}
+
+
+def dsh_patch(st):
+    """The aloop profile's cordis.patch.yml: patches on top of dsh's base + headless bundles."""
+    roles = agents()
+    work = ["aloop-" + n for n, _, _ in roles if n not in PLANNING]
+    plan = ["aloop-" + n for n, _, _ in roles if n in PLANNING]
+    models = {"subagent": model_for("dsh", False, st), "subagent_planning": model_for("dsh", True, st)}
+    supervisor = _routes.table()["hosts"]["dsh"]["strong"]
+
+    def tool_config(tool, allowed):
+        c = "{provider: spawn, toolName: %s, allowedAgentPresets: [%s]" % (tool, ", ".join(allowed))
+        ao = dsh_agent_options(models[tool])
+        if ao:
+            c += ", agentOptions: {provider: %s, model: %s}" % (yq(ao["provider"]), yq(ao["model"]))
+        return c + "}"
+
+    out = ["# " + MARK,
+           "# The aloop profile for DeepSeek Harness: `dsh --profile aloop`. Roles are agent presets",
+           "# aloop-<role>; `subagent` dispatches the execution roles, `subagent_planning` the planning",
+           "# roles; hosts/dsh/aloop.mjs runs the gates. Supervisor model: $ALOOP_DSH_MODEL.",
+           "- id: tool-subagent-fork          # a fork child cannot take a role",
+           "  disabled: true",
+           "- id: tool-workflow               # workflow children carry no role",
+           "  disabled: true",
+           "- id: session-log-deepseek        # no session-log upload with each request",
+           "  disabled: true",
+           "- id: agent-default-model",
+           "  config:",
+           "    provider: %s" % DSH_PROVIDER,
+           "    model: !!js process.env.ALOOP_DSH_MODEL || %s" % yq(supervisor),
+           "- id: tool-subagent",
+           "  config: %s" % tool_config("subagent", work),
+           "- insert:",
+           "    - id: tool-subagent-planning",
+           "      name: '@deepseek-ai/dsh-tool-subagent'",
+           "      config: %s" % tool_config("subagent_planning", plan),
+           "    - id: aloop",
+           "      name: %s" % yq(os.path.join(ROOT, "hosts", "dsh", "aloop.mjs")),
+           "      config: {root: %s, maxStopBlocks: 3, models: {subagent: %s, subagent_planning: %s}}" % (
+               yq(ROOT), yq(models["subagent"]), yq(models["subagent_planning"])),
+           "    - id: agent-preset-registry",
+           "      name: '@deepseek-ai/dsh-agent-preset-registry'",
+           "      config: {default: aloop-supervisor}",
+           "    - id: preset-aloop-supervisor",
+           "      name: '@deepseek-ai/dsh-agent-preset'",
+           "      config: {id: aloop-supervisor, name: aloop supervisor, description: %s, plugins: []}" % yq(
+               "Drives the aloop loop and dispatches the aloop roles.")]
+    for name, desc, body in roles:
+        prefix = "You are aloop's `%s` role.\n\n%s" % (name, host_body(body, "dsh"))
+        if "{{" in prefix:          # dsh-persona interpolates {{var}} strictly: an unknown var fails the role
+            raise ValueError("agents/%s.md contains '{{', which dsh's persona prefix would interpolate" % name)
+        out += ["    - id: preset-aloop-%s" % name,
+                "      name: '@deepseek-ai/dsh-agent-preset'",
+                "      config:",
+                "        id: aloop-%s" % name,
+                "        name: %s" % name,
+                "        description: %s" % yq(desc),
+                "        plugins:",
+                "          - id: persona",
+                "            name: '@deepseek-ai/dsh-persona'",
+                "            config: {prefix: %s}" % yq(prefix)]
+    return "\n".join(out) + "\n"
+
+
+def install_dsh(opts, st):
+    written, prof = [], dsh_profile()
+    write(os.path.join(prof, "package.json"), json.dumps(
+        {"name": "dsh-profile-aloop", "private": True, "description": MARK, "dependencies": {},
+         "dsh": {"profile": {"bundles": DSH_BUNDLES}}}, indent=2) + "\n", written)
+    write(os.path.join(prof, "cordis.patch.yml"), dsh_patch(st), written)
+    base = dsh_skills_dir(opts)
+    for skill, new_name in (("aloop", "aloop"), ("aladdin", "aladdin"), ("init", "aloop-init")):
+        if opts.get("skills") is False:
+            break
+        fm, body = split_frontmatter(open(os.path.join(ROOT, "skills", skill, "SKILL.md")).read())
+        desc = re.sub(r"\s+", " ", fm.get("description", "")).strip(" >-")[:1024]
+        head = "---\nname: %s\ndescription: %s\n" % (new_name, json.dumps(desc, ensure_ascii=False))
+        if fm.get("disable-model-invocation") == "true":
+            head += "disable-model-invocation: true\n"
+        write(os.path.join(base, new_name, "SKILL.md"), "%s---\n<!-- %s -->\n%s" % (head, MARK, host_body(body, "dsh")), written)
+        ref = os.path.join(ROOT, "skills", skill, "reference.md")
+        if os.path.isfile(ref):
+            write(os.path.join(base, new_name, "reference.md"),
+                  "<!-- %s -->\n%s" % (MARK, host_body(open(ref).read(), "dsh")), written)
+    link_dispatcher(written)
+    return written, [
+        "npm install -g @deepseek-ai/dsh@0.2.1-rc.2   # if dsh is not installed",
+        "export DEEPSEEK_API_KEY=sk-...                # or put it in $DSH_HOME/.env",
+        "dsh --profile aloop \"Use the aloop skill. Intent: <one line>\"   (supervisor model: ALOOP_DSH_MODEL)",
+    ]
+
+
+INSTALLERS = {"codex": install_codex, "opencode": install_opencode, "dsh": install_dsh}
+
+
 def uninstall(host, opts):
     removed = []
     if host == "codex":
@@ -234,6 +370,16 @@ def uninstall(host, opts):
                 shutil.rmtree(d)
                 removed.append(d)
         remove_legacy_opencode(b, removed)
+    elif host == "dsh":
+        prof = dsh_profile()
+        if ours(os.path.join(prof, "cordis.patch.yml")):
+            shutil.rmtree(prof)
+            removed.append(prof)
+        for s in ("aloop", "aladdin", "aloop-init"):
+            d = os.path.join(dsh_skills_dir(opts), s)
+            if os.path.isdir(d) and ours(os.path.join(d, "SKILL.md")):
+                shutil.rmtree(d)
+                removed.append(d)
     for r in removed:
         print("  removed " + r)
     return 0
@@ -243,7 +389,8 @@ def installed(project):
     found = []
     for host, p in (("codex", os.path.join(project, ".codex", "agents", "planner.toml")),
                     ("codex", os.path.join(os.path.expanduser("~"), ".codex", "agents", "planner.toml")),
-                    ("opencode", os.path.join(project, ".opencode", "agents", "planner.md"))):
+                    ("opencode", os.path.join(project, ".opencode", "agents", "planner.md")),
+                    ("dsh", os.path.join(dsh_profile(), "cordis.patch.yml"))):
         if os.path.isfile(p) and ours(p):
             found.append((host, p))
     return found
@@ -254,7 +401,11 @@ def rerender(project):
     st = _paths.settings(project)
     for host, p in installed(project):
         opts = {"project": project, "global": not p.startswith(project)}
-        (install_codex if host == "codex" else install_opencode)(opts, st)
+        if host == "dsh":           # one global profile; re-render the skills only where they already are
+            has = lambda o: ours(os.path.join(dsh_skills_dir(o), "aloop", "SKILL.md"))  # noqa: E731
+            opts["global"] = not has({"project": project})
+            opts["skills"] = has(opts)
+        INSTALLERS[host](opts, st)
         print("  re-rendered %s agents (%s)" % (host, os.path.dirname(p)))
 
 
@@ -282,13 +433,14 @@ def main(argv):
     if host == "claude":
         print("Claude Code:\n  /plugin marketplace add adeelahmad/agentic-agile\n  /plugin install aloop@aloop-marketplace")
         return 0
-    if host not in ("codex", "opencode"):
-        print("aloop-install: host must be codex, opencode, claude or status", file=sys.stderr)
+    host = {"deepseek": "dsh"}.get(host, host)
+    if host not in INSTALLERS:
+        print("aloop-install: host must be codex, opencode, dsh, claude or status", file=sys.stderr)
         return 64
     if opts.get("uninstall"):
         return uninstall(host, opts)
     st = _paths.settings(opts["project"])
-    written, nxt = (install_codex if host == "codex" else install_opencode)(opts, st)
+    written, nxt = INSTALLERS[host](opts, st)
     print("installed aloop for %s:" % host)
     for w in written:
         print("  " + w)

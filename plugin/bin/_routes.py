@@ -2,7 +2,7 @@
 
 A role group (planning | worker) is configured as a ROUTE (strongest | strong | economical)
 or a pinned concrete id. Each host resolves a route to its own id; a pinned id passes
-through. The host-specific settings (MODEL_*_CODEX, MODEL_*_OPENCODE) still win on that host.
+through. The host-specific settings (MODEL_*_CODEX, MODEL_*_OPENCODE, MODEL_*_DSH) still win on that host.
 """
 import json
 import os
@@ -49,6 +49,6 @@ def resolve(host, group, st=None, cwd=None):
     if host == "opencode":
         base = ALIAS.get(want, want)
         model = base if "/" in base else ("anthropic/" + base if base.startswith("claude") else "")
-    elif host == "codex":
+    elif host in ("codex", "dsh"):
         model = "" if (want in ALIAS or want.startswith("claude")) else want
     return {"group": g, "host": host, "route": "pinned", "model": model, "source": "AGENTIC_" + key}

@@ -4,23 +4,28 @@ The supervisor's playbook is `SKILL.md` next to this file; it is re-read on ever
 turn, so the sections a normal run does not need live here and are read only when the
 playbook points to them (a budget breach, a non-Claude host, a review blind spot).
 
-## Running on Codex or OpenCode (same playbook, host vocabulary)
+## Running on Codex, OpenCode or dsh (same playbook, host vocabulary)
 
 The gates, time box, ledger, stats and handoff are the SAME scripts on every host (Codex
-runs this plugin's `hooks/hooks.json` natively; OpenCode runs them through the plugin
-`aloop install opencode` generates). Only the dispatch vocabulary differs:
+runs this plugin's `hooks/hooks.json` natively; OpenCode and DeepSeek Harness (`dsh`) run
+them through the plugin `aloop install opencode|dsh` generates). Only the dispatch
+vocabulary differs:
 
-| Playbook step | Claude Code | Codex | OpenCode |
-|---|---|---|---|
-| Install | `/plugin install` | `aloop install codex` + `codex plugin add aloop@aloop-marketplace`, then trust hooks in `/hooks` | `aloop install opencode`, restart |
-| Dispatch a role | Agent tool, `subagent_type: <role>` | `spawn_agent`, `agent_type: <role>` | `task` tool, `subagent_type: <role>` |
-| Worker isolation | `isolation: "worktree"` | `aloop task-worktree add <TASK_ID>` → path; the worker's FIRST command is `aloop bind <path>` (hooks then confine it) | same as Codex (the plugin then rewrites its commands/edits into the worktree) |
-| Parallel / wait | `run_in_background` + `budget watch` | several `spawn_agent`, then `wait_agent` | several `task` calls in one message |
-| Stop a worker (backstop) | `TaskStop` | `close_agent` | — (the plugin aborts it) |
-| Merge a passed task | `aloop task-worktree merge <TASK_ID> <worktree-branch>` (records the lineage) | merge `agentic/<TASK_ID>`, then `aloop task-worktree remove <TASK_ID>` | same as Codex |
-| Fresh context per sprint | `/clear` | `/clear` or `/new` | `/new` |
+| Playbook step | Claude Code | Codex | OpenCode | dsh |
+|---|---|---|---|---|
+| Install | `/plugin install` | `aloop install codex` + `codex plugin add aloop@aloop-marketplace`, then trust hooks in `/hooks` | `aloop install opencode`, restart | `aloop install dsh`, then run `dsh --profile aloop` |
+| Dispatch a role | Agent tool, `subagent_type: <role>` | `spawn_agent`, `agent_type: <role>` | `task` tool, `subagent_type: <role>` | `subagent` (red-worker, scaffolder, green-worker, structural-reviewer, final-gate) or `subagent_planning` (intake, standards, planner, archivist), `agent_preset: aloop-<role>`; a call without a role is refused |
+| Worker isolation | `isolation: "worktree"` | `aloop task-worktree add <TASK_ID>` → path; the worker's FIRST command is `aloop bind <path>` (hooks then confine it) | same as Codex (the plugin then rewrites its commands/edits into the worktree) | same as Codex, and dispatch with `cwd: <worktree>`; calls outside it are refused |
+| Parallel / wait | `run_in_background` + `budget watch` | several `spawn_agent`, then `wait_agent` | several `task` calls in one message | several `subagent` calls in one message, then end your turn: each "finished" notice wakes you (there is no wait tool; do not poll `list_agents`) |
+| Stop a worker (backstop) | `TaskStop` | `close_agent` | — (the plugin aborts it) | `interrupt_agent` |
+| Merge a passed task | `aloop task-worktree merge <TASK_ID> <worktree-branch>` (records the lineage) | merge `agentic/<TASK_ID>`, then `aloop task-worktree remove <TASK_ID>` | same as Codex | same as Codex |
+| Fresh context per sprint | `/clear` | `/clear` or `/new` | `/new` | a new `dsh --profile aloop` run |
 
-On Codex/OpenCode the dispatch message MUST contain the worktree line — e.g. "Your
+On dsh a role's result is its `output.md` block (read it after the "finished" notice); a gate
+verdict on a role that did not pass arrives as an `[aloop gate]` message — never merge such a
+task.
+
+On Codex/OpenCode/dsh the dispatch message MUST contain the worktree line — e.g. "Your
 worktree: /abs/.aladdin/worktrees/S1-02-T3. First command: `aloop bind
 /abs/.aladdin/worktrees/S1-02-T3`." The task contract is written before dispatch,
 exactly as on Claude Code (see "The task contract" below). Models per role come from the generated agent files

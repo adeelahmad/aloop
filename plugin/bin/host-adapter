@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""host-adapter — the pieces Claude Code gives natively that Codex / OpenCode don't.
+"""host-adapter — the pieces Claude Code gives natively that Codex / OpenCode / dsh don't.
 
   host-adapter hook     SubagentStart · SubagentStop · PreToolUse (reads the hook JSON)
 
@@ -7,13 +7,17 @@ SubagentStart / SubagentStop (every host): register the sub-agent in
   .agentic/state/agents/<agent_id>.json (type, session, its own transcript) so the
   token ledger and the gates can find it on hosts without Claude's subagents/ dir.
 
-PreToolUse (Codex, OpenCode — Claude Code isolates workers itself): worktree isolation.
+PreToolUse (Codex, OpenCode, dsh — Claude Code isolates workers itself): worktree isolation.
   - A worker's first command must be `aloop bind <worktree>`; the hook records the
     binding (it sees the agent id). Before that, a writing worker's tool calls are denied.
   - After it, every Bash command must run inside the worktree (`cd <worktree> && …`) and
     every patched/written path must be under it — otherwise the call is denied with the
     exact fix. (The OpenCode plugin rewrites args instead of denying: it calls this with
     AGENTIC_HOST=opencode and reads the binding back.)
+  - dsh runs a command in the agent's working directory (its bash has no workdir argument),
+    which the dsh plugin passes as tool_input.workdir: a command whose workdir is inside the
+    worktree is inside it, and relative paths resolve against that directory. The
+    working_directory tool may move only within the worktree.
 
 Deterministic, never fails a tool call on an internal error.
 """
@@ -85,14 +89,23 @@ def pre_tool(payload, cwd, agent_id, role, host):
                 reg["bound_at"] = time.time()
                 save(p, reg)
             return                                   # let `aloop bind` itself run and report
-    if role not in WRITERS or host != "codex":
+    if role not in WRITERS or host not in ("codex", "dsh"):
         return        # readers aren't confined; Claude Code isolates natively; OpenCode rewrites args itself
+    workdir = ti.get("workdir") if host == "dsh" and isinstance(ti.get("workdir"), str) else ""
+    base = workdir or cwd                            # where a relative path lands
     if not wt:
         if tool in ("Bash", "bash", "shell", "apply_patch", "Write", "Edit", "MultiEdit", "write", "edit"):
             deny("bind your worktree first — your first command must be `aloop bind <worktree>` "
                  "(the absolute path from your dispatch message). Until then shell commands and edits are refused.")
         return
+    if tool == "working_directory":
+        d = ti.get("cd") if isinstance(ti.get("cd"), str) else ""
+        if d and not under(d if os.path.isabs(d) else os.path.join(base, d), wt):
+            deny("stay in your worktree %s — `working_directory` may only move inside it" % wt)
+        return
     if tool in ("Bash", "bash", "shell"):
+        if workdir and under(workdir, wt):
+            return                                   # dsh runs it in the agent's directory, inside the worktree
         try:
             first = shlex.split(cmd.strip().split("&&")[0])
         except ValueError:
@@ -104,14 +117,16 @@ def pre_tool(payload, cwd, agent_id, role, host):
         bad = []
         for a, b in PATCH_PATHS.findall(cmd):
             path = (a or b).strip()
-            full = path if os.path.isabs(path) else os.path.join(cwd, path)
+            full = path if os.path.isabs(path) else os.path.join(base, path)
             if not under(full, wt):
                 bad.append(path)
         if bad:
             deny("edit only files inside your worktree %s — use absolute paths under it (not: %s)" % (wt, ", ".join(bad[:5])))
         return
+    if tool not in ("Write", "Edit", "MultiEdit", "NotebookEdit", "write", "edit"):
+        return                                       # reads may reach the story docs in the main tree
     fp = ti.get("file_path") or ti.get("filePath") or ""
-    if fp and not under(fp if os.path.isabs(fp) else os.path.join(cwd, fp), wt):
+    if fp and not under(fp if os.path.isabs(fp) else os.path.join(base, fp), wt):
         deny("edit only files inside your worktree %s — use %s" % (wt, os.path.join(wt, os.path.basename(fp))))
 
 

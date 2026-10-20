@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """ROADMAP §4.11 (M8): the north-star run is reproducible on every host, not only Claude Code.
-`e2e-live.sh --host codex|opencode` installs the plugin into the seeded repo with `aloop install`
-and drives that host's headless CLI (`codex exec --json`, `opencode run --format json`) with
+`e2e-live.sh --host codex|opencode|dsh` installs the plugin into the seeded repo with `aloop install`
+and drives that host's headless CLI (`codex exec --json`, `opencode run --format json`,
+`dsh --profile aloop --json`) with
 the same intent, approval and checks; `--dry-run` seeds and prints the command without
 spending tokens; `run-summary --host` records the host and the reproduce command names it.
     python3 scripts/test/e2e-live-hosts.test.py
@@ -22,11 +23,12 @@ T = tempfile.mkdtemp(prefix="agentic-e2e-hosts-")
 STUBS = os.path.join(T, "stubs")
 os.makedirs(STUBS)
 # Stub CLIs: the dry run never calls them, but the script refuses to start without the host's CLI.
-for name in ("claude", "codex", "opencode", "cargo"):
+for name in ("claude", "codex", "opencode", "dsh", "cargo"):
     p = os.path.join(STUBS, name)
     open(p, "w").write("#!/bin/sh\nexit 0\n")
     os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC)
-ENV = dict(os.environ, HOME=os.path.join(T, "home"), PATH=STUBS + ":/usr/bin:/bin",
+ENV = dict({k: v for k, v in os.environ.items() if k not in ("DEEPSEEK_API_KEY", "DSH_HOME")},
+           HOME=os.path.join(T, "home"), PATH=STUBS + ":/usr/bin:/bin",
            GIT_AUTHOR_NAME="A", GIT_AUTHOR_EMAIL="a@a", GIT_COMMITTER_NAME="A", GIT_COMMITTER_EMAIL="a@a")
 os.makedirs(ENV["HOME"])
 
@@ -62,6 +64,22 @@ assert any(f.endswith(".toml") for f in os.listdir(os.path.join(d, "repo", ".cod
 r2, _ = run("--host", "codex", "--model", "gpt-5-codex")
 assert "cmd: codex exec --json --full-auto --model gpt-5-codex " in r2.stdout, r2.stdout
 ok("--host codex: aloop install codex into the run repo, then codex exec --json --full-auto (model only when asked)")
+
+# 2b) dsh: the profile rendered into the run's own DSH_HOME, then `dsh --profile aloop --json`,
+#     unattended and with the supervisor's model in ALOOP_DSH_MODEL (dsh has no such flags)
+r, d = run("--host", "dsh")
+assert r.returncode == 0, (r.stdout, r.stderr)
+cmd = r.stdout[r.stdout.index("cmd: ") + 5:]
+assert cmd.startswith("env DSH_PERMISSION_MODE=danger-full-access DSH_TELEMETRY_DISABLED=1 ALOOP_DSH_MODEL=deepseek-v4-pro "
+                      "dsh --profile aloop --json "), cmd
+assert "E2E-DONE" in cmd and "host: dsh · supervisor model: deepseek-v4-pro · worker model: deepseek-flash" in r.stdout, r.stdout
+patch = open(os.path.join(d, "dsh-home", "profiles", "aloop", "cordis.patch.yml")).read()
+assert "toolName: subagent, allowedAgentPresets: [aloop-final-gate" in patch and 'model: "deepseek-flash"' in patch, patch[:1500]
+assert os.path.isfile(os.path.join(d, "repo", ".dsh", "skills", "aloop", "SKILL.md"))
+assert not os.path.exists(os.path.join(ENV["HOME"], ".dsh")), "the user's own DSH_HOME is untouched"
+r = subprocess.run([SH, "--yes", "--host", "dsh"], cwd=T, env=dict(ENV, E2E_DIR=os.path.join(T, "nokey")), capture_output=True, text=True)
+assert r.returncode == 2 and "export DEEPSEEK_API_KEY" in r.stdout and not os.path.exists(os.path.join(T, "nokey")), (r.returncode, r.stdout)
+ok("--host dsh: aloop install dsh into the run's own DSH_HOME, then dsh --profile aloop --json; no key → exit 2 before seeding")
 
 # 3) Claude Code is the default and unchanged
 r, d = run()

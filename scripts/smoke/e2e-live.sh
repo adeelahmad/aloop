@@ -3,7 +3,7 @@
 # REAL host session with the plugin, the human's only input being approval (given up front
 # here). Spends real tokens (dollars, not cents), so it needs --yes; CI does not run it.
 #
-#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq|slugify|roman|camel|extend|modify|cli] [--host claude|codex|opencode]
+#   scripts/smoke/e2e-live.sh --yes [--intent semver|wordfreq|slugify|roman|camel|extend|modify|cli] [--host claude|codex|opencode|dsh]
 #                                   [--model M] [--worker-model M] [--dry-run]
 #   (or: make e2e-live YES=1 [INTENT=wordfreq] [HOST=opencode])
 #
@@ -18,6 +18,10 @@
 #   codex     `aloop install codex` into the run repo, then `codex exec --json --full-auto`.
 #             Codex loads the skills/hooks through its own plugin manager, so the owner adds the
 #             plugin once first (`codex plugin add aloop@aloop-marketplace`, /hooks → trust).
+#   dsh       DeepSeek Harness: `aloop install dsh` into an isolated DSH_HOME in the run dir (your
+#             $DSH_HOME/.env is copied in for the key), then `dsh --profile aloop --json`, unattended
+#             (DSH_PERMISSION_MODE=danger-full-access: the throw-away run repo only). Needs
+#             DEEPSEEK_API_KEY (or $DSH_HOME/.env).
 # Models default to the host's routes (plugin/hosts/routes.json: strong supervisor, economical
 # workers); Codex's routes are empty, so it runs the session's own model unless --model is given.
 # --dry-run seeds the repo and prints the host command without spending anything.
@@ -39,8 +43,12 @@ while [ $# -gt 0 ]; do
     *) echo "unknown arg: $1"; exit 2 ;;
   esac
 done
-case "$HOST" in claude|codex|opencode) ;; *) echo "unknown host: $HOST (claude|codex|opencode)"; exit 2 ;; esac
+case "$HOST" in claude|codex|opencode|dsh) ;; *) echo "unknown host: $HOST (claude|codex|opencode|dsh)"; exit 2 ;; esac
 command -v "$HOST" >/dev/null || { echo "$HOST CLI not found"; exit 2; }
+USER_DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
+if [ "$HOST" = dsh ] && [ -z "$DRY" ] && [ -z "${DEEPSEEK_API_KEY:-}" ] && ! grep -qs '^DEEPSEEK_API_KEY=.' "$USER_DSH_HOME/.env"; then
+  echo "dsh: no DeepSeek API key: export DEEPSEEK_API_KEY=sk-... (or put DEEPSEEK_API_KEY=sk-... in $USER_DSH_HOME/.env)"; exit 2
+fi
 case "$FIXTURE" in
   slugify) python3 -m pytest --version >/dev/null 2>&1 || { echo "python3 with pytest needed for INTENT=slugify"; exit 2; } ;;
   roman) command -v go >/dev/null || { echo "go needed for INTENT=roman"; exit 2; } ;;
@@ -153,7 +161,12 @@ else
 fi
 git add -A && git commit -qm init
 "$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="${WORKER_MODEL:-economical}" MODEL_WORKER="${WORKER_MODEL:-economical}" GITIGNORE=yes >/dev/null
-# Codex and OpenCode load the agents, skills and hooks from the project: render them in.
+# dsh: its own home in the run dir (no user patches; the sessions stay with the run), with the key
+if [ "$HOST" = dsh ]; then
+  export DSH_HOME="$T/dsh-home"; mkdir -p "$DSH_HOME"
+  [ -f "$USER_DSH_HOME/.env" ] && cp "$USER_DSH_HOME/.env" "$DSH_HOME/.env"
+fi
+# Codex, OpenCode and dsh load the agents, skills and hooks from the project (dsh: its profile): render them in.
 [ "$HOST" = claude ] || "$PLUGIN/bin/install" "$HOST" --project . >/dev/null
 git add -A && git commit -qm "aloop init" >/dev/null 2>&1 || true
 
@@ -165,6 +178,9 @@ case "$HOST" in
                  --allowedTools "Agent Task Bash Read Write Edit MultiEdit Glob Grep Skill TaskStop TodoWrite") ;;
   opencode) CMD=(opencode run --format json ${SUP_MODEL:+--model "$SUP_MODEL"} "$PROMPT") ;;
   codex)    CMD=(codex exec --json --full-auto ${SUP_MODEL:+--model "$SUP_MODEL"} "$PROMPT") ;;
+  # dsh has no model or approval flags: the profile reads the supervisor's model from ALOOP_DSH_MODEL
+  dsh)      CMD=(env DSH_PERMISSION_MODE=danger-full-access DSH_TELEMETRY_DISABLED=1 ALOOP_DSH_MODEL="$SUP_MODEL"
+                 dsh --profile aloop --json "$PROMPT") ;;
 esac
 echo "host: $HOST · supervisor model: ${SUP_MODEL:-<session model>} · worker model: ${WORKER_MODEL:-<session model>}"
 # Claude Code's `--allowedTools` takes every word after it, so its prompt goes on stdin (as an
@@ -225,6 +241,6 @@ check "every merged commit traces to its task (events trace)" '[ "$untraced" -eq
 "$PLUGIN/bin/run-summary" "$T" --intent "$FIXTURE" --host "$HOST" --checks "$((checks - fails))/$checks" --secs "$secs" --plugin "$PLUGIN"
 # Keep the transcript and the repo, drop the build artifacts (a cargo target dir per worktree
 # is hundreds of MB; a dozen kept runs filled the disk).
-rm -rf "$T"/repo/target "$T"/repo/.claude/worktrees/*/target 2>/dev/null
+rm -rf "$T"/repo/target "$T"/repo/.claude/worktrees/*/target "$T"/repo/.aladdin/worktrees/*/target 2>/dev/null
 echo "run dir: $T"
 exit $((fails > 0))

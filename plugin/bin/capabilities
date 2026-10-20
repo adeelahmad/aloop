@@ -3,7 +3,7 @@
 
 Usage:
   capabilities [HOST]                 the matrix row(s): usage, compaction, live messaging,
-                                      lifecycle, gate blocking (HOST: claude|codex|opencode;
+                                      lifecycle, gate blocking (HOST: claude|codex|opencode|dsh;
                                       default all)
   capabilities boundary [HOST]        what to do at a sprint boundary: `rotate` (fresh session,
                                       the correctness path) unless AGENTIC_CONTEXT_BOUNDARY=compact
