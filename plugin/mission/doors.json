@@ -24,9 +24,9 @@
     }
    ],
    "tools": [
-    "^(?:mcp__github__|github_)(?:merge_pull_request|enable_pr_auto_merge)$",
+    "^(?:mcp__[\\w-]+?__|(?!mcp__)[\\w-]+?_)(?:merge_pull_request|enable_pr_auto_merge)$",
     {
-     "tool": "^(?:mcp__github__|github_)(?:push_files|create_or_update_file|delete_file)$",
+     "tool": "^(?:mcp__[\\w-]+?__|(?!mcp__)[\\w-]+?_)(?:push_files|create_or_update_file|delete_file)$",
      "input": {
       "branch": "{DEF}"
      }
@@ -49,7 +49,8 @@
     "tools": [
      "mcp__github__merge_pull_request",
      "github_merge_pull_request",
-     "github_enable_pr_auto_merge"
+     "github_enable_pr_auto_merge",
+     "mcp__github-mcp__merge_pull_request"
     ]
    }
   },
@@ -225,7 +226,7 @@
     }
    ],
    "tools": [
-    "(?i)^(?:mcp__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)\\w*?__|(?!mcp__)\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)[A-Za-z0-9-]*_)(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)_)?(?:send|reply|forward|post|chat_post)\\w*$"
+    "(?i)^(?:mcp__(?:[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)[\\w-]*?__(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)_)?|[\\w-]+?__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)[A-Za-z0-9]*_)|(?!mcp__)[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)[A-Za-z0-9-]*_(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)_)?)(?:send|reply|forward|post|chat_post)(?!s(?:$|_)|ed(?:$|_)|ing)\\w*$"
    ],
    "examples": {
     "bash": [
@@ -238,7 +239,11 @@
      "mcp__slack__slack_reply_to_thread",
      "Gmail_send_message",
      "slack_slack_post_message",
-     "slack_post_message"
+     "slack_post_message",
+     "mcp__slack-mcp__post_message",
+     "mcp__zapier__gmail_send_email",
+     "mcp__composio__GMAIL_SEND_EMAIL",
+     "mcp__slack__chat_postMessage"
     ]
    }
   },
@@ -360,7 +365,7 @@
     }
    ],
    "tools": [
-    "(?i)^(?:mcp__\\w*?__|(?!mcp__)\\w+?_)(?:share_file|share|add_permission|create_permission)$"
+    "(?i)^(?:mcp__[\\w-]+?__|(?!mcp__)[\\w-]+?_)(?:(?!(?:get|list|read|search|find|fetch|describe|view|show|query)_)\\w*?_)?(?:share_file|share|add_permission|create_permission)$"
    ],
    "examples": {
     "bash": [
@@ -369,7 +374,10 @@
     ],
     "tools": [
      "mcp__Google_Drive__share_file",
-     "Google_Drive_share_file"
+     "Google_Drive_share_file",
+     "mcp__zapier__google_drive_share_file",
+     "mcp__google-drive__share_file",
+     "google-drive_share_file"
     ]
    }
   },
@@ -423,6 +431,7 @@
     "(?:^|/)(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js$",
     "^opencode\\.jsonc?$",
     "(?:^|/)(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?$",
+    "(?:^|/)\\.config/opencode/config\\.json$",
     "(?:^|/)\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json)$"
    ],
    "plugin_paths": [
@@ -436,21 +445,24 @@
      "writes": "(?:^|/)\\.claude/settings(?:\\.local)?\\.json$"
     },
     {
-     "writes": "(?:^|/)(?:\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
+     "writes": "(?:^|/)(?:\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.config/opencode/config\\.json|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
     },
     {
-     "prog": "cp|mv|ln|install|rsync|rm|unlink|truncate|shred",
-     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
+     "writes": "(?:^|/)(?:\\.claude|\\.codex(?:/agents)?|\\.opencode(?:/plugins)?|\\.config(?:/opencode(?:/plugins)?)?|\\.dsh(?:/profiles(?:/[^/]+)?)?|worktrees/[^/]+)/\\*$|^\\*$|(?:^|/)(?:\\.claude|\\.codex(?:/agents)?|\\.opencode(?:/plugins)?|\\.config(?:/opencode(?:/plugins)?)?|\\.dsh(?:/profiles(?:/[^/]+)?)?)/?$"
+    },
+    {
+     "prog": "mv|rm|unlink|truncate|shred",
+     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.config/opencode/config\\.json|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$|(?:^|/)(?:\\.claude|\\.codex(?:/agents)?|\\.opencode(?:/plugins)?|\\.config(?:/opencode(?:/plugins)?)?|\\.dsh(?:/profiles(?:/[^/]+)?)?)/?$"
     },
     {
      "prog": "sed",
-     "flag": "-[^-\\sefl]*i.*|--in-place(?:=.*)?",
-     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
+     "flag": "-[^-\\sefl]*i.*|--i(?:n(?:-(?:p(?:l(?:a(?:c(?:e)?)?)?)?)?)?)?(?:=.*)?",
+     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.config/opencode/config\\.json|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
     },
     {
      "prog": "perl",
      "flag": "-[^-\\sMmIeEFxdDC]*i.*",
-     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
+     "files": "(?:^|/)(?:\\.claude/settings(?:\\.local)?\\.json|\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|(?:\\.opencode|\\.config/opencode|worktrees/[^/]+)/opencode\\.jsonc?|\\.config/opencode/config\\.json|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$|^opencode\\.jsonc?$"
     },
     {
      "prog": "git",
@@ -477,6 +489,7 @@
      "home/worktrees/S1-01-T1/opencode.json",
      "~/.config/opencode/opencode.jsonc",
      "~/.dsh/profiles/aloop/cordis.patch.yml",
+     "~/.config/opencode/config.json",
      "~/.dsh/profiles/aloop/package.json"
     ],
     "bash": [
@@ -486,6 +499,11 @@
      "cp /tmp/s .claude/settings.json",
      "sed -i 's/doors//' .codex/hooks.json",
      "rm -f .claude/settings.local.json",
+     "rm -rf .claude",
+     "mv .codex /tmp/codex-old",
+     "cp -r /tmp/x/. .claude",
+     "rsync -a /tmp/x/ .opencode/",
+     "sed --in-pl 's/x//' .claude/settings.json",
      "cat x >> .codex/hooks.json",
      "printf x | tee ~/.dsh/profiles/aloop/cordis.patch.yml",
      "git config core.hooksPath /dev/null",
@@ -558,7 +576,7 @@
     },
     {
      "prog": "sed",
-     "flag": "-[^-\\sefl]*i.*|--in-place(?:=.*)?",
+     "flag": "-[^-\\sefl]*i.*|--i(?:n(?:-(?:p(?:l(?:a(?:c(?:e)?)?)?)?)?)?)?(?:=.*)?",
      "files": "(?:^|/)docs/agents/mission/ledger\\.jsonl$"
     },
     {
@@ -577,7 +595,7 @@
     },
     {
      "prog": "sed",
-     "flag": "-[^-\\sefl]*i.*|--in-place(?:=.*)?",
+     "flag": "-[^-\\sefl]*i.*|--i(?:n(?:-(?:p(?:l(?:a(?:c(?:e)?)?)?)?)?)?)?(?:=.*)?",
      "files": "^\\.(?:aladdin|agentic)(?:/logs(?:/(?:events\\.jsonl|[^/]*[*?][^/]*))?)?$"
     },
     {
@@ -760,7 +778,13 @@
    "echo '{}' > docs/examples/opencode.json",
    "sed 's/x//' .claude/settings.json",
    "cat ~/.dsh/profiles/aloop/cordis.patch.yml",
-   "cat plugin/hosts/opencode/aloop.js"
+   "cat plugin/hosts/opencode/aloop.js",
+   "cp .claude/settings.json /tmp/",
+   "rsync -a .claude/ /tmp/backup/",
+   "rm -rf .opencode/node_modules",
+   "cp -r docs/. /tmp/site",
+   "sed --quiet -n p .claude/settings.json",
+   "cp notes.md .claude/agents/"
   ],
   "tools": [
    "Read",
@@ -773,7 +797,12 @@
    "Gmail_search_threads",
    "slack_get_post_history",
    "mcp__drive__get_share",
-   "mcp__notion__search_slack_posts"
+   "mcp__notion__search_slack_posts",
+   "mcp__slack__get_post_history",
+   "mcp__gmail__list_drafts",
+   "mcp__zapier__gmail_find_email",
+   "mcp__drive__list_shares",
+   "mcp__twitter__get_posts"
   ],
   "paths": [
    "src/a.py",

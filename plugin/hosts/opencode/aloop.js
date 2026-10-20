@@ -253,7 +253,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
           if (input.tool === "bash") args.workdir = wt
           if (input.tool === "write" || input.tool === "edit") args.filePath = intoWt(args.filePath, wt)
           if (input.tool === "apply_patch" && args.patchText)
-            args.patchText = args.patchText.replace(/^([^\S\n]*\*\*\*[^\S\n]*(?:Add|Update|Delete)[^\S\n]+File:[^\S\n]*|[^\S\n]*\*\*\*[^\S\n]*Move[^\S\n]+to:[^\S\n]*)(.+)$/gm, (_, h, f) => h + intoWt(f.trim(), wt))
+            args.patchText = args.patchText.replace(/^([^\S\n]*\*\*\*[^\S\n]*(?:Add|Update|Delete)[^\S\n]+File:[^\S\n]*|[^\S\n]*\*\*\*[^\S\n]*Move[^\S\n]+to:[^\S\n]*)([^\n]+)$/gm, (_, h, f) => h + intoWt(f.trim(), wt))
           p = await payload("PreToolUse", input.sessionID, { tool_name: await toolName(input.tool), tool_input: toolInput(input.tool, args) })
         }
       }

@@ -17,6 +17,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 
@@ -929,7 +930,86 @@ for cmd in ("cp src/a.py src/b.py", "sed 's/x//' .claude/settings.json", "rm -rf
     assert doors_of(cmd) == [], cmd
 assert p.run("doors", "check").returncode == 0
 ok("settings: every host's settings and hooks and aloop's own host adapters are one-way; reading them is two-way")
+
+# 21b) the second M9.31 review. A redirect with no command word, or on a group, a subshell or a compound, is
+#      theirs (its writes, its heredoc feeding every command inside)
+force = "git push --force origin main"
+for cmd in ("> .claude/settings.json", "{ echo '{}'; } > .claude/settings.json", "(echo '{}') > .claude/settings.json",
+            "if true; then echo '{}'; fi > .claude/settings.json", "(apply_patch) <<'EOF'\n%sEOF" % settings,
+            "{ apply_patch; } <<'EOF'\n%sEOF" % settings, "for x in a; do :; done >> .codex/hooks.json"):
+    assert "change-agent-settings" in doors_of(cmd), (cmd, doors_of(cmd))
+assert "forge-human-record" in doors_of("> docs/agents/mission/ledger.jsonl")
+for cmd in ("(bash) <<'EOF'\n%s\nEOF" % force, "{ bash; } <<'EOF'\n%s\nEOF" % force, "if :; then sh; fi <<< '%s'" % force,
+            "( (bash) ) <<'EOF'\n%s\nEOF" % force):
+    assert {"push-default-branch", "force-push-or-delete-remote"} <= set(doors_of(cmd)), (cmd, doors_of(cmd))
+for cmd in ("{ echo a; echo b; } > out.txt", "(cd src && make) > build.log 2>&1", "> build.log", "(cat) <<'EOF'\nhi\nEOF"):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+ok("groups: a bare redirect, and a group's or compound's own redirect or heredoc, reach the commands inside")
+
+# a `cd` that may not run (in an if, case or loop body, after && or ||) leaves the directory unknown after it;
+# a directory is also read as the kernel walks it (git -C, cd -P and dsh's workdir follow a link before `..`)
+other = tempfile.mkdtemp()                                   # a directory that is no checkout
+for cmd in ("if false; then cd %s; fi; git push origin HEAD", "false && cd %s; git push origin HEAD",
+            "[ -d /nope ] && cd %s || true; git push origin HEAD", "while false; do cd %s; done; git push origin HEAD",
+            "case x in y) cd %s ;; esac; git push origin HEAD", "if false; then :; else cd %s; fi\ngit push origin HEAD"):
+    assert "push-default-branch" in denied(hook(g, "Bash", {"command": cmd % other})), cmd
+for cmd in ("cd %s && git push origin HEAD" % gwt, "test -d %s && cd %s && git push origin HEAD" % (gwt, gwt),
+            "if true; then cd %s && git push origin HEAD; fi" % gwt, "cd %s; git push origin HEAD" % gwt):
+    assert hook(g, "Bash", {"command": cmd}).stdout == "", cmd
+os.makedirs(os.path.join(g.dir, "tools"), exist_ok=True)
+os.symlink(os.path.join(g.dir, "tools"), os.path.join(gwt, "link"))
+assert hook(g, "Bash", {"command": "git push origin HEAD"}, cwd=gwt).stdout == ""            # the worktree: its branch
+for cmd in ("git -C link/.. push origin HEAD", "cd -P link/.. && git push origin HEAD", "git -C %s/link/.. push origin HEAD" % gwt):
+    assert "push-default-branch" in denied(hook(g, "Bash", {"command": cmd}, cwd=gwt)), cmd
+assert "discard-local-work" in denied(hook(g, "Bash", {"command": "git -C link/.. reset --hard"}, cwd=gwt))
+assert "push-default-branch" in denied(hook(g, "Bash", {"command": "git push origin HEAD", "workdir": gwt + "/link/.."},
+                                            env={"AGENTIC_HOST": "dsh"}))
+ok("directories: a cd that may not run leaves the directory unknown; git -C, cd -P and a workdir walk a link first")
+
+# a copy, move, link or install into a directory writes DIR/NAME; removing or moving a directory that holds
+# settings, or a glob that names one, changes them; sed's abbreviated --in-place; a nested checkout's
+# opencode.json and OpenCode's global config.json
+os.makedirs(os.path.join(p.dir, ".opencode", "plugins"), exist_ok=True)
+open(os.path.join(p.dir, ".opencode", "plugins", "aloop.js"), "w").write("//")
+for cmd in ("cp /tmp/settings.json .claude/", "cp /tmp/settings.json .claude", "cp -t .claude /tmp/settings.json",
+            "cp --target-directory=.claude /tmp/settings.json", "cp /tmp/opencode.json .", "mv /tmp/settings.json .claude/",
+            "install -t .claude -m 644 /tmp/settings.json", "ln -s /tmp/settings.json .claude/", "rsync /tmp/settings.json .claude/",
+            "rsync -a /tmp/conf/ .claude/", "cp -r /tmp/conf/. .opencode/plugins", "cp -S .bak x /tmp/y .codex/hooks.json",
+            "rm -rf .opencode/plugins", "mv .opencode /tmp/off", "rm -rf .claude", "rm -rf ~/.config/opencode",
+            "rm .opencode/plugins/*.js", "rm -f .opencode/plugins/*", "sed --in-pl=.bak 's/x//' .claude/settings.json",
+            "sed --i 's/x//' .codex/hooks.json", "echo {} > ~/.config/opencode/config.json"):
+    assert "change-agent-settings" in doors_of(cmd), (cmd, doors_of(cmd))
+assert doors_of("echo {} > home/feat-wt/opencode.json", cwd=g.dir) == ["change-agent-settings"]
+for cmd in ("cp .claude/settings.json /tmp/", "cp .claude/settings.json /tmp/backup.json", "cp src/a.py build/",
+            "rsync -a .claude/ /tmp/backup/", "rm -f src/*.pyc", "rm -rf .opencode/node_modules", "mv src/a.py src/b.py",
+            "cp -r docs/. /tmp/site", "sed --quiet -n p .claude/settings.json", "rm -rf docs/examples/.claude/tmp"):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+assert "forge-human-record" in doors_of("sed --in-pla 's/a/b/' docs/agents/mission/ledger.jsonl")
+for x in (os.path.join(gwt, "opencode.json"), "~/.config/opencode/config.json"):
+    assert ids("Write", {"file_path": x}) == ["change-agent-settings"], x
+ok("settings: copies into a settings directory, a settings directory removed or moved, globs, sed --in-pl, nested checkouts")
 shutil.rmtree(g.dir, ignore_errors=True)
+shutil.rmtree(other, ignore_errors=True)
+
+# OpenCode MCP names keep a '-' in a server's name, and an aggregator's tool names carry the service: both
+# reach the same doors as the service's own server; a word inside another tool's name is no door
+for tool, want in (("mcp__slack-mcp__post_message", "send-external-message"), ("mcp__zapier__gmail_send_email", "send-external-message"),
+                   ("mcp__composio__GMAIL_SEND_EMAIL", "send-external-message"), ("mcp__slack__chat_postMessage", "send-external-message"),
+                   ("mcp__zapier__google_drive_share_file", "visibility-or-sharing"), ("mcp__google-drive__share_file", "visibility-or-sharing"),
+                   ("google-drive_share_file", "visibility-or-sharing"), ("mcp__github-mcp__merge_pull_request", "push-default-branch")):
+    assert ids(tool, {}) == [want], (tool, ids(tool, {}))
+for tool in ("mcp__notion__search_slack_posts", "mcp__drive__get_share", "mcp__slack__get_post_history", "mcp__gmail__list_drafts",
+             "mcp__zapier__gmail_find_email", "github_create_pull_request", "mcp__drive__list_shares"):
+    assert ids(tool, {}) == [], (tool, ids(tool, {}))
+ok("MCP: hyphenated servers and aggregators' tools cross the same doors; a word inside a tool's name is none")
+
+# a U+FEFF around a patch's path: OpenCode's trim() cuts it (JS whitespace), so every gate reads the path without it
+bom = "\ufeff"
+for head in ("*** Add File:%s.claude/settings.json" % bom, "*** Add File: .claude/settings.json%s" % bom,
+             "*** Add File: %sopencode.json" % bom):
+    assert ids("apply_patch", {"patchText": patch(head, "+{}")}) == ["change-agent-settings"], repr(head)
+assert "forge-human-record" in ids("apply_patch", {"patchText": patch("*** Update File:%sdocs/agents/mission/ledger.jsonl" % bom, "@@")})
+ok("apply_patch: a U+FEFF around a header's path is cut as OpenCode cuts it")
 
 # 22) list and the area's docstring
 r = p.run("doors", "list", "--json")

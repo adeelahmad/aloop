@@ -62,13 +62,14 @@ lock_recent() {
 # live in the patch headers. Check each path exactly as if it were a Write.
 if [ "$tool" = "apply_patch" ] && command -v python3 >/dev/null 2>&1; then
   printf '%s' "$payload" | python3 -c '
-import json, re, sys
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import _patch
 p = json.load(sys.stdin)
-patch = (p.get("tool_input") or {}).get("command") or ""
-for a, b in re.findall(r"^[^\S\n]*\*\*\*[^\S\n]*(?:Add|Update|Delete)[^\S\n]+File:[^\S\n]*(.+)$|^[^\S\n]*\*\*\*[^\S\n]*Move[^\S\n]+to:[^\S\n]*(.+)$", patch, re.M):
+for path in _patch.paths((p.get("tool_input") or {}).get("command") or ""):
     q = {k: v for k, v in p.items() if k in ("session_id", "agent_type", "agent_id", "cwd")}
-    q["tool_name"] = "Write"; q["tool_input"] = {"file_path": (a or b).strip()}
-    print(json.dumps(q))' | while IFS= read -r one; do
+    q["tool_name"] = "Write"; q["tool_input"] = {"file_path": path}
+    print(json.dumps(q))' "$(dirname "$0")" | while IFS= read -r one; do
     printf '%s' "$one" | "$0" || exit 2
   done
   exit $?

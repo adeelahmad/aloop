@@ -33,6 +33,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _patch  # noqa: E402
 import _paths  # noqa: E402
 import _usage  # noqa: E402
 
@@ -44,7 +45,6 @@ _SAFE = r"[A-Za-z0-9_./@%+=:,-]"
 _WORD = r"(?:'[^'\n]*'|\"[^\"$`\\\n!]*\"|%s+)" % _SAFE
 ONLY_BIND = re.compile(r"[ \t]*(?:cd[ \t]+%s[ \t]*&&[ \t]*)?(?:%s*/)?(?:(?:aloop|agentic)[ \t]+bind|bin/bind)[ \t]+%s"
                        r"(?:[ \t]+(?:[12]?>[ \t]*/dev/null|2>&1))*\s*\Z" % (_WORD, _SAFE, _WORD))
-PATCH_PATHS = re.compile(r"^[^\S\n]*\*\*\*[^\S\n]*(?:Add|Update|Delete)[^\S\n]+File:[^\S\n]*(.+)$|^[^\S\n]*\*\*\*[^\S\n]*Move[^\S\n]+to:[^\S\n]*(.+)$", re.M)
 
 
 def role_of(agent_type):
@@ -136,8 +136,7 @@ def pre_tool(payload, cwd, agent_id, role, host):
         return
     if tool == "apply_patch":
         bad = []
-        for a, b in PATCH_PATHS.findall(cmd):
-            path = (a or b).strip()
+        for path in _patch.paths(cmd):
             full = path if os.path.isabs(path) else os.path.join(base, path)
             if not under(full, wt):
                 bad.append(path)
