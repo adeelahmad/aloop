@@ -104,7 +104,15 @@ q = json.load(open(os.path.join(SDIR, "evals", "eval_queries.json")))
 assert {x["should_trigger"] for x in q} == {True, False} and len(q) >= 8
 ok("evals/: %d evals and %d trigger queries (both outcomes)" % (len(ev["evals"]), len(q)))
 
-# 8) small: it is re-read on every supervisor call
+# 8) lifting a block (`tick --force`) is one of those typed grants (M9.51): the BLOCKED row names the
+#    human's `lift` line, and the hard rules count a lift among the approvals
+assert "--force" in rows["BLOCKED"] and "`lift …` line" in rows["BLOCKED"], rows["BLOCKED"]
+assert "a lift" in rules
+TICK_SRC = open(os.path.join(PLUGIN, "mission", "tick.py")).read()
+assert '"mission.lifted"' in TICK_SRC and "M.approve(" in TICK_SRC   # the lift is a grant the CLI asks for
+ok("a block is lifted by the human's typed `lift` line (tick --force asks for it, like every grant)")
+
+# 9) small: it is re-read on every supervisor call
 n = len(SKILL.encode())
 assert n <= BUDGET, "SKILL.md is %d bytes (budget %d)" % (n, BUDGET)
 ok("SKILL.md is within its %d-byte budget (%d)" % (BUDGET, n))
