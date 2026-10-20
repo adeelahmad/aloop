@@ -180,14 +180,14 @@ def rows(cwd):
     line only ever closes, so the log may add one but never clears or consents."""
     led = [r for r in M.ledger_rows(cwd)[0] if str(r.get("event", "")).startswith("ethics.")]
     have = {r.get("event_id") for r in led}
-    return led + [e for e in _events.read(cwd) if is_hard(e) and e.get("event_id") not in have
-                  and isinstance(e.get("data"), dict)]
+    return led + [e for e in _events.read(cwd) if isinstance(e.get("data"), dict) and isinstance(e.get("event_id"), str)
+                  and is_hard(e) and e["event_id"] not in have]
 
 
 def hard_words(cwd):
     """Every word key a hard line has fixed (the goal module skips gaps that repeat one)."""
-    return {w for e in rows(cwd) if e.get("event") == "ethics.blocked"
-            for w in ((e.get("data") or {}).get("words") or []) if isinstance(w, str)}
+    return {w for e in rows(cwd) if e.get("event") == "ethics.blocked" and isinstance(e["data"].get("words"), list)
+            for w in e["data"]["words"] if isinstance(w, str)}
 
 
 def held_gaps(cwd):
@@ -342,7 +342,8 @@ def verdict(cwd, kind, sid):
         # its statement or one of its gaps (derived again with a new id, refs or eval)
         if is_hard(e) and (d.get("subject") == ref and (d.get("sha256") == sha or kind == "goal")
                            or d.get("text_sha256") == words
-                           or (kind == "goal" and d.get("kind") == "goal" and mine & set(d.get("words") or []))):
+                           or (kind == "goal" and d.get("kind") == "goal" and isinstance(d.get("words"), list)
+                               and mine & set(w for w in d["words"] if isinstance(w, str)))):
             hard.append(e)
         if d.get("subject") != ref or d.get("sha256") != sha:
             continue

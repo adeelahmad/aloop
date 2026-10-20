@@ -70,11 +70,12 @@ def canonical(cwd, ids):
 
 
 def emit(cwd, event, task="", attempt="", agent_id="", role="", host="", model="", parent_event_id=None,
-         caused_by=None, authority=None, decision=None, refs=None, **data):
-    """Append one aladdin.event/1 record; returns its event_id ("" on any failure)."""
+         caused_by=None, authority=None, decision=None, refs=None, event_id=None, **data):
+    """Append one aladdin.event/1 record; returns its event_id ("" on any failure). `event_id` is given
+    by a writer that recorded the event elsewhere first (the mission ledger)."""
     if event not in EVENT_TYPES:
         raise ValueError("unknown event type %r (see _events.EVENT_TYPES)" % event)
-    ev = {"schema": SCHEMA, "event_id": uuid.uuid4().hex,
+    ev = {"schema": SCHEMA, "event_id": event_id or uuid.uuid4().hex,
           "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "event": event,
           "ids": ids_for(task, attempt, agent_id),
           "parent_event_id": parent_event_id, "caused_by": caused_by,

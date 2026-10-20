@@ -386,7 +386,7 @@ r = subprocess.run([os.path.join(BIN, "gate-supervisor-scope")], cwd=s1.dir, env
 assert r.returncode == 0, r.stderr
 assert open(os.path.join(s1.dir, ".aladdin", "state", "sprint.lock")).readline().strip() == "S1"   # the lock is armed
 assert ask_in(s1, plan_q).stdout == ""                                      # planning: the approval is asked
-_events.emit(s1.dir, "plan.created", role="planner", sprint="sprint1")
+_events.emit(s1.dir, "plan.created", role="planner", sprint="S1")      # as plugin/bin/ids names it
 _events.record_authority(s1.dir, "Adeel", "reviewed", "sprint1")            # the human approved the plan
 assert "two-way" in denied(ask_in(s1, "parse_row or parse_line?"))           # executing: decide it
 assert ask_in(s1, "parse_row or parse_line?", session="S2").stdout == ""      # another session's sprint
@@ -394,7 +394,181 @@ assert "two-way" in denied(ask_in(Project(mode="spoon-fed"), "parse_row or parse
                                   env={"AGENTIC_AUTONOMY_MODE": "autonomous"}))   # an autonomous run
 ok("questions: planning and the plan approval are asked; live once the plan is approved, for the lock's session")
 
-# 17) list and the area's docstring
+# 17) round 2 (M9.38): one shell reader (plugin/bin/_shellread.py, the scope gate's) reads the line, so an
+#     operator that touches a word, a keyword, a group, a function body, a here-string, an IO-number
+#     redirect, a quoted operator or a second find -exec hides nothing; a heredoc or a quote inside
+#     "$(cat <<'EOF' … EOF)" is data; stdin reaches only the command it feeds; the directory follows
+#     pushd/popd, sh -c, eval and a fed shell; and a pathological line is read in linear time
+for cmd, want in (("V=$(cat VERSION); git push origin main", "push-default-branch"),
+                  ("echo $(date);git push origin main", "push-default-branch"),
+                  ("ls;(git push origin main)", "push-default-branch"),
+                  ("ls&&(git push origin main)", "push-default-branch"),
+                  ("(make test)&& git push origin main", "push-default-branch"),
+                  ('for f in dist/*.tgz; do npm publish "$f"; done', "publish-release"),
+                  ("if git diff --quiet; then git push origin main; fi", "push-default-branch"),
+                  ("make test && { npm publish; }", "publish-release"),
+                  ("f() { git push origin main; }; f", "push-default-branch"),
+                  ("until git push origin main; do sleep 1; done", "push-default-branch"),
+                  ("if true; then :; else git push origin main; fi", "push-default-branch"),
+                  ("! git push origin main", "push-default-branch"),
+                  ('cat <<< "hello"\nnpm publish', "publish-release"),
+                  ('read -r a b <<< "$line"\nnpm publish', "publish-release"),
+                  ("wc -l <<<hello\ngit push origin main", "push-default-branch"),
+                  ("find dist \\( -name '*.tgz' -o -name '*.tar.gz' \\) -exec npm publish {} \\;", "publish-release"),
+                  ("find dist -name '*.tgz' -exec echo {} \\; -exec npm publish {} \\;", "publish-release"),
+                  ("find dist '(' -name '*.tgz' ')' -exec npm publish {} \\;", "publish-release"),
+                  ("find . -maxdepth 0 \\( -name . \\) -exec aloop mission doors authorize x --by me --reason r \\;",
+                   "forge-human-record"),
+                  ("bash -e <<'EOF'\nnpm publish\nEOF", "publish-release"),
+                  ("bash -s <<'EOF'\ngit push origin main\nEOF", "push-default-branch"),
+                  ('echo "npm publish" | bash -s', "publish-release"),
+                  ('bash -s <<< "npm publish"', "publish-release"),
+                  ("echo 'npm publish' | sh -", "publish-release"),
+                  ("cat <<'EOF' | bash\nnpm publish\nEOF", "publish-release"),
+                  ("printf '%s\\n' 'npm publish' | sh", "publish-release"),
+                  ("git checkout -- . 2>/dev/null", "discard-local-work"),
+                  ("git restore . 2>&1", "discard-local-work"),
+                  ("SKIP_HOOKS=1 bash <<'EOF'\nmake\nEOF", "bypass-gate")):
+    assert want in doors_of(cmd), (cmd, doors_of(cmd))
+for cmd in ("git commit -m \"$(cat <<'EOF'\ndocs: say \"cd x; SKIP_HOOKS=1 make\" is a wall\nEOF\n)\"",
+            "git commit -m \"$(cat <<'EOF'\nfeat: classify \"a | git push --force origin x\"\nEOF\n)\"",
+            "gh pr create --draft --title t --body \"$(cat <<'EOF'\nThe gate now reads \"echo x; sudo apt-get install jq\" as a door\nEOF\n)\"",
+            "git commit -m \"$(cat <<'EOF'\nfix: run \"make | npm publish\" no more\nEOF\n)\"",
+            "BODY=$(cat <<'EOF'\n## Summary\n| cmd | door |\n| npm publish | publish-release |\nEOF\n)\ngh pr create --draft --title t --body \"$BODY\"",
+            "git commit -m \"$(cat <<'EOF'\nDoor gate: \"git commit -n -m x\" is a wall\nEOF\n)\"",
+            "NOTES=$(cat <<'EOF'\n1) npm publish happens in CI\nEOF\n)",
+            "python3 -m pytest -q 2>&1 | tail -3; cat >> \"$STORY_DIR/output.md\" <<'EOF'\n## attempt 1\n- tests: record_human\nEOF",
+            "python3 -m pytest -q; cat >> out.md <<'EOF'\nchecked door.revoked handling\nEOF",
+            "cat >> \"$STORY_DIR/output.md\" <<'EOF' && python3 -m pytest -q\n## T1\nThe door.authorized row is checked.\nEOF",
+            "cat > a.md <<'EOF' && bash\nsudo rm -rf /opt\nEOF",
+            "x=$(( 1 << 2 ))\necho $x", "echo '(;)' && echo \"a && b\""):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+assert "push-default-branch" in doors_of("git push origin 2>&1 | tail -3", assume=False)        # p is on main
+assert "push-default-branch" in doors_of("git push origin >/dev/null 2>&1", assume=False)
+assert "discard-local-work" in denied(hook(p, "Bash", {"command": "pushd home/wt; make; popd; git reset --hard"}))
+assert "push-default-branch" in doors_of("pushd home/wt >/dev/null && popd >/dev/null && git push", assume=False)   # authorized in p
+assert hook(p, "Bash", {"command": "pushd home/wt && git reset --hard"}).stdout == ""
+for cmd in ("cd %s && sh -c 'git reset --hard'", "cd %s && eval 'git reset --hard'", "cd %s && bash <<'EOF'\ngit reset --hard\nEOF",
+            "cd %s && bash <<< 'git reset --hard'", "cd %s && echo 'git reset --hard' | sh"):
+    assert "discard-local-work" in denied(hook(p, "Bash", {"command": cmd % p.dir}, cwd=wt)), cmd
+assert "push-default-branch" in doors_of("cd %s && bash -c 'git push'" % p.dir, cwd=wt, assume=False)
+for cmd in ("cat " + "<<A " * 1000 + "\n" + "x\nA\n" * 1000 + "npm publish", "find -exec " * 20 + "npm publish \\;",
+            "eval " * 30 + "npm publish", "echo " + "$(" * 400 + "x" + ")" * 400 + "; npm publish",
+            "echo a" + "[" * 20000 + " b" + "{" * 20000 + "; npm publish"):
+    t0 = __import__("time").time()
+    try:
+        got = doors_of(cmd)
+    except ValueError:              # too deep to read: the hook fails closed (exit 2)
+        got = ["unreadable"]
+    assert __import__("time").time() - t0 < 3 and got, (len(cmd), got)
+try:
+    with D.deadline(0.2):                   # the hook's read deadline: past it the gate fails closed (exit 2)
+        while True:
+            pass
+except TimeoutError:
+    pass
+else:
+    raise AssertionError("no deadline")
+ok("one shell reader: operators, keywords, here-strings, IO numbers, quoted operators, stdin, cd/pushd/popd; linear")
+
+# 18) round 2: the catalogue names what crosses a door, not what mentions one: tests and reads that name
+#     record_human, lint pipelines through xargs, test-runner -g, an app's own mission/ledger.jsonl, a
+#     read-only `xargs … doors classify`, a dry run or help page of a secret command are two-way; a push of
+#     HEAD on the default branch and erasing the run log (which closes doors) are not
+for cmd in ("python3 -m pytest -q -k record_human", "python3 -m pytest scripts/test/mission-doors.test.py::test_record_human",
+            "python -m pytest -k 'door.authorized or door.revoked'", "python3 -c \"import _mission as M; help(M.record_human)\"",
+            "python3 -c \"import json,sys; [print(e['ts']) for e in map(json.loads, sys.stdin) if e['event'] == 'door.authorized']\" < docs/agents/mission/ledger.jsonl",
+            "aloop events list --json | python3 -c \"import json,sys; print([e for e in json.load(sys.stdin) if e['event']=='door.revoked'])\"",
+            "python3 <<< 'print(\"door.authorized\")'",
+            "python3 - <<'EOF'\nimport json\nfor l in open('docs/agents/mission/ledger.jsonl'):\n    e = json.loads(l)\n    if e['event'] == 'door.authorized': print(e['data'])\nEOF",
+            "git diff --name-only --diff-filter=d | xargs pnpm prettier --write", "git ls-files '*.ts' | xargs yarn eslint --fix",
+            "git diff --name-only | xargs npm run lint --", "find src -name '*.ts' | xargs npm exec -- eslint",
+            "ls packages | xargs -I{} pnpm --filter {} build", "parallel npm run test:{} ::: unit e2e",
+            "npm test -- -g 'adds a task'", "npm run test:e2e -- -g login", "pnpm playwright test -g login",
+            "yarn playwright test -g 'login works'", "yarn mocha -g parser", "npm exec -- mocha -g parser",
+            "pnpm -r --filter app exec mocha -g x",
+            "aloop mission doors list --json | jq -r '.doors[].id' | xargs -n1 aloop mission doors classify --tool",
+            "echo 'npm publish' | xargs -0 aloop mission doors classify --bash",
+            "printf '%s\\n' 'npm publish' 'git push origin main' | xargs -I{} aloop mission doors classify --bash {}",
+            "kubectl create secret generic app --from-env-file=.env --dry-run=client -o yaml > k8s/secret.yaml",
+            "gh secret set --help", "vault kv put --help", "op item get --help", "aws secretsmanager get-secret-value --help"):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+for cmd, want in (("python3 - <<'EOF'\nimport _events\n_events.emit('.', 'door.authorized', role='human', subject='door:x')\nEOF",
+                   "forge-human-record"),
+                  ("python3 -c \"open('docs/agents/mission/ledger.jsonl','a').write('{\\\"event\\\": \\\"door.authorized\\\"}')\"",
+                   "forge-human-record"),
+                  ("printf 'authorize\\n' | xargs -I{} aloop mission doors {} x --by A --reason r", "forge-human-record"),
+                  ("xargs -I % mission doors % publish-release --by A --reason r < f", "forge-human-record"),
+                  ("npm install -g pnpm", "system-change"), ("npm -g install pnpm", "system-change"),
+                  ("pnpm add -g pnpm", "system-change"), ("npm i -g", "system-change"),
+                  ("kubectl create secret generic app --from-literal=a=b", "credentials-and-secrets"),
+                  ("sed -i /door.revoked/d .aladdin/logs/events.jsonl", "forge-human-record"),
+                  ("rm .aladdin/logs/events.jsonl", "forge-human-record"),
+                  (": > .aladdin/logs/events.jsonl", "forge-human-record"),
+                  ("rm -rf .aladdin/logs", "forge-human-record")):
+    assert want in doors_of(cmd), (cmd, doors_of(cmd))
+for path, want in (("src/mission/ledger.jsonl", []), (".aladdin/logs/events.jsonl", ["forge-human-record"])):
+    assert [d["id"] for d in D.classify(p.dir, "Write", {"file_path": path}, CAT)] == want, path
+assert "push-default-branch" in doors_of("git push origin HEAD", assume=False)          # p is on main
+assert "push-default-branch" in doors_of("git push -u origin HEAD", assume=False)
+assert "push-default-branch" in doors_of("git push origin @", assume=False)
+subprocess.run(["git", "switch", "-q", "-c", "feat2"], cwd=p.dir, check=True)
+assert doors_of("git push origin HEAD", assume=False) == []
+subprocess.run(["git", "switch", "-q", "main"], cwd=p.dir, check=True)
+ok("catalogue: reads and tests that mention a door, lint pipelines, -g greps, dry runs pass; push HEAD on main, run-log erasure stop")
+
+# 19) round 2, state: a ledger row is written before its stream event and a reader reads the stream first,
+#     so a gate never sees another writer's half-written record; the human's fresh decision is the newest
+#     even after a merged future-dated row; a closed sprint or a new intake ends the live run
+w = Project(mode="spoon-fed")
+order = []
+real_emit, real_rows, real_read = _events.emit, M.ledger_rows, _events.read
+
+
+def spy_emit(cwd, event, *a, **k):
+    order.append(any(r["event_id"] == k.get("event_id") for r in real_rows(cwd)[0]))
+    return real_emit(cwd, event, *a, **k)
+
+
+_events.emit = spy_emit
+try:
+    row = M.record(w.dir, "door.crossed", "door:publish-release", "harness", door="publish-release")
+finally:
+    _events.emit = real_emit
+assert order == [True] and any(e["event_id"] == row["event_id"] for e in w.events("door.crossed")), order
+late = {"done": False}
+
+
+def write_between(fn):
+    def wrapped(*a, **k):
+        out = fn(*a, **k)
+        if not late["done"]:
+            late["done"] = True
+            M.record(w.dir, "door.crossed", "door:publish-release", "harness", door="publish-release")
+        return out
+    return wrapped
+
+
+M.ledger_rows, _events.read = write_between(real_rows), write_between(real_read)
+try:
+    assert M.ledger_problems(w.dir) == [], "a record written between the two reads is not a lost row"
+finally:
+    M.ledger_rows, _events.read = real_rows, real_read
+assert M.ledger_problems(w.dir) == [] and len(M.records(w.dir, "door.crossed", "door:publish-release")) == 2
+assert q.run("doors", "authorize", "production-deploy", "--by", "Adeel", "--reason", "re-open now").returncode == 0
+assert classify(q, "terraform apply").returncode == 0, "the human's fresh authorize is newest, past a future-dated revoke"
+assert ask_in(s1, "Sprint 1: parse_row or parse_line?").stdout != ""         # still executing: decide it
+sprints = os.path.join(s1.dir, ".aladdin", "state", "sprints.json")
+json.dump({"closed": [{"sprint": 1, "at": "2026-10-20T00:00:00Z", "dir": "docs/agents/sprint1"}]}, open(sprints, "w"))
+assert ask_in(s1, "Sprint 2 intake: should exports include archived tasks? Recommended: no").stdout == ""
+os.remove(sprints)
+assert "two-way" in denied(ask_in(s1, "parse_row or parse_line?"))
+_events.emit(s1.dir, "intent.received", role="human", text="exports")
+assert ask_in(s1, "Intake: should exports include archived tasks? Recommended: no").stdout == ""
+shutil.rmtree(w.dir, ignore_errors=True)
+ok("state: ledger before stream, stream read first (no transient lost row); a fresh decision is newest; closed sprint ends live")
+
+# 20) list and the area's docstring
 r = p.run("doors", "list", "--json")
 lst = json.loads(r.stdout)
 pd = next(d for d in lst["doors"] if d["id"] == "publish-release")

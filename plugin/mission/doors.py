@@ -40,7 +40,7 @@ import itertools
 import json
 import os
 import re
-import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -55,6 +55,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "bin"))
 import _events  # noqa: E402
 import _mission as M  # noqa: E402
 import _paths  # noqa: E402
+import _shellread as R  # noqa: E402
 
 SOURCE = os.path.join(HERE, "doors.json")
 PLUGIN = os.path.realpath(os.path.join(HERE, ".."))
@@ -70,8 +71,6 @@ AGENT_SHELL = ("CLAUDECODE",)
 TAG = re.compile(r"\[door:([^\]\s]*)\]")
 WRAPPERS = {"sudo", "doas", "env", "nohup", "time", "command", "exec", "nice", "timeout", "stdbuf", "caffeinate", "ionice"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
-SEPARATORS = {";", "&&", "||", "|", "&", "|&", ";;", "(", ")", "\n"}
-REDIRECTS = {">", ">>", ">|", "&>", "&>>"}
 ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 # {DRY} in a pattern: the command is not a dry run or a help page (`--dry-run=none|false` is a real run;
 # an option after a bare `--` is an argument)
@@ -183,130 +182,27 @@ def action_sha(tool, inp):
     return hashlib.sha256((tool + "\0" + json.dumps(inp or {}, sort_keys=True, separators=(",", ":"))).encode()).hexdigest()
 
 
-def subst_end(cmd, i):
-    """The index just past the command substitution that starts at i (`$(` or a backtick)."""
-    if cmd[i] == "`":
-        j = i + 1
-        while j < len(cmd) and cmd[j] != "`":
-            j += 2 if cmd[j] == "\\" else 1
-        return min(j + 1, len(cmd))
-    depth, j, q = 0, i + 1, None
-    while j < len(cmd):
-        c = cmd[j]
-        if q:
-            if c == "\\" and q == '"':
-                j += 1
-            elif c == q:
-                q = None
-        elif c in "'\"":
-            q = c
-        elif c == "\\":
-            j += 1
-        elif c == "(":
-            depth += 1
-        elif c == ")":
-            depth -= 1
-            if depth == 0:
-                return j + 1
-        j += 1
-    return len(cmd)
-
-
-def heredoc_word(cmd, i):
-    """(delimiter, strip_tabs, end) of the heredoc operator `<<` at i, or None (a here-string)."""
-    if cmd.startswith("<<<", i):
-        return None
-    j, strip = i + 2, cmd[i + 2:i + 3] == "-"
-    j += 1 if strip else 0
-    while j < len(cmd) and cmd[j] in " \t":
-        j += 1
-    k = j
-    while k < len(cmd) and not cmd[k].isspace() and cmd[k] not in ";&|()<>":
-        k += 1
-    word = re.sub(r"[\"'\\]", "", cmd[j:k])
-    return (word, strip, k) if word else None
-
-
-def scan(cmd):
-    """(clean, subs, heredocs) of a command line as the shell reads it: unquoted newlines become
-    separators; comments (an unquoted `#` that starts a word) and backslash-newlines are dropped;
-    heredoc bodies are cut out, each kept as (the line it feeds, its body); every command
-    substitution, `$(…)` or `…`, unquoted or in double quotes, is kept in subs (its text stays)."""
-    out, subs, docs, pending = [], [], [], []
-    i, n, q, line = 0, len(cmd), None, 0
-    while i < n:
-        c = cmd[i]
-        if q == "'":
-            q = None if c == "'" else q
-            out.append(c)
-            i += 1
-            continue
-        if c == "\\" and i + 1 < n:
-            if cmd[i + 1] != "\n":
-                out.append(cmd[i:i + 2])
-            i += 2              # a backslash-newline joins the lines
-            continue
-        if c == "`" or cmd.startswith("$(", i):
-            j = subst_end(cmd, i)
-            subs.append(cmd[i + 1:j - 1] if c == "`" else cmd[i + 2:j - 1])
-            out.append(cmd[i:j])
-            i = j
-            continue
-        if q == '"':
-            q = None if c == '"' else q
-            out.append(c)
-            i += 1
-            continue
-        if c in "'\"":
-            q = c
-        elif c == "#" and (i == 0 or cmd[i - 1].isspace() or cmd[i - 1] in ";&|()<>"):
-            while i < n and cmd[i] != "\n":
-                i += 1
-            continue
-        elif cmd.startswith("<<", i) and heredoc_word(cmd, i):
-            word, strip, k = heredoc_word(cmd, i)
-            pending.append((word, strip))
-            out.append(cmd[i:k])
-            i = k
-            continue
-        elif c == "\n":
-            for word, strip in pending:
-                body, j = [], i + 1
-                while j <= n:
-                    e = cmd.find("\n", j)
-                    e = n if e < 0 else e
-                    text = cmd[j:e]
-                    j = e + 1
-                    if (text.lstrip("\t") if strip else text) == word:
-                        break
-                    body.append(text)
-                docs.append(("".join(out[line:]), "\n".join(body)))
-                i = j - 1
-            pending = []
-            out.append(" ; ")
-            line = len(out)
-            i += 1
-            continue
-        out.append(c)
-        i += 1
-    for word, strip in pending:     # a heredoc whose body never came: nothing to cut
-        docs.append(("".join(out[line:]), ""))
-    return "".join(out), subs, docs
-
-
-def tokens(cmd):
-    """Shell words and operators (quotes respected, `#` inside a word kept); a line with an
-    unbalanced quote falls back to a plain split, so it is still read."""
-    lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
-    lex.whitespace_split = True
-    lex.commenters = ""
-    try:
-        return list(lex)
-    except ValueError:
-        return re.findall(r"&&|\|\||>>|[;&|()<>]|[^\s;&|()<>]+", cmd)
-
-
 UNKNOWN = "\0unknown"   # a directory the gate cannot resolve (a variable, `cd -`): its git state is assumed
+DEPTH = 8               # nested shells, evals, substitutions and find -exec read; deeper is unreadable (fails closed)
+
+
+def render(parts):
+    """A word as the catalogue's patterns read it: literal text as is, a variable `$NAME` (`~` stays `~`),
+    a substitution `$(…)` (its commands are read on their own), and `*` for what only running it tells
+    (a glob, arithmetic, a positional parameter)."""
+    out = []
+    for p in parts:
+        if isinstance(p, str):
+            out.append(p)
+        elif p[0] == "var":
+            out.append("~" if p[1] == "HOME" and p[2] is None else "$" + p[1])
+        elif p[0] == "cmd":
+            out.append("$(…)")
+        elif p[0] == "proc":
+            out.append("<(…)")
+        else:
+            out.append("*")
+    return "".join(out)
 
 
 def chdir(cur, arg):
@@ -317,79 +213,129 @@ def chdir(cur, arg):
     return arg if os.path.isabs(arg) else os.path.join(cur, arg)
 
 
-def views(cmd, depth=0):
-    """Every (prog, args, env, writes, dir) a command line runs: one per simple command, one per
-    wrapper (sudo, env, timeout, xargs, find -exec, …) around it, the commands inside `sh -c`,
-    `eval`, a command substitution, a heredoc or here-string fed to a shell and `echo … | sh`,
-    each with the directory it runs in (`cd DIR` before it, `git -C DIR`; a subshell's `cd`
-    stays in the subshell)."""
-    if depth > 4:
-        return []
-    clean, subs, docs = scan(cmd)
-    out, seg, cur, stack, prev = [], [], "", [], None
-    for t in tokens(clean) + [";"]:
-        if t not in SEPARATORS:
-            seg.append(t)
+def views(cmd, depth=0, cur=""):
+    """Every (prog, args, env, writes, dir) a command line runs, read by the shell reader the scope gate
+    uses (plugin/bin/_shellread.py): one per simple command, one per wrapper (sudo, env, timeout, xargs,
+    find -exec, …) around it, the commands inside `sh -c`, `eval`, a command substitution, and a heredoc,
+    here-string or pipe that feeds a shell or python, each with the directory it runs in (`cd DIR`,
+    `pushd`/`popd`, `git -C DIR`; a subshell's `cd` stays in the subshell). Deeper than DEPTH is a
+    ValueError: a gate that cannot read the whole command fails closed."""
+    if depth > DEPTH:
+        raise ValueError("the command nests shells, evals or substitutions deeper than the door gate reads (%d)" % DEPTH)
+    out, stack, dirs, fed = [], [], [], None
+    for c in R.read(cmd):
+        if c in ("(", ")"):
+            if c == "(":
+                stack.append(cur)
+            elif stack:
+                cur = stack.pop()
+            fed = None
             continue
-        if seg:
-            vs = simple(seg, depth, cur)
-            if vs and vs[0]["prog"] in ("cd", "pushd"):
-                cur = chdir(cur, next((a for a in vs[0]["args"] if not a.startswith("-")), ""))
-            if t == "|" or prev is not None:
-                if prev and vs and vs[0]["prog"] in SHELLS and not vs[0]["args"]:
-                    out += views(" ".join(prev), depth + 1)      # echo CMD | sh
-                prev = [a for v in vs[:1] if v["prog"] in ("echo", "printf") for a in v["args"]] if t == "|" else None
-            out += vs
-        elif t == "(":
-            stack.append(cur)
-        if t == ")" and stack:
-            cur = stack.pop()
-        seg = []
-    for s in subs:
-        out += views(s, depth + 1)
-    for line, body in docs:
-        lv = views(line, depth + 1) if body else []
-        if any(v["prog"] in SHELLS and not v["args"] for v in lv):
-            out += views(body, depth + 1)       # bash <<EOF … EOF runs its body
-        out += [dict(v, args=v["args"] + [body]) for v in lv if PYTHON.fullmatch(v["prog"])]   # python3 - <<EOF
+        for sub in c.subs:
+            out += views(sub, depth + 1, cur)
+        vs = simple(c, depth, cur)
+        prog = vs[0]["prog"] if vs else ""
+        if prog in ("cd", "pushd"):
+            if prog == "pushd":
+                dirs.append(cur)
+            cur = chdir(cur, next((a for a in vs[0]["args"] if not a.startswith("-")), ""))
+        elif prog == "popd":
+            cur = dirs.pop() if dirs else UNKNOWN
+        own = [w.body for _, _, w in c.redirs if w.body is not None] + \
+              [render(w.parts) for op, _, w in c.redirs if op == "<<<"]
+        stdin = own[-1] if own else fed
+        if stdin is not None and vs:
+            out += feed(vs, stdin, depth)
+        fed = stdout(vs, stdin) if c.end in ("|", "|&") else None
+        out += vs
+    return out
+
+
+def stdout(vs, stdin):
+    """The text a command writes to the pipe, when the gate can know it: echo's and printf's words, and
+    cat passing its own heredoc, here-string or pipe through."""
+    if not vs:
+        return None
+    v = vs[-1]
+    args = [a for a in v["args"] if a != STDIN]
+    if v["prog"] == "echo":
+        while args and re.fullmatch(r"-[neE]+", args[0]):
+            args = args[1:]
+        return " ".join(args)
+    if v["prog"] == "printf" and args:
+        return "\n".join(args[1:]) if "%" in args[0] else args[0].replace("\\n", "\n")
+    if v["prog"] == "cat" and not [a for a in args if not a.startswith("-") or a == "-"][1:]:
+        return stdin
+    return None
+
+
+SHELL_PAIRED = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
+PY_PAIRED = {"-W", "-X", "--check-hash-based-pycs"}
+
+
+def reads_stdin(v):
+    """Does this shell or python run the program on its stdin? A shell with only options (no -c, no script
+    operand), or with `-s` or `-`; a python with no -c, -m or script, or `-`. xargs feeds arguments, not stdin."""
+    shell, args, i = v["prog"] in SHELLS, v["args"], 0
+    if STDIN in args or not (shell or PYTHON.fullmatch(v["prog"])):
+        return False
+    while i < len(args):
+        a = args[i]
+        if a == "-":
+            return True
+        if a == "--":
+            return shell and i + 1 == len(args)
+        if not a.startswith(("-", "+")) or a == "+":
+            return False                                  # a script operand
+        if re.match(r"^-[A-Za-z]*c" if shell else r"^-[A-Za-z]*[cm]", a) and not a.startswith("--"):
+            return False
+        if shell and re.match(r"^-[A-Za-z]*s", a) and not a.startswith("--"):
+            return True                                   # bash -s ARG…: the script is stdin
+        i += 2 if a in (SHELL_PAIRED if shell else PY_PAIRED) else 1
+    return True
+
+
+def feed(vs, text, depth):
+    """What a command's stdin runs: a shell reading its stdin runs the text, and a python reading its
+    program from stdin gets it as an argument (python3 - <<'EOF' … EOF)."""
+    out = []
+    for v in vs:
+        if not reads_stdin(v):
+            continue
+        if v["prog"] in SHELLS:
+            out += [dict(x, env=x["env"] + v["env"]) for x in views(text, depth + 1, v["dir"])]
+        else:
+            v["args"] = v["args"] + [text]
     return out
 
 
 STDIN = "{stdin}"   # the arguments xargs or parallel adds from stdin: unseen, so any flag may be among them
 PYTHON = re.compile(r"python[\d.]*")
-XARGS_PAIRED = {"-I", "-i", "-n", "-P", "-L", "-l", "-s", "-d", "-E", "-e", "-a", "--max-args", "--max-procs",
-                "--delimiter", "--arg-file", "--replace", "--max-lines", "--max-chars", "--eof", "-j", "--jobs"}
+XARGS_PAIRED = {"-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "--max-args", "--max-procs", "--delimiter",
+                "--arg-file", "--max-lines", "--max-chars", "--eof", "-j", "--jobs"}   # -i, -l, -e take no separate value
+WRITES = (">", ">>", ">|", "&>", "&>>", "<>")
 
 
-def simple(seg, depth, cur=""):
-    out, env, writes, words, herestr = [], [], [], [], []
-    i = 0
-    while i < len(seg):
-        t = seg[i]
-        if t in REDIRECTS or re.match(r"^\d*>+[|&]?$", t):
-            if i + 1 < len(seg):
-                writes.append(seg[i + 1])
-            i += 2
-            continue
-        if t in ("<", "<<", "<<<"):
-            if t == "<<<" and i + 1 < len(seg):
-                herestr.append(seg[i + 1])
-            i += 2
-            continue
-        words.append(t)
-        i += 1
+def simple(c, depth, cur=""):
+    """The views of one simple command (a _shellread.Cmd)."""
+    env = ["%s=%s" % (n, render(v)) for n, v in c.assigns]
+    writes = [render(w.parts) for op, _, w in c.redirs
+              if op in WRITES or (op == ">&" and not re.fullmatch(r"\d+|-", w.text() or "0"))]
+    return chain([render(w.parts) for w in c.words], env, writes, depth, cur)
+
+
+def chain(words, env, writes, depth, cur):
+    """The views of a command's words: the program, then each program a wrapper runs."""
+    out, config, stdin_args = [], [], False
     while words and ASSIGN.match(words[0]):
         env.append(words.pop(0))
-    config, stdin_args = [], False
     while words:
         prog = os.path.basename(words[0])
         rest = words[1:]
         if PYTHON.fullmatch(prog) and rest and not rest[0].startswith("-"):
             prog, rest = os.path.basename(rest[0]), rest[1:]
-        elif PYTHON.fullmatch(prog):
-            rest = rest + herestr       # python3 <<< "CODE"
         if prog == "tee":
-            writes += [w for w in rest if not w.startswith("-")]
+            writes = writes + [w for w in rest if not w.startswith("-")]
         if prog == "git":
             while rest and rest[0].startswith("-"):
                 o, v = rest[0], rest[1] if len(rest) > 1 else None
@@ -404,32 +350,45 @@ def simple(seg, depth, cur=""):
                 rest = rest[2:] if o in GIT_PAIRED else rest[1:]
         if prog == "command" and rest[:1] in (["-v"], ["-V"]):
             rest = []           # `command -v X` looks X up; it runs nothing
-        out.append({"prog": prog, "args": rest + ([STDIN] if stdin_args else []), "env": list(env),
+        out.append({"prog": prog, "args": rest + ([STDIN] if stdin_args is True else []), "env": list(env),
                     "writes": list(writes), "dir": cur, "config": list(config)})
-        if prog in SHELLS and depth < 4:
+        if prog in SHELLS:
             for j, a in enumerate(rest):
                 if re.match(r"^-[A-Za-z]*c[A-Za-z]*$", a) and j + 1 < len(rest):
-                    out += [dict(v, env=v["env"] + env) for v in views(rest[j + 1], depth + 1)]
+                    out += [dict(v, env=v["env"] + env) for v in views(rest[j + 1], depth + 1, cur)]
                     break
-            else:
-                if not rest:
-                    for s in herestr:
-                        out += views(s, depth + 1)      # bash <<< "CMD"
             break
-        if prog == "eval" and depth < 4:
-            out += views(" ".join(rest), depth + 1)
+        if prog == "eval":
+            out += views(" ".join(rest), depth + 1, cur)
             break
         if prog == "find":
-            for j, a in enumerate(rest):
-                if a in ("-exec", "-execdir", "-ok", "-okdir"):
+            j = 0
+            while j < len(rest):
+                if rest[j] in ("-exec", "-execdir", "-ok", "-okdir"):
                     inner = list(itertools.takewhile(lambda w: w not in (";", "+"), rest[j + 1:]))
-                    out += simple(inner, depth + 1, cur) if inner else []
+                    if inner:
+                        if depth >= DEPTH:
+                            raise ValueError("find -exec nests deeper than the door gate reads (%d)" % DEPTH)
+                        out += chain(inner, [], [], depth + 1, cur)
+                    j += len(inner)
+                j += 1
             break
         if prog in ("xargs", "parallel"):
-            words = rest
+            words, repl = rest, None
             while words and words[0].startswith("-"):
-                words = words[2:] if words[0] in XARGS_PAIRED else words[1:]
-            stdin_args = True   # the arguments come from stdin: the gate cannot see them
+                o = words[0]
+                if o == "-I" and len(words) > 1:
+                    repl = words[1]
+                elif o.startswith(("-I", "--replace=")):
+                    repl = o.split("=", 1)[1] if o.startswith("--") else o[2:]
+                elif o == "--replace" or o.startswith("-i"):
+                    repl = o[2:] if o.startswith("-i") and len(o) > 2 else "{}"
+                words = words[2:] if o in XARGS_PAIRED else words[1:]
+            if repl and prog == "xargs":    # -I R: stdin replaces R in the words, nothing is appended
+                words = [w.replace(repl, STDIN) for w in words]
+                stdin_args = "replaced"
+            else:
+                stdin_args = True   # the arguments come from stdin: the gate cannot see them
             continue
         if prog not in WRAPPERS:
             break
@@ -641,8 +600,8 @@ def verdict(cwd, tool, inp, cat=None, hits=None):
 def live_run(cwd, session=""):
     """A run is live (a two-way question is decided, not asked) under an approved autonomous mission or an
     autonomous run, or while this session's sprint executes: its lock is fresh and names this session,
-    and the latest frozen plan is approved. Intake and planning are not live: the plan's own approval
-    is the human's question."""
+    the latest frozen plan is approved, its sprint has not closed (stats sprint-close) and no new intent
+    came after it. Intake and planning are not live: the plan's own approval is the human's question."""
     doc, _, ev = M.mission(cwd)
     if (doc and doc.get("mode") == "autonomous" and ev) or os.environ.get("AGENTIC_AUTONOMY_MODE") == "autonomous":
         return True
@@ -657,13 +616,22 @@ def live_run(cwd, session=""):
         return True
     if owner and session and owner != session:
         return False        # another session's sprint
-    plan, approved = None, set()
+    plan, approved, intake = None, set(), False
     for e in _events.read(cwd):
         if e.get("event") in ("plan.created", "plan.revised"):
-            plan = e
+            plan, intake = e, False
         elif e.get("event") == "plan.approved":
             approved.add(e.get("caused_by"))
-    return bool(plan and plan.get("event_id") in approved)
+        elif e.get("event") == "intent.received":
+            intake = True               # a new ask: its intake is the human's
+    if not plan or plan.get("event_id") not in approved or intake:
+        return False
+    try:
+        with open(os.path.join(_paths.home(cwd, make=False), "state", "sprints.json"), encoding="utf-8") as f:
+            closed = {"S%s" % c.get("sprint") for c in json.load(f).get("closed") or [] if isinstance(c, dict)}
+    except (OSError, ValueError, AttributeError):
+        closed = set()
+    return (plan.get("data") or {}).get("sprint") not in closed
 
 
 def question_problem(cwd, inp, session, cat):
@@ -716,7 +684,8 @@ def hook(cwd_default):
     if tool == QUESTION:
         why = question_problem(cwd, inp, session, cat) if live_run(cwd, session) else None
         return deny(why) if why else 0
-    hits = classify(cwd, tool, inp, cat)
+    with deadline(READ_SECONDS):
+        hits = classify(cwd, tool, inp, cat)
     if not hits:
         return 0
     with serialized(cwd):       # check, then record: a once-authorization is crossed once
@@ -736,6 +705,28 @@ def hook(cwd_default):
                 M.emit(cwd, "door.crossed", role="harness", door=d["id"], authorization=row["event_id"],
                        action_sha256=sha, session_id=session)
     return 0
+
+
+READ_SECONDS = 8     # under the hook's own timeout (plugin/hooks/hooks.json: 15 s)
+
+
+@contextlib.contextmanager
+def deadline(seconds):
+    """A TimeoutError after `seconds` (POSIX): a gate that cannot read the action in time fails closed (exit 2)
+    before the host's hook timeout, which a host may treat as a non-blocking error, lets the call through."""
+    if not hasattr(signal, "setitimer"):
+        yield
+        return
+
+    def stop(*_):
+        raise TimeoutError("the door gate could not read the action within %d s" % seconds)
+    old = signal.signal(signal.SIGALRM, stop)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
 
 
 @contextlib.contextmanager
@@ -878,8 +869,10 @@ def cmd_authorize(cwd, did, o, revoke=False):
         data = {"grant": "once" if once else "standing", "until": until, "action_sha256": once}
     try:
         eid = M.record_human(cwd, "door.revoked" if revoke else "door.authorized", subject(did), by, reason, **data)
-    except M.LedgerBroken:
-        return M.ledger_block(cwd, "doors") or 2
+    except M.LedgerBroken as e:
+        print("BLOCK[doors]: the ledger is broken (%s); restore it: git checkout -- %s" % (e, M.rel(cwd, M.ledger(cwd))),
+              file=sys.stderr)
+        return 2
     except ValueError as e:
         print("mission doors %s: %s" % (verb, e), file=sys.stderr)
         return 64

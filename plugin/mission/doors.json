@@ -15,7 +15,7 @@
     },
     {
      "prog": "git",
-     "args": "^push{DRY}(?:\\s+(?:-u|--set-upstream))?(?:\\s+[\\w.-]+)?$",
+     "args": "^push{DRY}(?:\\s+(?:-u|--set-upstream))?(?:\\s+[\\w.-]+)?(?:\\s+(?:HEAD|@)(?::HEAD)?)?$",
      "when": "on-default-branch"
     },
     {
@@ -43,7 +43,8 @@
      "git push \\\n  origin main",
      "echo ${#a[@]} && git push origin main",
      "bash <<'EOF'\ngit push origin main\nEOF",
-     "cd sub && git push origin main"
+     "cd sub && git push origin main",
+     "git push origin HEAD"
     ],
     "tools": [
      "mcp__github__merge_pull_request"
@@ -270,7 +271,7 @@
     {
      "prog": "npm|pnpm|yarn",
      "flag": "-g|--global",
-     "args": "^(?:-\\S+\\s+)*(?!-)(?!(?:ls|list|la|ll|root|prefix|bin|view|v|info|show|outdated|help|search|s|find|doctor|explain|why|query|get|config\\s+(?:get|list))(?:\\s|$))"
+     "args": "^(?:-\\S+\\s+)*(?:i|in|install|isntall|add|un|uninstall|unlink|remove|rm|r|update|up|upgrade|link|ln|config\\s+(?:set|delete|edit)|set)(?:\\s|$)"
     },
     {
      "prog": "yarn",
@@ -287,7 +288,9 @@
      "crontab -e",
      "pacman -Syu",
      "yarn global add pnpm",
-     "npm -g install pnpm"
+     "npm -g install pnpm",
+     "pnpm add -g pnpm",
+     "npm i -g"
     ]
    }
   },
@@ -367,27 +370,27 @@
    "bash": [
     {
      "prog": "gh",
-     "args": "^(?:(?:secret|variable)\\s+(?:set|delete|remove)|auth\\s+token)\\b"
+     "args": "^(?:(?:secret|variable)\\s+(?:set|delete|remove)|auth\\s+token)\\b{DRY}"
     },
     {
      "prog": "vault",
-     "args": "^(?:kv\\s+(?:put|delete|destroy|patch)|write|delete)\\b"
+     "args": "^(?:kv\\s+(?:put|delete|destroy|patch)|write|delete)\\b{DRY}"
     },
     {
      "prog": "aws",
-     "args": "^(?:secretsmanager\\s+(?:create|put|delete|update|get-secret-value)|iam\\s+(?:create-access-key|delete-access-key|attach-|put-))"
+     "args": "^(?:secretsmanager\\s+(?:create|put|delete|update|get-secret-value)|iam\\s+(?:create-access-key|delete-access-key|attach-|put-)){DRY}"
     },
     {
      "prog": "kubectl",
-     "args": "^(?:create|delete)\\s+secret\\b"
+     "args": "^(?:create|delete)\\s+secret\\b{DRY}"
     },
     {
      "prog": "security",
-     "args": "^(?:add|delete|find)-(?:generic|internet)-password\\b"
+     "args": "^(?:add|delete|find)-(?:generic|internet)-password\\b{DRY}"
     },
     {
      "prog": "op",
-     "args": "^(?:item\\s+(?:create|edit|delete|get)|read)\\b"
+     "args": "^(?:item\\s+(?:create|edit|delete|get)|read)\\b{DRY}"
     }
    ],
    "examples": {
@@ -497,16 +500,32 @@
      "args": "^doors\\s+(?:authorize|revoke)\\b"
     },
     {
-     "writes": "(?:^|/)mission/ledger\\.jsonl$"
+     "writes": "(?:^|/)docs/agents/mission/ledger\\.jsonl$"
+    },
+    {
+     "writes": "(?:^|/)\\.(?:aladdin|agentic)/logs/events\\.jsonl$"
     },
     {
      "prog": "sed|perl",
      "flag": "-[A-Za-z]*i.*",
-     "args": "(?:^|/|\\s)mission/ledger\\.jsonl\\b"
+     "args": "(?:^|/|\\s)docs/agents/mission/ledger\\.jsonl\\b"
+    },
+    {
+     "prog": "rm|truncate|shred|mv",
+     "args": "(?:^|/|\\s)\\.(?:aladdin|agentic)(?:/logs(?:/events\\.jsonl)?)?/?(?:\\s|$)"
+    },
+    {
+     "prog": "sed|perl",
+     "flag": "-[A-Za-z]*i.*",
+     "args": "(?:^|/|\\s)\\.(?:aladdin|agentic)(?:/logs(?:/events\\.jsonl)?)?/?(?:\\s|$)"
+    },
+    {
+     "prog": "cp|ln|install",
+     "args": "(?:^|/|\\s)\\.(?:aladdin|agentic)/logs/events\\.jsonl$"
     },
     {
      "prog": "aloop|mission",
-     "args": "^(?:mission\\s+)?(?:doors\\b.*)?\\{stdin\\}"
+     "args": "^(?:mission\\s+)?(?:doors\\s+)?\\{stdin\\}"
     },
     {
      "prog": "aloop",
@@ -517,16 +536,17 @@
      "args": "^doors\\s+\\S*[$`*?]"
     },
     {
-     "prog": ".*[$`].*",
+     "prog": ".*[$`*?].*",
      "args": "^(?:mission\\s+)?doors\\s+(?:authorize|revoke)\\b"
     },
     {
      "prog": "python[\\d.]*",
-     "args": "record_human|door\\.(?:authorized|revoked)"
+     "args": "record_human\\s*\\(|(?s:(?=.*door\\.(?:authorized|revoked)).*\\b(?:emit|record\\w*|write\\w*|append)\\s*\\()"
     }
    ],
    "paths": [
-    "(?:^|/)mission/ledger\\.jsonl$"
+    "(?:^|/)docs/agents/mission/ledger\\.jsonl$",
+    "(?:^|/)\\.(?:aladdin|agentic)/logs/events\\.jsonl$"
    ],
    "examples": {
     "bash": [
@@ -537,11 +557,16 @@
      "find . -maxdepth 0 -exec aloop mission doors authorize x --by me --reason r \\;",
      "M=mission; $M doors authorize production-deploy --by me --reason r",
      "python3 -c \"import _mission as M; M.record_human('.', 'door.authorized', 'door:x', 'me')\"",
-     "python3 - <<'EOF'\nM.record_human('.', 'door.authorized', 'door:x', 'me')\nEOF"
+     "python3 - <<'EOF'\nM.record_human('.', 'door.authorized', 'door:x', 'me')\nEOF",
+     "rm .aladdin/logs/events.jsonl",
+     "sed -i /door.revoked/d .aladdin/logs/events.jsonl",
+     "printf 'authorize\\n' | xargs -I{} aloop mission doors {} x --by me --reason r",
+     "python3 - <<'EOF'\nimport _events\n_events.emit('.', 'door.authorized', role='human', subject='door:x')\nEOF"
     ],
     "paths": [
      "docs/agents/mission/ledger.jsonl",
-     "home/wt/docs/agents/mission/ledger.jsonl"
+     "home/wt/docs/agents/mission/ledger.jsonl",
+     ".aladdin/logs/events.jsonl"
     ]
    }
   },
@@ -631,7 +656,17 @@
    "pacman -Ss jq",
    "git config --get core.hooksPath",
    "echo ${#files[@]} && ls # list",
-   "aloop mission doors classify --bash \"npm publish\""
+   "aloop mission doors classify --bash \"npm publish\"",
+   "python3 -m pytest -q -k record_human",
+   "python3 - <<'EOF'\nimport json\nfor l in open('docs/agents/mission/ledger.jsonl'):\n    e = json.loads(l)\n    if e['event'] == 'door.authorized': print(e['data'])\nEOF",
+   "git diff --name-only | xargs npm run lint --",
+   "npm test -- -g 'adds a task'",
+   "echo 'npm publish' | xargs -0 aloop mission doors classify --bash",
+   "kubectl create secret generic app --from-env-file=.env --dry-run=client -o yaml > k8s/secret.yaml",
+   "gh secret set --help",
+   "git commit -m \"$(cat <<'EOF'\nfix: run \"make | npm publish\" no more\nEOF\n)\"",
+   "cat >> out.md <<'EOF' && python3 -m pytest -q\nThe door.authorized row is checked.\nEOF",
+   "cat .aladdin/logs/events.jsonl | jq -c .event"
   ],
   "tools": [
    "Read",
@@ -642,7 +677,8 @@
   "paths": [
    "src/a.py",
    "docs/agents/mission/research/x.json",
-   "README.md"
+   "README.md",
+   "src/mission/ledger.jsonl"
   ]
  }
 }

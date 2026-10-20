@@ -11,6 +11,9 @@ simple commands of `src` in order, each a Cmd with its assignments, words and re
 A word is a list of parts: a literal str, or a tuple for what only running it would tell:
 ("var", name, default parts or None), ("cmd", text) for $(…) and `…`, ("proc", text) for <(…),
 UNKNOWN for a glob, arithmetic or a positional parameter. The caller resolves what it can.
+A heredoc's word carries its body (Word.body), and a Cmd the operator that ended it (Cmd.end:
+"|" feeds the next command's stdin), for the door gate (plugin/mission/doors.py), which reads
+what a shell or python is fed.
 """
 import re
 
@@ -21,6 +24,7 @@ REDIR = re.compile(r"(\d+|\{[A-Za-z_][A-Za-z0-9_]*\})?(&>>|&>|>>|>\||>&|<<<|<<-|
 OPS = (";;&", ";;", ";&", "&&", "||", "|&", ";", "|", "&", "(", ")")
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 META = " \t\r\n;&|()<>"
+META_RE = re.compile(r"[ \t\r\n;&|()<>]")
 SPECIAL = "0123456789@*#?$!-"
 
 
@@ -28,6 +32,7 @@ class Word:
     def __init__(self):
         self.parts, self.raw, self.quoted, self.assign = [], "", False, None
         self.plain = True                                 # only unquoted literal text so far
+        self.body = None                                  # a heredoc's body (the word after << or <<-)
 
     def lit(self, s):
         if s:
@@ -57,6 +62,7 @@ class Word:
 class Cmd:
     def __init__(self):
         self.assigns, self.words, self.redirs, self.subs = [], [], [], []
+        self.end = None                                   # the operator that ended it (";", "|", "&&", …)
 
     def empty(self):
         return not (self.assigns or self.words or self.redirs or self.subs)
@@ -77,6 +83,7 @@ class Lexer:
     def __init__(self, src):
         self.s, self.i, self.n = src, 0, len(src)
         self.toks, self.heredocs, self.dbr = [], [], False
+        self._endc = (0, 0)
 
     # ── helpers ──
     def at_start(self):
@@ -88,14 +95,30 @@ class Lexer:
             return v != ")"
         return k == "word" and not v.quoted and v.text() in STARTS
 
-    def close(self, j, depth=1):
+    def close(self, j, depth=1, arith=False):
         """Index just past the `)` that closes an opening at depth `depth`, from j; quotes,
-        backticks and nested parens respected. The end of the text if it never closes."""
-        s = self.s
+        backticks, nested parens and (outside arithmetic, where << shifts) heredoc bodies
+        respected. The end of the text if it never closes."""
+        s, pending = self.s, []
         while j < self.n:
             c = s[j]
             if c == "\\":
                 j += 2
+                continue
+            if c == "<" and not arith and s.startswith("<<", j) and not s.startswith("<<<", j):
+                strip = s.startswith("<<-", j)
+                sub = Lexer(s)
+                sub.i = j + (3 if strip else 2)
+                while sub.i < self.n and s[sub.i] in " \t":
+                    sub.i += 1
+                delim = "".join(p for p in sub.word().parts if isinstance(p, str))
+                if delim:
+                    pending.append((delim, strip))
+                j = max(sub.i, j + 2)
+                continue
+            if c == "\n" and pending:
+                j = self._skip_bodies(j + 1, pending)
+                pending = []
                 continue
             if c == "'":
                 k = s.find("'", j + 1)
@@ -122,6 +145,24 @@ class Lexer:
             j += 1
         return self.n
 
+    def _skip_bodies(self, j, pending):
+        """Past the heredoc bodies that start at j; inside $( … ) a body also ends at `DELIM)`."""
+        s = self.s
+        for delim, strip in pending:
+            while j < self.n:
+                e = s.find("\n", j)
+                e = self.n if e < 0 else e
+                line = s[j:e]
+                t = line.lstrip("\t") if strip else line
+                if t == delim:
+                    j = min(e + 1, self.n)
+                    break
+                if t.startswith(delim) and t[len(delim):].lstrip(" \t").startswith(")"):
+                    j = e - len(t[len(delim):].lstrip(" \t"))
+                    break
+                j = min(e + 1, self.n)
+        return j
+
     def backtick(self):
         s, j, out = self.s, self.i + 1, []
         while j < self.n and s[j] != "`":
@@ -138,7 +179,7 @@ class Lexer:
         s, i = self.s, self.i
         nxt = s[i + 1] if i + 1 < self.n else ""
         if s.startswith("$((", i):
-            self.i = self.close(i + 3, 2)
+            self.i = self.close(i + 3, 2, arith=True)
             w.add(UNKNOWN)
         elif nxt == "(":
             j = self.close(i + 2)
@@ -260,7 +301,7 @@ class Lexer:
             elif c in "*?":
                 w.add(UNKNOWN)
                 self.i += 1
-            elif c == "[" and self.i > start and "]" in s[self.i + 1:self._end()]:
+            elif c == "[" and self.i > start and s.find("]", self.i + 1, self._end()) >= 0:
                 self.i = s.index("]", self.i + 1) + 1
                 w.add(UNKNOWN)
             elif c == "{" and self._brace(w):
@@ -280,10 +321,13 @@ class Lexer:
         return w
 
     def _end(self):
-        j = self.i
-        while j < self.n and self.s[j] not in META:
-            j += 1
-        return j
+        """Where the word at self.i ends at the latest (the next metacharacter); kept for the word,
+        so a word of many `[` or `{` is read in linear time."""
+        if self._endc[0] <= self.i < self._endc[1]:
+            return self._endc[1]
+        m = META_RE.search(self.s, self.i)
+        self._endc = (self.i, m.start() if m else self.n)
+        return self._endc[1]
 
     def _brace(self, w):
         """A brace expansion ({a,b}, {1..3}) is many words: unknown."""
@@ -301,7 +345,8 @@ class Lexer:
         """The heredoc bodies that start after a newline: data, except the substitutions of an
         unquoted one, which run."""
         s = self.s
-        for delim, strip, quoted in self.heredocs:
+        for delim, strip, quoted, word in self.heredocs:
+            body = []
             while self.i < self.n:
                 j = s.find("\n", self.i)
                 j = self.n if j < 0 else j
@@ -309,6 +354,7 @@ class Lexer:
                 self.i = min(j + 1, self.n)
                 if (line.lstrip("\t") if strip else line) == delim:
                     break
+                body.append(line)
                 if not quoted and ("$(" in line or "`" in line):
                     sub = Lexer(line)
                     w = Word()
@@ -324,6 +370,7 @@ class Lexer:
                             sub.i += 1
                     for t in subs_of(w.parts):
                         self.toks.append(("sub", t))
+            word.body = "\n".join(body)
         self.heredocs = []
 
     # ── the token stream ──
@@ -353,7 +400,7 @@ class Lexer:
                     self.dbr = False
                 continue
             if s.startswith("((", self.i) and self.at_start():
-                j = self.close(self.i + 2, 2)
+                j = self.close(self.i + 2, 2, arith=True)
                 self.toks.append(("arith", s[self.i:j]))
                 self.i = j
                 continue
@@ -365,7 +412,7 @@ class Lexer:
                 w = self.word()
                 op = m.group(2)
                 if op in ("<<", "<<-"):
-                    self.heredocs.append(("".join(p for p in w.parts if isinstance(p, str)), op == "<<-", w.quoted))
+                    self.heredocs.append(("".join(p for p in w.parts if isinstance(p, str)), op == "<<-", w.quoted, w))
                 self.toks.append(("redir", op, m.group(1) or "", w))
                 continue
             op = next((o for o in OPS if s.startswith(o, self.i)), None)
@@ -456,6 +503,7 @@ def read(src):
                 if cur.words and not cur.redirs:          # name ( ): a function definition
                     cur, func = Cmd(), True
                     continue
+                cur.end = v
                 flush()
                 out.append("(")
                 continue
@@ -463,9 +511,11 @@ def read(src):
                 if func:
                     func = False
                     continue
+                cur.end = v
                 flush()
                 out.append(")")
                 continue
+            cur.end = v
             flush()
             if v in (";;", ";&", ";;&") and cases:
                 mode = "pattern"

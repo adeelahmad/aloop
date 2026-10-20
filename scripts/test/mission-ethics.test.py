@@ -374,6 +374,13 @@ assert fill(rT2, [{"category": "other", "tier": "gray", "reason": "hides tips"}]
 assert run(MI, "ethics", "consent", "--subject", gT, "--by", "Sam", "--reason", "tips move to help").returncode == 0
 cs = json.load(open(M.path_of(T, "goal", gT)))["approval"]["ethics"]["consents"]
 assert [cs[json.load(open(x))["ethics_id"]]["by"] for x in (rT1, rT2)] == ["Adeel", "Sam"], cs
+before = run(MI, "ethics", "check", "--subject", gT)
+with open(_events.path(T), "a") as f:       # malformed run-log lines are skipped, never a traceback
+    f.write(json.dumps({"event": "ethics.reviewed", "event_id": "x1", "ts": "2026-10-20T00:00:00Z", "data": "tier=hard"}) + "\n")
+    f.write(json.dumps({"event": "ethics.blocked", "event_id": "x2", "ts": "2026-10-20T00:00:00Z",
+                        "data": {"subject": "mission/x.json", "kind": "goal", "words": 5}}) + "\n")
+r = run(MI, "ethics", "check", "--subject", gT)
+assert (r.returncode, r.stdout) == (before.returncode, before.stdout) and "Traceback" not in r.stderr, r.stderr
 ok("hardening: no reordering, edit, re-id, forged event, symlink, invisible character or nested field clears a gate")
 
 # 10) second review round: the screen reads mechanics and modifiers; a hard line follows a goal's own words
