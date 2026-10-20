@@ -158,9 +158,23 @@ r = subprocess.run([cited, bad], cwd=MAIN, env=ENV, capture_output=True, text=Tr
 assert r.returncode == 2 and "## Gate matrix" in r.stderr and "fenced" in r.stderr, r.stderr
 r = subprocess.run([cited, STANDARDS], cwd=MAIN, env=ENV, capture_output=True, text=True)
 assert r.returncode == 0, r.stderr
+# both polarities (a table-only agent file beside the sprint's fenced matrix passes, a fenced agent file beside a
+# table-only sprint matrix blocks), and, whatever order a directory listing gives, an agent file alone is no
+# standards.md at all: `find | head -1` judged it and blocked
 write(DECOY, "# standards agent\n\n## Gate matrix\n\n| gate | command |\n|---|---|\n| test | `pytest` |\n")
 r = subprocess.run([cited], cwd=MAIN, env=ENV, capture_output=True, text=True)
 assert r.returncode == 0, r.stderr
+good = open(STANDARDS).read()
+write(DECOY, good)
+write(STANDARDS, open(bad).read())
+r = subprocess.run([cited], cwd=MAIN, env=ENV, capture_output=True, text=True)
+write(STANDARDS, good)
+assert r.returncode == 2 and "fenced" in r.stderr, r.stderr
+write(DECOY, open(bad).read())
+os.rename(STANDARDS, STANDARDS + ".off")
+r = subprocess.run([cited], cwd=MAIN, env=ENV, capture_output=True, text=True)
+os.rename(STANDARDS + ".off", STANDARDS)
+assert r.returncode == 0 and "not found" in r.stderr, r.stderr
 os.remove(DECOY)
 ok("the standards role's stop gate refuses a matrix with no fenced commands (a table only) and accepts a fenced one; unnamed, it reads the sprint's, not a host's agent file")
 

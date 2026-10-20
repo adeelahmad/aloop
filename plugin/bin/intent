@@ -23,8 +23,8 @@ Usage:
         go to <run-data>/state/needs-human/<intent_id>.json and a gate.failed (released=needs-human) is
         emitted. Exit 0 released · 1 not a host's stop (a self-check, a direct run: the gate blocks)
   intent hook           (stdin: PostToolUse) the supervisor's next tool result carries each release
-        once, while its questions are still open (Claude Code, Codex; the dsh and OpenCode plugins
-        tell the supervisor at the release itself)
+        once, while its questions are still open and its contract is the newest (Claude Code, Codex; the
+        dsh and OpenCode plugins run it at the release itself, so a record is told once on any host)
   intent open           the unanswered `ask` questions of the newest contract (the one gate-intake judges),
         one quoted line each; gate-dispatch refuses a planner on them. Exit 3 when any are open · 0 when
         none are, or there is no contract (only the ask class: a mission goal's own questions are not these)
