@@ -60,12 +60,13 @@ STATUSES = {
 # human approvals: the event type, and the subject kind it approves
 APPROVAL_EVENTS = {"mission.approved": "mission", "baseline.confirmed": "baseline",
                    "journey.approved": "journey", "goal.approved": "goal", "ethics.consent": "goal",
-                   "telemetry.consent": "telemetry"}
+                   "telemetry.consent": "telemetry", "mission.lifted": "mission"}
 # a human grant counts only with the human's own words (M9.17): a line of a prompt the
 # UserPromptSubmit hook captured (`transcripts prompt`) that says the grant's verb and the code of
 # the content it grants (the first 8 hex of its sha256). A veto needs none: refusing is always safe.
 GRANT_VERBS = {"mission.approved": "approve", "baseline.confirmed": "confirm", "journey.approved": "approve",
-               "goal.approved": "approve", "ethics.consent": "consent", "telemetry.consent": "consent"}
+               "goal.approved": "approve", "ethics.consent": "consent", "telemetry.consent": "consent",
+               "mission.lifted": "lift"}
 ACTION_VERBS = ("restore", "retire")    # a grant whose data.action is one of these says that verb
 SUPERSEDE_ACROSS = ("baseline.confirmed",)     # the newest confirmation of any version is the current one
 NEGATION = re.compile(r"\b(?:not|no|never|don'?t|veto\w*|reject\w*|cancel\w*|stop|wait|undo)\b")
