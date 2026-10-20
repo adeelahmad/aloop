@@ -138,7 +138,7 @@ export DEEPSEEK_API_KEY=sk-...                     # or DEEPSEEK_API_KEY=... in 
 dsh --profile aloop "Use the aloop skill. Intent: <one line>"
 ```
 
-- **Profile** (`$DSH_HOME/profiles/aloop/`, `DSH_HOME` defaults to `~/.dsh`): the 9 roles as
+- **Profile** (`$DSH_HOME/profiles/aloop/`, `DSH_HOME` defaults to `~/.dsh`): the 15 roles as
   agent presets `aloop-<role>` (each role's prompt is its agent file), `subagent` for the
   execution roles and `subagent_planning` for the planning roles, each with its group's model,
   and the plugin `hosts/dsh/aloop.mjs`, loaded in place. dsh has no project-scoped plugin

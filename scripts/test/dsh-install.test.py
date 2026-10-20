@@ -8,6 +8,7 @@ import importlib.machinery
 import importlib.util
 import atexit
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -85,5 +86,16 @@ assert ins.dsh_agent_options("openrouter/deepseek/deepseek-chat-v3") == {"provid
 assert ins.dsh_agent_options("deepseek-flash") == {"provider": "deepseek-official", "model": "deepseek-flash"}
 assert ins.dsh_agent_options("") is None
 ok("a provider-qualified model splits at the first '/' (model ids may hold one); a bare id is DeepSeek's")
+
+sys.path.insert(0, BIN)
+import _routes  # noqa: E402
+mjs = open(os.path.join(ROOT, "plugin", "hosts", "dsh", "aloop.mjs")).read()
+hint = re.search(r"\(subagent: ([^;]+); subagent_planning: ([^)]+)\)", mjs)
+note = ins.host_body("x", "dsh")
+for tool, group in (("subagent", "worker"), ("subagent_planning", "planning")):
+    names = set(_routes.GROUPS[group])
+    assert set(hint.group(1 if group == "worker" else 2).split(", ")) == names, (tool, hint.groups())
+    assert "`%s` (%s)" % (tool, ", ".join(_routes.GROUPS[group])) in note, note
+ok("the dispatch hint and the roles' dsh note name every role of each route group (mission roles included)")
 
 print("\n%d checks passed" % n)

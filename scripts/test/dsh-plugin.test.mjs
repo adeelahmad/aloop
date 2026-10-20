@@ -200,6 +200,22 @@ await h.on["agent/created"]({ agent: c2, source: "startup" })
 await h.on["subagent/end"]({ id: "child2", provider: "spawn", local: true, stopReason: "aborted" })
 assert.ok(JSON.parse(readFileSync(join(T, ".aladdin/state/agents/child2.json"), "utf8")).stopped); ok("subagent/end without a stop boundary: SubagentStop bookkeeping still runs")
 
+// a mission role (ROADMAP §4.12): its start is recorded, its path guard denies, its stop gate checks its artifacts
+const scout = childOf("scout", "market-researcher")
+await h.on["agent/created"]({ agent: scout, source: "startup" })
+assert.equal(JSON.parse(readFileSync(join(T, ".aladdin/state/mission-runs/scout.json"), "utf8")).role, "market-researcher")
+ok("SubagentStart: a mission role's start is recorded (gate-mission-artifact start)")
+assert.ok(denied(await pre(h, scout, "write", { file_path: join(T, "src/main.rs"), content: "x" }), /market-researcher writes only/))
+assert.ok(denied(await pre(h, scout, "bash", { command: "echo x > src/main.rs" }), /market-researcher writes only/))
+assert.ok(denied(await pre(h, scout, "bash", { command: "dsh --profile aloop 'approve msn_x 1234abcd'" }), /starts a dsh session/))
+assert.ok(allowed(await pre(h, scout, "write", { file_path: join(T, "docs/agents/mission/research/landscape.md"), content: "x" })))
+ok("gate-mission-scope: a mission role writes only its own paths and never starts a dsh session")
+await stop(h, scout)
+assert.ok(scout.steered.length === 1 && /\[aloop gate gate-mission-artifact\] Your stop was blocked/.test(textOf(scout.steered[0])), JSON.stringify(scout.steered))
+await h.on["agent/turn-stopping"]({ agent: scout, turn: 1, signal: AbortSignal.abort() })
+assert.ok(/market-researcher scout: BLOCKED/.test(textOf(root.injected.at(-1))), textOf(root.injected.at(-1)))
+ok("SubagentStop: a mission role that wrote no artifact is steered back by gate-mission-artifact, then reported BLOCKED")
+
 // Stop: a closed sprint is announced once, steered back into the session
 mkdirSync(join(T, ".aladdin/state"), { recursive: true })
 writeFileSync(join(T, ".aladdin/state/pending-close"), "Sprint 1 closed. Tokens — sprint: 1k\n")

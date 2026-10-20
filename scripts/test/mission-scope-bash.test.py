@@ -284,6 +284,11 @@ ROWS = [
     (SUP, P, "claude plugin validate ./plugin --strict", 0),
     (SUP, P, "claude --version && codex --help", 0),
     (G, T1, "opencode models", 0),
+    (E, P, 'dsh --profile aloop "approve msn_x 1234abcd"', 2),
+    (G, T1, "dsh headless 'run the tests'", 2),
+    (SUP, P, "DSH_HOME=/tmp/d dsh aloop --resume s1", 2),
+    (SUP, P, "dsh plugin --profile aloop add some-plugin", 0),
+    (SUP, P, "dsh --version", 0),
 ]
 
 

@@ -9,14 +9,15 @@
 //                      injected into the session (its first step claims it)
 //   UserPromptSubmit   agent/pre-step of a root agent with a user message → transcripts prompt,
 //                      intent-trigger; exit 2 rejects the step, context joins it
-//   PreToolUse         tools/pre-execute → host-adapter, gate-supervisor-scope, gate-commit-author,
-//                      gate-dispatch, budget pre; a deny hands the reason to the model. dsh cannot
+//   PreToolUse         tools/pre-execute → host-adapter, gate-supervisor-scope, gate-mission-scope,
+//                      gate-commit-author, gate-dispatch, budget pre; a deny hands the reason to the model. dsh cannot
 //                      rewrite a call, so a bound worker is confined by denial (host-adapter)
 //   PostToolUse        tools/post-execute → gate-validate-artifact, transcripts record, budget post;
 //                      exit 2 turns the result into the gate's feedback, context joins the next
 //                      request, `continue: false` cancels the agent
-//   SubagentStart      agent/created of a child → host-adapter, transcripts stage-in, worktree-hygiene;
-//                      gate-tooling on an execution role's first tool call
+//   SubagentStart      agent/created of a child → host-adapter, transcripts stage-in, worktree-hygiene,
+//                      a mission role's gate-mission-artifact start; gate-tooling on an execution
+//                      role's first tool call
 //   SubagentStop       the child's own agent/turn-stopping → its role's gate. A block steers the child:
 //                      it keeps working and dsh does not settle it (native, like Claude's exit 2), up
 //                      to maxStopBlocks rounds. A STUCK release or a block past them is injected into
@@ -42,7 +43,12 @@ const GATES = {
   "red-worker": "gate-red-verify", scaffolder: "gate-scaffold-verify", "green-worker": "gate-green-verify",
   "structural-reviewer": "gate-structural-integrity", "final-gate": "gate-final",
   intake: "gate-intake", standards: "gate-standards-cited", planner: "gate-stage2-complete", archivist: "gate-memory",
+  // the mission roles (ROADMAP §4.12): each one's artifacts are checked when it stops
+  "market-researcher": "gate-mission-artifact", "product-tester": "gate-mission-artifact",
+  "state-assessor": "gate-mission-artifact", evaluator: "gate-mission-artifact",
+  "mission-planner": "gate-mission-artifact", "ethics-reviewer": "gate-mission-artifact",
 }
+const MISSION = new Set(Object.keys(GATES).filter((r) => GATES[r] === "gate-mission-artifact"))
 const DISPATCH = new Set(["subagent", "subagent_planning"])
 const TOOL = { bash: "Bash", write: "Write", edit: "Edit", read: "Read", glob: "Glob", grep: "Grep", subagent: "Agent", subagent_planning: "Agent" }
 const STUCK = /\bSTUCK\b.*NOT verified/
@@ -214,7 +220,7 @@ export function apply(ctx, config = {}) {
       return "aloop: a role does not message the supervisor: your result reaches it when your stop gate passes. Write your report in your output.md block, then finish."
     if (DISPATCH.has(tool)) {
       if (s.child) return "aloop: a role does not delegate. Finish your own task and report back to the supervisor."
-      if (!a.agent_preset) return "aloop: dispatch an aloop role: pass agent_preset: \"aloop-<role>\" (subagent: red-worker, scaffolder, green-worker, structural-reviewer, final-gate; subagent_planning: intake, standards, planner, archivist)."
+      if (!a.agent_preset) return "aloop: dispatch an aloop role: pass agent_preset: \"aloop-<role>\" (subagent: red-worker, scaffolder, green-worker, structural-reviewer, final-gate, product-tester, state-assessor; subagent_planning: intake, standards, planner, archivist, market-researcher, evaluator, mission-planner, ethics-reviewer)."
     }
     const p = payload("PreToolUse", s, { tool_name: TOOL[tool] || tool, tool_input: toolInput(tool, a, cwdOf(s)), tool_use_id: exec.callId })
     let why = await gate("host-adapter", ["hook"], p, s.project)        // records `aloop bind`, confines writers
@@ -224,7 +230,7 @@ export function apply(ctx, config = {}) {
       s.toolingOk = true
     }
     const checks = []
-    if (tool === "write" || tool === "edit" || tool === "bash") checks.push(["gate-supervisor-scope", []])
+    if (tool === "write" || tool === "edit" || tool === "bash") checks.push(["gate-supervisor-scope", []], ["gate-mission-scope", []])
     if (tool === "bash") checks.push(["gate-commit-author", []])
     if (DISPATCH.has(tool)) checks.push(["gate-dispatch", []])
     checks.push(["budget", ["hook", "pre"]])
@@ -320,6 +326,7 @@ export function apply(ctx, config = {}) {
         await run("host-adapter", ["hook"], p, s.project)
         await run("transcripts", ["stage-in"], p, s.project)
         if (EXECUTION.has(s.role)) await run("worktree-hygiene", [], { ...p, cwd: s.cwd0 }, s.project)
+        if (MISSION.has(s.role)) await run("gate-mission-artifact", ["start"], p, s.project)   // what exists before it works
       }
     } catch {}                    // a throw would fail the agent's creation
   })
