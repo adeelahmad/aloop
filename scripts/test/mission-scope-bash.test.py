@@ -533,6 +533,16 @@ ROWS = [
     (E, P, "aloop mission judge run rub_x --subject s --input /tmp/in.json", 0),
     (E, P, 'echo "$ALOOP_JUDGE_CMD"; env | grep ALOOP_JUDGE', 0),
     (G, T1, "grep -rn ALOOP_JUDGE_CMD plugin/mission/judge.py", 0),
+    # ── an array assignment runs its substitutions; `time [-p] --` runs the command after `--` (M9.30's review) ──
+    (E, P, "x=( $(git commit -am x) )", 2),
+    (E, P, "declare -a x=( `git commit -am x` )", 2),
+    (E, P, "f() { local x=( \"$(git commit -am x)\" ); }; f", 2),
+    (E, P, "x=( a \"$(echo y > src/app.py)\" )", 2),
+    (E, P, "time -p -- git commit -am x", 2),
+    (E, P, "time -- git commit -am x", 2),
+    (E, P, "x=( a b c ); echo ${x[@]}", 0),
+    (E, P, "x=( $(ls docs) ); echo ${#x[@]}", 0),
+    (E, P, "time -p -- ls", 0),
 ]
 
 

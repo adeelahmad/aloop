@@ -282,7 +282,12 @@ class Lexer:
                 self.i = j
                 continue
             if c == "(" and w.assign is not None and w.plain and w.text() == w.assign + "=":
-                self.i = self.close(self.i + 1)       # an array: a=( … )
+                j = self.close(self.i + 1)            # an array: a=( … ); its $(…) and `…` still run
+                for tok in Lexer(s[self.i + 1:j - 1]).run():
+                    if tok[0] == "word":
+                        for text in subs_of(tok[1].parts):
+                            w.add(("cmd", text))
+                self.i = j
                 w.add(UNKNOWN)
                 continue
             if c in stop:
@@ -484,8 +489,8 @@ def read(src):
             start = not cur.words and not cur.assigns
             if start and pipe_next:
                 cur.pipe, pipe_next = True, False
-            if start and after_time and t == "-p":
-                after_time = False
+            if start and after_time and t in ("-p", "--") and not w.quoted:
+                after_time = t == "-p"                    # `time -p -- CMD`: the `--` ends time's options
                 continue
             after_time = False
             if start and t in ("if", "do", "{"):          # a compound/group opens: its `cd` is scoped
