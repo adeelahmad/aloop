@@ -1,13 +1,13 @@
 {
  "title": "state — the State Assessor's measurement of the product now (ROADMAP §4.12, M9.10): docs/agents/mission/state/<state_id>.json",
  "type": "object",
- "required": ["state_id", "baseline_id", "baseline_version", "mission_sha256", "head", "runs", "agreed", "status", "created_at"],
+ "required": ["state_id", "baseline_id", "baseline_version", "direction_sha256", "head", "runs", "agreed", "status", "created_at"],
  "additionalProperties": false,
  "properties": {
   "state_id": {"type": "string", "pattern": "^sta_"},
   "baseline_id": {"type": "string", "pattern": "^bln_"},
   "baseline_version": {"type": "integer", "minimum": 1},
-  "mission_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+  "direction_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
   "head": {"type": "object", "required": ["commit", "dirty"], "properties": {
    "commit": {"type": "string"}, "dirty": {"type": "boolean"}}},
   "runs": {"type": "array", "minItems": 2, "items": {"type": "object", "required": ["journeys", "benchmarks"],

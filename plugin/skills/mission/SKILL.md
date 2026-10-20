@@ -95,6 +95,10 @@ and goals once there is usage, and is never a gate.
   `aloop mission <area>`. `mission.json` changes only with a new human approval.
 - You record a human approval (the mission, the baseline, a goal pick, a consent) only on the
   human's explicit yes in this session, with `--by` naming them. Never infer one.
+- A grant counts only in the human's own typed words (M9.17). Run the command; it exits 3 with
+  `they reply  <verb> <id> <code>`. Give them that exact line once and stop; once they have
+  typed it, run the command the ASK names after "then" (usually the same command; a spoon-fed
+  pick names `goal approve`). A yes in other words, or your `--by` alone, grants nothing.
 - A hard line is final: no consent unlocks it, and re-running the review never helps (the most
   severe verdict for a content stands).
 - You never weaken or drop a journey or a metric; a new idea is a new journey.

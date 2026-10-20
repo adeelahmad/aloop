@@ -156,9 +156,12 @@ def standing_problems(cwd, doc):
         elif M.digest(jd) != j["sha256"]:
             out.append("journey %s changed since this baseline listed it: propose a new baseline" % j["journey_id"])
     out += listing_problems(cwd, doc["journeys"])
-    _, msha, mev = M.mission(cwd)
-    if not mev or msha != doc.get("mission_sha256"):
-        out.append("the mission changed since this baseline was proposed (or is not approved): propose a new one")
+    mdoc, _, mev = M.mission(cwd)
+    if not mev:
+        out.append("the mission is not approved (mission check): a baseline decides nothing until it is")
+    elif M.direction(mdoc) != doc.get("direction_sha256"):
+        out.append("the mission's direction (statement, mode or constraints) changed since this baseline was "
+                   "proposed: propose a new one")
     cur = current_id(cwd)
     if doc.get("supersedes") != cur:
         out.append("%s supersedes %s, but the current confirmed version is %s: propose a new version against it"
@@ -170,7 +173,7 @@ def standing_problems(cwd, doc):
 
 
 def cmd_new(cwd, o):
-    mdoc, msha, mev = M.mission(cwd)
+    mdoc, _, mev = M.mission(cwd)
     if not mev:
         say("ASK", "the mission is not approved yet (mission check): a baseline is measured for an approved mission")
         return 3
@@ -220,7 +223,7 @@ def cmd_new(cwd, o):
         tol = -1
     bid = M.new_id(KIND)
     doc = {"baseline_id": bid, "version": (cur or {}).get("version", 0) + 1 if o.get("supersedes") else 1,
-           "mission_sha256": msha, "definition_of_best": (o.get("definition") or "").strip(), "journeys": listed,
+           "direction_sha256": M.direction(mdoc), "definition_of_best": (o.get("definition") or "").strip(), "journeys": listed,
            "benchmarks": benches, "rivals": o.get("rival", []), "tolerance": tol,
            "supersedes": o.get("supersedes"), "evidence_refs": o.get("evidence", []), "measurements": None,
            "status": "proposed", "created_at": M.now()}
@@ -503,9 +506,12 @@ def cmd_restore(cwd, bid, o):
                 bad.append("journey %s changed or is gone since %s froze it: propose a new version" % (j["journey_id"], bid))
             elif J.lifecycle(cwd, J.jpath(cwd, j["journey_id"]), jd) == "retired":
                 bad.append("journey %s was retired since: propose a new version without it" % j["journey_id"])
-        _, msha, mev = M.mission(cwd)
-        if not mev or msha != doc.get("mission_sha256"):
-            bad.append("%s was confirmed for an earlier mission content: propose a new version" % bid)
+        mdoc, _, mev = M.mission(cwd)
+        if not mev:
+            bad.append("the mission is not approved (mission check): nothing is restored until it is")
+        elif M.direction(mdoc) != doc.get("direction_sha256"):
+            bad.append("%s was confirmed for an earlier mission direction (statement, mode or constraints): "
+                       "propose a new version" % bid)
     if bad:
         for b in bad:
             say("BLOCK", b)
@@ -581,9 +587,12 @@ def evaluate(cwd):
             asks.append("journey %s was retired: a new baseline version supersedes this one" % j["journey_id"])
     if bad:
         return 2, bad, facts
-    _, msha, mev = M.mission(cwd)
-    if not mev or msha != doc["mission_sha256"]:
-        asks.append("the baseline was confirmed for an earlier mission content: the human re-confirms the direction")
+    mdoc, _, mev = M.mission(cwd)
+    if not mev:
+        asks.append("the mission is not approved (mission check): the baseline decides nothing until it is")
+    elif M.direction(mdoc) != doc.get("direction_sha256"):
+        asks.append("the baseline was confirmed for an earlier mission direction (statement, mode or constraints): "
+                    "a new baseline version is proposed for the new direction")
     if asks:
         return 3, asks, facts
     facts["confirmed_by"] = rec["data"].get("by")

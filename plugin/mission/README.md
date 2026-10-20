@@ -71,10 +71,17 @@ A gate checks structure and evidence, never whether a judgment is right.
   `git checkout -- docs/agents/mission/ledger.jsonl`. `mission init` marks it `merge=union`.
   **Not detectable here:** a forged row appended with a valid hash, and, on a checkout without the run
   log, the newest rows removed. M9.9 denies roles direct writes to the ledger and to the prompt log.
+- `M.history(cwd)` is the ledger's intact rows plus the run-log events that are not ledger rows, oldest
+  first: a reader of past decisions (ethics verdicts, hard lines) iterates it, so a fresh clone decides
+  the same. A run-log copy of a ledger row is ignored, and a reader that decides checks
+  `M.ledger_problems` first (`ethics.verdict` is `broken` while the ledger has any).
 - A confirmation record carries the journeys it froze (`data.journeys`), and a retirement record its
   replacement (`replaced_by`, `replaced_by_sha256`): `journeys.pins` and `journeys.lifecycle` read
   those records, so hiding or editing a file never unfreezes, unpins or un-retires a journey.
   `baseline.current` is the version the newest `baseline.confirmed` record names.
+- A baseline is confirmed for the mission's direction, not its caps: `direction_sha256` is
+  `M.direction(mission)` over `DIRECTION` (`mission_id`, `statement`, `mode`, `constraints`), so a new
+  budget, deadline or cadence keeps it once the mission is approved again (M9.25).
 - `plugin/mission/_runner.py` runs a pinned script: each `pinned` tool's probe must print its
   version, then the command's last stdout line is the result
   `{"steps": {id: bool}, "metrics": {id: number|bool}}` (NaN and Infinity are refused). The files the

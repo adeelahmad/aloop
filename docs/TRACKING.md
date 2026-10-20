@@ -72,16 +72,17 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.10 | State Assessor report and Evaluator gap list | IMPLEMENTED_TESTED | `scripts/test/mission-evaluate.test.py` |
 | M9.11 | Goals become Aladdin intents; lineage reaches the mission | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py` |
 | M9.12 | `/aloop:mission` skill | IMPLEMENTED_TESTED | `scripts/test/mission-skill.test.py` |
-| M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12 |
+| M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12; offline: `scripts/test/mission-e2e.test.py`; open: the live cycle |
 | M9.17 | Approvals name the captured human prompt | IMPLEMENTED_TESTED | `scripts/test/mission-core.test.py` |
 | M9.20 | Mission spend counts mission sessions only | NOT_IMPLEMENTED | §4.12 |
 | M9.21 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |
 | M9.22 | Mission USD meter prices fast mode and server tools | NOT_IMPLEMENTED | §4.12 |
 | M9.23 | Mission loop takes its ethics facts from the ethics verdict | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.24 | `--force` grants, ethics reviews and the budget stop are ledger rows | NOT_IMPLEMENTED | §4.12 |
-| M9.25 | A baseline binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
+| M9.25 | A baseline binds the mission's direction, not its budget | IMPLEMENTED_TESTED | `scripts/test/mission-baseline.test.py` |
 | M9.26 | A goal's sprint history is read from committed records | NOT_IMPLEMENTED | §4.12 |
 | M9.27 | The mission loop trusts an eval only when `evaluate check` would | NOT_IMPLEMENTED | §4.12 |
 | M9.40 | Artifact provenance in the mission loop | NOT_IMPLEMENTED | §4.12 |
 | M9.41 | Concurrent mission role runs are serialized | NOT_IMPLEMENTED | §4.12 |
 | M9.42 | Shared mission role dirs, judge run records and the judge command | NOT_IMPLEMENTED | §4.12 |
+| M9.43 | A goal binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |

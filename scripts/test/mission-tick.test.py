@@ -848,7 +848,7 @@ assert p.mi("approve", "--by", "Adeel").returncode == 0
 p.review(p.mission_ref(), p.mission_doc(), "clear", 0.25)
 assert p.mi("baseline", "measure", bid).returncode == 2                    # what the gate says
 d2 = p.tick(0.3)
-expect(d2, "BASELINE", 0, "can no longer be measured (the mission changed")
+expect(d2, "BASELINE", 0, "can no longer be measured (the mission's direction")
 assert d2["key"] != d1["key"] and d2["handout"] == 1, (d1["key"], d2["key"])
 b2 = p.baseline()
 expect(p.tick(0.4), "CONFIRM_BASELINE", 3)

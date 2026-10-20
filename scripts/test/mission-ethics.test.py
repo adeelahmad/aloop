@@ -398,6 +398,62 @@ r = run(MI, "ethics", "check", "--subject", gN, "--json")
 assert r.returncode == 2 and json.loads(r.stdout)["state"] == "broken" and "restore it" in r.stderr, r.stderr
 ok("second round: mechanics and modifiers screened; a hard line follows a goal's words to any re-derived goal; state")
 
+# 12) a fresh checkout keeps every verdict (M9.24): reviews and hard lines are ledger rows, not run data
+logs = os.path.join(T, ".aladdin", "logs")
+
+
+def clone(fn):
+    """fn() as a fresh checkout sees it: the run log is git-ignored, so a clone has none."""
+    shutil.move(logs, logs + ".aside")
+    try:
+        return fn()
+    finally:
+        shutil.rmtree(logs, ignore_errors=True)      # what the commands wrote meanwhile
+        shutil.move(logs + ".aside", logs)
+
+
+here = [st(s) for s in (gX, gX2, gN, "mission")]
+assert here[:2] == ["hard", "hard"], here
+assert clone(lambda: [st(s) for s in (gX, gX2, gN, "mission")]) == here, here
+assert os.path.exists(os.path.join(logs, "events.jsonl"))
+ok("a fresh checkout keeps every review and hard line (ledger rows): nothing is unlocked or asked again")
+
+# 13) the ledger decides (M9.24): an edited run-log copy of a ledger row changes nothing; a broken ledger decides nothing
+log = os.path.join(logs, "events.jsonl")
+kept = open(log).read()
+mine = lambda e: e["event"] in ("ethics.reviewed", "ethics.blocked") and e["data"].get("subject", "").endswith(gX + ".json")  # noqa: E731
+evs = [json.loads(l) for l in kept.splitlines() if l.strip()]
+assert [e["event"] for e in evs if mine(e)] == ["ethics.reviewed", "ethics.blocked"], evs
+with open(log, "w") as f:                           # same event_ids, other events: the run log is not the record
+    f.write("".join(json.dumps(dict(e, event="judge.run") if mine(e) else e) + "\n" for e in evs))
+assert M.ledger_problems(T) == [] and st(gX) == "hard" and E.held_gaps(T) == {GX["gap_id"]}, st(gX)
+assert clone(lambda: E.held_gaps(T)) == {GX["gap_id"]}        # a clone holds the gap by its id too
+with open(log, "w") as f:
+    f.write(kept)
+led = M.ledger(T)
+chain = open(led).read()
+rows = chain.splitlines()
+at = next(i for i, l in enumerate(rows) if json.loads(l)["event"] == "ethics.blocked")
+assert at < len(rows) - 1                           # a row follows it: the cut is mid-chain
+with open(led, "w") as f:
+    f.write("".join(l + "\n" for i, l in enumerate(rows) if i != at))
+
+
+def broken():
+    for s in (gX, gN, "mission"):
+        r = run(MI, "ethics", "check", "--subject", s, "--json")
+        assert r.returncode == 2 and json.loads(r.stdout)["state"] == "broken", (s, r.stdout, r.stderr)
+        assert "ledger" in r.stderr and "restore it" in r.stderr, r.stderr
+
+
+broken()                                             # this checkout
+clone(broken)                                        # and a fresh clone: nothing decides from what is left
+with open(led, "w") as f:
+    f.write(chain)
+assert [st(s) for s in (gX, gX2, gN, "mission")] == here
+ok("the ledger decides: an edited run-log copy of a hard line changes nothing, and a ledger cut mid-chain blocks every "
+   "verdict, in this checkout and a clone")
+
 # 11) usage: unknown subjects and commands; the area is discovered; --help is the docstring
 assert run(MI, "ethics", "check", "--subject", "gol_000000000000deadbeef").returncode == 2
 assert run(MI, "ethics", "check").returncode == 64
