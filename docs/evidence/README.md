@@ -50,6 +50,7 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 41 | camel (JS), first run | v0.12.0 + #63 (3752458) | 12/12 | 6m45s | $0.56 | 1 | 0 | 2 | `make e2e-live YES=1 INTENT=camel` |
 | run 42 | extend (brownfield Rust), first run | v0.12.0 + #66 (859661d) | 13/13 | 7m11s | $0.67 | 2 | 4 | 2 | `make e2e-live YES=1 INTENT=extend` |
 | run 43 | modify (brownfield Rust), first run | v0.12.0 + #67 (f16433d) | 13/13 | 9m10s | $0.67 | 1 | 0 | 6 | `make e2e-live YES=1 INTENT=modify` |
+| run 44 | cli (Rust binary), first run | v0.12.0 + #68 (216dd4c) | 13/13 | 24m55s | $1.54 | 3 | 0 | 6 | `make e2e-live YES=1 INTENT=cli` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
@@ -72,3 +73,8 @@ seed's tests still pass on main (the extra 13th check).
 Run 43 changed an existing, tested function for the first time: `parse` gained 3 lines (trim, then
 strip a leading `v`/`V`), its signature and seed tests were kept, and 6 of 6 blocks were the
 workers' own self-checks (2 of them RED's `cargo fmt` on its new tests).
+Run 44 is the first application: the merged `minwc` binary counted stdin and exited 2 on a bad
+flag (the extra check runs it). It cost the most of any one-intent run because the planner made
+2 stories and 7 tasks (one per count, one per flag behaviour) for a small tool, so the
+supervisor ran 7 RED/SCAFFOLD/GREEN cycles in 56 turns. A first try at 18:32 UTC stopped in
+planning on the account's weekly usage limit and is not counted.

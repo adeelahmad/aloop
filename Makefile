@@ -132,7 +132,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode plu
 	python3 scripts/test/e2e-live-hosts.test.py
 	python3 scripts/test/suppression-contract.test.py
 	python3 scripts/test/skill-layout.test.py
-	@for t in scripts/test/mission-*.test.py; do echo "python3 $$t"; python3 "$$t" || exit 1; done
+	@for t in scripts/test/mission-*.test.py; do [ -e "$$t" ] || continue; echo "python3 $$t"; python3 "$$t" || exit 1; done
 	@if command -v node >/dev/null; then node scripts/test/opencode-plugin.test.mjs; else echo "node not found — skipped OpenCode test (CI runs it)"; fi
 
 .PHONY: conformance
