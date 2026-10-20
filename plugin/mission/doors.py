@@ -27,12 +27,18 @@ Usage:
         every two-way example to none) and the ledger is intact. Exit 0 · 2
   mission doors hook
         the PreToolUse gate (the hook payload on stdin): deny JSON for an unauthorized one-way
-        door or a wall, silent otherwise; exit 2 when it cannot decide (fails closed)
+        door or a wall, silent otherwise; exit 2 when it cannot decide within its deadline (fails
+        closed). On every host (M9.31): Claude Code and Codex run it from hooks.json, OpenCode and
+        dsh from their plugins; a patch (apply_patch) is judged path by path as a Write, dsh's
+        JSON-string input of an MCP tool as the object it encodes, and a bound worker's
+        tool_input.workdir (OpenCode, dsh) is where its command runs. A subagent that hits a door
+        reports ASK[door] <id> to its supervisor, which asks the human
 
 Grants: standing (one authorization covers the door), once (one exact action), never (a wall:
 the human runs it in their own terminal), command (a question-only door, answered by its own
 human command). An agent never runs `doors authorize` or writes the ledger (forge-human-record),
-and `authorize` refuses a shell an agent host runs (CLAUDECODE set).
+and `authorize` refuses a shell an agent host runs (CLAUDECODE, DSH_SHELL, CODEX_THREAD_ID or
+ALOOP_AGENT_SHELL set).
 """
 import contextlib
 import functools
@@ -64,11 +70,18 @@ GRANTS = ("standing", "once", "never", "command")
 ID = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 SHA = re.compile(r"^[0-9a-f]{64}$")
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-QUIET = {"Read", "Grep", "Glob", "LS", "TodoWrite", "TodoRead", "WebSearch", "WebFetch", "NotebookRead", "ToolSearch"}
+# read-only tools, as each host names them (OpenCode and dsh pass their own built-ins' names through)
+QUIET = {"Read", "Grep", "Glob", "LS", "TodoWrite", "TodoRead", "WebSearch", "WebFetch", "NotebookRead", "ToolSearch",
+         "grep", "glob", "list", "read_image", "todoread", "todowrite", "webfetch", "websearch", "codesearch"}
 EDITS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
-QUESTION = "AskUserQuestion"
-# set in every shell an agent host runs (the agent's Bash tool): an authorization never comes from there
-AGENT_SHELL = ("CLAUDECODE",)
+# the question tool: Claude Code's, Codex's (OpenCode's `question` and dsh's `ask_user_question` reach the
+# gate as AskUserQuestion, mapped by their plugins)
+QUESTIONS = ("AskUserQuestion", "request_user_input", "request_user_input_async")
+# set in every shell an agent host runs (the agent's Bash tool): Claude Code, dsh, Codex, and OpenCode (its
+# plugin exports ALOOP_AGENT_SHELL); an authorization never comes from there
+AGENT_SHELL = ("CLAUDECODE", "DSH_SHELL", "CODEX_THREAD_ID", "ALOOP_AGENT_SHELL")
+# the paths a patch adds, updates, deletes or moves to (host-adapter's PATCH_PATHS)
+PATCH = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
 TAG = re.compile(r"\[door:([^\]\s]*)\]")
 WRAPPERS = {"sudo", "doas", "env", "nohup", "time", "command", "exec", "nice", "timeout", "stdbuf", "caffeinate", "ionice"}
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh"}
@@ -698,15 +711,57 @@ def rel_path(cwd, path):
     return [x for x in (r, given, full) if not x.startswith("..")], (plug if not plug.startswith("..") else None)
 
 
+def input_of(tool, inp):
+    """The input the doors read. dsh hands a tool outside its built-ins (an MCP tool) its input as one JSON
+    string, {"arguments": "{…}", "workdir": …}: it is read as the object it encodes, so an input pattern
+    matches and a once-digest is the same as on a host that sends the object."""
+    inp = inp if isinstance(inp, dict) else {}
+    if tool not in ("Bash", "apply_patch") + EDITS and isinstance(inp.get("arguments"), str):
+        try:
+            args = json.loads(inp["arguments"])
+        except ValueError:
+            return inp
+        if isinstance(args, dict):
+            return args
+    return inp
+
+
+def written(tool, inp):
+    """The paths an edit writes: a Write's or an Edit's file, each file a patch adds, updates, deletes or
+    moves to (apply_patch: Codex's command, OpenCode's patchText), each judged as a Write to it."""
+    if tool in EDITS:
+        paths = [inp.get("file_path") or inp.get("notebook_path")]
+    elif tool == "apply_patch":
+        paths = [(a or b).strip() for k in ("command", "patchText") if isinstance(inp.get(k), str)
+                 for a, b in PATCH.findall(inp[k])]
+    else:
+        paths = []
+    return [x for x in paths if isinstance(x, str) and x]
+
+
+def workdir(inp):
+    """Where a Bash command starts: OpenCode and dsh run a bound worker's command in tool_input.workdir (the
+    payload's cwd stays the project, which still names the catalogue and the ledger) when it is an absolute
+    directory that exists; anywhere else the payload's cwd (""). Claude Code sends none."""
+    wd = inp.get("workdir")
+    if os.environ.get("AGENTIC_HOST") in ("opencode", "dsh") and isinstance(wd, str) and os.path.isabs(wd) \
+            and os.path.isdir(wd):
+        return wd
+    return ""
+
+
 def classify(cwd, tool, inp, cat=None, assume_when=False):
     """[door] the action crosses, in catalogue order (none: two-way)."""
     cat = cat or catalogue()
     default = re.compile("(?:%s)" % cat.get("default_branch", "main|master"))
     ctx = contexts(cwd, assume_when)
-    inp = inp if isinstance(inp, dict) else {}
-    vs = place(cwd, branches(cwd, views(str(inp.get("command", ""))))) if tool == "Bash" else []
-    path = inp.get("file_path") or inp.get("notebook_path") if tool in EDITS else None
-    proj_rel, plug_rel = rel_path(cwd, path) if isinstance(path, str) and path else ([], None)
+    inp = input_of(tool, inp)
+    vs = place(cwd, branches(cwd, views(str(inp.get("command", "")), 0, workdir(inp)))) if tool == "Bash" else []
+    proj_rel, plug_rel = [], []
+    for path in written(tool, inp):
+        rel, plug = rel_path(cwd, path)
+        proj_rel += rel
+        plug_rel += [plug] if plug else []
     out = []
     for d in cat["doors"]:
         if d["grant"] == "command":
@@ -715,7 +770,7 @@ def classify(cwd, tool, inp, cat=None, assume_when=False):
         hit = hit or any(t["tool"].search(tool) and all(isinstance(inp.get(k), str) and r.fullmatch(inp[k])
                                                         for k, r in t["input"].items()) for t in d["_tools"])
         hit = hit or any(r.search(x) for r in d["_paths"] for x in proj_rel)
-        hit = hit or bool(plug_rel and any(r.search(plug_rel) for r in d["_plugin_paths"]))
+        hit = hit or any(r.search(x) for r in d["_plugin_paths"] for x in plug_rel)
         if hit:
             out.append(d)
     return out
@@ -891,78 +946,109 @@ def deny(reason):
     return 0
 
 
+def worker_text(asked):
+    """A subagent has no question tool: it stops and hands the door to the supervisor, which asks."""
+    return ("You are a subagent with no question tool: do not ask; stop this step and report %s in your output, "
+            "so your supervisor asks the human." % ", ".join("ASK[door] %s" % d["id"] for d in asked))
+
+
 def hook(cwd_default):
     if os.environ.get("SKIP_HOOKS") == "1":
         return 0
-    payload = json.loads(sys.stdin.read() or "{}")
-    if not isinstance(payload, dict):
-        raise ValueError("the hook payload is not an object")
-    tool = payload.get("tool_name") or ""
-    if tool in QUIET:
-        return 0
-    cwd = payload.get("cwd") or cwd_default
-    if not os.path.isdir(cwd) or not os.path.isdir(_paths.docs(cwd)):
-        return 0      # not an aloop project
-    inp = payload.get("tool_input") if isinstance(payload.get("tool_input"), dict) else {}
-    session = payload.get("session_id") or ""
-    cat = catalogue()
-    if tool == QUESTION:
-        why = question_problem(cwd, inp, session, cat) if live_run(cwd, session) else None
-        return deny(why) if why else 0
-    with deadline(READ_SECONDS):
+    with deadline(READ_SECONDS) as end:     # the whole decision, its lock included: past it the gate fails closed
+        payload = json.loads(sys.stdin.read() or "{}")
+        if not isinstance(payload, dict):
+            raise ValueError("the hook payload is not an object")
+        tool = payload.get("tool_name") or ""
+        if tool in QUIET:
+            return 0
+        cwd = payload.get("cwd") or cwd_default
+        if not os.path.isdir(cwd) or not os.path.isdir(_paths.docs(cwd)):
+            return 0      # not an aloop project
+        inp = input_of(tool, payload.get("tool_input"))
+        session = payload.get("session_id") or ""
+        # the role that hit the door: a subagent's tool call names its agent (every host's payload)
+        who = {k: payload[k] for k in ("agent_id", "agent_type") if isinstance(payload.get(k), str) and payload[k]}
+        cat = catalogue()
+        if tool in QUESTIONS:
+            why = question_problem(cwd, inp, session, cat) if live_run(cwd, session) else None
+            return deny(why) if why else 0
         hits = classify(cwd, tool, inp, cat)
-    if not hits:
-        return 0
-    with serialized(cwd):       # check, then record: a once-authorization is crossed once
-        rc, lines, crossings = verdict(cwd, tool, inp, cat, hits)
-        sha = action_sha(tool, inp)
-        if rc:
-            for d in hits:
-                if d["grant"] in ("standing", "once") and not authorization(cwd, d, sha):
+        if not hits:
+            return 0
+        with serialized(cwd, end):       # check, then record: a once-authorization is crossed once
+            rc, lines, crossings = verdict(cwd, tool, inp, cat, hits)
+            sha = action_sha(tool, inp)
+            asked = [d for d in hits if d["grant"] in ("standing", "once") and not authorization(cwd, d, sha)] if rc else []
+            disarm()                     # decided: the records below are written whole, never cut by the alarm
+            if rc:
+                for d in asked:
                     M.emit(cwd, "door.denied", role="gate", door=d["id"], grant=d["grant"], action_sha256=sha, tool=tool,
-                           session_id=session)
-            return deny(" ".join(l for l in lines if not l.startswith("[door]")))
-        for d, row in crossings:
-            if row["data"].get("action_sha256"):   # a once-authorization is used up by its first crossing
-                M.record(cwd, "door.crossed", subject(d["id"]), "harness", door=d["id"], authorization=row["event_id"],
-                         action_sha256=sha, session_id=session)
-            else:
-                M.emit(cwd, "door.crossed", role="harness", door=d["id"], authorization=row["event_id"],
-                       action_sha256=sha, session_id=session)
+                           session_id=session, **who)
+                reason = " ".join(l for l in lines if not l.startswith("[door]"))
+                return deny(reason + (" " + worker_text(asked) if asked and "agent_type" in who else ""))
+            for d, row in crossings:
+                if row["data"].get("action_sha256"):   # a once-authorization is used up by its first crossing
+                    M.record(cwd, "door.crossed", subject(d["id"]), "harness", door=d["id"], authorization=row["event_id"],
+                             action_sha256=sha, session_id=session, **who)
+                else:
+                    M.emit(cwd, "door.crossed", role="harness", door=d["id"], authorization=row["event_id"],
+                           action_sha256=sha, session_id=session, **who)
     return 0
 
 
-READ_SECONDS = 8     # under the hook's own timeout (plugin/hooks/hooks.json: 15 s)
+READ_SECONDS = 8     # under the hook's own timeout (plugin/hooks/hooks.json, the OpenCode and dsh plugins: 15 s)
 
 
 @contextlib.contextmanager
 def deadline(seconds):
-    """A TimeoutError after `seconds` (POSIX): a gate that cannot read the action in time fails closed (exit 2)
-    before the host's hook timeout, which a host may treat as a non-blocking error, lets the call through."""
+    """A TimeoutError after `seconds` (POSIX); yields the monotonic time it ends at, which the lock waits for
+    too: a gate that cannot decide in time fails closed (exit 2) before the host's hook timeout, which a host
+    may treat as a non-blocking error, lets the call through."""
+    end = time.monotonic() + seconds
     if not hasattr(signal, "setitimer"):
-        yield
+        yield end
         return
 
     def stop(*_):
-        raise TimeoutError("the door gate could not read the action within %d s" % seconds)
+        raise TimeoutError("the door gate could not decide within %g s" % seconds)
     old = signal.signal(signal.SIGALRM, stop)
     signal.setitimer(signal.ITIMER_REAL, seconds)
     try:
-        yield
+        yield end
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, old)
 
 
+def disarm():
+    """Stop the deadline's alarm once the decision is made."""
+    if hasattr(signal, "setitimer"):
+        signal.setitimer(signal.ITIMER_REAL, 0)
+
+
 @contextlib.contextmanager
-def serialized(cwd):
-    """One door decision at a time per project (an exclusive lock on .aladdin/state/doors.lock)."""
+def serialized(cwd, end):
+    """One door decision at a time per project (an exclusive lock on .aladdin/state/doors.lock), waited for
+    until the decision's deadline `end` (time.monotonic()), never forever: a lock another gate holds past
+    it fails closed."""
     if fcntl is None:
         yield
         return
-    fd = os.open(os.path.join(_paths.home(cwd, "state"), "doors.lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    path = os.path.join(_paths.home(cwd, "state"), "doors.lock")
+    fd = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= end:
+                        raise TimeoutError from None
+                    time.sleep(0.02)
+        except TimeoutError:            # the poll's own deadline, or the alarm's
+            raise TimeoutError("another door gate held %s past this decision's deadline" % M.rel(cwd, path)) from None
         yield
     finally:
         os.close(fd)
@@ -1043,6 +1129,7 @@ def cmd_classify(cwd, o):
     else:
         print("mission doors classify (--bash CMD | --tool NAME [--input JSON] [--path P])", file=sys.stderr)
         return 64
+    inp = input_of(tool, inp)       # as the hook reads it, so the digest it prints is the hook's
     rc, lines, _ = verdict(cwd, tool, inp)
     if o.get("json"):
         print(json.dumps({"exit": rc, "doors": [d["id"] for d in classify(cwd, tool, inp)], "lines": lines,

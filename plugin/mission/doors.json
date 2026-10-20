@@ -24,9 +24,9 @@
     }
    ],
    "tools": [
-    "^mcp__github__(?:merge_pull_request|enable_pr_auto_merge)$",
+    "^(?:mcp__github__|github_)(?:merge_pull_request|enable_pr_auto_merge)$",
     {
-     "tool": "^mcp__github__(?:push_files|create_or_update_file|delete_file)$",
+     "tool": "^(?:mcp__github__|github_)(?:push_files|create_or_update_file|delete_file)$",
      "input": {
       "branch": "{DEF}"
      }
@@ -47,7 +47,9 @@
      "git push origin HEAD"
     ],
     "tools": [
-     "mcp__github__merge_pull_request"
+     "mcp__github__merge_pull_request",
+     "github_merge_pull_request",
+     "github_enable_pr_auto_merge"
     ]
    }
   },
@@ -223,7 +225,7 @@
     }
    ],
    "tools": [
-    "(?i)^mcp__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)\\w*?__(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)_)?(?:send|reply|forward|post|chat_post)\\w*$"
+    "(?i)^(?:mcp__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)\\w*?__|(?!mcp__)\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)[A-Za-z0-9-]*_)(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)_)?(?:send|reply|forward|post|chat_post)\\w*$"
    ],
    "examples": {
     "bash": [
@@ -233,7 +235,10 @@
      "mcp__Gmail__send_message",
      "mcp__slack__post_message",
      "mcp__slack__slack_post_message",
-     "mcp__slack__slack_reply_to_thread"
+     "mcp__slack__slack_reply_to_thread",
+     "Gmail_send_message",
+     "slack_slack_post_message",
+     "slack_post_message"
     ]
    }
   },
@@ -355,7 +360,7 @@
     }
    ],
    "tools": [
-    "(?i)^mcp__\\w*?__(?:share_file|share|add_permission|create_permission)$"
+    "(?i)^(?:mcp__\\w*?__|(?!mcp__)\\w+?_)(?:share_file|share|add_permission|create_permission)$"
    ],
    "examples": {
     "bash": [
@@ -363,7 +368,8 @@
      "gh gist create --public a.txt"
     ],
     "tools": [
-     "mcp__Google_Drive__share_file"
+     "mcp__Google_Drive__share_file",
+     "Google_Drive_share_file"
     ]
    }
   },
@@ -413,16 +419,23 @@
    "why": "settings and gates decide what every later step may do",
    "paths": [
     "(?:^|/)\\.claude/settings(?:\\.local)?\\.json$",
-    "(?:^|/)\\.codex/config\\.toml$"
+    "(?:^|/)\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)$",
+    "(?:^|/)(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js$",
+    "(?:^|/)opencode\\.jsonc?$",
+    "(?:^|/)\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json)$"
    ],
    "plugin_paths": [
     "^hooks/hooks\\.json$",
-    "^bin/(?:gate-[^/]+|_failclosed\\.sh|_gatelib\\.sh)$",
+    "^bin/(?:gate-[^/]+|_failclosed\\.sh|_gatelib\\.sh|host-adapter|install)$",
+    "^hosts/(?:opencode/aloop\\.js|dsh/aloop\\.mjs)$",
     "^mission/doors\\.(?:json|py)$"
    ],
    "bash": [
     {
      "writes": "(?:^|/)\\.claude/settings(?:\\.local)?\\.json$"
+    },
+    {
+     "writes": "(?:^|/)(?:\\.codex/(?:config\\.toml|hooks\\.json|agents/[^/]+\\.toml)|(?:\\.opencode|\\.config/opencode)/plugins/aloop\\.js|opencode\\.jsonc?|\\.dsh/profiles/[^/]+/(?:cordis\\.patch\\.yml|package\\.json))$"
     },
     {
      "prog": "git",
@@ -438,10 +451,22 @@
      ".claude/settings.json",
      ".claude/settings.local.json",
      "~/.claude/settings.json",
-     "home/wt/.claude/settings.local.json"
+     "home/wt/.claude/settings.local.json",
+     ".codex/config.toml",
+     ".codex/hooks.json",
+     "~/.codex/agents/red-worker.toml",
+     ".opencode/plugins/aloop.js",
+     "~/.config/opencode/plugins/aloop.js",
+     ".opencode/opencode.json",
+     "opencode.jsonc",
+     "~/.dsh/profiles/aloop/cordis.patch.yml",
+     "~/.dsh/profiles/aloop/package.json"
     ],
     "bash": [
      "echo '{}' > .claude/settings.json",
+     "echo '{}' > opencode.json",
+     "cat x >> .codex/hooks.json",
+     "printf x | tee ~/.dsh/profiles/aloop/cordis.patch.yml",
      "git config core.hooksPath /dev/null",
      "git config --unset core.hooksPath"
     ]
@@ -708,19 +733,33 @@
    "gh secret set TOKEN --help",
    "perl -Ilib -ne 'print if /door/' .aladdin/logs/events.jsonl",
    "gcloud functions describe deploy-notifier --region=us-central1",
-   "python3 -c \"import _mission as M; print(len(M.records('.', 'door.authorized')))\""
+   "python3 -c \"import _mission as M; print(len(M.records('.', 'door.authorized')))\"",
+   "cat .codex/config.toml",
+   "jq . opencode.json",
+   "cat ~/.dsh/profiles/aloop/cordis.patch.yml",
+   "cat plugin/hosts/opencode/aloop.js"
   ],
   "tools": [
    "Read",
    "mcp__github__create_pull_request",
    "mcp__github__push_files",
-   "mcp__slack__slack_list_channels"
+   "mcp__slack__slack_list_channels",
+   "github_create_pull_request",
+   "github_push_files",
+   "slack_slack_list_channels",
+   "Gmail_search_threads",
+   "slack_get_post_history",
+   "mcp__drive__get_share"
   ],
   "paths": [
    "src/a.py",
    "docs/agents/mission/research/x.json",
    "README.md",
-   "src/mission/ledger.jsonl"
+   "src/mission/ledger.jsonl",
+   ".codex/notes.md",
+   ".dsh/skills/aloop-mission/SKILL.md",
+   "docs/codex/config.toml",
+   "src/opencode.ts"
   ]
  }
 }

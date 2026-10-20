@@ -8,12 +8,17 @@ hooks, forging a human record) is never crossed by an agent. While a run is live
 the human must name a one-way door the gate stopped and the human has not authorized.
     python3 scripts/test/mission-doors.test.py
 """
+import contextlib
+import fcntl
 import hashlib
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import threading
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
 from mission_fixture import Project, M, BIN  # noqa: E402
@@ -25,6 +30,8 @@ import doors as D  # noqa: E402
 EVENTS = os.path.join(BIN, "events")
 PASS = [0]
 GENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+for k in ("DSH_SHELL", "CODEX_THREAD_ID", "ALOOP_AGENT_SHELL"):
+    os.environ.pop(k, None)     # the human's own terminal: no agent host's shell may authorize a door
 
 
 def ok(name):
@@ -36,9 +43,9 @@ def classify(p, cmd):
     return p.run("doors", "classify", "--bash", cmd)
 
 
-def hook(p, tool, inp, session="s1", cwd=None, env=None):
-    payload = {"tool_name": tool, "tool_input": inp, "cwd": cwd or p.dir, "session_id": session,
-               "hook_event_name": "PreToolUse"}
+def hook(p, tool, inp, session="s1", cwd=None, env=None, **extra):
+    payload = dict({"tool_name": tool, "tool_input": inp, "cwd": cwd or p.dir, "session_id": session,
+                    "hook_event_name": "PreToolUse"}, **extra)
     return subprocess.run([os.path.join(BIN, "mission"), "doors", "hook"], input=json.dumps(payload), cwd=cwd or p.dir,
                           env=dict(p.env, **(env or {})), capture_output=True, text=True)
 
@@ -680,7 +687,169 @@ shutil.rmtree(f.dir, ignore_errors=True)
 ok("round 3: [[ ]] and heredoc delimiters, subshell pipes, stdin order, arithmetic fallbacks, entry points, placed paths, "
    "branch switches; reads pass")
 
-# 21) list and the area's docstring
+# 21) M9.31: the door rule on every host and role. Codex asks with request_user_input; a patch (Codex's
+#     apply_patch command, OpenCode's patchText) is judged path by path as a Write; dsh hands an MCP tool
+#     its input as one JSON string and OpenCode names it <server>_<tool>; OpenCode and dsh send a bound
+#     worker's directory as tool_input.workdir; every agent host's shell is refused by authorize; the
+#     role that hit a door is recorded and a worker reports the ASK; the whole decision has one deadline
+def ask_as(tool, text):
+    return hook(p, tool, {"questions": [{"id": "q", "header": "h", "question": text, "options": []}]})
+
+
+for tool in ("request_user_input", "request_user_input_async"):
+    assert "two-way" in denied(ask_as(tool, "Should I name the helper parse_row or parse_line?")), tool
+    assert "unknown door" in denied(ask_as(tool, "[door:nope] ?")), tool
+    assert ask_as(tool, "[door:change-intent] The goal says X but the code needs Y: change the intent?").stdout == ""
+assert D.QUESTIONS == ("AskUserQuestion", "request_user_input", "request_user_input_async")
+ok("questions: Codex's request_user_input is the question tool too (a two-way question is decided, not asked)")
+
+
+def patch(*lines):
+    return "*** Begin Patch\n" + "\n".join(lines) + "\n*** End Patch\n"
+
+
+assert "ASK[door] change-agent-settings" in denied(hook(p, "apply_patch", {"command": patch("*** Add File: .claude/settings.json", "+{}")}))
+assert "BLOCK[door] forge-human-record" in denied(hook(p, "apply_patch", {"patchText": patch(
+    "*** Update File: docs/agents/mission/ledger.jsonl", "@@", "-a", "+b")}))
+assert hook(p, "apply_patch", {"command": patch("*** Update File: src/x.py", "@@", "-a", "+b")}).stdout == ""
+assert hook(p, "apply_patch", {"patchText": patch("*** Add File: src/y.py", "+*** Add File: .claude/settings.json")}).stdout == ""
+assert "change-agent-settings" in denied(hook(p, "apply_patch", {"command": patch(
+    "*** Update File: src/x.py", "*** Move to: .codex/config.toml", "@@", "-a", "+b")}))
+assert "forge-human-record" in denied(hook(p, "apply_patch", {"command": patch(
+    "*** Add File: src/z.py", "+x", "*** Delete File: %s" % os.path.join(wt, "docs/agents/mission/ledger.jsonl"))}))
+ok("apply_patch (Codex command, OpenCode patchText): each added, updated, deleted or moved path is judged as a Write")
+
+
+def ids(tool, inp, cwd=None):
+    return [d["id"] for d in D.classify(cwd or p.dir, tool, inp, CAT)]
+
+
+pushed = {"owner": "o", "repo": "r", "branch": "main", "files": [{"path": "a", "content": "b"}], "message": "m"}
+dsh_push = {"arguments": json.dumps(pushed), "workdir": p.dir}
+assert ids("mcp__github__push_files", dsh_push) == ids("mcp__github__push_files", pushed) == ["push-default-branch"]
+assert ids("mcp__github__push_files", {"arguments": json.dumps(dict(pushed, branch="feat")), "workdir": p.dir}) == []
+assert ids("mcp__github__push_files", {"arguments": "[1]"}) == ids("mcp__github__push_files", {"arguments": "{"}) == []
+shared = {"fileId": "f1", "role": "writer", "type": "anyone"}
+r = denied(hook(p, "mcp__Google_Drive__share_file", {"arguments": json.dumps(shared), "workdir": p.dir}))
+assert "ASK[door] visibility-or-sharing" in r and "--once %s" % D.action_sha("mcp__Google_Drive__share_file", shared) in r, r
+for tool, inp, want in (("github_merge_pull_request", {"pullNumber": 1}, ["push-default-branch"]),
+                        ("github_enable_pr_auto_merge", {}, ["push-default-branch"]),
+                        ("github_push_files", pushed, ["push-default-branch"]), ("github_push_files", dict(pushed, branch="feat"), []),
+                        ("Gmail_send_message", {}, ["send-external-message"]),
+                        ("slack_slack_post_message", {}, ["send-external-message"]),
+                        ("Google_Drive_share_file", {}, ["visibility-or-sharing"]),
+                        ("github_create_pull_request", {}, []), ("slack_slack_list_channels", {}, []),
+                        ("Gmail_search_threads", {}, []), ("slack_get_post_history", {}, []),
+                        ("mcp__drive__get_share", {}, [])):
+    assert ids(tool, inp) == want, (tool, ids(tool, inp))
+ok("MCP: dsh's {arguments: JSON} input and OpenCode's <server>_<tool> names cross the same doors (and the same once digest)")
+
+g = Project(mode="spoon-fed")
+subprocess.run(["git", "branch", "-M", "main"], cwd=g.dir, check=True)
+subprocess.run(["git", "add", "-A"], cwd=g.dir, check=True)
+subprocess.run(["git", "commit", "-qm", "seed"], cwd=g.dir, env=dict(g.env, **GENV), check=True)
+gwt = os.path.join(g.dir, "home", "feat-wt")
+subprocess.run(["git", "worktree", "add", "-q", gwt, "-b", "feat"], cwd=g.dir, check=True)
+push = {"command": "git push origin HEAD", "workdir": gwt}
+assert "ASK[door] push-default-branch" in denied(hook(g, "Bash", push))      # Claude Code sends no workdir: ignored
+for host in ("opencode", "dsh"):
+    on = {"AGENTIC_HOST": host}
+    assert hook(g, "Bash", push, env=on).stdout == "", host                  # the worker's own branch: two-way
+    assert hook(g, "Bash", {"command": "git reset --hard", "workdir": gwt}, env=on).stdout == "", host
+    assert "push-default-branch" in denied(hook(g, "Bash", dict(push, workdir=g.dir), env=on))
+    assert "discard-local-work" in denied(hook(g, "Bash", {"command": "git reset --hard", "workdir": g.dir}, env=on))
+for wd in ("home/feat-wt", os.path.join(g.dir, "gone"), 7):                  # not absolute, not there: the cwd decides
+    assert "push-default-branch" in denied(hook(g, "Bash", dict(push, workdir=wd), env={"AGENTIC_HOST": "dsh"})), wd
+assert "push-default-branch" in denied(hook(g, "Bash", push, env={"AGENTIC_HOST": "codex"}))
+ok("OpenCode and dsh: a bound worker's tool_input.workdir is where its command runs (its branch, its worktree)")
+
+ledger_before = open(M.ledger(p.dir)).read()
+for var, val in (("DSH_SHELL", "1"), ("CODEX_THREAD_ID", "x"), ("ALOOP_AGENT_SHELL", "1"), ("CLAUDECODE", "1")):
+    for verb in ("authorize", "revoke"):
+        r = subprocess.run([os.path.join(BIN, "mission"), "doors", verb, "production-deploy", "--by", "Adeel", "--reason", "r"],
+                           cwd=p.dir, env=dict(p.env, **{var: val}), capture_output=True, text=True)
+        assert r.returncode == 2 and "own terminal" in r.stderr and var in r.stderr, (var, verb, r.returncode, r.stderr)
+assert open(M.ledger(p.dir)).read() == ledger_before
+assert D.AGENT_SHELL == ("CLAUDECODE", "DSH_SHELL", "CODEX_THREAD_ID", "ALOOP_AGENT_SHELL")
+ok("authorize and revoke refuse every agent host's shell (Claude Code, dsh, Codex, OpenCode) and write nothing")
+
+worker = {"agent_id": "a-7", "agent_type": "aloop:green-worker"}
+r = denied(hook(p, "Bash", {"command": "terraform apply"}, **worker))
+assert "ASK[door] production-deploy" in r and "report ASK[door] production-deploy" in r and "supervisor" in r, r
+ev = p.events("door.denied")[-1]                                           # the event's own agent (ids.agent), its type
+assert (ev["data"]["door"], ev["agent_id"], ev["ids"]["agent"], ev["data"]["agent_type"]) == \
+    ("production-deploy", "a-7", "a-7", "aloop:green-worker"), ev
+r = denied(hook(p, "Bash", {"command": "terraform apply"}))                  # the main thread asks the human itself
+ev = p.events("door.denied")[-1]
+assert "supervisor" not in r and ev["agent_id"] == "" and "agent_type" not in ev["data"], (r, ev)
+assert "report ASK" not in denied(hook(p, "Bash", {"command": "git commit --no-verify -m x"}, **worker))   # a wall: nothing to ask
+assert hook(p, "Bash", {"command": "git push origin main"}, **worker).stdout == ""      # standing, authorized above
+ev = p.events("door.crossed")[-1]
+assert (ev["data"]["door"], ev["agent_id"], ev["data"]["agent_type"]) == ("push-default-branch", "a-7", "aloop:green-worker"), ev
+assert p.run("doors", "authorize", "credentials-and-secrets", "--by", "Adeel", "--reason", "rotate", "--once",
+             D.action_sha("Bash", {"command": "gh secret set W"})).returncode == 0
+assert hook(p, "Bash", {"command": "gh secret set W"}, **worker).stdout == ""
+x = M.records(p.dir, "door.crossed", "door:credentials-and-secrets")[-1]["data"]
+assert (x["agent_id"], x["agent_type"]) == ("a-7", "aloop:green-worker") and M.ledger_problems(p.dir) == [], x
+ok("roles: door.denied and door.crossed name the agent; a worker is told to stop and report ASK[door] to its supervisor")
+
+stopping = json.dumps({"tool_name": "Bash", "tool_input": {"command": "terraform apply"}, "cwd": p.dir, "session_id": "s1",
+                       "hook_event_name": "PreToolUse"})
+
+
+def hook_in(payload, seconds=1):
+    """The hook in this process, with a short deadline: (exit, stdout, stderr, seconds taken)."""
+    real, stdin = D.READ_SECONDS, sys.stdin
+    D.READ_SECONDS, sys.stdin = seconds, io.StringIO(payload)
+    out, err, t0 = io.StringIO(), io.StringIO(), time.time()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = D.main(["hook"], p.dir)
+    finally:
+        D.READ_SECONDS, sys.stdin = real, stdin
+    return rc, out.getvalue(), err.getvalue(), time.time() - t0
+
+
+held = os.open(os.path.join(D._paths.home(p.dir, "state"), "doors.lock"), os.O_RDWR | os.O_CREAT, 0o644)
+fcntl.flock(held, fcntl.LOCK_EX)                     # another gate holds the lock (and never lets go)
+watchdog = threading.Timer(10, fcntl.flock, (held, fcntl.LOCK_UN))     # so a gate that blocks fails here, not hangs
+watchdog.start()
+n = len(p.events("door.denied"))
+try:
+    rc, out, err, took = hook_in(stopping)
+finally:
+    watchdog.cancel()
+    os.close(held)
+assert rc == 2 and out == "" and "BLOCK[doors]" in err and "doors.lock" in err and took < 3, (rc, out, err, took)
+assert len(p.events("door.denied")) == n                                    # nothing decided, nothing recorded
+rc, out, err, took = hook_in(stopping)
+assert rc == 0 and "ASK[door] production-deploy" in out, (rc, out, err)
+real_verdict = D.verdict
+D.verdict = lambda *a, **k: time.sleep(10)          # a decision that hangs past classify
+try:
+    rc, out, err, took = hook_in(stopping)
+finally:
+    D.verdict = real_verdict
+assert rc == 2 and out == "" and "BLOCK[doors]" in err and took < 3, (rc, out, err, took)
+ok("deadline: one deadline covers the whole decision; a held doors.lock or a hung verdict is exit 2 within it, never a hang")
+
+for x in ("hosts/opencode/aloop.js", "hosts/dsh/aloop.mjs", "bin/host-adapter", "bin/install"):
+    assert ids("Write", {"file_path": os.path.join(D.PLUGIN, x)}) == ["change-agent-settings"], x
+    assert ids("apply_patch", {"command": patch("*** Update File: %s" % os.path.join(D.PLUGIN, x))}) == ["change-agent-settings"]
+for x in (".codex/hooks.json", ".codex/config.toml", "~/.codex/agents/red-worker.toml", ".opencode/plugins/aloop.js",
+          ".opencode/opencode.jsonc", "opencode.json", "~/.config/opencode/plugins/aloop.js",
+          "~/.dsh/profiles/aloop/cordis.patch.yml", "~/.dsh/profiles/aloop/package.json"):
+    assert "change-agent-settings" in denied(hook(p, "Write", {"file_path": x, "content": "{}"})), x
+assert ids("Write", {"file_path": os.path.join(D.PLUGIN, "bin", "README.md")}) == []
+for cmd in ("echo '{}' > opencode.json", "cat x >> .codex/hooks.json", "printf x | tee ~/.dsh/profiles/aloop/cordis.patch.yml"):
+    assert "change-agent-settings" in doors_of(cmd), cmd
+for cmd in ("cat .codex/config.toml", "jq . opencode.json", "cat ~/.dsh/profiles/aloop/cordis.patch.yml"):
+    assert doors_of(cmd) == [], cmd
+assert p.run("doors", "check").returncode == 0
+ok("settings: every host's settings and hooks and aloop's own host adapters are one-way; reading them is two-way")
+shutil.rmtree(g.dir, ignore_errors=True)
+
+# 22) list and the area's docstring
 r = p.run("doors", "list", "--json")
 lst = json.loads(r.stdout)
 pd = next(d for d in lst["doors"] if d["id"] == "publish-release")
