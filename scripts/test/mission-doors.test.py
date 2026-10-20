@@ -729,6 +729,18 @@ dsh_push = {"arguments": json.dumps(pushed), "workdir": p.dir}
 assert ids("mcp__github__push_files", dsh_push) == ids("mcp__github__push_files", pushed) == ["push-default-branch"]
 assert ids("mcp__github__push_files", {"arguments": json.dumps(dict(pushed, branch="feat")), "workdir": p.dir}) == []
 assert ids("mcp__github__push_files", {"arguments": "[1]"}) == ids("mcp__github__push_files", {"arguments": "{"}) == []
+# an `arguments` string beside the real fields is one more field the tool gets, not the input: it hides nothing
+spoof = dict(pushed, arguments=json.dumps(dict(pushed, branch="feat")))
+assert ids("mcp__github__push_files", spoof) == ["push-default-branch"], ids("mcp__github__push_files", spoof)
+fresh = Project()                                              # p authorized push-default-branch above
+assert "ASK[door] push-default-branch" in denied(hook(fresh, "mcp__github__push_files", spoof))
+# dsh's object shape keeps a model's own `arguments` key as the whole object: decoded once, never twice
+whole = dict(spoof, arguments=json.dumps(spoof), workdir=fresh.dir)
+assert "ASK[door] push-default-branch" in denied(hook(fresh, "mcp__github__push_files", whole))
+shutil.rmtree(fresh.dir, ignore_errors=True)
+nested = {"arguments": json.dumps({"arguments": json.dumps(pushed)}), "workdir": p.dir}   # the tool gets {arguments: "…"}
+assert D.input_of("mcp__github__push_files", nested) == {"arguments": json.dumps(pushed)}
+assert D.input_of("mcp__github__push_files", D.input_of("mcp__github__push_files", nested)) == {"arguments": json.dumps(pushed)}
 shared = {"fileId": "f1", "role": "writer", "type": "anyone"}
 r = denied(hook(p, "mcp__Google_Drive__share_file", {"arguments": json.dumps(shared), "workdir": p.dir}))
 assert "ASK[door] visibility-or-sharing" in r and "--once %s" % D.action_sha("mcp__Google_Drive__share_file", shared) in r, r

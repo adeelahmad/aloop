@@ -711,19 +711,29 @@ def rel_path(cwd, path):
     return [x for x in (r, given, full) if not x.startswith("..")], (plug if not plug.startswith("..") else None)
 
 
+class Read(dict):
+    """An input input_of already read: reading it again would decode a nested `arguments` string the tool
+    itself gets as a string."""
+
+
 def input_of(tool, inp):
     """The input the doors read. dsh hands a tool outside its built-ins (an MCP tool) its input as one JSON
     string, {"arguments": "{…}", "workdir": …}: it is read as the object it encodes, so an input pattern
-    matches and a once-digest is the same as on a host that sends the object."""
+    matches and a once-digest is the same as on a host that sends the object. Only that exact shape is
+    decoded: an `arguments` string beside other fields is one more field the tool gets, and reading it as
+    the input would hide the real ones (`branch: main` beside `arguments: '{"branch": "x"}'`)."""
+    if isinstance(inp, Read):
+        return inp
     inp = inp if isinstance(inp, dict) else {}
-    if tool not in ("Bash", "apply_patch") + EDITS and isinstance(inp.get("arguments"), str):
+    if (tool not in ("Bash", "apply_patch") + EDITS and isinstance(inp.get("arguments"), str)
+            and set(inp) <= {"arguments", "workdir"}):
         try:
             args = json.loads(inp["arguments"])
         except ValueError:
-            return inp
+            return Read(inp)
         if isinstance(args, dict):
-            return args
-    return inp
+            return Read(args)
+    return Read(inp)
 
 
 def written(tool, inp):

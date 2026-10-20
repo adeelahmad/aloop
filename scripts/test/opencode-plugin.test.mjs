@@ -52,12 +52,6 @@ const hooks = await AgenticAgile({ client, directory: T, worktree: T, project: {
 let pass = 0
 const ok = (name) => { pass++; console.log("ok -", name) }
 const throws = async (fn, re, name) => { await assert.rejects(fn, re); ok(name) }
-// expected red until another part of M9.31 lands (the door gate's side): reported, not counted, never fails the run
-let todo = 0
-const pending = async (name, until, fn) => {
-  try { await fn(); console.log(`ok - ${name} # TODO passes now: make it a hard check`) }
-  catch { todo++; console.log(`not ok - ${name} # TODO expected red until ${until}`) }
-}
 const CORE = "Core principles (every aloop agent):"     // the core block's head (mission principles show --core)
 const count = (s, x) => s.split(x).length - 1
 const systemOf = async (h, sessionID) => {
@@ -129,8 +123,8 @@ await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "child", ca
 assert.ok(patchArgs.patchText.includes(`*** Add File: ${join(wt, "src/lib.rs")}`)); ok("patch paths rewritten into the worktree")
 // the door gate reads a bound worker's command where it runs (tool_input.workdir, its worktree): a reset
 // there is two-way, the same reset in the main checkout (above) is not
-await pending("doors: a bound worker's reset in its own worktree is two-way", "the gate reads tool_input.workdir (C2)",
-  () => hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "d5" }, { args: { command: "git reset --hard" } }))
+await hooks["tool.execute.before"]({ tool: "bash", sessionID: "child", callID: "d5" }, { args: { command: "git reset --hard" } })
+ok("doors: a bound worker's reset in its own worktree is two-way")
 
 // token ledger + time box: usage recorded per assistant message; soft token telemetry then hard stop
 const usage = (id, input, output) => ({ type: "message.updated", properties: { info: {
@@ -277,10 +271,9 @@ assert.ok(/door gate/.test(g.err?.message), g.err?.message); ok("doors: a door g
 // cannot authorize a door
 const agentEnv = { ...process.env, ALOOP_AGENT_SHELL: envOut.env.ALOOP_AGENT_SHELL, AGENTIC_HOST: envOut.env.AGENTIC_HOST }
 for (const k of ["CLAUDECODE", "DSH_SHELL", "CODEX_THREAD_ID"]) delete agentEnv[k]
-await pending("doors: `mission doors authorize` refuses the agent's OpenCode shell", "authorize reads ALOOP_AGENT_SHELL (C3)", () => {
-  const a = spawnSync(join(BIN, "aloop"), ["mission", "doors", "authorize", "publish-release", "--by", "x", "--reason", "r"],
-    { cwd: T, env: agentEnv, encoding: "utf8" })
-  assert.ok(a.status === 2 && /agent session/.test(a.stderr), a.stderr)
-})
+const a = spawnSync(join(BIN, "aloop"), ["mission", "doors", "authorize", "publish-release", "--by", "x", "--reason", "r"],
+  { cwd: T, env: agentEnv, encoding: "utf8" })
+assert.ok(a.status === 2 && /agent session/.test(a.stderr), a.stderr)
+ok("doors: `mission doors authorize` refuses the agent's OpenCode shell")
 
-console.log(`\n${pass} checks passed${todo ? `, ${todo} expected red (TODO)` : ""}`)
+console.log(`\n${pass} checks passed`)
