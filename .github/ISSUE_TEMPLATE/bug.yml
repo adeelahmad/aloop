@@ -1,0 +1,39 @@
+name: Bug report
+description: A gate blocked something it should not have, let through something it should have blocked, or a tool misbehaved.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The smallest steps, ideally a failing `scripts/test/*.test.py` case or the gate's BLOCK line.
+      render: shell
+    validations:
+      required: true
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      options: [Claude Code, Codex, OpenCode, Other]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: aloop version
+      description: "The plugin version shown in `/plugin`, or `version` in `plugin/.claude-plugin/plugin.json`"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Gate log
+      description: The relevant lines of `.aladdin/logs/gates.jsonl` (or `.agentic/logs/gates.jsonl`).
+      render: json

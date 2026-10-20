@@ -60,9 +60,10 @@ for claim in re.findall(r"(\d+m\d+s) for (\$\d+\.\d+)", html):
 ok("every time/cost number on the page is one ROADMAP §0 records")
 
 readme = open(os.path.join(ROOT, "README.md")).read()
-for anchor in re.findall(r"agentic-agile#([\w-]+)", html):
+for anchor in re.findall(r"adeelahmad/(?:aloop|agentic-agile)#([\w-]+)", html):
     slug = anchor
     assert any(re.sub(r"[^\w\s-]", "", h).strip().lower().replace(" ", "-") == slug for h in re.findall(r"^##+ (.+)$", readme, re.M)), anchor
+assert re.findall(r"adeelahmad/(?:aloop|agentic-agile)#([\w-]+)", html), "the page links the README install section"
 ok("README anchors the page links to exist")
 
 print("\n%d checks passed" % PASS[0])

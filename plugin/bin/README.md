@@ -1,7 +1,8 @@
 # bin/ — gate scripts & tools
 
-Gates are bash, invoked by hooks (`hooks/hooks.json`) by `agent_type`; the agent
-never calls them directly. Shared helpers live in `_gatelib.sh`.
+Gates are bash (`gate-commit-author` is Python). The hook-wired ones are invoked by hooks
+(`hooks/hooks.json`) by `agent_type`; the agent never calls them directly. Shared helpers live in
+`_gatelib.sh`.
 
 ## Exit-code convention (gates)
 - `0`  PASS (allow the event)
@@ -35,8 +36,8 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 | gate-final                | SubagentStop · final-gate   | full matrix; zero suppressions; all plan-ready ticked | matrix red / suppression / unticked |
 | gate-standards-cited      | SubagentStop · standards    | standards.md citations resolve | dangling citation |
 | gate-stage2-complete      | supervisor self-check + SubagentStop · planner | the sprint is in `docs/agents/sprintN/`, never the run-data dir; every story Stage-2 valid; no TBW; sprint self-contained (no later-sprint story IDs, no work deferred to a later sprint); verdicts logged like every gate, and the stuck release covers the planner (3 identical blocks → stop released unverified, marker `state/stuck/plan-sprintN.<agent>`) | incomplete or spilling planning |
-| gate-plan-shape           | called by gates             | each plan checkbox carries `path::fn` | malformed plan |
-| gate-ledger-format        | called by gates             | execution.log line shape | malformed ledger |
+| gate-plan-shape           | standalone (not hook-wired) | each plan checkbox carries `path::fn` | malformed plan |
+| gate-ledger-format        | standalone (not hook-wired) | execution.log line shape | malformed ledger |
 
 ## Tools
 | script | purpose |

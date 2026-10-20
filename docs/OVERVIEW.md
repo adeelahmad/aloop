@@ -74,7 +74,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 | 9 roles | [`plugin/agents/`](../plugin/agents/) | `archivist`, `intake`, `standards`, `planner` (Opus) · `red-worker`, `scaffolder`, `green-worker`, `structural-reviewer`, `final-gate` (Sonnet) |
 | Pipeline source | [`plugin/pipeline/`](../plugin/pipeline/) | Per activity: `persona.md`, `init.template.md`, `artifacts.md`, `gate.md` |
 | Hook wiring | [`plugin/hooks/hooks.json`](../plugin/hooks/hooks.json) | SessionStart, PreToolUse, PostToolUse, SubagentStart/Stop, Stop, UserPromptSubmit (transcript capture and the natural-language auto-trigger, `intent-trigger`) |
-| Gates | [`plugin/bin/gate-*`](../plugin/bin/README.md) | 15 bash gates; exit `0` pass, `2` block with reason |
+| Gates | [`plugin/bin/gate-*`](../plugin/bin/README.md) | 16 gates (15 bash, `gate-commit-author` in Python), 14 wired to hooks (`gate-plan-shape` and `gate-ledger-format` are standalone checkers); exit `0` pass, `2` block with reason |
 | Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `aladdin` / `aloop` (entry points), `intent`, `budget` (time box, envelope, breach classes), `sweep` (the orchestrator loop), `targets` (semantic plan, shadow workspace, render), `ids`, `events` (audit stream, lineage, trace), `stats` (ledger, metrics, handoff), `models` / `host` / `config` (routes, HostAdapter, portable config), `transcripts`, `intent-trigger` (natural-language auto-trigger), `run-summary` (a live run's measured record for `docs/evidence/`), `install`, `aloop-init`, worktree helpers |
 | Schemas | [`plugin/schemas/*.kdl`](../plugin/schemas/) | What `md-db validate` enforces on every planning and comms artifact |
 | `ctx-symbols` | [`plugin/tools/ctx-symbols/`](../plugin/tools/ctx-symbols/) | Rust, tree-sitter symbol resolver (Rust, Python, JS/TS, Go): count, locate, conflicts |
@@ -112,12 +112,15 @@ The model can ignore a skill; it cannot ignore an exit code.
   --strict`, eval-suite and version-lockstep checks,
   the tracking check and `host check`, plus the newer suites (targets render, host swap,
   metrics, config, the aladdin CLI, the site).
-- The north-star run, `make e2e-live YES=1 [INTENT=wordfreq] [HOST=codex|opencode]`: a one-line intent becomes
+- The north-star run, `make e2e-live YES=1 [INTENT=<intent>] [HOST=codex|opencode]`: a one-line intent becomes
   planned, test-first, gate-verified, merged code in a real Claude Code session with the
-  approval given up front. Two intents pass every check (semver parser: 11/11, ~$0.65–1.15,
-  11–19 min; word frequencies with two dependent stories: 13/13, $0.79–1.56, 13–45 min; the last three runs $0.95–1.03, 1–6 supervisor wakes, 0–5 plugin-source reads,
-  every merged commit traced to its task by `events trace`). Every run so far has found a gate false positive or a
-  dead path that unit tests missed; ROADMAP M0.8 lists them.
+  approval given up front. Eight intents pass every check: a Rust semver parser, a two-story
+  word-frequency tool, Python `slugify`, Go `roman`, JS `camel`, two brownfield changes to a
+  tested crate (`extend`, `modify`) and a `cli` binary. The latest passing run of each took
+  6m45s–15m19s and $0.56–1.04 (runs 34–47), with every merged commit traced to its task by
+  `events trace`; each of these runs, and every public figure, is a row with its reproduce command
+  in [docs/evidence/README.md](evidence/README.md). Every run so far has found a gate false positive
+  or a dead path that unit tests missed; ROADMAP M0.8 (runs 1–35) and M8 (from run 36) list them.
 - One measured real run (*TheNoteBook*, a Go backend): ~17K LOC, 322 tests, 74 commits in 6
   sprints for ~1.55M output tokens, 76% of it on Sonnet. See the
   [README](../README.md#evidence).
