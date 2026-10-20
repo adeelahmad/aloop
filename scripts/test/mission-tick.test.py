@@ -700,7 +700,7 @@ p = Project().init()
 cleared(p)
 gid, gdoc = active_goal(p, 1.2, at=(1, 1.1))
 i1, i2 = handed_off(p, gid, 1.25)
-p.event("plan.created", 0.5, sprint="S1")                                  # an older sprint is not this goal's
+p.event("plan.created", 0.5, sprint="S1")                                  # a sprint of no intent of it is not this goal's
 expect(p.tick(1.3), "SPRINT", 0, "intent %s is not sprinted yet" % i1)
 lock = os.path.join(p.dir, ".aladdin", "state", "sprint.lock")
 os.makedirs(os.path.dirname(lock), exist_ok=True)
@@ -906,8 +906,16 @@ for n, iid in enumerate(ids[1:], 2):                                       # the
 p.art("state", "recorded", 2.0)
 p.sprint_closed(len(ids), 2.0)                                             # closes later in that second
 expect(p.tick(2.1), "ASSESS", 0, "sprint %d closed" % len(ids))
-ok("second-resolution stamps tie toward after: a sprint planned in the second of its handout is the goal's; a "
-   "same-second close re-assesses")
+q = Project().init()                                                       # a SPRINT an older tick handed out for a goal
+cleared(q)                                                                 # with no linked intent: its sprints are the
+gid, _ = active_goal(q, 1.2, at=(1, 1.1))                                  # ones planned since that handout
+q.event("plan.created", 0.5, sprint="S1")                                  # an older sprint is not this goal's
+q.event("mission.tick", 1.2, action="SPRINT", key="SPRINT %s@legacy" % q.ref("goal", gid), at=iso(q.at(1.2)))
+expect(q.tick(1.21, "--peek"), "BLOCKED", 2, "no intent of %s is recorded" % gid)
+q.event("plan.created", 1.2, sprint="S2")                                  # in the second of the handout, ms lost
+expect(q.tick(1.3), "WAIT", 4, "sprint 2")
+ok("second-resolution stamps tie toward after: a sprint planned in the second of its handout is the goal's (with "
+   "no linked intent, an older sprint is not); a same-second close re-assesses")
 
 # 19) an archived version is no replacement: after the human's restore the cycle goes on, and the loop
 #     never asks for a version that would undo it
