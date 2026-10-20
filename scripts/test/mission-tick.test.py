@@ -68,7 +68,8 @@ class Project:
         return subprocess.run(args, cwd=self.dir, env=env or self.env, capture_output=True, text=True)
 
     def mi(self, *args):
-        return self.run(MI, *args)
+        """`aloop mission …` as a role runs it, with a human who types every grant it asks for (M9.17)."""
+        return F.as_human(lambda: self.run(MI, *args), self.dir, self.env)
 
     def app(self, **state):
         with open(os.path.join(self.dir, "app.json"), "w") as f:
@@ -143,7 +144,9 @@ class Project:
             M.now = real
 
     def approve(self, event, subject, doc, hours, **data):
-        """A human approval as `mission … --by` records it: a ledger row (role human), at that time."""
+        """A human approval as `mission … --by` records it: the human's typed line (M9.17), then a ledger
+        row (role human), at that time."""
+        F.say(self.dir, self.env, "%s %s" % (M.grant_verb(event, data), M.code(M.digest(doc))))
         with self.clock(hours):
             return M.approve(self.dir, event, subject, M.digest(doc), "Adeel", **data)
 
@@ -932,7 +935,9 @@ gy = dict(gx, title="refined")
 def pick(doc, hours, eid):
     """A human's goal pick as another branch recorded it (chained to the common head)."""
     row = {"event_id": eid, "ts": iso(p.at(hours)), "event": "goal.approved", "role": "human", "prev": head,
-           "data": {"subject": p.ref("goal", gid), "sha256": M.digest(doc), "by": "Adeel", "reason": ""}}
+           "data": {"subject": p.ref("goal", gid), "sha256": M.digest(doc), "by": "Adeel", "reason": "",
+                    "prompt": {"ts": iso(p.at(hours)), "sha256": "0" * 64, "session": "s",      # the human's line
+                               "line": "approve %s %s" % (gid, M.code(M.digest(doc)))}}}
     row["hash"] = M._row_hash(row)
     return json.dumps(row, sort_keys=True) + "\n"
 

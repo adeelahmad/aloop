@@ -20,6 +20,8 @@ ENV.pop("AGENTIC_HOST", None)
 PASS = [0]
 sys.path.insert(0, BIN)
 import _mission as M  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
+from mission_fixture import as_human, say  # noqa: E402
 
 
 def ok(name):
@@ -27,8 +29,13 @@ def ok(name):
     print("ok -", name)
 
 
-def run(*args):
+def as_role(*args):
     return subprocess.run(args, cwd=T, env=ENV, capture_output=True, text=True)
+
+
+def run(*args):
+    """As a role runs it, with a human who types every grant it asks for (check 13 tests that)."""
+    return as_human(lambda: as_role(*args), T, ENV)
 
 
 def events():
@@ -225,7 +232,7 @@ mdoc = json.load(open(M.path_of(T3, "mission"), encoding="utf-8"))
 assert mdoc["statement"] == intent and mdoc["sha256"] == M.digest(mdoc), mdoc
 r = subprocess.run([MI, "check"], cwd=T3, env=CENV, capture_output=True)
 assert r.returncode == 3, (r.returncode, r.stderr.decode("utf-8", "replace"))
-r = subprocess.run([MI, "approve", "--by", "Zoë"], cwd=T3, env=CENV, capture_output=True)
+r = as_human(lambda: subprocess.run([MI, "approve", "--by", "Zoë"], cwd=T3, env=CENV, capture_output=True), T3, CENV)
 assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
 assert subprocess.run([MI, "check"], cwd=T3, env=CENV, capture_output=True).returncode == 0
 assert M.digest({"a": "é", "b": 1}) == hashlib.sha256(b'{"a":"\xc3\xa9","b":1}').hexdigest()
@@ -244,7 +251,7 @@ GENV = dict(ENV, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME
 
 
 def at4(*args):
-    return subprocess.run(args, cwd=T4, env=GENV, capture_output=True, text=True)
+    return as_human(lambda: subprocess.run(args, cwd=T4, env=GENV, capture_output=True, text=True), T4, GENV)
 
 
 at4("git", "init", "-q", "-b", "main")
@@ -276,5 +283,72 @@ except M.LedgerBroken as e:
     assert "the ledger lost mission.approved" in str(e), e
 assert open(led4).read() == kept
 ok("the lost-row cross-check is scoped to the branch that recorded it; junk run-log lines are skipped; no row past a broken ledger")
+
+# 13) a grant is the human's own words (M9.17): a captured prompt line says its verb and its content's code
+import re  # noqa: E402
+T5 = tempfile.mkdtemp(prefix="aloop-mission-")
+subprocess.run(["git", "init", "-q"], cwd=T5, check=True)
+
+
+def at5(*args):
+    return subprocess.run(args, cwd=T5, env=ENV, capture_output=True, text=True)
+
+
+def asked(r):
+    assert r.returncode == 3 and "ASK[approve]" in r.stderr, (r.returncode, r.stderr)
+    return re.search(r"they reply  (.+?)  \(the code", r.stderr).group(1)
+
+
+assert at5(MI, "init", "a mission only its human approves", "--mode", "autonomous", "--budget-usd", "4").returncode == 0
+mpath = M.path_of(T5, "mission")
+mid, sha = json.load(open(mpath))["mission_id"], M.digest(json.load(open(mpath)))
+line = asked(at5(MI, "approve", "--by", "Adeel", "--reason", "looks right"))      # --by alone is not the human
+assert line == "approve %s %s" % (mid, sha[:8]), line
+r = at5(MI, "check")
+assert r.returncode == 3 and "replying `%s`" % line in r.stderr, r.stderr      # the check names the line too
+assert M.ledger_rows(T5) == ([], [])
+for words in ("approve %s deadbeef" % mid, "confirm %s %s" % (mid, sha[:8]), "don't approve %s %s yet" % (mid, sha[:8]),
+              "I would approve %s %s" % (mid, sha[:8]), "approve %s %s" % (mid, sha[:7]), "approve %s %sff" % (mid, sha[:8])):
+    say(T5, ENV, words)                    # another code, verb or meaning: none of them grants this content
+    assert asked(at5(MI, "approve", "--by", "Adeel")) == line, words
+say(T5, ENV, "Thanks for the summary.\nYes, %s.\nThen carry on." % line)
+r = at5(MI, "approve", "--by", "Adeel", "--reason", "looks right")
+assert r.returncode == 0, r.stderr
+cite = M.ledger_rows(T5)[0][-1]["data"]["prompt"]
+assert cite["line"] == "Yes, %s." % line and len(cite["sha256"]) == 64 and cite["session"] == "s-human", cite
+assert at5(MI, "check").returncode == 0
+# an old line never grants replaced content again: B is approved, the file goes back to A, A's line is stale
+a_text = open(mpath).read()
+mdoc = json.load(open(mpath))
+mdoc["budget"]["usd"] = 8.0
+M.save(mpath, mdoc)
+say(T5, ENV, asked(at5(MI, "approve", "--by", "Adeel", "--reason", "a bigger budget")))
+assert at5(MI, "approve", "--by", "Adeel", "--reason", "a bigger budget").returncode == 0
+open(mpath, "w").write(a_text)
+assert at5(MI, "check").returncode != 0
+assert asked(at5(MI, "approve", "--by", "Adeel", "--reason", "back to 4")) == line      # A's old line is spent
+say(T5, ENV, line)                          # the human says it again, now
+assert at5(MI, "approve", "--by", "Adeel", "--reason", "back to 4").returncode == 0
+assert at5(MI, "check").returncode == 0
+# a row appended by hand with a valid chain still needs a line that grants its content
+led5 = M.ledger(T5)
+kept5 = open(led5).read()
+rows5 = M.ledger_rows(T5)[0]
+for cited in (None, dict(cite, line="approve %s deadbeef" % mid)):
+    forged = {"event_id": "e" * 32, "ts": M.now(), "event": "mission.approved", "role": "human", "prev": rows5[-1]["hash"],
+              "data": {"subject": rows5[-1]["data"]["subject"], "by": "Adeel", "reason": "", "sha256": sha}}
+    if cited:
+        forged["data"]["prompt"] = cited
+    forged["hash"] = M.digest(forged, drop=("hash",))
+    open(led5, "w").write(kept5 + json.dumps(forged) + "\n")
+    r = at5(MI, "check")
+    assert r.returncode == 2 and "cites none of the human's own words" in r.stderr, (r.returncode, r.stderr)
+open(led5, "w").write(kept5)
+assert at5(MI, "check").returncode == 0
+# refusing needs no words (a veto is always the human's right); the mission's own records are not grants
+M.record_human(T5, "baseline.vetoed", "docs/agents/mission/baseline/x.json", "Adeel", "not this one")
+assert M.record(T5, "baseline.confirmed", "docs/agents/mission/baseline/y.json", "mission", sha256="0" * 64)
+assert at5(MI, "check").returncode == 0
+ok("a grant cites the human's own captured words (verb and code); an old, other or negated line, or a bare --by, grants nothing")
 
 print("mission-core: %d checks passed" % PASS[0])
