@@ -144,15 +144,25 @@ dsh --profile aloop "Use the aloop skill. Intent: <one line>"
   agent presets `aloop-<role>` (each role's prompt is its agent file), `subagent` for the
   execution roles and `subagent_planning` for the planning roles, each with its group's model,
   and the plugin `hosts/dsh/aloop.mjs`, loaded in place. dsh has no project-scoped plugin
-  layer, so the profile is global and holds the last-rendered models; the skills go to
+  layer, so the profile is global and its tools hold the models of the project it was rendered
+  for (the plugin then routes each role to its own project's models, below); the skills go to
   `.dsh/skills` (or `$DSH_HOME/skills` with `--global`).
 - **Models**: the supervisor runs on `$ALOOP_DSH_MODEL` (default `deepseek-v4-pro`; dsh has no
   `--model` flag); the roles use `deepseek-v4-pro` (strongest/strong) or `deepseek-flash`
-  (economical) unless `MODEL_*_DSH` is set.
+  (economical) unless `MODEL_*_DSH` is set. Each role runs on the models of the project the
+  session is in (the plugin routes its requests to `aloop models resolve <role>`), so one install
+  serves every project; another project needs `aloop install dsh` there only for its skills.
 - **Gates**: every block uses one of dsh's own decision points, so `enforce_gate` is native. A
   tool call is denied with the gate's reason; an invalid artifact write comes back as the
   gate's feedback; a role's stop gate steers the child back to work before dsh settles it,
-  up to 3 rounds, and a block past them (or a STUCK release) is injected into the supervisor.
+  up to 3 rounds, and a block past them (or a STUCK or NEEDS-HUMAN release) is injected into the supervisor.
+- **Messages and compaction**: a role is not offered `send_message` (the plugin scopes it out of
+  the role's tools at its start), so its result reaches the supervisor through its stop gate and
+  dsh's settlement notice; the supervisor's `send_message` reaches a running role at its next step.
+  dsh compacts a session in place, and the plugin records `context.compacted` and injects the
+  handoff again.
+- **Cost**: `run-summary --host dsh` prices each logged call from the dated DeepSeek table in
+  `bin/_prices.py`; a model with no published price leaves the cost unmeasured.
 - **Unattended runs**: dsh asks before commands unless `DSH_PERMISSION_MODE=danger-full-access`
   (no sandbox, no approvals); use that only in a throw-away repo, as `make e2e-live HOST=dsh` does.
   The profile disables dsh's session-log upload (`session-log-deepseek`); set

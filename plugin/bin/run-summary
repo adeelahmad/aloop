@@ -10,6 +10,11 @@ row for docs/evidence/README.md. Numbers come from the harness, never from the m
   cost_usd / supervisor_turns  the LAST `result` line (a resumed session reports again);
                                Codex and OpenCode print none, so the cost is null and the row
                                says — (unmeasured), never $0.00
+  cost_usd / cost_by_model     dsh prints none either, but its plugin logs every call's exact
+    (--host dsh)               usage (<repo>/.aladdin/host/dsh: the supervisor and each role), so
+                               each call is priced from the dated table in _prices.py; a model it
+                               has no price for keeps its tokens with usd null, and then the run's
+                               cost is null too (never a partial sum)
   wakes                        how many `result` lines: one per supervisor wake
   plugin_reads                 sub-agent tool calls naming a plugin path, except a
                                `<plugin>/schemas/…` file (md-db's schema: a legitimate use,
@@ -19,12 +24,17 @@ row for docs/evidence/README.md. Numbers come from the harness, never from the m
   selfcheck_blocks             the blocks a worker's own `selfcheck` caught ("selfcheck":true): they
                                never reach the supervisor (run 27: 2 of its 3 blocks)
 Exit 0; a missing out.jsonl is a usage error (64)."""
+import glob
 import json
 import os
 import re
 import subprocess
 import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _prices  # noqa: E402
+import _usage  # noqa: E402
 
 
 def arg(flag, default=None):
@@ -33,6 +43,31 @@ def arg(flag, default=None):
 
 def wall(secs):
     return "%dm%02ds" % (int(secs) // 60, int(secs) % 60)
+
+
+def dsh_cost(repo):
+    """(total USD or None, {model: calls, token classes, usd}) from the dsh plugin's usage logs:
+    <run-data>/host/dsh/<root>.jsonl (the supervisor) and <root>/subagents/agent-<id>.jsonl (each
+    role). No log is no measurement (None, {}); an unpriced model makes the total None."""
+    by, raw = {}, {}
+    for h in (".aladdin", ".agentic"):
+        d = os.path.join(repo, h, "host", "dsh")
+        if not os.path.isdir(d):
+            continue
+        for p in sorted(glob.glob(os.path.join(d, "*.jsonl")) + glob.glob(os.path.join(d, "*", "subagents", "agent-*.jsonl"))):
+            for r in _usage.rows(p):
+                m = r["model"] or "?"
+                c = by.setdefault(m, {"calls": 0, "in": 0, "cache_read": 0, "cache_write": 0, "out": 0, "usd": None})
+                c["calls"] += 1
+                for k in ("in", "cache_read", "cache_write", "out"):
+                    c[k] += r[k]
+                u, was = _prices.usd(r), raw.get(m, 0.0)
+                raw[m] = None if u is None or was is None else was + u
+        break
+    for m, u in raw.items():
+        by[m]["usd"] = None if u is None else round(u, 6)
+    total = None if not by or None in raw.values() else sum(raw.values())
+    return total, by
 
 
 def main():
@@ -85,6 +120,9 @@ def main():
                         blocks += 1
                         self_blocks += v.get("selfcheck") is True
             break
+    by = None
+    if host == "dsh":       # dsh prints no cost line: price the usage its plugin logged per call
+        cost, by = dsh_cost(repo)
     try:
         head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     except OSError:
@@ -101,6 +139,8 @@ def main():
          "selfcheck_blocks": self_blocks, "run_repo_head": head,
          "reproduce": "make e2e-live YES=1" + (" INTENT=%s" % intent if intent else "") + (" HOST=%s" % host if host != "claude" else ""),
          "recorded_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    if by is not None:
+        s.update(cost_by_model=by, prices=_prices.SOURCE)
     cost_cell = "—" if s["cost_usd"] is None else "$%.2f" % s["cost_usd"]
     label = (intent or "?") + ("" if host == "claude" else " (%s)" % host)
     row = "| %s | %s | v%s | %s | %s | %s | %s | %s | %s | `%s` |" % (
@@ -108,11 +148,20 @@ def main():
     md = ("# Live run %s\n\n| run | intent | plugin | checks | wall | cost | wakes | plugin reads | gate blocks | reproduce |\n"
           "|---|---|---|---|---|---|---|---|---|---|\n%s\n\nrun repo head: `%s` · gate verdicts: %d · supervisor turns: %d\n"
           % (os.path.basename(run), row, head, verdicts, turns))
+    priced = ["%s: %d calls · in %d · cache read %d · cache write %d · out %d · %s" % (
+        m, c["calls"], c["in"], c["cache_read"], c["cache_write"], c["out"],
+        "no published price, cost unmeasured" if c["usd"] is None else "$%.6f" % c["usd"]) for m, c in sorted((by or {}).items())]
+    if priced:
+        md += "\ncost per model, priced per call from %s:\n\n%s\n" % (_prices.SOURCE, "\n".join("- " + p for p in priced))
     with open(os.path.join(run, "summary.json"), "w") as f:
         json.dump(s, f, indent=1)
     with open(os.path.join(run, "summary.md"), "w") as f:
         f.write(md)
     print("cost: %s · supervisor turns: %s · wall: %s" % (cost_cell, turns, s["wall"]))
+    if priced:
+        print("priced per call from %s:" % _prices.SOURCE)
+        for p in priced:
+            print("  " + p)
     print("supervisor wakes: %d · sub-agent reads of the plugin's own source: %d" % (wakes, reads))
     if verdicts:
         print("gate verdicts: %d (%d blocks%s)" % (verdicts, blocks,
