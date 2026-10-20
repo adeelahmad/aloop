@@ -15,6 +15,7 @@ import { tmpdir } from "node:os"
 import { delimiter, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import assert from "node:assert/strict"
+import { approvePlan } from "./fixtures/plan-fixture.mjs"
 
 const HERE = join(fileURLToPath(import.meta.url), "..")
 const ROOT = join(HERE, "..", "..", "plugin")
@@ -59,6 +60,7 @@ assert.ok(existsSync(join(env.DSH_HOME, "profiles/aloop/cordis.patch.yml")) && e
 mkdirSync(join(P, ".aladdin/state/tasks"), { recursive: true })
 writeFileSync(join(P, ".aladdin/state/tasks/S1-01-T1.env"), `TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=${story}\n`)
 const wt = sh(join(BIN, "task-worktree"), ["add", "S1-01-T1"]).trim()
+approvePlan(P, BIN, 1, env)             // the human's go on sprint 1 (M0.9): gate-dispatch admits nothing before it
 
 const red = "TASK_ID: S1-01-T1\nYour worktree: " + wt + ". First command: `aloop bind " + wt + "`."
 const script = {

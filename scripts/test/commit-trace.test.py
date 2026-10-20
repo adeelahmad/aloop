@@ -8,7 +8,11 @@ intent) → plan.approved (events authority) → worktree.merged → commit.crea
 import json
 import os
 import subprocess
+import sys
 import tempfile
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+from mission_fixture import as_human  # noqa: E402
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
 BIN = os.path.join(ROOT, "bin")
@@ -64,8 +68,12 @@ sh(os.path.join(BIN, "gate-stage2-complete"), SP)
 assert len([e for e in events() if e["event"] in ("plan.created", "plan.revised")]) == 1
 ok("gate-stage2-complete emits plan.created once, caused by intent.normalized (unchanged re-run is silent)")
 
-# approval → plan.approved for that plan
-sh(os.path.join(BIN, "events"), "authority", "--initiated-by", "adeel", "--mode", "reviewed", "--scope", "sprint 1 as approved")
+# approval → plan.approved for that plan, once the human typed the line it asks for (M0.9)
+AUTH = (os.path.join(BIN, "events"), "authority", "--initiated-by", "adeel", "--mode", "reviewed", "--scope", "sprint 1 as approved")
+r = sh(*AUTH, check=False)
+assert r.returncode == 3 and "they reply  approve S1 " in r.stderr and not [e for e in events() if e["event"] == "plan.approved"], r
+r = as_human(lambda: sh(*AUTH, check=False), T, ENV)
+assert r.returncode == 0, r.stderr
 appr = [e for e in events() if e["event"] == "plan.approved"]
 assert len(appr) == 1 and appr[0]["caused_by"] == plan[0]["event_id"] and appr[0]["authority"]["initiated_by"] == "adeel"
 ok("events authority emits plan.approved linked to the latest plan")

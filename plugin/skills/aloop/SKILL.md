@@ -110,7 +110,8 @@ If a backend reports "not installed", run `ensure-tools --sync` once (needs carg
   current one) and run intake → planner before any RED. Silently switching into ad-hoc
   implementation is the bypass this skill exists to prevent. "Improve X" and "fix the
   broken Y" are sprint triggers, not invitations to edit files directly.
-- The human is absent from execution. Never block waiting for human input mid-run.
+- The human is absent from execution: never wait for them mid-run, except a reviewed
+  re-plan changes the plan they approved, so it waits for their line.
 - **You own all planning artifacts.** Sub-agents NEVER edit `stories.md`,
   `tasks.md`, `validate.md`, `plan.md`, `plan-ready.md`, or `sprintN/plan.md`.
 - **You NEVER write production source — in any phase.** Every line of code (tests,
@@ -271,17 +272,18 @@ sprint at a time: dispatch the planner, review its output, present it for the hu
 approval, then — only on "go" — start that sprint's execution. Do NOT batch-write every
 future sprint's Stage-2 and chain straight into execution.
 
-**Autonomous mode** is explicit, never inferred: the human chooses it at run start
-(`events authority --mode autonomous`, and `AGENTIC_AUTONOMY_MODE=autonomous` for the
-gates). Then the generated plan goes through the deterministic planning checks
-(gate-intake incl. `intent check`, gate-stage2-complete) and straight into execution,
-with no approval step, unless an escalation class is hit: an unanswered `ask` question
-(`intent check` exit 3), a scope change, or the re-plan cap. Reviewed mode stays the default.
+**Autonomous mode** is explicit, never inferred, and per sprint: the human grants it with
+the line `events authority --mode autonomous --sprint N` asks for (or by approving an
+autonomous mission), plus `AGENTIC_AUTONOMY_MODE=autonomous` for the gates. Then the plan
+and its re-plans go through the deterministic planning checks (gate-intake incl. `intent
+check`, gate-stage2-complete) and straight into execution, unless an escalation class is
+hit: an unanswered `ask` question (`intent check` exit 3), a scope change, or the re-plan cap.
 
-**Provenance (on "go", and at every durable boundary).** Record who approved what, once
-per sprint, before the first dispatch:
-`events authority --initiated-by <human> --mode reviewed|autonomous --scope "sprint N as approved"`
-(plus `--override KEY=VALUE` for any limit the human changed). At each split, re-plan,
+**Approval is a gate.** `gate-dispatch` starts no execution role of a sprint until the
+human approved its plan as it is now:
+`events authority --initiated-by <human> --mode reviewed|autonomous --scope "sprint N as approved" --sprint N`
+(`--override KEY=VALUE` too) exits 3 with a line like `approve S1 1a2b3c4d`: relay it, the
+human types it, run it again. Never type it yourself. At each split, re-plan,
 target or acceptance decision, record ONE line of rationale with its evidence:
 `events decide split|replan|acceptance|… --task SN-NN-Tk --reason "<one line>" --evidence <ref>`.
 No chain-of-thought — a reason, refs and the authority (`events lineage <task>` shows it).
@@ -665,8 +667,7 @@ escalation is what happens when revision is exhausted.
 
 - PLANNING is a normal interactive session — the human is in the loop; the
   clarify/conflict/re-plan loops are human-bounded.
-- EXECUTION is an autonomous run ("run until the sprint gate is green") and takes
-  no mid-run human input by design.
+- EXECUTION is an autonomous run ("run until the sprint gate is green").
 - **ONE sprint per autonomous run.** Execution is scoped to a single sprint — its
   FINAL-GATE is the finish line. When it passes, STOP and report; the human decides
   whether to start the next sprint, which RE-ENTERS interactive planning (dispatch the

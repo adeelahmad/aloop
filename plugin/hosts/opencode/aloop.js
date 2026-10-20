@@ -10,7 +10,7 @@
 //   UserPromptSubmit   chat.message on a root session → transcripts prompt, intent-trigger
 //                      (its context goes into the next turn's system prompt)
 //   PreToolUse         tool.execute.before → host-adapter, gate-supervisor-scope,
-//                      gate-commit-author, budget pre; a deny THROWS (the tool call fails
+//                      gate-commit-author, gate-dispatch (task), budget pre; a deny THROWS (the tool call fails
 //                      with the reason). Bound workers' commands/edits are REWRITTEN into
 //                      their worktree (bash workdir, file paths, patch headers).
 //   PostToolUse        tool.execute.after → transcripts record, budget post; context is
@@ -208,6 +208,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       if (EDITS.has(input.tool)) checks.push(["gate-supervisor-scope", []])
       if (EDITS.has(input.tool) || input.tool === "bash") checks.push(["gate-mission-scope", []])   // role path guards
       if (input.tool === "bash") checks.push(["gate-commit-author", []])
+      if (input.tool === "task") checks.push(["gate-dispatch", []])     // the task contract and the plan approval (M0.9)
       checks.push(["budget", ["hook", "pre"]])
       for (const [script, a] of checks) {
         const why = denyOf(run(script, a, p))
