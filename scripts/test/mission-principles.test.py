@@ -142,7 +142,16 @@ cases += [
     (text.replace(ga["autonomous"], ga["autonomous"][:cut] + "\n  " + ga["autonomous"][cut + 1:]), "only bullet lines"),
     (text.replace(ga["autonomous"], ga["autonomous"].replace(" Never", "\u2028Never")), "control or invisible"),
     (text.replace("(ship-small) vs", "( ) vs"), "names no principle for Bias for Action"),
+    (text.replace("- spoon-fed: " + ks["spoon-fed"], "- autonomous: again\n- spoon-fed: " + ks["spoon-fed"]),
+     "keep-it-simple has a second autonomous variant"),
+    (text.replace("## Tensions\n", "## Tensions\n" + [l for l in text.splitlines() if l.startswith("- think-big")][0] + "\n"),
+     "duplicate tension pair think-big-vs-deliver-results"),
+    (text.replace("## keep-it-simple: Keep It Simple", "## Keep It Simple"), "a heading must be"),
 ]
+al = text.index("## autonomic-loop:")
+oo = text.index("## own-the-outcome:")
+sm = text.index("## ship-small:")
+cases.append((text[:al] + text[oo:sm] + text[al:oo] + text[sm:], "(the engine) must be listed first"))
 for new_text, want in cases:
     assert new_text != text, want
     r = check_variant(new_text)

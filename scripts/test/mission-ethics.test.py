@@ -147,8 +147,11 @@ c = events("ethics.consent")
 gdoc = json.load(open(M.path_of(T, "goal", gid)))
 assert len(c) == 1 and c[0]["role"] == "human" and c[0]["data"]["by"] == "Adeel"
 assert c[0]["data"]["sha256"] == M.digest(gdoc) and c[0]["data"]["review"] == json.load(open(gpath))["ethics_id"]
-assert gdoc["approval"]["ethics"]["event_id"] == c[0]["event_id"] and gdoc["approval"]["ethics"]["by"] == "Adeel"
-assert gdoc["approval"]["ethics"]["reason"] == "streaks are opt-in; reviews are real"
+stored = gdoc["approval"]["ethics"]
+assert stored["sha256"] == M.digest(gdoc) and list(stored["consents"]) == [c[0]["data"]["review"]], stored
+one = stored["consents"][c[0]["data"]["review"]]
+assert one["event_id"] == c[0]["event_id"] and one["by"] == "Adeel" and one["review_sha256"] == c[0]["data"]["review_sha256"]
+assert one["reason"] == "streaks are opt-in; reviews are real"
 assert run(MI, "ethics", "check", "--subject", gid).returncode == 0
 assert E.verdict(T, "goal", gid)[2]["consent_event"] == c[0]["event_id"]
 ok("gray: record and check ask (3); consent --by records ethics.consent (sha + review) inside the goal; then 0")
@@ -254,11 +257,21 @@ gdoc = json.load(open(M.path_of(T, "goal", gH)))
 M.save(M.path_of(T, "goal", gH), dict(gdoc, statement=gdoc["statement"] + " "))
 rH2, _ = start(gH)
 assert fill(rH2, [], "clear").returncode == 2
+M.save(M.path_of(T, "goal", gH), dict(gdoc, statement="pay strangers to post five-star ratings under invented names"))
+rH4, _ = start(gH)                                  # a real edit: other words, the same goal: still retired
+r = fill(rH4, [], "clear")
+assert r.returncode == 2 and "retire" in r.stderr, r.stderr
 r = run(MI, "ethics", "check", "--subject", gH)
 assert r.returncode == 2 and "hard line" in r.stderr and "retire" in r.stderr, r.stderr
 gH2 = goal("pay strangers to post five-star ratings under made-up names")
 rH3, _ = start(gH2)
 r = fill(rH3, [], "clear")
+assert r.returncode == 2 and "hard line" in r.stderr, r.stderr
+gR = M.new_id("goal")                               # the same words with the keys in another order
+M.save(M.path_of(T, "goal", gR), {"created_at": M.now(), "status": "derived",
+                                  "statement": "pay strangers to post five-star ratings under made-up names", "goal_id": gR})
+rR, _ = start(gR)
+r = fill(rR, [], "clear")
 assert r.returncode == 2 and "hard line" in r.stderr, r.stderr
 #    c) the event stream must agree with the sealed review, and only the human's consent counts
 r = run(os.path.join(BIN, "events"), "emit", "ethics.consent", "--data", "subject=x")
@@ -287,7 +300,9 @@ assert [c for c, _ in E.screen(E.text_of({"goal_id": "gol_x", "plan": {"post fak
     == ["deceptive"]
 assert [c for c, _ in E.screen(E.text_of({"steps": [{"status": "ship spyware"}], "tactic_id": "sell counterfeit goods"}))] \
     == ["illegal", "harmful"]
-assert E.screen(E.text_of({"status": "fake reviews", "approval": {"ethics": {"reason": "fake reviews"}}})) == []
+assert E.screen(E.text_of({"status": "fake reviews", "approval": {"ethics": {"reason": "fake reviews"}},
+                          "created_at": "2026-10-20T02:00:00Z"})) == []
+assert E.screen(E.text_of({"created_at": "post fake reviews"}))     # created_at is content unless it is a timestamp
 #    e) a goal is its own file with its own id; malformed reviews and text exit 2, never a traceback
 gS = goal("a symlinked goal")
 os.remove(M.path_of(T, "goal", gS))
@@ -297,7 +312,10 @@ assert r.returncode == 2 and "symlink" in r.stderr, r.stderr
 gW = goal("a goal with someone else's id")
 gw = json.load(open(M.path_of(T, "goal", gW)))
 json.dump(dict(gw, goal_id=gC), open(M.path_of(T, "goal", gW), "w"))
-assert run(MI, "ethics", "check", "--subject", gW).returncode == 2
+r = run(MI, "ethics", "check", "--subject", gW)
+assert r.returncode == 2 and "is not the harness-issued id of this file" in r.stderr, r.stderr
+r = run(MI, "ethics", "new", "--subject", gW)
+assert r.returncode == 2 and "is not the harness-issued id of this file" in r.stderr, r.stderr
 rN, _ = start(gF)
 nd = json.load(open(rN))
 nd["subject"]["id"] = 123
@@ -309,6 +327,15 @@ json.dump(dict(json.load(open(rU)), findings=[{"category": "other", "tier": "gra
           open(rU, "w"))
 r = run(MI, "ethics", "record", rU)
 assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+gT = goal("a quieter onboarding")
+rT1, _ = start(gT)
+assert fill(rT1, [{"category": "other", "tier": "gray", "reason": "skips the tour"}], "gray").returncode == 3
+assert run(MI, "ethics", "consent", "--subject", gT, "--by", "Adeel", "--reason", "users asked for it").returncode == 0
+rT2, _ = start(gT)
+assert fill(rT2, [{"category": "other", "tier": "gray", "reason": "hides tips"}], "gray").returncode == 3
+assert run(MI, "ethics", "consent", "--subject", gT, "--by", "Sam", "--reason", "tips move to help").returncode == 0
+cs = json.load(open(M.path_of(T, "goal", gT)))["approval"]["ethics"]["consents"]
+assert [cs[json.load(open(x))["ethics_id"]]["by"] for x in (rT1, rT2)] == ["Adeel", "Sam"], cs
 ok("hardening: no reordering, edit, re-id, forged event, symlink, invisible character or nested field clears a gate")
 
 # 10) second review round: the screen reads mechanics and modifiers; a hard line follows a goal's own words

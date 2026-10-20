@@ -103,10 +103,11 @@ CATEGORIES = {
 _RX = {c: [re.compile(p, re.I) for p in ps] for c, ps in CATEGORIES.items()}
 
 # top-level fields that are not the subject's content: outside its sha256 (M.UNHASHED: the seal,
-# the status, the approvals and consent reasons) or the creation time. Everything else is screened,
-# keys and values, at any depth, except values that are harness ids or hashes.
-SKIP = set(M.UNHASHED) | {"created_at"}
+# the status, the approvals and consent reasons), and created_at while it is a timestamp. Everything
+# else is screened, keys and values, at any depth, except values that are harness ids or hashes.
+SKIP = set(M.UNHASHED)
 ID_VALUE = re.compile(r"^(?:[a-z]{3}_[0-9a-f]{20}|[0-9a-f]{64})$")
+TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$")
 REASON_MAX = 200
 APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'", "\u2032": "'"})
 
@@ -114,7 +115,7 @@ APOSTROPHES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u02bc": "'", "\u203
 def strings(x, top=True):
     if isinstance(x, dict):
         for k, v in x.items():
-            if top and k in SKIP:
+            if top and (k in SKIP or k == "created_at" and isinstance(v, str) and TIMESTAMP.match(v)):
                 continue
             yield str(k)
             yield from strings(v, False)
@@ -139,8 +140,10 @@ def text_of(doc):
 
 
 def text_digest(doc):
-    """The sha256 of the screened words: a hard line follows them to any goal that repeats them."""
-    return hashlib.sha256(text_of(doc).encode("utf-8", "surrogatepass")).hexdigest()
+    """The sha256 of the screened words, in any order: a hard line follows them to any goal that
+    repeats them, however its keys are ordered."""
+    words = "\n".join(sorted(set(text_of(doc).split("\n"))))
+    return hashlib.sha256(words.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def word_key(text):
@@ -474,11 +477,15 @@ def cmd_consent(cwd, kind, sid, by, reason):
         except ValueError as e:
             print("mission ethics consent: %s" % e, file=sys.stderr)
             return 64
-    if kind == "goal":   # the consent lives inside the goal; `approval` is outside its sha256
+    if kind == "goal":   # the consents live inside the goal, one per review; `approval` is outside its sha256
         path, doc = resolve(cwd, kind, sid)
         appr = doc.get("approval") if isinstance(doc.get("approval"), dict) else {}
-        appr["ethics"] = {"event_id": eids[-1], "events": eids, "by": by, "reason": reason,
-                          "reviews": facts["pending"], "at": M.now()}
+        old = appr.get("ethics") if isinstance(appr.get("ethics"), dict) else {}
+        keep = old.get("consents") if old.get("sha256") == facts["sha256"] and isinstance(old.get("consents"), dict) else {}
+        shas = {r["ethics_id"]: r["review_sha256"] for r in facts["reviews"]}
+        for rid, ev in zip(facts["pending"], eids):
+            keep[rid] = {"event_id": ev, "by": by, "reason": reason, "review_sha256": shas.get(rid), "at": M.now()}
+        appr["ethics"] = {"sha256": facts["sha256"], "consents": keep}   # consents to other content are dropped
         doc["approval"] = appr
         M.save(path, doc)
     print("[ethics] consent recorded for %s by %s (review %s)" % (facts["subject"], by, ", ".join(facts["pending"])),
