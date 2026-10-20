@@ -74,7 +74,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.10 | State Assessor report and Evaluator gap list | IMPLEMENTED_TESTED | `scripts/test/mission-evaluate.test.py` |
 | M9.11 | Goals become Aladdin intents; lineage reaches the mission | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py` |
 | M9.12 | `/aloop:mission` skill | IMPLEMENTED_TESTED | `scripts/test/mission-skill.test.py` |
-| M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12; offline: `scripts/test/mission-e2e.test.py`; open: the live cycle |
+| M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12; offline: `scripts/test/mission-e2e.test.py`; the live harness (`scripts/smoke/e2e-mission.sh`, `mission_driver.py`), at zero tokens: `scripts/test/mission-e2e-live.test.py`; open: the live cycle, `make e2e-mission YES=1` |
 | M9.17 | Approvals name the captured human prompt | IMPLEMENTED_TESTED | `scripts/test/mission-core.test.py` |
 | M9.20 | Mission spend counts mission sessions only | NOT_IMPLEMENTED | §4.12 |
 | M9.21 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |

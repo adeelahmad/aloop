@@ -149,7 +149,9 @@ python3 -B "$PLAN" plan --run-dir "$T" --repo "$T/repo" --host "$HOST" --model "
   --seed-sha "$SEED_SHA" --shim-dir "$T/bin" --scrubbed "$SCRUBBED" $DRYFLAG || { echo "FAIL - plan.json"; exit 1; }
 if [ -n "$DRY" ]; then echo "run dir: $T"; exit 0; fi
 
-# The live loop: sessions, relays, caps and the post-run checks are the driver's (plan.json is its input).
+# The live loop: the sessions, the relays, the caps and the post-run checks are the driver's (plan.json
+# is its input; exit 0 every check passed, 1 one failed, 2 the plan was refused). The summary folds its
+# driver.json into summary.json, summary.md and the ledger row, even when the driver stopped early.
 python3 -B "$DRIVER" --plan "$T/plan.json"
 rc=$?
 python3 -B "$HERE/mission_summary.py" "$T" --sessions "$T/sessions" --kind mission --plugin "$PLUGIN" --host "$HOST"

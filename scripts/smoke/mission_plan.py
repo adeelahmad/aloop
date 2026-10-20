@@ -59,9 +59,10 @@ NEVER = ["restore", "retire", "lift a block", "consent", "goal approve", "journe
 KILL_AFTER_GOAL_MET = ["RESEARCH", "DEFINE_JOURNEYS", "BASELINE"]
 DEFAULT_CAPS = {"sessions": ("E2E_MAX_SESSIONS", 8, int), "grants": ("E2E_MAX_GRANTS", 4, int),
                 "usd": ("E2E_BUDGET_USD", 30.0, float), "session_timeout_s": ("E2E_SESSION_TIMEOUT", 5400, int),
-                "total_timeout_s": ("E2E_TIMEOUT", 14400, int)}
+                "total_timeout_s": ("E2E_TIMEOUT", 14400, int),
+                "poll_s": ("E2E_POLL_S", 10, float)}      # how often a running session is checked (goal.met kill)
 FIXED_CAPS = {"same_line_relays": 1, "per_session_usd": 10.0, "no_progress_sessions": 2, "max_turns": 400,
-              "wait_max_s": 900, "waits_per_key": 1, "poll_s": 10}
+              "wait_max_s": 900, "waits_per_key": 1}
 
 # The environment no session and no seed step inherits: every gate and loop override by prefix (a
 # named list misses one: GATE_RUN_TESTS=0 skips RED's tests), the worker identity a hook reads, and

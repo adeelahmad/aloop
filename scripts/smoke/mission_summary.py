@@ -207,6 +207,11 @@ def main(argv):
           "seed: `%s` · run repo head: `%s` · gate verdicts: %d (%d blocks, %d stuck releases) · cost complete: %s\n"
           % (os.path.basename(run), row, s["scripted_human"], s["seed_sha"], s["run_repo_head"], g["gate_verdicts"],
              g["gate_blocks"], g["stuck_releases"], "yes" if complete else "no"))
+    if driver.get("check_results"):          # the driver's post-run checks and why the loop stopped
+        md += "\nstop: %s · path: %s\n\n## Checks (%s)\n\n%s\n" % (
+            (driver.get("stop") or {}).get("reason"), driver.get("path"), checks,
+            "\n".join("- %s %s: %s" % ("ok" if c.get("ok") else "FAIL", c.get("name"), c.get("detail"))
+                      for c in driver["check_results"]))
     with open(os.path.join(run, "summary.json"), "w") as fh:
         json.dump(s, fh, indent=1)
     with open(os.path.join(run, "summary.md"), "w") as fh:

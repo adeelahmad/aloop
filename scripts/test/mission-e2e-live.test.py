@@ -12,6 +12,12 @@ first message and the grant lines. No host binary runs here.
   4) the environment is scrubbed by prefix (an env spy on every git the seed runs, and session_env)
   5) the mission summary (`--sessions DIR --kind mission`): costs summed per session, gate lines parsed
      as JSON, a stuck release is never a pass, and the ledger row
+  6) the live loop (mission_driver.py) on a stub claude that behaves like a host (fixtures/mission_host.py:
+     its prompt captured by the plugin's UserPromptSubmit hooks, the mission CLI run as the playbook's
+     supervisor would, stream-json with a result line): the whole cycle through e2e-mission.sh with every
+     post-run check passing, each reply a new session citing its grant; a run where everything fails;
+     forged, wrong and unshown lines never typed; a hook that did not capture; the session, USD, timeout
+     and no-progress caps; a gray verdict; the pre-grant checks; stuck releases; a repeated WAIT
     python3 scripts/test/mission-e2e-live.test.py
 """
 import hashlib
@@ -52,7 +58,10 @@ for name in ("claude", "codex", "opencode"):   # a host that ran leaves the mark
     with open(p, "w") as f:
         f.write('#!/bin/sh\necho "%s $*" >> "%s"\nexit 0\n' % (name, MARKER))
     os.chmod(p, os.stat(p).st_mode | stat.S_IEXEC)
-for name, real in (("python3", sys.executable), ("git", shutil.which("git")), ("make", shutil.which("make"))):
+with open(os.path.join(TOOLS, "python3"), "w") as f:      # this interpreter (a symlink would lose its venv)
+    f.write('#!/bin/sh\nexec "%s" "$@"\n' % sys.executable)
+os.chmod(os.path.join(TOOLS, "python3"), 0o755)
+for name, real in (("git", shutil.which("git")), ("make", shutil.which("make"))):
     if real:
         os.symlink(real, os.path.join(TOOLS, name))
 FAMILIES = re.compile(r"^(AGENTIC_|ALADDIN_|ALOOP_|GATE_)|^(SKIP_HOOKS|TASK_ID|ATTEMPT|AGENT_ROLE|YES|DRY|HOST|MODEL)$"
@@ -163,6 +172,19 @@ assert line == "approve %s %s" % (chk["mission_id"], chk["sha256"][:8]) and then
 md = M.load(M.path_of(repo, "mission"))[0]
 assert (md["statement"], md["mode"], md["cadence"], md["constraints"]) == (a["statement"], a["mode"], a["cadence"], a["constraints"]), md
 assert md["budget"].get("usd") == a["budget_usd"] and md["budget"].get("deadline") == a["deadline"], md["budget"]
+# (g) the driver's patterns on the real CLI's CONFIRM_MISSION reason: the line, recomputed on disk, and its checks
+import mission_driver as D  # noqa: E402
+assert D.reason_line(t["reason"]) == (line, "approve --by NAME"), (D.reason_line(t["reason"]), t["reason"])
+assert D.disk_line(repo, t, plan) == (line, None), D.disk_line(repo, t, plan)
+assert D.pregrant(repo, plan, "CONFIRM_MISSION") == [], D.pregrant(repo, plan, "CONFIRM_MISSION")
+for bad, why in ((t["reason"].replace("`approve ", "`restore "), "verb"), (t["reason"].replace("`approve ", "`consent "), "verb"),
+                 (t["reason"].replace(line, line[:-8] + "0badc0de"), "disk"), ("no line at all", "no reply line")):
+    got = D.disk_line(repo, dict(t, reason=bad), plan)
+    assert got[0] is None and why in got[1], (bad, got)
+assert D.disk_line(repo, dict(t, action="CONFIRM_BASELINE"), plan)[0] is None       # approve never confirms a baseline
+assert D.disk_line(repo, dict(t, action="ASK_CONSENT"), plan)[0] is None            # consent is never on the allowlist
+assert D.shown("Reply with `%s` to approve." % line, line) and not D.shown("reply %s0" % line, line)
+assert not D.shown("reply " + line[:-1], line) and not D.shown("", line)
 s1 = str(uuid.uuid4())
 say("/aloop:mission\n" + line, s1)                        # a reply session's prompt: the slash command, then the line
 mission("approve", "--by", BY)
@@ -203,6 +225,10 @@ assert bdoc["measurements"]["agreed"] is True and len(bdoc["measurements"]["runs
 t = tick("CONFIRM_BASELINE", 3)
 line, then = typed(t, "confirm", "bln", M.digest(bdoc)[:8])
 assert line.split()[1] == bid and then == "baseline confirm %s --by NAME" % bid, (line, then)
+assert D.reason_line(t["reason"]) == (line, then) and D.disk_line(repo, t, plan) == (line, None), (t, D.disk_line(repo, t, plan))
+assert D.pregrant(repo, plan, "CONFIRM_BASELINE") == [], D.pregrant(repo, plan, "CONFIRM_BASELINE")
+assert D.disk_line(repo, dict(t, reason=t["reason"].replace("`confirm ", "`restore ")), plan)[0] is None
+assert D.disk_line(repo, dict(t, action="CONFIRM_MISSION"), plan)[0] is None
 s2 = str(uuid.uuid4())
 say("/aloop:mission\n" + line, s2)
 mission("baseline", "confirm", bid, "--by", BY)
@@ -515,6 +541,276 @@ r = subprocess.run([sys.executable, SUMMARY, R, "--sessions", os.path.join(R, "s
 assert r.returncode == 64, r.returncode
 ok("the mission summary sums the last result line per session, flags a session with none (cost_complete false), "
    "counts stuck releases in both spellings and never counts one as a pass; one ledger row")
+
+# ── 6) the live loop (mission_driver.py) on a stub claude that behaves like a host ──────────────────
+# scripts/test/fixtures/mission_host.py is `claude` here: it captures its prompt through the plugin's
+# UserPromptSubmit hooks as a host does, runs the mission CLI the way the playbook's supervisor would (or
+# idles, or hangs), and prints stream-json with a result line; a scenario file configures each session.
+HOSTDIR = os.path.join(T, "host")
+os.makedirs(HOSTDIR)
+with open(os.path.join(HOSTDIR, "claude"), "w") as f:
+    f.write('#!/bin/sh\nexec "%s" -B "%s" "$@"\n' % (sys.executable, os.path.join(ROOT, "scripts", "test", "fixtures",
+                                                                                  "mission_host.py")))
+os.chmod(os.path.join(HOSTDIR, "claude"), 0o755)
+HAVE_PYTEST = subprocess.run([os.path.join(TOOLS, "python3"), "-m", "pytest", "--version"], capture_output=True).returncode == 0
+HENV = dict(ENV, PATH=":".join([HOSTDIR, TOOLS, "/usr/bin", "/bin"]), E2E_POLL_S="0.3")
+if not HAVE_PYTEST:     # a stand-in that really runs tests/test_*.py's test functions (the preflight and checks need one)
+    PYT = os.path.join(T, "pytest-stand-in", "pytest")
+    os.makedirs(PYT)
+    open(os.path.join(PYT, "__init__.py"), "w").close()
+    with open(os.path.join(PYT, "__main__.py"), "w") as f:
+        f.write("import glob, importlib.util, os, sys\nsys.dont_write_bytecode = True\n"
+                "if '--version' in sys.argv:\n    print('pytest stand-in')\n    sys.exit(0)\n"
+                "sys.path.insert(0, os.getcwd())\nfails = n = 0\n"
+                "for p in sorted(glob.glob('tests/test_*.py')):\n"
+                "    spec = importlib.util.spec_from_file_location(os.path.basename(p)[:-3], p)\n"
+                "    m = importlib.util.module_from_spec(spec)\n    spec.loader.exec_module(m)\n"
+                "    for k in sorted(dir(m)):\n        if k.startswith('test_') and callable(getattr(m, k)):\n"
+                "            n += 1\n            try:\n                getattr(m, k)()\n"
+                "            except Exception as e:\n                fails += 1\n                print('FAIL', p, k, e)\n"
+                "print('%d passed, %d failed' % (n - fails, fails))\nsys.exit(1 if fails or not n else 0)\n")
+    HENV["PYTHONPATH"] = os.path.dirname(PYT)
+with open(os.path.join(T, "net.txt"), "w") as f:
+    f.write("the web\n")
+HENV["E2E_NET_URL"] = "file://" + os.path.join(T, "net.txt")      # the preflight's network check, offline
+PLAN_PY = os.path.join(SMOKE, "mission_plan.py")
+_, TEMPLATE, TPLAN = dry()                                            # a seeded run dir every driver scenario copies
+POLLUTE_RUN = {"GATE_RUN_TESTS": "0", "AGENTIC_NO_BUDGET": "1", "AGENTIC_CWD": os.path.join(T, "elsewhere"),
+               "ALOOP_MISSION_LOOP": "4242", "SKIP_HOOKS": "1", "TASK_ID": "T9", "AGENT_ROLE": "green-worker",
+               "ALADDIN_SPRINT_LOCK_TTL": "1", "CLAUDE_CODE_SESSION_ID": "parent"}
+
+
+class Live:
+    def __init__(self, r, run_dir, stub):
+        self.r, self.dir, self.stub, self.repo = r, run_dir, stub, os.path.join(run_dir, "repo")
+        self.out = r.stdout + r.stderr
+        p = os.path.join(run_dir, "driver.json")
+        self.drv = json.load(open(p)) if os.path.isfile(p) else {}
+        p = os.path.join(stub, "calls.jsonl")
+        self.calls = [json.loads(x) for x in open(p)] if os.path.isfile(p) else []
+        p = os.path.join(run_dir, "sessions.jsonl")
+        self.sessions = [json.loads(x) for x in open(p)] if os.path.isfile(p) else []
+        self.stop = self.drv.get("stop") or {}
+
+    def ledger(self, event=None):
+        return [x for x in M.ledger_rows(self.repo)[0] if event is None or x["event"] == event]
+
+    def events(self, event):
+        return [e for e in M._events.read(self.repo) if e.get("event") == event]
+
+    def checks(self):
+        return {c["name"]: c for c in self.drv.get("check_results") or []}
+
+
+def stub_dir(name, sessions=None, default=None):
+    d = os.path.join(T, "stub-" + name)
+    os.makedirs(d)
+    with open(os.path.join(d, "scenario.json"), "w") as f:
+        json.dump({"default": default or {}, "sessions": sessions or {}}, f)
+    return d
+
+
+def live(name, sessions=None, default=None, env=None, timeout=300):
+    """The driver on a copy of the seeded run dir, with a live plan (mission_plan.py plan without --dry-run)."""
+    R = os.path.join(T, "live-" + name)
+    shutil.copytree(TEMPLATE, R, symlinks=True)
+    os.remove(os.path.join(R, "plan.json"))
+    stub = stub_dir(name, sessions, default)
+    e = dict(HENV, MISSION_STUB_DIR=stub, **(env or {}))
+    p = subprocess.run([sys.executable, "-B", PLAN_PY, "plan", "--run-dir", R, "--repo", os.path.join(R, "repo"),
+                        "--host", "claude", "--model", "stub-sup", "--seed-sha", TPLAN["seed"]["sha"],
+                        "--shim-dir", os.path.join(R, "bin")], env=e, capture_output=True, text=True)
+    assert p.returncode == 0 and json.load(open(os.path.join(R, "plan.json")))["live"] is True, (p.stdout, p.stderr)
+    r = subprocess.run([sys.executable, "-B", DRIVER, "--plan", os.path.join(R, "plan.json")], cwd=T, env=e,
+                       capture_output=True, text=True, timeout=timeout)
+    assert "Traceback" not in r.stdout + r.stderr, (name, r.stdout[-3000:], r.stderr[-3000:])
+    return Live(r, R, stub)
+
+
+def alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    st = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(st) and not st.startswith("Z")
+
+
+HEX8 = re.compile(r"\b[0-9a-f]{8}\b")
+GRANTISH = re.compile(r"^\s*(approve|confirm|consent|restore|retire|veto|revoke)\b", re.I | re.M)
+
+# 6a) the whole cycle through e2e-mission.sh's live path: the stub sets the mission from the first message,
+#     each grant asks and shows its line, the driver types it back in a NEW session, the stub's sprint is the
+#     one-line fix; after goal.met the stub raises the bar (a RESEARCH tick) and the driver kills that session
+stub = stub_dir("happy", sessions={"4": {"after_goal_met": "raise"}}, default={"cost": 0.75, "turns": 12})
+HD = tempfile.mkdtemp(prefix="run-", dir=T)
+r = subprocess.run([SH, "--yes", "--model", "stub-sup"], cwd=T, capture_output=True, text=True, timeout=600,
+                   env=dict(HENV, MISSION_STUB_DIR=stub, E2E_DIR=HD, **POLLUTE_RUN))
+H = Live(r, HD, stub)
+assert "Traceback" not in H.out, H.out[-4000:]
+assert r.returncode == 0, (r.returncode, H.out[-5000:])
+ck = H.checks()
+assert len(ck) >= 19 and all(c["ok"] for c in ck.values()) and H.drv["checks"] == "%d/%d" % (len(ck), len(ck)), \
+    [c for c in ck.values() if not c["ok"]]
+for c in ck.values():
+    assert ("ok - %s" % c["name"]) in r.stdout, c["name"]
+assert H.drv["outcome"] == "GOAL MET" and H.stop["code"] == "goal_met", H.drv
+assert [s["kind"] for s in H.sessions] == ["first", "reply", "reply", "cron"], H.sessions
+assert len(H.calls) == 4 and [c["n"] for c in H.calls] == [1, 2, 3, 4], H.calls
+plan_h = json.load(open(os.path.join(HD, "plan.json")))
+assert H.calls[0]["prompt"] == plan_h["first_prompt"] and H.sessions[0]["prompt_sha256"] == plan_h["first_prompt_sha256"]
+appr, conf = H.ledger("mission.approved"), H.ledger("baseline.confirmed")
+assert len(appr) == 1 and len(conf) == 1, (appr, conf)
+aline, cline = appr[0]["data"]["prompt"]["line"], conf[0]["data"]["prompt"]["line"]
+LINE_RE = re.compile(plan_h["line_re"])
+assert LINE_RE.match(aline) and aline.startswith("approve msn_") and LINE_RE.match(cline) and cline.startswith("confirm bln_")
+# (a) a reply is a new session whose prompt is exactly the slash command and the line, and the grant cites it
+assert H.calls[1]["prompt"] == "/aloop:mission\n" + aline and H.calls[2]["prompt"] == "/aloop:mission\n" + cline, H.calls[1:3]
+assert H.calls[3]["prompt"] == "/aloop:mission"
+assert appr[0]["data"]["prompt"]["session"] == H.calls[1]["session_id"] == H.sessions[1]["session_id"]
+assert conf[0]["data"]["prompt"]["session"] == H.calls[2]["session_id"] == H.sessions[2]["session_id"]
+ids = [c["session_id"] for c in H.calls]
+assert len(set(ids)) == 4 and all(str(uuid.UUID(x, version=4)) == x for x in ids), ids
+for c in H.calls:
+    assert not [x for x in c["argv"] if re.search(r"resume|continue|bypass|skip-permission|dangerous", x, re.I)], c["argv"]
+    i = c["argv"].index("--session-id")
+    assert c["argv"][i + 1] == c["session_id"] and "--setting-sources" in c["argv"] and "--strict-mcp-config" in c["argv"]
+assert H.sessions[1]["prompt_sha256"] == hashlib.sha256(aline.encode()).hexdigest()        # a reply's: the line itself
+assert [g["line"] for g in H.drv["grants"]] == [aline, cline] and all(r_["data"]["by"] == BY for r_ in H.ledger() if r_["role"] == "human")
+# (f) the loop's pid on every session, nothing the run scrubs, and the crontab shim first on PATH (it refuses)
+for c in H.calls:
+    assert c["loop"] == str(H.drv["driver_pid"]) != "4242" and c["leaked"] == [] and c["path0"] == os.path.join(HD, "bin"), c
+    assert c["crontab"]["list"][0] not in (0, None) and "disabled" in c["crontab"]["list"][1], c["crontab"]
+    assert c["crontab"]["install"][0] not in (0, None) and "disabled" in c["crontab"]["install"][1], c["crontab"]
+assert any("ALOOP_MISSION_LOOP" in x for x in H.drv["deviations"]), H.drv["deviations"]
+# (e) every mission.tick was a session's (the driver's pid as the loop), none the driver's; the driver's own counts agree
+ticks = H.events("mission.tick")
+assert ticks and all(e["data"].get("loop") == str(H.drv["driver_pid"]) for e in ticks), [e["data"].get("loop") for e in ticks]
+assert len(ticks) == sum(len(s["actions"]) for s in H.sessions), (len(ticks), [s["actions"] for s in H.sessions])
+# decision 10: the session that raised the bar after goal.met was killed, its cost flagged incomplete
+last = H.sessions[3]
+assert last["killed"] and "RESEARCH" in last["killed"] and last["cost_complete"] is False and last["actions"][-1] == "RESEARCH", last
+assert not alive(H.calls[3]["pid"]), H.calls[3]
+assert all(s["cost_complete"] for s in H.sessions[:3]) and [s["cost_usd"] for s in H.sessions[:3]] == [0.75] * 3
+assert [list(s["models"]) for s in H.sessions[:3]] == [["stub-model"]] * 3, H.sessions
+sm = json.load(open(os.path.join(HD, "summary.json")))
+assert sm["kind"] == "mission" and sm["seed_sha"] == plan_h["seed"]["sha"] and sm["checks"] == H.drv["checks"], sm
+assert sm["cost_complete"] is False and sm["outcome"] == "GOAL MET" and sm["driver"]["stop"]["code"] == "goal_met", sm
+smd = open(os.path.join(HD, "summary.md")).read()
+assert "## Checks (%s)" % H.drv["checks"] in smd and smd.count("\n- ok ") == len(ck) and "≥$" in smd, smd
+assert "| mission ? | todo (claude) |" in r.stdout, r.stdout[-1500:]
+assert subprocess.run(["git", "diff", "--quiet", plan_h["seed"]["sha"], "--", RUNNER], cwd=H.repo, env=ENV).returncode == 0
+ok("the live loop on a stub host through e2e-mission.sh: first, reply, reply, cron; each reply a new session whose "
+   "prompt is the slash command and the line, cited by its grant; every check passes (%s); the session that raised "
+   "the bar after goal.met was killed with its group, cost flagged incomplete" % H.drv["checks"])
+ok("the sessions' env: ALOOP_MISSION_LOOP is the driver's pid (recorded as a deviation), no scrubbed family leaks, "
+   "the crontab shim is first on PATH and refuses; every mission.tick was made inside a session")
+
+# 6b) the first session idles; the stream has no result line and a hook crash's text: the run stops, every
+#     check is printed, exit 1, no traceback; the driver wrote no mission.tick and no ledger row
+stub = stub_dir("idle", default={"mode": "idle", "result": False, "crash": True, "rc": 1})
+ID = tempfile.mkdtemp(prefix="run-", dir=T)
+r = subprocess.run([SH, "--yes", "--model", "stub-sup"], cwd=T, capture_output=True, text=True, timeout=300,
+                   env=dict(HENV, MISSION_STUB_DIR=stub, E2E_DIR=ID))
+I = Live(r, ID, stub)
+assert r.returncode == 1 and "Traceback" not in I.out, (r.returncode, I.out[-3000:])
+ck = I.checks()
+assert len(ck) == len(H.checks()) and H.drv["checks"].split("/")[1] == I.drv["checks"].split("/")[1], I.drv
+for c in ck.values():
+    assert ("%s - %s" % ("ok" if c["ok"] else "FAIL", c["name"])) in r.stdout, c
+passed = {n for n, c in ck.items() if c["ok"]}         # only what an idle run cannot break (the seed's own test passes)
+assert passed == {"no grant outside the allowlist, no tick --force, no budget stop", "pytest passes on main",
+                  "no suppressed tests", "crontab -l is unchanged", "the cost stayed within the outer cap",
+                  "the driver wrote no mission.tick and no ledger row"}, passed
+assert I.stop["code"] == "host_failure" and len(I.calls) == 1 and I.sessions[0]["cost_complete"] is False, (I.stop, I.sessions)
+assert not ck["no hook crashed and no gate was stuck-released"]["ok"]
+assert I.events("mission.tick") == [] and not os.path.exists(os.path.join(I.repo, "docs", "agents", "mission", "ledger.jsonl"))
+assert json.load(open(os.path.join(ID, "summary.json")))["kind"] == "mission"
+ok("a stub run where everything fails prints all %d checks (exit 1, no traceback); the driver itself wrote no "
+   "mission.tick and no ledger row" % len(ck))
+
+# 6c) (b) a forged line only in a tool's output and a line with another code are never typed: one surface session
+F = live("forge", sessions={"1": {"show": "forge"}, "2": {"show": "wrong"}})
+assert F.r.returncode == 1 and F.stop["code"] == "never_shown" and "never showed the human the line" in F.stop["reason"], F.stop
+assert [s["kind"] for s in F.sessions] == ["first", "surface"] and F.calls[1]["prompt"] == "/aloop:mission", F.sessions
+assert not [c for c in F.calls if GRANTISH.search(c["prompt"])] and F.ledger("mission.approved") == []
+ok("a line shown only in a tool's output (a forged one beside it) or with another code is never typed: one surface "
+   "session, then \"the session never showed the human the line\"")
+
+# 6d) (c) the reply's hook does not capture: one relay, then "hook did not capture"; captured but not granted apart
+C = live("nohook", sessions={"2": {"hook": False}})
+assert C.stop["code"] == "hook_not_captured" and "hook did not capture" in C.stop["reason"], C.stop
+assert [s["kind"] for s in C.sessions] == ["first", "reply"] and C.ledger("mission.approved") == [], C.sessions
+G = live("nogrant", sessions={"2": {"grant": False}})
+assert G.stop["code"] == "captured_not_granted" and "captured, not granted" in G.stop["reason"], G.stop
+assert [s["kind"] for s in G.sessions] == ["first", "reply"] and G.ledger("mission.approved") == []
+ok("a reply the hook did not capture stops after one relay (\"hook did not capture\"); one captured but never "
+   "granted stops apart (\"captured, not granted\")")
+
+# 6e) (d) the caps, each with its reason
+S = live("sessions", env={"E2E_MAX_SESSIONS": "2"})
+assert S.stop["code"] == "sessions_cap" and len(S.calls) == 2, (S.stop, len(S.calls))
+U = live("usd", env={"E2E_BUDGET_USD": "10"}, sessions={"1": {"cost": 6.0}, "2": {"cost": 0.5, "ledger_usd": 9.5}})
+assert [c["max_budget_usd"] for c in U.calls] == ["10.00", "4.00"], [c["max_budget_usd"] for c in U.calls]
+assert U.stop["code"] == "usd_cap" and "$9.50" in U.stop["reason"] and "$6.50" in U.stop["reason"], U.stop
+assert len(U.calls) == 2 and U.drv["tick_usd"] == 9.5 and U.drv["cost_usd"] == 6.5, U.drv
+W = live("timeout", env={"E2E_SESSION_TIMEOUT": "2", **POLLUTE_RUN}, default={"mode": "hang"})
+child = int(open(os.path.join(W.stub, "child-1.pid")).read())
+assert W.stop["code"] == "session_timeout" and W.sessions[0]["timed_out"] is True and W.sessions[0]["secs"] < 30, (W.stop, W.sessions)
+assert not alive(child) and not alive(W.calls[0]["pid"]), (child, W.calls[0]["pid"])
+assert W.calls[0]["leaked"] == [] and W.calls[0]["loop"] == str(W.drv["driver_pid"])          # the driver scrubs itself too
+P = live("noprogress", default={"mode": "idle"}, sessions={"1": {"mode": "cycle"}, "2": {"mode": "cycle", "max_actions": 1}})
+assert P.stop["code"] == "no_progress" and [s["kind"] for s in P.sessions] == ["first", "reply", "cron", "cron"], (P.stop, P.sessions)
+assert len(P.ledger("mission.approved")) == 1
+ok("caps stop with their reason: sessions (2), USD (--max-budget-usd min(10, left): 10.00 then 4.00; the outer cap "
+   "takes tick's $9.50 over the host's $6.50), a session timeout (its group killed, the child it left too), and no "
+   "progress in 2 sessions")
+
+# 6f) (h) a gray ethics verdict stops without consenting; (i) a pre-grant check failure grants nothing
+E_ = live("gray", sessions={"2": {"ethics": "gray"}})
+assert E_.stop["code"] == "human" and E_.stop["reason"].startswith("a gray ethics verdict needs a real human"), E_.stop
+assert E_.ledger("ethics.consent") == [] and not [c for c in E_.calls if re.search(r"(?m)^consent ", c["prompt"])]
+assert len(E_.calls) == 2
+X1 = live("tamper", sessions={"1": {"tamper": "statement"}})
+assert X1.stop["code"] == "pregrant" and "statement" in X1.stop["reason"] and len(X1.calls) == 1, X1.stop
+assert X1.ledger("mission.approved") == []
+X2 = live("twojourneys", sessions={"2": {"journeys": 2}})
+assert X2.stop["code"] == "pregrant" and "journey" in X2.stop["reason"] and len(X2.calls) == 2, X2.stop
+assert X2.ledger("baseline.confirmed") == [] and len(X2.ledger("mission.approved")) == 1
+X3 = live("runner", sessions={"2": {"runner": "changed"}})
+assert X3.stop["code"] == "pregrant" and "runner" in X3.stop["reason"] and X3.ledger("baseline.confirmed") == [], X3.stop
+ok("a gray ethics verdict stops the run with no consent typed; mission.json unlike the typed answers, 2 journeys, or "
+   "a runner that is not the seeded one stops it before the grant is typed")
+
+# 6g) (j) a stuck release in either spelling is never a pass; (k) a WAIT key once, then the run stops
+J_ = os.path.join(T, "gates-repo")
+os.makedirs(os.path.join(J_, ".aladdin", "logs"))
+subprocess.run(["git", "init", "-q", J_], check=True, env=ENV)
+gl = os.path.join(J_, ".aladdin", "logs", "gates.jsonl")
+ctx = D.Ctx({"repo": J_, "run_dir": T, "sessions_dir": os.path.join(T, "none")}, [], {})
+with open(gl, "w") as f:
+    f.write('{"gate":"gate-red-verify","exit":0,"selfcheck":false,"reason":"1","released":"stuck"}\n')
+    f.write(json.dumps({"gate": "gate-green-verify", "exit": 0, "selfcheck": False, "released": "stuck"}) + "\n")
+    f.write(json.dumps({"gate": "gate-final", "exit": 0, "selfcheck": False, "released": "stuck"}) + "\n")
+for fn in (D.check_red_green, D.check_final_gate, D.check_no_crash):
+    assert fn(ctx)[0] is False, (fn.__name__, fn(ctx))
+assert D.gate_facts(J_)["stuck_releases"] == 3
+with open(gl, "w") as f:
+    for g in ("gate-red-verify", "gate-green-verify", "gate-final"):
+        f.write('{"gate":"%s","exit":0,"selfcheck":false}\n' % g)
+assert all(fn(D.Ctx(ctx.plan, [], {}))[0] for fn in (D.check_red_green, D.check_final_gate, D.check_no_crash))
+waits, now = set(), 1_000_000_000_000
+pk = {"action": "WAIT", "subject": "docs/agents/mission/goals/g.json", "next_check": "2001-09-09T01:46:40Z", "reason": "r"}
+assert D.ms_of(pk["next_check"]) == now + 0, D.ms_of(pk["next_check"])
+assert D.wait_step(waits, dict(pk, next_check="2001-09-09T01:48:40Z"), now, 900) == ("sleep", 120.0)
+step = D.wait_step(waits, dict(pk, next_check="2001-09-09T01:48:40Z"), now + 120000, 900)
+assert step[0] == "stop" and step[1] == "wait_repeat", step
+assert D.wait_step(set(), dict(pk, next_check="2001-09-09T02:01:41Z"), now, 900)[:2] == ("stop", "wait_long")
+assert D.wait_step(set(), dict(pk, next_check=None), now, 900)[:2] == ("stop", "wait_long")
+ok("a stuck release in either spelling fails the RED/GREEN, final-gate and hook checks; a WAIT key sleeps once "
+   "(at most 15 min), a repeat or a longer WAIT stops the run")
 
 shutil.rmtree(T, ignore_errors=True)       # kept when a check fails, for the post-mortem
 print("\nmission-e2e-live: %d checks passed" % PASS[0])

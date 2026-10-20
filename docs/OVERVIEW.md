@@ -123,6 +123,7 @@ The model can ignore a skill; it cannot ignore an exit code.
   `events trace`; each of these runs, and every public figure, is a row with its reproduce command
   in [docs/evidence/README.md](evidence/README.md). Every run so far has found a gate false positive
   or a dead path that unit tests missed; ROADMAP M0.8 (runs 1–35) and M8 (from run 36) list them.
+- The mission run, `make e2e-mission YES=1 [DRY=1]`: one live mission cycle on a seeded to-do repo, where the script types only the first message and the grant lines it checked on disk; the harness is tested at zero tokens in CI, and the live run is still open (ROADMAP M9.13).
 - One measured real run (*TheNoteBook*, a Go backend): ~17K LOC, 322 tests, 74 commits in 6
   sprints for ~1.55M output tokens, 76% of it on Sonnet. See the
   [README](../README.md#evidence).
