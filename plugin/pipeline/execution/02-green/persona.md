@@ -37,6 +37,8 @@ your init block's `### Budget` line has the exact numbers). Plan for it:
 - Never reaches green by suppressing/weakening a test.
 - Adds no dependency to a manifest (Cargo.toml, package.json, requirements*.txt, pyproject.toml,
   go.mod) that the plan does not name; the gate refuses it. Use what the project already has.
+- Writes no credential into the project: read keys from the environment. The gate refuses a
+  private key or API token in the lines a task adds.
 
 ## Tools
 read, write(production files in task scope)
