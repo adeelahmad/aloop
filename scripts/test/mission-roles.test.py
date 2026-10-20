@@ -1015,6 +1015,95 @@ assert hook(E, "ev47").returncode == 0
 ok("an intent a supervisor's `git merge`/`git pull` brings in or removes during a role's run is not the role's (no mission"
    " role writes git); one the role rewrites after it came in, or deletes itself, still blocks")
 
+# the fourth review's second round (each its reproduction, with its allow-control)
+far_was = open(far).read()                                   # the human's intent, committed
+hook(MP, "mp13", "start")
+artifact("goal", eval_id="evl_x", gaps=["g13"])
+json.dump(dict(json.load(open(far)), want="a dark mode, and rewrite the billing module"), open(far, "w"))
+qgit("commit", "-qam", "the tree, committed while the planner runs")    # the human's `git commit -am`: a local commit
+assert gblocked(hook(MP, "mp13"), "%s changed during your run" % os.path.basename(far)), hook(MP, "mp13").stderr
+open(far, "w").write(far_was)
+assert hook(MP, "mp13").returncode == 0
+bad_p = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "8192a3b4"))
+hook(MP, "mp14", "start")
+artifact("goal", eval_id="evl_x", gaps=["g14"])
+json.dump({"intent_id": os.path.basename(bad_p)[:-5], "source": "mission", "want": ""}, open(bad_p, "w"))   # its own, invalid
+qgit("add", "-A", os.path.relpath(INT, Q))
+qgit("commit", "-qm", "the supervisor commits the tree while the planner runs")
+assert gblocked(hook(MP, "mp14"), "%s fails `intent check`" % os.path.basename(bad_p)), hook(MP, "mp14").stderr
+json.dump(dict(mint, intent_id=os.path.basename(bad_p)[:-5]), open(bad_p, "w"))
+assert hook(MP, "mp14").returncode == 0                      # its own intent, checked: a commit hides no write
+side_p = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "92a3b4c5"))
+hook(E, "ev48", "start")
+artifact("eval", gaps=[{"gap": "g48"}])
+json.dump(dict(ok_intent, intent_id=os.path.basename(side_p)[:-5], want="rewrite the billing module"), open(side_p, "w"))
+qgit("checkout", "-qb", "side")                              # the tree's new intent committed on a branch of the run,
+qgit("add", side_p)
+qgit("commit", "-qm", "the tree's new intent")
+qgit("checkout", "-q", "-")
+qgit("merge", "-q", "--ff-only", "side")                     # then merged: still a local commit of the run's write
+assert gblocked(hook(E, "ev48"), "%s is a new intent" % os.path.basename(side_p)), hook(E, "ev48").stderr
+qgit("rm", "-q", side_p)
+qgit("commit", "-qm", "the posed intent, removed")
+assert hook(E, "ev48").returncode == 0
+hm = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "a3b4c5d6"))
+json.dump(dict(ok_intent, intent_id=os.path.basename(hm)[:-5]), open(hm, "w"), indent=1)   # the human's, one field a line
+qgit("add", hm)
+qgit("commit", "-qm", "the human's intent")
+hm_was = open(hm).read()
+qgit("checkout", "-qb", "hm-side")
+json.dump(dict(json.load(open(hm)), done_looks_like="a test passes, at night"), open(hm, "w"), indent=1)   # elsewhere
+far3 = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "b4c5d6e7"))
+json.dump(dict(ok_intent, intent_id=os.path.basename(far3)[:-5], want="a sepia mode"), open(far3, "w"))
+qgit("add", hm, far3)
+qgit("commit", "-qm", "the human's edit and a new intent, on another machine")
+qgit("checkout", "-q", "-")
+hook(MP, "mp15", "start")
+artifact("goal", eval_id="evl_x", gaps=["g15"])
+json.dump(dict(json.load(open(hm)), want="dark mode, and rewrite the billing module"), open(hm, "w"), indent=1)
+qgit("commit", "-qam", "the tree, committed while the planner runs")
+qgit("merge", "-q", "--no-edit", "hm-side")                  # a real merge: the human's file auto-merged with the commit
+assert "Merge made by" in qgit("reflog", "-1").stdout and json.load(open(hm))["done_looks_like"].endswith("at night")
+r = hook(MP, "mp15")
+assert gblocked(r, "%s changed during your run" % os.path.basename(hm)), r.stderr   # not the other side's blob: not excused
+assert "%s arrived through a commit" % os.path.basename(far3) in r.stderr, r.stderr  # the other side's own file came in
+open(hm, "w").write(hm_was)
+r = hook(MP, "mp15")
+assert r.returncode == 0 and "%s arrived through a commit" % os.path.basename(far3) in r.stderr, r.stderr
+qgit("checkout", "-q", "--", hm)
+qgit("checkout", "-qb", "pulled")
+far4 = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "c5d6e7f8"))
+json.dump(dict(ok_intent, intent_id=os.path.basename(far4)[:-5], want="a high-contrast mode"), open(far4, "w"))
+qgit("add", far4)
+qgit("commit", "-qm", "another intent of the human's")
+qgit("checkout", "-q", "-")
+assert not os.path.exists(far4)
+hook(E, "ev49", "start")
+artifact("eval", gaps=[{"gap": "g49"}])
+qgit("pull", "-q", "--ff-only", ".", "pulled")               # the supervisor pulls while the evaluator runs
+r = hook(E, "ev49")
+assert r.returncode == 0 and "%s arrived through a commit" % os.path.basename(far4) in r.stderr, r.stderr
+ok("only a merge or pull brings a file into docs/agents/intents/ during a run (the HEAD reflog says so, and for a merge"
+   " the file is the other side's blob): a local commit of the tree, even merged from a branch, hides no role's write")
+
+hook(E, "ev50", "start")
+artifact("eval", gaps=[{"gap": "g50"}])
+had = set(glob.glob(os.path.join(INT, "int_*.json")))
+r = sh(os.path.join(PL, "bin", "aladdin"), "add a dark mode", cwd=Q)    # the human's skeleton (source prompt)
+assert r.returncode == 0, (r.stdout, r.stderr)
+sk3 = (set(glob.glob(os.path.join(INT, "int_*.json"))) - had).pop()
+d = dict(json.load(open(sk3)), source="mixed", actor="a user", want="dark mode", why="eyes", done_looks_like="a test passes",
+         success_scenarios=["the toggle works"], failure_scenarios=["no toggle"],
+         open_questions=[{"question": "May it change the billing?", "class": "ask"}])
+json.dump(dict(d, source="mission"), open(sk3, "w"), indent=1)   # posed as the planner's handoff: never intake's fill
+assert gblocked(hook(E, "ev50"), "%s is a new intent" % os.path.basename(sk3)), hook(E, "ev50").stderr
+json.dump(d, open(sk3, "w"), indent=1)                       # intake fills it; the human added a screenshot: source mixed
+assert sh(os.path.join(PL, "bin", "intent"), "check", sk3, cwd=Q).returncode == 3   # a question only the human answers
+r = hook(E, "ev50")
+assert r.returncode == 0 and "%s changed while you ran, and `intent.received`" % os.path.basename(sk3) in r.stderr, r.stderr
+ok("intake's fill may change an intent's source to another of the human's (prompt to mixed, a question still open):"
+   " its intent.received names it; a change to `source: mission` is never intake's")
+
 open(os.path.join(PL, "mission", "roles.json"), "w").write("{ not json")          # a broken role table: a gate bug
 r = hook(E, "ev9")
 assert r.returncode == 2 and "failing closed" in r.stderr, r.stderr
@@ -1390,14 +1479,15 @@ open(M.ledger(X.dir), "w").write(led)
 ok("an area command that refuses only because of ledger problems that predate the run leaves a note, not a block")
 
 open(M.ledger(X.dir), "w").write("".join(led.splitlines(True)[:-1]))      # broken before the run, again
-for at, aid in ((MRS, "mr20"), (E, "ev40")):                 # `research new`, `evaluate`: no command of theirs refuses
-    r, _ = role_run(at, aid, lambda: None)                   # a run that wrote nothing and ran nothing
-    assert r.returncode == 2 and "you wrote no artifact" in r.stderr and "predate" not in r.stderr, (aid, r.stderr)
-    assert any("STUCK" in xstop(at, aid).stderr for _ in range(3))
+r, _ = role_run(MRS, "mr20", lambda: None)                   # the Scout: no command of its refuses (below)
+assert r.returncode == 2 and "you wrote no artifact" in r.stderr and "predate" not in r.stderr, r.stderr
+assert any("STUCK" in xstop(MRS, "mr20").stderr for _ in range(3))
+r, _ = role_run(MRS, "mr21", lambda: X.journey(X.draft(report(title="Rivals, on a broken ledger"))))
+assert r.returncode == 0, r.stderr                           # `research new|archive|claim`, `journeys new`: none refuses
 r, out = role_run("aloop:mission-planner", "mp20", lambda: X.run("goal", "derive"))
 assert out.returncode == 2 and r.returncode == 0 and "predate" in r.stderr and "goal derive" in r.stderr, (out.stderr, r.stderr)
 BOUND = {"assess": [], "baseline new": ["--definition", "a first task in 2s"], "baseline measure": [b3["baseline_id"]],
-         "goal derive": []}
+         "goal derive": [], "evaluate": [s1["state_id"]], "goal close": [gl["goal_id"], "--eval", e1["eval_id"]]}
 for role, spec in TABLE["roles"].items():                    # the table's claim: each command it names refuses on this ledger
     for cmd in spec.get("ledger_bound", []):
         rv = ""
@@ -1408,10 +1498,23 @@ for role, spec in TABLE["roles"].items():                    # the table's claim
         assert r.returncode == 2 and "ledger" in r.stderr, (role, cmd, r.stdout, r.stderr)
         if rv:
             os.remove(rv)
-assert {r for r, spec in TABLE["roles"].items() if not spec.get("ledger_bound")} == {"market-researcher", "evaluator"}
-open(M.ledger(X.dir), "w").write(led)
+assert {r for r, spec in TABLE["roles"].items() if not spec.get("ledger_bound")} == {"market-researcher"}
 ok("a run that wrote nothing on a ledger broken before it is a note only for a role whose commands decide from the ledger"
-   " (roles.json `ledger_bound`, each checked to refuse); the Scout and the Evaluator are blocked as usual")
+   " (roles.json `ledger_bound`, each checked to refuse); the Scout, none of whose commands refuses, is blocked as usual")
+
+EVD = os.path.join(X.dir, "docs", "agents", "mission", "eval")
+evals = sorted(os.listdir(EVD))
+r, out = role_run(E, "ev40", lambda: X.run("evaluate", s1["state_id"]))   # its command decides from the ledger: it refuses
+assert out.returncode == 2 and "ledger" in out.stderr and sorted(os.listdir(EVD)) == evals, (out.stderr, os.listdir(EVD))
+assert r.returncode == 0 and "predate" in r.stderr and "`aloop mission evaluate`" in r.stderr, r.stderr   # and left no gap list
+r, _ = role_run(E, "ev41", lambda: (X.run("evaluate", "check"), X.run("status")))   # it saw the broken ledger, wrote nothing
+assert r.returncode == 0 and "predate" in r.stderr, r.stderr
+open(M.ledger(X.dir), "w").write(led)
+r, _ = role_run(E, "ev42", lambda: None)                     # the ledger repaired: writing nothing is its block again
+assert r.returncode == 2 and "you wrote no artifact" in r.stderr and "predate" not in r.stderr, r.stderr
+assert any("STUCK" in xstop(E, "ev42").stderr for _ in range(3))
+ok("the Evaluator's `evaluate` refuses on a ledger broken before its run and leaves no gap list, so a run of it that"
+   " wrote nothing is a note (roles.json `ledger_bound`: `evaluate`, `goal close`); on a sound ledger it blocks")
 
 LED = os.path.relpath(M.ledger(X.dir), X.dir)
 for c in (["add", LED], ["-c", "user.email=a@a", "-c", "user.name=A", "commit", "-qm", "the mission's ledger"]):

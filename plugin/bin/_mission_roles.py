@@ -435,42 +435,128 @@ def head_commit(project):
     return _paths._git(project, "rev-parse", "-q", "--verify", "HEAD^{commit}")
 
 
-def arrived(project, since, rels, was=None):
-    """The files of `rels` (changed during a run) a commit made during it brought in or removed: HEAD moved off
-    commit `since`, and a file now is HEAD's blob of it, which `since` did not have, or a file gone (`was`: {rel:
-    [raw sha256, …]} as the run found it) was `since`'s blob of it, and HEAD has none (a supervisor's `git merge` or
-    `git pull`: no mission role writes git, gate-mission-scope refuses it). A file changed after that is not one."""
+def reflog_path(project):
+    """The file git keeps HEAD's reflog in for the project's worktree, "" when there is no git."""
+    p = _paths._git(project, "rev-parse", "--git-path", "logs/HEAD")
+    return os.path.join(project, p) if p and not os.path.isabs(p) else p
+
+
+def reflog_size(project):
+    """HEAD's reflog's size in bytes now (0 when there is none): a run's moves of HEAD are the entries after it."""
+    try:
+        return os.path.getsize(reflog_path(project))
+    except (OSError, TypeError, ValueError):
+        return 0
+
+
+def moves_since(project, offset):
+    """[(old commit, new commit, message)] of HEAD's reflog entries after byte `offset` (every move of HEAD since a
+    run started, in order), None when the log no longer holds that offset (it was expired or rewritten)."""
+    p = reflog_path(project)
+    try:
+        if not p or os.path.getsize(p) < offset:
+            return None
+        with open(p, "rb") as f:
+            f.seek(offset)
+            raw = f.read()
+    except OSError:
+        return [] if not offset else None
+    out = []
+    for ln in raw.decode("utf-8", "replace").splitlines():
+        head, _, msg = ln.partition("\t")
+        parts = head.split(" ")
+        if len(parts) < 2:
+            return None
+        out.append((parts[0], parts[1], msg))
+    return out
+
+
+def move_kind(msg):
+    """What a HEAD reflog entry did, by the message git wrote for it: "in" (a `git merge` or `git pull` brought in
+    another branch's commits: a fast-forward, a merge it made, a pull's rebase onto the upstream), "moved" (a checkout
+    or reset to a commit that exists), "made" (a commit made here: `commit`, `commit --amend`, a conflicted merge
+    concluded by `commit`, a cherry-pick, a rebase's pick, anything else)."""
+    action = msg.split(": ", 1)[0]                        # `<verb> [<args>] [(<step>)]: <details>`
+    m = re.search(r" \(([a-z -]+)\)$", action)
+    step, verb = (m.group(1) if m else ""), action.split(" ", 1)[0]
+    if verb in ("merge", "pull") and step in ("", "start", "finish"):
+        return "in"
+    if verb in ("checkout", "reset", "branch", "clone") or verb == "rebase" and step in ("start", "finish"):
+        return "moved"
+    return "made"
+
+
+def arrived(project, since, rels, was=None, reflog_at=None):
+    """The files of `rels` (changed during a run) a `git merge` or `git pull` made during it brought in or removed:
+    HEAD moved off commit `since` through its reflog entries after byte `reflog_at` (they chain from `since` to HEAD
+    now), the last of them to change the file is a merge or a pull (for a merge it made, the file is the other side's
+    blob, never one it merged with a local change), no commit made here during the run made the file as it is now
+    (one made on a branch and merged is still a local commit of the run's tree), and the file now is HEAD's blob of
+    it, or a file gone (`was`: {rel: [raw sha256, …]} as the run found it) was `since`'s blob of it and HEAD has none.
+    No mission role writes git (gate-mission-scope refuses it), so that is the supervisor's; a commit of the working
+    tree (the human's `git commit -am`) is not one, and a file changed after it is not one either."""
     head = head_commit(project)
-    if not since or not head or head == since:
+    if not since or not head or head == since or not isinstance(reflog_at, int):
         return set()
+    moves = moves_since(project, reflog_at)
+    if not moves or moves[0][0] != since or moves[-1][1] != head or \
+            any(a[1] != b[0] for a, b in zip(moves, moves[1:])):
+        return set()                                      # HEAD's moves since the start are not all in the log
+    trees = {}
 
     def blob(commit, rel):
-        return _paths._git(project, "rev-parse", "-q", "--verify", "%s:%s" % (commit, rel))
+        """The blob id `commit` has for `rel` ("" when none): docs/agents/intents/ is listed once per commit."""
+        if not commit.strip("0"):
+            return ""
+        if not under(rel, INTENTS):
+            return _paths._git(project, "rev-parse", "-q", "--verify", "%s:%s" % (commit, rel))
+        if commit not in trees:
+            trees[commit] = {}
+            for ent in _paths._git(project, "ls-tree", "-r", "-z", "--full-tree", commit, "--", INTENTS).split("\0"):
+                meta, _, path = ent.partition("\t")
+                parts = meta.split()
+                if len(parts) == 3 and parts[1] == "blob":
+                    trees[commit][path] = parts[2]
+        return trees[commit].get(rel, "")
     out = set()
     for rel in rels:
         full = os.path.join(project, rel)
         if os.path.isfile(full):
-            b = blob(head, rel)
-            if b and b != blob(since, rel) and b == _paths._git(project, "hash-object", "--", full):
-                out.add(rel)
+            now = _paths._git(project, "hash-object", "--", full)
+            if not now or now != blob(head, rel):
+                continue
         elif (was or {}).get(rel) and not blob(head, rel) and blob(since, rel):
+            now = ""
             try:
                 raw = subprocess.run(["git", "-C", project, "cat-file", "--filters", "%s:%s" % (since, rel)],
                                      capture_output=True, timeout=10).stdout
             except (OSError, subprocess.SubprocessError):
                 continue
-            if hashlib.sha256(raw).hexdigest() == was[rel][0]:
-                out.add(rel)
+            if hashlib.sha256(raw).hexdigest() != was[rel][0]:
+                continue
+        else:
+            continue
+        changes = [(o, n, msg) for o, n, msg in moves if blob(o, rel) != blob(n, rel)]
+        if not changes or any(move_kind(msg) == "made" and blob(n, rel) == now for o, n, msg in changes):
+            continue                                      # a commit made here during the run made it as it is now
+        o, n, msg = changes[-1]
+        if move_kind(msg) != "in" or blob(n, rel) != now:
+            continue
+        if ": Merge made by " in msg and \
+                not any(blob(p, rel) == now for p in _paths._git(project, "rev-parse", n + "^@").split()[1:]):
+            continue                                      # the merge's own result (with a local change), not the other side's
+        out.add(rel)
     return out
 
 
 def marks(project):
     """What a stop diffs against: every file's fingerprint, who the files say they belong to, the event log's
-    size, the ledger's bytes and its problems, and the commit HEAD names."""
+    size, the ledger's bytes and its problems, the commit HEAD names and the size of HEAD's reflog."""
     roles, sources, cites = labels(project)
     problems = ledger_problems(project)
     return {"files": scan(project), "roles": roles, "sources": sources, "cites": cites, "events_at": events_size(project),
-            "ledger": ledger_mark(project, problems), "ledger_problems": problems, "head": head_commit(project)}
+            "ledger": ledger_mark(project, problems), "ledger_problems": problems, "head": head_commit(project),
+            "reflog_at": reflog_size(project)}
 
 
 def record_start(project, agent_id, role):

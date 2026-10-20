@@ -3,7 +3,7 @@
 
   gate-mission-artifact start   SubagentStart of a mission role: record what exists under
                                 docs/agents/mission/ and docs/agents/intents/, whose each file says it is, the
-                                ledger's bytes and rows, the commit HEAD names
+                                ledger's bytes and rows, the commit HEAD names and the size of HEAD's reflog
                                 (<run-data>/state/mission-runs/<agent_id>.json)
   gate-mission-artifact         SubagentStop of a mission role, or `aloop selfcheck <role>`: judge what this run wrote
 
@@ -17,7 +17,8 @@ when none does). At its stop the run's changes (the files now against the start 
      command's own event of the run names it (judge.run, telemetry.report: a record no event names was
      written by hand and blocks). Writing nothing while the ledger still has the problems it started with is a
      note for a role whose own commands decide from it (roles.json `ledger_bound`: `baseline new`, `assess`, `goal
-     derive`, `ethics record`), which refuse until the supervisor repairs it; the Scout's and the Evaluator's do not;
+     derive`, `evaluate`, `goal close`, `ethics record`), which refuse until the supervisor repairs it; none of the
+     Scout's does;
   2. every artifact it wrote passes the core contract (`_mission.problems`: harness-issued id matching
      the file name, a known status, a sha256 that matches the content, the kind's schema once its area
      ships one) and its area's own check (`mission <area> check`, when plugin/mission/<area>.py exists;
@@ -46,11 +47,14 @@ when none does). At its stop the run's changes (the files now against the start 
      role flips one to another source, posing it as the human's). Any other file is the human's or intake's: a
      change to it, a new one or a deleted one blocks unless an event of the run makes it theirs, one a mission
      role cannot write: a human event naming it, or (not for a deletion) intake's own intent.received (with the
-     source the file says) or intent.normalized, naming the intent by its refs.intent or intent_id, never by a
-     ref the caller picks (a new file of words: the intent.received whose raw_ref it is). A file a commit made
-     during the run brought in or removed (HEAD moved, and the file is HEAD's blob, or was the start commit's and
-     HEAD has none: a supervisor's `git merge` or `git pull`, since no mission role writes git) is the
-     supervisor's, until the role changes it;
+     source the file says, or another of the human's: intake's fill may turn `prompt` to `mixed`, never to or from
+     `mission`) or intent.normalized, naming the intent by its refs.intent or intent_id, never by a ref the caller
+     picks (a new file of words: the intent.received whose raw_ref it is). A file a `git merge` or `git pull` made
+     during the run brought in or removed is the supervisor's (no mission role writes git), until the role changes
+     it: HEAD's reflog entries since the start chain from the start commit to HEAD, the last to change the file is a
+     merge or a pull (for a merge it made, the file is the other side's blob), no commit made here during the run made
+     it as it is now, and the file is HEAD's blob (or was the start commit's and HEAD has none). A commit of the
+     working tree (the human's `git commit -am`), even one made on a branch and merged, is never one;
   5. the mission's ledger (docs/agents/mission/ledger.jsonl) is append-only during the run: it still starts
      with exactly the bytes it had at the start (a removed or edited row blocks, with or without the run
      log), and still verifies if it changed (M9.17 covers a forged append). The supervisor's repair is no
@@ -210,11 +214,11 @@ def judge(R, M, project, role, run):
     was_roles = run.get("roles") if isinstance((run or {}).get("roles"), dict) else now_roles
     was_sources = run.get("sources") if isinstance((run or {}).get("sources"), dict) else now_sources
     was_cites = run.get("cites") if isinstance((run or {}).get("cites"), dict) else now_cites
-    # what a commit made during the run brought into docs/agents/intents/ (a supervisor's merge or pull): not its write
+    # what a supervisor's `git merge` or `git pull` during the run brought into docs/agents/intents/: not its write
     came = R.arrived(project, (run or {}).get("head") if isinstance((run or {}).get("head"), str) else "",
                      sorted(rel for rel in set(before) | set(now) if R.under(rel, R.INTENTS)
-                            and (before.get(rel) or [None])[0] != (now.get(rel) or [None])[0]), before) \
-        if before is not None else set()
+                            and (before.get(rel) or [None])[0] != (now.get(rel) or [None])[0]), before,
+                     run.get("reflog_at")) if before is not None else set()
     received = {}                                         # intent id: the source intake's `intent new` of the run recorded
     for e in evs:
         d = e.get("data") or {}
@@ -273,9 +277,9 @@ def judge(R, M, project, role, run):
                 return ev
             if how == "deleted" or e.get("role") != "intake":
                 continue
-            if stem is not None and names and (ev == "intent.normalized" or ev == "intent.received"
-                                               and d.get("source") == now_sources.get(rel)):
-                return ev
+            if stem is not None and names and (ev == "intent.normalized" or ev == "intent.received" and (
+                    d.get("source") == now_sources.get(rel) or "mission" not in (d.get("source"), now_sources.get(rel)))):
+                return ev                                 # intake's fill may change its source, never to or from `mission`
             if stem is None and how == "new" and ev == "intent.received" and R.rel_path(project, refs.get("raw")) == rel:
                 return ev
         return ""
