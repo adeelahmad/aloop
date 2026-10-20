@@ -163,6 +163,31 @@ await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "m4
 assert.ok(/BLOCKED after 3 fix rounds/.test(msnOut.output) && /BLOCK\[mission-artifact\]/.test(msnOut.output), msnOut.output)
 ok("gate-mission-artifact runs at the evaluator's stop and blocks a run that wrote no artifact")
 
+// a resumed mission child (the task tool's session_id continues it): each task is its own run, with a fresh
+// start record that is open while it works; the first task's record never judges (or excuses) the second's work
+const mission = (...a) => sh(join(BIN, "mission"), a, { stdio: ["ignore", "pipe", "pipe"] }).trim().split("\n").pop()
+mission("init", "the best to-do app", "--mode", "autonomous", "--budget-usd", "40")
+try { mission("approve", "--by", "Ada") } catch (e) {        // M9.17: the human types the line the ASK names
+  const prompt = /they reply {2}(.+?) {2}\(the code/.exec(e.stderr)[1]
+  sh(join(BIN, "transcripts"), ["prompt"], { input: JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "s-human", prompt }) })
+  mission("approve", "--by", "Ada")
+}
+const runOf = (id) => JSON.parse(readFileSync(join(T, ".aladdin/state/mission-runs", `${id}.json`), "utf8"))
+parents.eth = "root"
+await hooks.event({ event: { type: "session.created", properties: { info: { id: "eth", parentID: "root" } } } })
+await hooks["chat.message"]({ sessionID: "eth", agent: "ethics-reviewer" }, { message: {}, parts: [{ type: "text", text: "review the mission" }] })
+const run1 = runOf("eth")
+const review = mission("ethics", "new", "--subject", "mission")
+writeFileSync(review, JSON.stringify({ ...JSON.parse(readFileSync(review, "utf8")), findings: [], tier: "clear" }))
+mission("ethics", "record", review)
+const ethOut = { title: "", output: "reviewed", metadata: { sessionId: "eth" } }
+await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "e1", args: {} }, ethOut)
+assert.ok(!/BLOCK|STUCK/.test(ethOut.output) && runOf("eth").stopped, ethOut.output)
+await hooks["chat.message"]({ sessionID: "eth", agent: "ethics-reviewer" }, { message: {}, parts: [{ type: "text", text: "review it again" }] })
+const run2 = runOf("eth")
+assert.ok(!run2.stopped && run2.started > run1.started, JSON.stringify(run2).slice(0, 300))
+ok("a resumed mission child starts a new run per task: a fresh start record, open while it works")
+
 // Stop: a closed sprint is announced once (toast + prompt back into the session)
 mkdirSync(join(T, ".aladdin/state"), { recursive: true })
 writeFileSync(join(T, ".aladdin/state/pending-close"), "Sprint 1 closed. Tokens — sprint: 1k\n")
