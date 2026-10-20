@@ -229,7 +229,7 @@ change rationale.
 .claude-plugin/marketplace.json   marketplace catalog (source: ./plugin)
 plugin/                           the installable plugin (see plugin/README.md)
   bin/        the tools and gates (aladdin, aloop, gate-*, budget, sweep, targets, events, host, config …)
-  agents/     the 9 roles · skills/ the supervisor playbooks (aloop, aladdin, init)
+  agents/     the 15 roles (Aladdin's 9 + the mission layer's 6) · skills/ the supervisor playbooks (aloop, aladdin, init)
   hooks/      hooks.json (aloop:<role> matchers) · hosts/ capabilities, routes, the OpenCode and dsh plugins
   schemas/    KDL schemas for the planning artifacts · tools/ ctx-symbols + md-db sources
 docs/                             OVERVIEW.md ROADMAP.md TRACKING.md + the design history

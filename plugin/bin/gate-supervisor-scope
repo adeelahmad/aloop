@@ -235,6 +235,9 @@ esac
 # prefix-strip against $root: on macOS `git rev-parse --show-toplevel` resolves /private
 # symlinks and would not match the payload's /var path, silently disarming the guard.
 case "$file" in
+  # The mission layer's (gate-mission-scope judges it): a mission.json write is no sprint, so it
+  # never arms the lock (ROADMAP §4.12, M9.9).
+  docs/agents/mission/*|*/docs/agents/mission/*) is_docs=0; is_ctl=1 ;;
   docs/agents/*|*/docs/agents/*)                 is_docs=1; is_ctl=0 ;;
   # a task worktree lives under the run-data dir, but it is a checkout of the project: only its
   # own marker dir (the task.env copy) is a control file; the rest is production source

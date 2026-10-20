@@ -1,0 +1,64 @@
+{
+  "schema": "aladdin.mission-roles/1",
+  "note": "The six fixed mission roles (ROADMAP §4.12, M9.9): the same for every mission. `writes` is every project path a role may write; the rest of the project is refused (bin/gate-mission-scope), so no mission role writes source and no builder writes docs/agents/mission/. `group` is the model route group (bin/_routes.py). At its stop, bin/gate-mission-artifact checks every artifact the role wrote (`mission <area> check`, once per artifact with the `area_checks` args where the area checks one; a `verdicts` state such as an ethics hard line is the role's finding, not a defect, and a `foreign` block such as a goal's pending ethics review is another role's next step) and refuses a change to another role's files. A track whose command makes one role write another role's dir changes `writes` here, with its reason.",
+  "roles": {
+    "market-researcher": {
+      "persona": "The Scout",
+      "job": "Finds rival products, papers and benchmarks, writes a sourced landscape report (every claim cites an archived source), and derives the user journeys, metrics and pass criteria from it",
+      "writes": ["docs/agents/mission/research/", "docs/agents/mission/journeys/"],
+      "group": "planning"
+    },
+    "product-tester": {
+      "persona": "The Field Tester",
+      "job": "Runs rival products through the journeys on pinned versions and records what they score: the rival half of the baseline",
+      "writes": ["docs/agents/mission/baseline/"],
+      "group": "worker"
+    },
+    "state-assessor": {
+      "persona": "The Surveyor",
+      "job": "Measures our own product with pinned scripts (journeys, the baseline measure, telemetry reports) and reports numbers only; never interprets",
+      "writes": ["docs/agents/mission/state/", "docs/agents/mission/baseline/", "docs/agents/mission/telemetry/"],
+      "group": "worker"
+    },
+    "evaluator": {
+      "persona": "The Referee",
+      "job": "Compares the current state with the baseline and the rivals and writes the gap list with goal_met; grades subjective UX only through pinned, hashed judge rubrics; never builds",
+      "writes": ["docs/agents/mission/eval/", "docs/agents/mission/judges/"],
+      "group": "planning"
+    },
+    "mission-planner": {
+      "persona": "The Navigator",
+      "job": "Turns the top gaps into the next goal, applies the standing principles and the mission's mode, and hands the goal to Aladdin as intents",
+      "writes": ["docs/agents/mission/goals/", "docs/agents/intents/"],
+      "group": "planning"
+    },
+    "ethics-reviewer": {
+      "persona": "The Conscience",
+      "job": "Reviews the mission and every derived goal in three tiers: clear (proceed), gray (pause and ask; the consent is bound to that goal), hard line (no consent unlocks it)",
+      "writes": ["docs/agents/mission/ethics/"],
+      "group": "planning"
+    }
+  },
+  "kind_areas": {
+    "research": "research",
+    "baseline": "baseline",
+    "journey": "journeys",
+    "state": "assess",
+    "eval": "evaluate",
+    "goal": "goal",
+    "ethics": "ethics",
+    "rubric": "judge",
+    "telemetry": "telemetry"
+  },
+  "area_checks": {
+    "research": {"args": ["{id}"]},
+    "judge": {"args": ["{id}"]},
+    "evaluate": {"args": ["{id}"]},
+    "assess": {"args": ["{id}"]},
+    "journeys": {"args": ["{id}"]},
+    "ethics": {"args": ["--subject", "{subject}", "--json"], "verdicts": ["hard"]},
+    "goal": {"args": ["{id}", "--json"], "foreign": ["ethics: "]}
+  },
+  "human_verbs": ["approve", "confirm", "consent", "veto", "accept", "revoke", "restore"],
+  "read_only": ["status", "show", "check", "list", "diff", "due", "help", "--list", "--help", "-h"]
+}
