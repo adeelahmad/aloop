@@ -1068,18 +1068,28 @@ expect(p.tick(later(p)), "RESEARCH", 0, "the goal is met")
 q = Project().init()
 cleared(q)
 assert q.mi("assess").returncode == 0 and q.mi("evaluate").returncode == 0
-r = q.mi("goal", "derive")
+r = q.mi("goal", "derive", "--top", "1")
 g2 = json.load(open(r.stdout.strip()))["goal_id"]
+assert q.mi("assess").returncode == 0 and q.mi("evaluate").returncode == 0      # narrowed to g2
 q.review(q.ref("goal", g2), q.load("goal", g2), "hard")
-assert q.mi("assess").returncode == 0 and q.mi("evaluate").returncode == 0
-expect(q.tick(later(q)), "BLOCKED", 2, "M9.29")
+expect(q.tick(later(q)), "EVALUATE", 0, "hard line")              # M9.29: g2 is retired, the narrowed eval says nothing
+assert q.mi("evaluate").returncode == 0                            # the whole mission: evaluate skips a retired goal
+d = q.tick(later(q))
+expect(d, "DERIVE_GOAL", 0, "aloop mission goal derive")          # the loop moves on, no human needed
+r = q.mi("goal", "derive")
+assert r.returncode == 0, r.stderr
+g3 = json.load(open(r.stdout.strip()))["goal_id"]
+assert g3 != g2 and not {x["gap_id"] for x in q.load("goal", g3)["gaps"]} & {x["gap_id"] for x in q.load("goal", g2)["gaps"]}
+q.review(q.ref("goal", g3), q.load("goal", g3), "hard")
+assert q.mi("evaluate").returncode == 0
+expect(q.tick(later(q)), "BLOCKED", 2, "held by a hard line")     # every gap held: the human changes the mission
 s = Project(mode="spoon-fed").init()
 cleared(s)
 assert s.mi("assess").returncode == 0 and s.mi("evaluate").returncode == 0
 expect(s.tick(later(s)), "OFFER_OPTIONS", 3, "aloop mission goal options")
 ok("goals run through `aloop mission goal` (derive, intents, next, close) and the loop names each command; a "
-   "goal file nobody derived is none; open gaps after every sprint, or a hard line evaluate still narrows to, "
-   "go to the human; spoon-fed offers the gap list")
+   "goal file nobody derived is none; open gaps after every sprint go to the human; a hard-lined goal is retired "
+   "and the loop derives another (M9.29); spoon-fed offers the gap list")
 
 # 28) discovery and help: the three areas are found by name
 p = Project().init()

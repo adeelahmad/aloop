@@ -37,11 +37,12 @@ import _events  # noqa: E402
 import _mission  # noqa: E402
 import _paths  # noqa: E402
 
-# events only their own command may write (ROADMAP §4.12): human approvals, the ethics gate's verdicts
-# and the goal lineage (`events trace` and `mission goal close` read them)
-GATE_OWNED = set(_mission.APPROVAL_EVENTS) | {"ethics.reviewed", "ethics.blocked", "goal.derived", "goal.met",
-                                             "state.assessed", "eval.completed",   # what goals are derived and closed from
-                                             "intent.received"}                    # an intent's lineage (`intent new`)
+# events only their own command may write (ROADMAP §4.12): human decisions, the ethics and door gates'
+# records and the goal lineage (`events trace` and `mission goal close` read them)
+GATE_OWNED = set(_mission.HUMAN_EVENTS) | {"ethics.reviewed", "ethics.blocked", "goal.derived", "goal.met",
+                                          "door.denied", "door.crossed",       # the door gate's own records (M9.30)
+                                          "state.assessed", "eval.completed",  # what goals are derived and closed from
+                                          "intent.received"}                   # an intent's lineage (`intent new`)
 
 
 def parse(argv):

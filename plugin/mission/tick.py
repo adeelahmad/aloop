@@ -18,9 +18,10 @@ The loop is IBM's autonomic MAPE-K over docs/agents/mission/: monitor (ASSESS), 
   CONFIRM_MISSION   human               the mission's current content has no human approval
   STOP_BUDGET       human               spend since the mission was set reached a cap, or the deadline passed
   ETHICS_REVIEW     ethics-reviewer     the mission, or the goal in flight, has no review for its content
-  BLOCKED           human               a hard line on the mission, or on a goal whose sprint runs; 3 failed
-                                        goals in a row; a stalled sprint; an action handed out 3 times; the
-                                        ledger or the confirmed baseline fails its check
+  BLOCKED           human               a hard line on the mission, or on a goal whose sprint runs; every open
+                                        gap held by a hard line; 3 failed goals in a row; a stalled sprint; an
+                                        action handed out 3 times; the ledger or the confirmed baseline fails
+                                        its check (a hard-lined goal with no sprint is retired: evaluate again)
   ASK_CONSENT       human               a gray review with no consent for that exact content (and review)
   RESEARCH          market-researcher   no research yet; or the goal is met: raise the bar
   DEFINE_JOURNEYS   market-researcher   no user journey yet; or a baseline has nothing to earn: raise the bar
@@ -786,9 +787,9 @@ def cycle(f, now, cad):
     if gid:      # narrowed to a goal's targets while it was open: it says nothing about the whole mission
         g = next((x for x in f["kinds"]["goal"] if x["id"] == gid), None)
         if g and not g["met"] and ethics_of(f, "goal", g)[0] == "hard":
-            return act("BLOCKED", "goal %s crossed a hard line, and `mission evaluate` still narrows to it (ROADMAP "
-                                  "M9.29): no new goal can be derived until it is set aside; the human looks"
-                       % gid, g["ref"])
+            return act("EVALUATE", "goal %s crossed a hard line, so it is retired and eval %s, narrowed to it, says "
+                                   "nothing: evaluate the whole mission (aloop mission evaluate)" % (gid, e["id"]),
+                       e["ref"])
         if not g or g["met"]:
             return act("EVALUATE", "eval %s was narrowed to goal %s, which is closed: evaluate the whole mission "
                                    "(aloop mission evaluate)" % (e["id"], gid), e["ref"])
@@ -801,6 +802,12 @@ def cycle(f, now, cad):
         nxt = min(s["ms"] + cad, last_activity(f, n) + STALL)
         return act("WAIT", "sprint %d is running; the next goal is derived after it closes" % n, "", iso(nxt))
     if not goal_met(f, e):
+        import goal as G      # noqa: E402 — here: goal imports most of the mission layer
+        opened, held = G.split_held(f["cwd"], G.eval_gaps(f["cwd"], e["doc"]))
+        if held and not opened:
+            return act("BLOCKED", "every gap of eval %s is held by a hard line (%d): no goal may take one, so only a "
+                                  "human-approved change of the mission moves on (aloop mission ethics check)"
+                       % (e["id"], len(held)), e["ref"])
         why = "goal %s %s: derive another from" % (fails[0][0]["id"], fails[0][1]) if fails else "eval %s shows " \
             "gaps: derive the next goal from" % e["id"]
         if f["mission"].get("mode") == "spoon-fed":
