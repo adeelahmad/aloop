@@ -110,7 +110,8 @@ If a backend reports "not installed", run `ensure-tools --sync` once (needs carg
   current one) and run intake → planner before any RED. Silently switching into ad-hoc
   implementation is the bypass this skill exists to prevent. "Improve X" and "fix the
   broken Y" are sprint triggers, not invitations to edit files directly.
-- The human is absent from execution. Never block waiting for human input mid-run.
+- The human is absent from execution: never wait for them mid-run, except a reviewed
+  re-plan changes the plan they approved, so it waits for their line.
 - **You own all planning artifacts.** Sub-agents NEVER edit `stories.md`,
   `tasks.md`, `validate.md`, `plan.md`, `plan-ready.md`, or `sprintN/plan.md`.
 - **You NEVER write production source — in any phase.** Every line of code (tests,
@@ -282,7 +283,7 @@ hit: an unanswered `ask` question (`intent check` exit 3), a scope change, or th
 human approved its plan as it is now:
 `events authority --initiated-by <human> --mode reviewed|autonomous --scope "sprint N as approved" --sprint N`
 (`--override KEY=VALUE` too) exits 3 with a line like `approve S1 1a2b3c4d`: relay it, the
-human types it, run it again. Never type it yourself. A reviewed re-plan asks again. At each split, re-plan,
+human types it, run it again. Never type it yourself. At each split, re-plan,
 target or acceptance decision, record ONE line of rationale with its evidence:
 `events decide split|replan|acceptance|… --task SN-NN-Tk --reason "<one line>" --evidence <ref>`.
 No chain-of-thought — a reason, refs and the authority (`events lineage <task>` shows it).
@@ -666,8 +667,7 @@ escalation is what happens when revision is exhausted.
 
 - PLANNING is a normal interactive session — the human is in the loop; the
   clarify/conflict/re-plan loops are human-bounded.
-- EXECUTION is an autonomous run ("run until the sprint gate is green") and takes
-  no mid-run human input by design.
+- EXECUTION is an autonomous run ("run until the sprint gate is green").
 - **ONE sprint per autonomous run.** Execution is scoped to a single sprint — its
   FINAL-GATE is the finish line. When it passes, STOP and report; the human decides
   whether to start the next sprint, which RE-ENTERS interactive planning (dispatch the

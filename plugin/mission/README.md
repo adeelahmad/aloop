@@ -139,7 +139,7 @@ A gate checks structure and evidence, never whether a judgment is right.
   `int_*.json` by mtime and `ids freeze` links a plan to the last `intent.normalized` anywhere, so
   queued mission intents need an explicit link (built: `goal next` makes the intent it hands off the
   newest file before normalizing it). `events authority --sprint N` approves the sprint's latest
-  plan (M0.9): record it only after the sprint's `ids freeze` (it refuses a sprint with no frozen plan). `aladdin "<intent>"` refuses a
+  plan (M0.9): record it only after the sprint's `ids freeze` (reviewed mode refuses a sprint with no frozen plan). `aladdin "<intent>"` refuses a
   bare intent containing `/`; use `aladdin run`.
 - **M9.17 approvals (done; what M9.9 must close).** A grant cites a captured prompt line, but the prompt log
   is run data any shell can append to, the hook's own command (`transcripts prompt`) reads its payload from

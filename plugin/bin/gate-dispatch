@@ -102,9 +102,10 @@ if [ -z "$sd" ] || [ ! -d "$sd" ]; then
 fi
 # The plan is the human's (ROADMAP M0.9): the sprint's newest grant must hold now: their approval of
 # exactly this plan (the typed line `approve SN <code>`), or autonomy they granted the sprint (their
-# `autonomous SN <code>`, or an approved autonomous mission for its own sprints). Before this it was a
+# `autonomous SN <code>`, or an approved autonomous mission for its own sprints), and STORY_DIR and the task
+# are of that plan (another sprint's story or an unplanned task is not covered). Before this it was a
 # playbook rule, so a supervisor could dispatch workers before the human said go (2026-10-20 fact check).
-if ! why="$("$HERE/events" approval "$tid" 2>&1 >/dev/null)"; then
+if ! why="$("$HERE/events" approval "$tid" --story-dir "$sd" --role "$role" 2>&1 >/dev/null)"; then
   printf 'BLOCK[%s]: dispatch %s of %s: %s\n' "$GATE_NAME" "$role" "$tid" "${why:-the plan approval check failed}" >&2
   exit 2
 fi

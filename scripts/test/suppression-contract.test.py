@@ -10,6 +10,7 @@ and cost a second GREEN attempt and a final-gate retry.
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 
@@ -58,7 +59,8 @@ def suppressed(rel, text):
     open(os.path.join(d, rel), "w").write(text)
     r = subprocess.run(["bash", "-c", 'GATE_NAME=t; . "$1"; assert_no_suppression', "_",
                         os.path.join(P, "bin", "_gatelib.sh")], env=dict(os.environ, REPO_DIR=d),
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, cwd=d)   # the gate's own log lands in d, not this checkout
+    shutil.rmtree(d, ignore_errors=True)
     return r.returncode == 2 and "test-suppression" in r.stderr
 
 

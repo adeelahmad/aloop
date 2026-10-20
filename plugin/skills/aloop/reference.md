@@ -135,7 +135,8 @@ All of these are on PATH — call them by bare name.
 - Real isolation = the global store is never staged into the worktree. The read-only
   chmod is the softer "not yours to write" signal (defeatable, but it errors loudly).
 - Retention: everything is kept (no auto-compaction). `transcripts prune` is a manual,
-  opt-in cap (`AGENTIC_TRANSCRIPTS_KEEP=<n>`) if disk gets tight.
+  opt-in cap (`AGENTIC_TRANSCRIPTS_KEEP=<n>`) if disk gets tight; it keeps the human's prompts,
+  which their grants cite.
 
 ## Worktree hygiene (bin/worktree-hygiene)
 - SubagentStart (exec roles) sparse-checkout-excludes `docs/agents/` from the new

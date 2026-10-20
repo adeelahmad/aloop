@@ -62,7 +62,7 @@ TRANSCRIPT_HOOKS = {"prompt", "record", "snapshot", "stop", "stage-in"}
 # the hosts, and their subcommands that start no session (any other word is a prompt or a session)
 HOSTS = {"claude": {"plugin", "plugins", "mcp", "config", "doctor", "update", "install", "migrate-installer",
                     "setup-token"},
-         "codex": {"login", "logout", "mcp", "completion", "debug", "apply", "a", "help", "features"},
+         "codex": {"login", "logout", "mcp", "completion", "debug", "apply", "a", "help", "features", "plugin"},
          "opencode": {"auth", "models", "upgrade", "mcp", "agent", "github", "stats", "export", "import",
                       "uninstall", "debug", "help"},
          "dsh": {"plugin"}}                           # dsh's first word is a profile to boot (aloop, headless…)

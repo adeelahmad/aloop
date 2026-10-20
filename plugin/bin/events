@@ -25,8 +25,10 @@ Usage:
                                        prompt says `approve SN <code>` (autonomous: `autonomous
                                        SN <code>`) it asks with that line (exit 3). An approved
                                        autonomous mission is that word for its own sprints
-  events approval SPRINT|TASK_ID       may an execution role of that sprint be dispatched now?
-                                       (gate-dispatch asks): exit 0 yes, 2 no and why (ROADMAP M0.9)
+  events approval SPRINT|TASK_ID [--story-dir DIR] [--role ROLE]
+                                       may an execution role of that sprint be dispatched now, on
+                                       that STORY_DIR? (gate-dispatch asks): exit 0 yes, 2 no and why
+                                       (ROADMAP M0.9)
   events decide KIND --reason "one line" [--task T] [--evidence ref ...] [--authority EVENT_ID]
                                        structured rationale (plan|split|target|
                                        implementation|replan|acceptance)
@@ -286,7 +288,7 @@ def main(argv):
         if not pos:
             print("events approval: need a SPRINT or TASK_ID", file=sys.stderr)
             return 64
-        good, why = _approval.check(cwd, pos[0])
+        good, why = _approval.check(cwd, pos[0], opts.get("story_dir", ""), opts.get("role", ""))
         if good:
             print(why)
             return 0

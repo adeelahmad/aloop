@@ -134,7 +134,8 @@ Determinism is structural, not vibes. Hooks enforce what the model cannot talk i
 
 - the supervisor cannot write production source (`gate-supervisor-scope`), commit on main during a
   sprint, or dispatch with its backends missing (`gate-tooling`), on a model the project did not
-  pick, or before the human approved the sprint's plan in a line they typed (`gate-dispatch`);
+  pick, or before the human approved the sprint's plan, or granted it autonomy, in a line they typed
+  (`gate-dispatch`);
 - a worker cannot leave its worktree, touch files outside its task, or pass a stop whose gate failed;
 - a gate that crashes **blocks** (`_failclosed.sh`), never a silent pass, and never a false block when a
   backend is absent (it degrades to a flagged, weaker check);

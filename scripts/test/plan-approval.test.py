@@ -237,6 +237,9 @@ assert dispatch("S2-01-T1").returncode == 0
 r = run([EV, "approval", "S2"])
 assert r.returncode == 0 and "S2 autonomous, granted by Adeel" in r.stdout, r
 assert dispatch("S1-01-T1").returncode == 0                          # S1 keeps its own approval
+sprint(3)
+r = dispatch("S3-01-T1")
+assert r.returncode == 2 and "has not approved the plan of S3" in r.stderr, r   # S2's autonomy is not S3's
 ok("`--mode autonomous` names its sprint and asks for `autonomous SN <code>`; granted, it admits the sprint's roles "
    "through re-plans, and covers no other sprint")
 
@@ -294,9 +297,15 @@ with open(os.path.join(M, ".aladdin", "logs", "events.jsonl"), "a") as f:
                         "event": "intent.normalized", "ids": {}, "role": "intake", "refs": {},
                         "data": {"intent_id": "int_human1", "mode": "autonomous"}}) + "\n")
 sprint(2, cwd=M)                                                     # a sprint for a human's own intent
-assert authority("--sprint", "2", mode="autonomous", cwd=M, env=mp.env).returncode == 0
-r = dispatch("S2-01-T1", cwd=M, env=mp.env)
+assert asked(authority("--sprint", "2", mode="autonomous", cwd=M, env=mp.env)).startswith("autonomous S2 ")
+assert dispatch("S2-01-T1", cwd=M, env=mp.env).returncode == 2
+assert authority("--sprint", "2", mode="autonomous", cwd=M, env=mp.env, human=True).returncode == 0
+assert dispatch("S2-01-T1", cwd=M, env=mp.env).returncode == 0      # the human's own line grants it
+assert authority("--sprint", "3", mode="autonomous", cwd=M, env=mp.env).returncode == 0   # before its plan: the mission's
+sprint(3, cwd=M)                                                     # ...but it was planned from the human's intent
+r = dispatch("S3-01-T1", cwd=M, env=mp.env)
 assert r.returncode == 2 and "serves no mission intent" in r.stderr, r
+assert asked(authority("--sprint", "3", mode="autonomous", cwd=M, env=mp.env)).startswith("autonomous S3 ")
 mj = os.path.join(M, "docs/agents/mission/mission.json")
 doc = json.load(open(mj))
 doc["statement"] += " (edited)"
@@ -307,8 +316,153 @@ sp = Project(mode="spoon-fed")
 sprint(1, cwd=sp.dir)
 write("docs/agents/defaults.md", open(os.path.join(P, "docs/agents/defaults.md")).read(), sp.dir)
 assert asked(authority("--sprint", "1", mode="autonomous", cwd=sp.dir, env=sp.env)).startswith("autonomous S1 ")
-ok("an approved autonomous mission grants its own sprints autonomy without a typed line; a sprint for another intent, "
-   "a mission changed since its approval or a spoon-fed mission needs the human's line")
+ok("an approved autonomous mission grants its own sprints autonomy without a typed line; a sprint for another intent "
+   "(planned before or after the grant), a mission changed since its approval or a spoon-fed mission needs the "
+   "human's line, and that line grants it")
+
+# 14) an approval covers its own plan only: the contract's STORY_DIR and the task must be of that plan
+Q = project("q")
+qs1 = sprint(1, cwd=Q)
+qs2 = sprint(2, cwd=Q)                                               # planned, never approved
+assert authority("--sprint", "1", cwd=Q, human=True).returncode == 0
+assert dispatch("S1-01-T1", cwd=Q).returncode == 0
+
+
+def contract(tid, sd, role="green-worker"):
+    write(".aladdin/state/tasks/%s.env" % tid, "TASK_ID=%s\nAGENT_ROLE=%s\nSTORY_DIR=%s\n" % (tid, role, sd), Q)
+
+
+def refused(tid, why, role="green-worker"):
+    r = dispatch(tid, role=role, cwd=Q)
+    assert r.returncode == 2 and why in r.stderr, (tid, role, r.stderr)
+
+
+contract("S1-01-T1", qs2)                                            # sprint 2's story under sprint 1's approval
+for role in ("red-worker", "scaffolder", "green-worker", "structural-reviewer", "final-gate"):
+    refused("S1-01-T1", "is not in S1's plan", role)
+contract("S1-01-T1", os.path.join(T, "elsewhere"))
+os.makedirs(os.path.join(T, "elsewhere"), exist_ok=True)
+refused("S1-01-T1", "is not in S1's plan")
+contract("S1-01-T1", qs1)
+assert dispatch("S1-01-T1", cwd=Q).returncode == 0
+unplanned = write("docs/agents/sprint1/s1-09-unplanned/init.md", "---\ntype: init\n---\n", Q)   # comms only: no digest change
+contract("S1-09-T1", os.path.dirname(unplanned))
+refused("S1-09-T1", "no live story of S1's frozen plan")
+shutil.rmtree(os.path.dirname(unplanned))
+contract("S1-07-T1", qs1)
+refused("S1-07-T1", "is not a task of the story dir")
+contract("S1-01-T9", qs1)
+refused("S1-01-T9", "is not a live task of S1's frozen plan")
+contract("S1-X", qs1, "red-worker")
+refused("S1-X", "works on one task of the plan", "red-worker")
+contract("S1-SR-W1", os.path.dirname(qs1), "structural-reviewer")
+assert dispatch("S1-SR-W1", role="structural-reviewer", cwd=Q).returncode == 0   # a wave review spans the sprint
+ok("an approval covers its own plan only: a STORY_DIR of another sprint or outside it, a comms-only story, a task "
+   "of another story or one the frozen plan lacks, and a worker without a task are refused for every role")
+
+# 15) the same words typed again after a later decision count again
+qline = [e for e in events(Q) if e["event"] == "human.approval"][-1]["authority"]["grant"]["prompt"]["line"]
+assert authority("--sprint", "1", cwd=Q, mode="autonomous", human=True).returncode == 0     # a later decision
+r = authority("--sprint", "1", cwd=Q)
+assert asked(r) == qline, (asked(r), qline)                         # the same plan again: the same line
+say(Q, ENV, qline)                                                   # typed byte for byte as before
+assert authority("--sprint", "1", cwd=Q).returncode == 0
+r = dispatch("S1-01-T1", cwd=Q)
+assert r.returncode == 0, r.stderr
+ok("a line typed again after a later decision grants again: the gate reads its newest capture, not its first")
+
+# 16) what the record keeps is what the gate re-reads: a code past column 200 grants nothing
+write("docs/agents/sprint1/s1-01-x/tasks.md", "---\nstory: S1-01\n---\n## T1 — the task, revised\n", Q)
+assert run([IDS, "freeze", "docs/agents/sprint1"], cwd=Q).returncode == 0
+want = asked(authority("--sprint", "1", cwd=Q))
+say(Q, ENV, "approve S1 " + "I read every story, task and test of it and it is what I want, " * 4 + want.split()[-1])
+r = authority("--sprint", "1", cwd=Q)
+assert asked(r) == want, r.stderr                                   # asked again, nothing recorded
+assert dispatch("S1-01-T1", cwd=Q).returncode == 2
+ok("a line whose code lies past what the record keeps is no grant: `events authority` asks again instead of "
+   "recording one the gate refuses")
+
+# 17) a hand-written run-log line of another shape never crashes the grant
+with open(os.path.join(Q, ".aladdin", "logs", "events.jsonl"), "a") as f:
+    f.write(json.dumps({"event": "plan.revised", "data": "S1"}) + "\n")
+    f.write(json.dumps({"event": "intent.received", "data": ["x"]}) + "\n")
+for extra in (("--sprint", "1"), ()):
+    r = authority(*extra, cwd=Q)
+    assert r.returncode in (0, 3) and "Traceback" not in r.stderr, r.stderr
+r = run([EV, "approval", "S1-01-T1"], cwd=Q)
+assert r.returncode in (0, 2) and "Traceback" not in r.stderr, r.stderr
+ok("a run-log line whose data is not a record is skipped: no traceback from `events authority` or `events approval`")
+qlog = os.path.join(Q, ".aladdin", "logs", "events.jsonl")
+kept = [ln for ln in open(qlog) if isinstance(json.loads(ln).get("data"), dict)]
+open(qlog, "w").writelines(kept)                                    # the later checks run `ids freeze`, which reads it too
+
+# 18) pruning the transcripts keeps the human's prompts, so it never revokes a grant
+assert authority("--sprint", "1", cwd=Q, human=True).returncode == 0
+assert dispatch("S1-01-T1", cwd=Q).returncode == 0
+TR = os.path.join(BIN, "transcripts")
+for i in range(30):
+    run([TR, "record"], cwd=Q, inp=json.dumps({"tool_name": "Bash", "tool_input": {"command": "true %d" % i}}))
+store = os.path.join(Q, ".aladdin", "transcripts")
+before = sum(1 for ln in open(os.path.join(store, "session", "events.jsonl")) if '"kind": "prompt"' in ln)
+r = run([TR, "prune"], cwd=Q, env=dict(ENV, AGENTIC_TRANSCRIPTS_KEEP="5"))
+assert r.returncode == 0, r.stderr
+lines = open(os.path.join(store, "session", "events.jsonl")).read().splitlines()
+assert sum(1 for ln in lines if '"kind": "prompt"' in ln) == before and len(lines) == before + 5, (before, len(lines))
+assert os.path.getsize(os.path.join(store, "compacted", "session.jsonl")) > 0
+assert dispatch("S1-01-T1", cwd=Q).returncode == 0
+ok("`transcripts prune` compacts tool records only: the human's prompts stay, so every grant still holds")
+
+# 19) a host's own tools are not sessions: installing the Codex plugin is not refused
+for cmd, code in (("codex plugin marketplace add /x", 0), ("codex plugin add aloop@aloop-marketplace", 0),
+                  ("codex exec 'go'", 2)):
+    p = {"session_id": "s", "cwd": Q, "tool_name": "Bash", "tool_input": {"command": cmd}}
+    r = run([SCOPE], cwd=Q, inp=json.dumps(p))
+    assert r.returncode == code, (cmd, r.returncode, r.stderr)
+ok("`codex plugin …` (the documented install) runs in an aloop project; `codex exec` still does not")
+
+# 20) at every dispatch the newest record is re-proven: a forged autonomy grant or a replayed approval blocks
+sys.path.insert(0, BIN)
+import _approval  # noqa: E402
+LOG = os.path.join(Q, ".aladdin", "logs", "events.jsonl")
+
+
+def append(rec, i):
+    rec = json.loads(json.dumps(rec))
+    rec["event_id"], rec["ts"] = ("%x" % i) * 32, "2000-01-01T00:00:%02dZ" % i   # stamped in the past: it stales no new line
+    with open(LOG, "a") as f:
+        f.write(json.dumps(rec) + "\n")
+
+
+qs3 = sprint(3, cwd=Q)
+auth = {"initiated_by": "Adeel", "autonomy_mode": "autonomous", "scope": "s", "policy": "default", "overrides": {},
+        "sprint": "S3"}
+base = {"schema": "aladdin.event/1", "event": "human.approval", "ids": {}, "role": "human", "refs": {}, "data": {}}
+qp = _approval.M.prompts(Q)[-1]                                       # a prompt the human really typed
+for i, (grant, extra, why) in enumerate((
+        ({"kind": "autonomy"}, {}, "not the human's own words"),
+        ({"kind": "autonomy", "prompt": {"line": "autonomous S3 %s" % _approval.M.code(_approval.grant_sha(auth)),
+                                         "sha256": "0" * 64}}, {}, "not among the human's captured prompts"),
+        ({"kind": "autonomy"}, {"overrides": {"BUDGET_TOKENS_HARD": "9"}}, "does not match its own record"),
+        ({"kind": "autonomy", "prompt": {"line": qp["text"].splitlines()[0].strip()[:200], "sha256": qp["sha256"]}}, {},
+         "does not autonomous this content")), start=1):
+    a = dict(auth, **extra)
+    g = dict(grant, sha256=_approval.grant_sha(auth))
+    append(dict(base, authority=dict(a, grant=g)), i)
+    r = dispatch("S3-01-T1", cwd=Q)
+    assert r.returncode == 2 and why in r.stderr, (i, why, r.stderr)
+r = authority("--sprint", "3", cwd=Q, human=True)
+assert r.returncode == 0, r.stderr                                    # plan A, the human's line
+first = [e for e in events(Q) if e["event"] == "human.approval"][-1]
+w3 = os.path.join(os.path.dirname(qs3), "plan.md")
+orig3 = open(w3).read()
+write(w3, orig3 + "Wave 1: S3-01\n")
+assert authority("--sprint", "3", cwd=Q, human=True).returncode == 0          # plan B, a later decision
+write(w3, orig3)                                                    # back to plan A's files
+append(first, 9)                                                    # ...and plan A's old record replayed
+r = dispatch("S3-01-T1", cwd=Q)
+assert r.returncode == 2 and "typed before a later decision" in r.stderr, r.stderr
+ok("each dispatch re-proves the newest record: an autonomy grant with no line, an unknown prompt, edited overrides "
+   "or another verb's line, and a replayed copy of an older approval, all block")
 
 shutil.rmtree(mp.dir, ignore_errors=True)
 shutil.rmtree(sp.dir, ignore_errors=True)
