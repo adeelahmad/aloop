@@ -162,8 +162,9 @@ dsh --profile aloop "Use the aloop skill. Intent: <one line>"
   dsh compacts a session in place, and the plugin records `context.compacted` and adds the
   handoff to the first request after it (the retry of an overflowed step included).
 - **Cost**: `run-summary --host dsh` prices each logged call (dsh's compaction and session-title
-  calls included) from the dated DeepSeek table in `bin/_prices.py`, to the micro-dollar; a model
-  with no published price leaves the cost unmeasured. A retried attempt and DeepSeek's server-side
+  calls included) from the dated DeepSeek table in `bin/_prices.py`, to the micro-dollar (the
+  evidence row to four places, `<$0.0001` below); a model with no published price leaves the cost
+  unmeasured. A retried attempt and DeepSeek's server-side
   Search/Fetch are not in it (ROADMAP §4.9).
 - **Unattended runs**: dsh asks before commands unless `DSH_PERMISSION_MODE=danger-full-access`
   (no sandbox, no approvals); use that only in a throw-away repo, as `make e2e-live HOST=dsh` does.

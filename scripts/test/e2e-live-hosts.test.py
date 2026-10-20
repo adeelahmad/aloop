@@ -211,8 +211,10 @@ assert json.load(open(os.path.join(rd, "summary.json")))["cost_usd"] is None and
 ok("run-summary --host dsh: every call priced from the dated DeepSeek table (model, cache hits, peak band); an unpriced model keeps its tokens and the cost is unmeasured")
 
 # 5a') DeepSeek bills 20-100x below Claude, so a short dsh run costs a fraction of a cent: cost_usd keeps
-#      the micro-dollars and the row cell four places, never $0.00 (the "unmeasured shown as free" cell)
-for name, tokens, cost, cell in (("rs-dsh-cent", 10000, 0.0015, "$0.0015"), ("rs-dsh-micro", 100, 0.000015, "<$0.0001")):
+#      the micro-dollars and the row cell four places, never $0.00 (the "unmeasured shown as free" cell); the
+#      cell is read from the unrounded total, so a call under half a micro-dollar (cost_usd 0.0) is <$0.0001 too
+for name, tokens, cost, cell in (("rs-dsh-cent", 10000, 0.0015, "$0.0015"), ("rs-dsh-micro", 100, 0.000015, "<$0.0001"),
+                                 ("rs-dsh-nano", 1, round(0.00000015, 6), "<$0.0001")):
     rd = os.path.join(T, name); hd = os.path.join(rd, "repo", ".aladdin", "host", "dsh")
     os.makedirs(hd)
     subprocess.run(["git", "init", "-q", os.path.join(rd, "repo")], check=True, env=ENV)

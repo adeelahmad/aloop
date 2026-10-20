@@ -16,8 +16,10 @@ row for docs/evidence/README.md. Numbers come from the harness, never from the m
                                from the dated table in _prices.py; a model it has no price for keeps
                                its tokens with usd null, and then the run's cost is null too (never
                                a partial sum). Kept to the micro-dollar (a short DeepSeek run costs a
-                               fraction of a cent), shown to four places, <$0.0001 below that, never
-                               $0.00 for a measured cost. Not in it: a retried attempt and server-side
+                               fraction of a cent), shown to four places, <$0.0001 below that (read
+                               before rounding), so a measured nonzero cost never reads $0.00 or
+                               $0.0000; scripts/test/evidence.test.py takes exactly these cells (and
+                               Claude's $N.NN). Not in it: a retried attempt and server-side
                                Search/Fetch (ROADMAP §4.9)
   wakes                        how many `result` lines: one per supervisor wake
   plugin_reads                 sub-agent tool calls naming a plugin path, except a
@@ -147,7 +149,8 @@ def main():
         s.update(cost_by_model=by, prices=_prices.SOURCE)
     cost_cell = "—" if s["cost_usd"] is None else "$%.2f" % s["cost_usd"]
     if host == "dsh" and s["cost_usd"] is not None:     # DeepSeek bills 20-100x below Claude: cents would read a run as free
-        cost_cell = "<$0.0001" if 0 < s["cost_usd"] < 0.0001 else "$%.4f" % s["cost_usd"]
+        # judged on the unrounded total: one under half a micro-dollar is stored as 0.0 but was measured
+        cost_cell = "<$0.0001" if 0 < cost < 0.0001 else "$%.4f" % s["cost_usd"]
     label = (intent or "?") + ("" if host == "claude" else " (%s)" % host)
     row = "| %s | %s | v%s | %s | %s | %s | %s | %s | %s | `%s` |" % (
         os.path.basename(run), label, version, s["checks"] or "?", s["wall"], cost_cell, wakes, reads, blocks, s["reproduce"])

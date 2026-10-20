@@ -12,8 +12,8 @@
 // what the capability matrix claims for dsh: a role is not offered send_message (so dsh adds no return
 // guidance), the supervisor's send_message reaches a running role (live messaging), the time
 // soft-stop reaches a running worker, and dsh compacts a session (a context overflow here), the
-// plugin records it and the handoff joins the first request after it; every call dsh made (its
-// compaction and session-title calls too) is priced, to the micro-dollar.
+// plugin records it and the handoff (the core principles with it) joins the first request after
+// it; every call dsh made (its compaction and session-title calls too) is priced, to the micro-dollar.
 //   DSH_BIN=<dsh's lib/bin.js or a dsh executable> node scripts/test/dsh-runtime.test.mjs
 // Without DSH_BIN it uses `dsh` on PATH, and skips when there is none (ALOOP_REQUIRE_DSH=1 fails
 // instead: CI installs the pinned @deepseek-ai/dsh and sets it).
@@ -247,8 +247,10 @@ ok("the compaction is recorded (context.compacted) and the handoff rejoins the c
 const tail = (q) => q.all.split("</compacted-summary>")[1] || ""
 const later = sup.filter((q) => q.step >= 7 && !q.overflow)
 assert.ok(/NEXT-MARKER/.test(tail(retry)) && /aloop tools: call `aloop <tool>`/.test(tail(retry))
-  && later.every((q) => (tail(q).match(/NEXT-MARKER/g) || []).length === 1), JSON.stringify(later.map((q) => [q.step, tail(q).slice(0, 400)])))
-ok("the first request after a compaction (the overflow retry) carries the handoff and the tools note, once")
+  && /Core principles \(every aloop agent\):\n1\. Two-way door/.test(tail(retry))
+  && later.every((q) => (tail(q).match(/NEXT-MARKER/g) || []).length === 1 && (tail(q).match(/Core principles/g) || []).length === 1),
+  JSON.stringify(later.map((q) => [q.step, tail(q).slice(0, 400)])))
+ok("the first request after a compaction (the overflow retry) carries the handoff, the core principles and the tools note, once")
 
 // a mission role on each route (ROADMAP §4.12): the Scout through subagent_planning, the Surveyor through subagent
 const scout = of("market-researcher"), surveyor = of("state-assessor")

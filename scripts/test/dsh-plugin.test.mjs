@@ -166,15 +166,29 @@ const sup = agentOf("root-compacted")
 await h.on["agent/created"]({ agent: sup, source: "startup" })
 compaction(child); compaction(sup, { error: { name: "Error", message: "summary failed" } }); compaction(sup)
 // the next request after it (dsh's overflow retry, or the step a pressure compaction ran before) carries it,
-// appended to the log before dsh builds that request; a later request does not repeat it
-await request(h, sup, profiled); await request(h, sup, profiled)
+// appended to the log before dsh builds that request; a later request does not repeat it; the role's own
+// next request after its compaction gets nothing
+await request(h, sup, profiled); await request(h, sup, profiled); await request(h, child, profiled)
 const compacts = readFileSync(join(T, ".aladdin/logs/events.jsonl"), "utf8").split("\n").filter((l) => /"event": "context.compacted"/.test(l))
 const handed = sup.session.appended.filter((e) => e.type === "user/message")
 assert.ok(sup.injected.length === 1 && handed.length === 1 && handed[0].intent?.surfaceOp === "append" && handed[0].data.source.kind === "aloop"
-  && /NEXT-MARKER/.test(textOf(handed[0].data)) && /call `aloop <tool>`/.test(textOf(handed[0].data))
+  && /NEXT-MARKER/.test(textOf(handed[0].data)) && /Core principles \(every aloop agent\):\n1\. Two-way door/.test(textOf(handed[0].data))
+  && /call `aloop <tool>`/.test(textOf(handed[0].data))
   && !child.injected.length && !child.session.appended.length && compacts.length === 1,
-  JSON.stringify([sup.injected.length, sup.session.appended, child.injected.length, compacts]))
-ok("compaction/end of the supervisor's session: context.compacted recorded once, the handoff and tools note join the first request after it, once")
+  JSON.stringify([sup.injected.length, sup.session.appended, child.injected.length, child.session.appended, compacts]))
+ok("compaction/end of the supervisor's session: context.compacted recorded once, the handoff, core principles and tools note join the first request after it, once; a role's gets none")
+// the fallbacks: a request dsh will not send (its signal aborted) leaves the handoff to the next step's inbox
+// (inject), and so does a session log that refuses the append; never dropped, never twice
+const aborted = agentOf("root-aborted"), refusing = agentOf("root-refusing")
+refusing.session.append = () => { throw new Error("session log closed") }
+for (const a of [aborted, refusing]) { await h.on["agent/created"]({ agent: a, source: "startup" }); compaction(a) }
+await h.on["agent/request"]({ agent: aborted, turn: 1, step: 1, signal: AbortSignal.abort() }, async () => Object.freeze({ ...profiled }))
+for (const a of [aborted, refusing]) await request(h, a, profiled)
+await request(h, refusing, profiled)
+assert.ok([aborted, refusing].every((a) => a.injected.length === 2 && a.injected[1].source.kind === "aloop" && /NEXT-MARKER/.test(textOf(a.injected[1]))
+  && /Core principles/.test(textOf(a.injected[1])) && /call `aloop <tool>`/.test(textOf(a.injected[1]))) && !aborted.session.appended.length,
+  JSON.stringify([aborted.injected.map(textOf), aborted.session.appended, refusing.injected.map(textOf)]))
+ok("the compaction handoff falls back to the inbox (inject) when its request is aborted or the session log refuses the append, once")
 
 // dsh's own calls outside the agent loop (a `purpose`: the compaction summary, the session title) are billed
 // but reach no assistant/message: each one's usage is read from its own stream into the session's log (aux)
