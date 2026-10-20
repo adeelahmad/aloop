@@ -10,6 +10,10 @@ Usage:
   ids freeze SPRINT_DIR     check, then issue ids for new aliases and retire vanished ones
                             (exit 2 on a broken reference or a reused retired alias; nothing written)
   ids check SPRINT_DIR      the referential check alone (also: every live alias must be frozen)
+  ids gated SPRINT_DIR <PAYLOAD
+                            record the plan's files as the planner's gate passed them (`plan.gated`,
+                            ROADMAP M0.9): gate-stage2-complete runs it on a pass, with the planner's
+                            stop payload on stdin
   ids resolve ALIAS [SPRINT_DIR]
                             print the canonical id (exit 1 if unknown)
 
@@ -163,6 +167,35 @@ def cmd_freeze(sdir):
     return 0
 
 
+def cmd_gated(sdir):
+    """Record the plan as the planner's gate passed it (`plan.gated`, its files' sha256, their text kept): under
+    the human's autonomy grant it is the plan text GREEN's dependency check reads (ROADMAP M0.9). Only the
+    planner's gate records it: gate-stage2-complete pipes the planner's stop payload in on a pass."""
+    import _approval
+    try:
+        payload = json.loads(sys.stdin.read() if not sys.stdin.isatty() else "")
+    except ValueError:
+        payload = None
+    role = str((payload or {}).get("agent_type") or "planner").split(":")[-1] if isinstance(payload, dict) else ""
+    if role != "planner":
+        print("ids: gated is recorded by gate-stage2-complete when the planner's stop passes, from its payload",
+              file=sys.stderr)
+        return 64
+    cwd = os.getcwd()
+    m = re.search(r"sprint(\d+)$", os.path.basename(os.path.abspath(sdir)))
+    sprint = "S%s" % m.group(1) if m else ""
+    if not sprint or os.path.realpath(sdir) != os.path.realpath(_approval.sprint_dir(cwd, sprint)):
+        print("ids: %s is no sprint dir of this project (docs/agents/sprintN): no gated plan recorded" % sdir,
+              file=sys.stderr)
+        return 0
+    files = _approval.plan_map(cwd, sprint)
+    _approval.snapshot(cwd, files)
+    if files != _approval.gated(cwd, sprint):
+        _events.emit(cwd, "plan.gated", role="planner", agent_id=str(payload.get("agent_id") or ""), sprint=sprint,
+                     plan_sha256=_approval.map_digest(files), file_sha256=files)
+    return 0
+
+
 def cmd_resolve(alias, sdir):
     dirs = [sdir] if sdir else sorted(glob.glob(os.path.join("docs", "agents", "sprint*")), reverse=True)
     for d in dirs:
@@ -178,12 +211,12 @@ def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__.strip())
         return 0
-    if argv[0] in ("freeze", "check") and len(argv) > 1:
+    if argv[0] in ("freeze", "check", "gated") and len(argv) > 1:
         sdir = argv[1].rstrip("/")
         if not os.path.isdir(sdir):
             print("ids: no such sprint dir %s" % sdir, file=sys.stderr)
             return 64
-        return cmd_freeze(sdir) if argv[0] == "freeze" else cmd_check(sdir)
+        return {"freeze": cmd_freeze, "check": cmd_check, "gated": cmd_gated}[argv[0]](sdir)
     if argv[0] == "resolve" and len(argv) > 1:
         return cmd_resolve(argv[1], argv[2] if len(argv) > 2 else "")
     print("ids: unknown or incomplete command (see ids --help)", file=sys.stderr)
