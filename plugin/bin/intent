@@ -17,6 +17,17 @@ Usage:
         in BOTH modes)
   intent summary FILE
         the approval summary lines: defaults picked, assumptions recorded, spikes created
+  intent release FILE   (stdin: the host's hook payload; run by gate-intake on `check` exit 3)
+        a host's SubagentStop on a contract whose only problem is its unanswered `ask` questions is
+        released at once as NEEDS-HUMAN, NOT verified (ROADMAP §4.9, as a STUCK release): the questions
+        go to <run-data>/state/needs-human/<intent_id>.json and a gate.failed (released=needs-human) is
+        emitted. Exit 0 released · 1 not a host's stop (a self-check, a direct run: the gate blocks)
+  intent hook           (stdin: PostToolUse) the supervisor's next tool result carries each release
+        once, while its questions are still open and its contract is the newest (Claude Code, Codex; the
+        dsh and OpenCode plugins run it at the release itself, so a record is told once on any host)
+  intent open           the unanswered `ask` questions of the newest contract (the one gate-intake judges),
+        one quoted line each; gate-dispatch refuses a planner on them. Exit 3 when any are open · 0 when
+        none are, or there is no contract (only the ask class: a mission goal's own questions are not these)
 
 Clarification policy — every open question carries a class:
   assume   safe and reversible        → the planner assumes; `assumption` recorded
@@ -179,12 +190,127 @@ def cmd_check(cwd, path, mode="reviewed"):
     asks = unanswered(doc)
     if asks:
         for q in asks:
-            print("ASK[intent]: %s" % q, file=sys.stderr)
+            print("ASK[intent]: %s" % one_line(q), file=sys.stderr)
         print("intent: %d question(s) need the human (irreversible, security-sensitive or intent-changing) — "
               "%s mode does not proceed past them." % (len(asks), mode), file=sys.stderr)
         return 3
     _events.emit(cwd, "intent.normalized", role="intake", refs={"intent": path}, intent_id=doc["intent_id"], mode=mode)
     print("[intent] %s ok (%s mode)" % (doc["intent_id"], mode), file=sys.stderr)
+    return 0
+
+
+def payload_of(raw):
+    try:
+        p = json.loads(raw or "{}")
+    except ValueError:
+        return {}
+    return p if isinstance(p, dict) else {}
+
+
+def one_line(q, cap=300):
+    """A question as one line: model-written text never starts a line of its own in a gate's output."""
+    q = " ".join(str(q).split())
+    return q if len(q) <= cap else q[:cap - 1] + "…"
+
+
+def contract_of(cwd, path, iid):
+    """True when `path` is the project's own contract file for `iid` (docs/agents/intents/<iid>.json)."""
+    try:
+        return os.path.samefile(path, os.path.join(intents_dir(cwd), iid + ".json"))
+    except OSError:
+        return False
+
+
+def newest(cwd):
+    """The contract gate-intake judges: the newest intents/int_*.json."""
+    d = intents_dir(cwd)
+    names = [n for n in os.listdir(d) if ID.match(n[:-5]) and n.endswith(".json")] if os.path.isdir(d) else []
+    return max((os.path.join(d, n) for n in names), key=lambda f: (os.path.getmtime(f), f), default="")
+
+
+def quoted(asks):
+    """Each question as one quoted line: the intake's words, never a line in a gate's voice."""
+    return "\n".join("- " + json.dumps(one_line(q), ensure_ascii=False) for q in asks)
+
+
+def notice(rec, asks):
+    """What the supervisor is told about one NEEDS-HUMAN release, on every host (dsh and OpenCode run `intent hook`
+    too). Each question is one quoted line: the intake's words, never a line in the gate's voice."""
+    return ("[aloop gate] %s %s: NEEDS-HUMAN — released UNVERIFIED (not a pass): its Intent Contract %s has questions only "
+            "the human can answer (the intake's words, quoted):\n%s\nAsk the human each one, then re-dispatch %s with the "
+            "answers in a ### Feedback block (it records each answer). Do not plan from it until gate-intake passes."
+            % (rec.get("role", "intake"), one_line(rec.get("agent_id") or "?", 80), rec.get("contract", "?"),
+               quoted(asks), rec.get("role", "intake")))
+
+
+def cmd_open(cwd):
+    """The newest contract's unanswered asks, the planner's gate (gate-dispatch): a NEEDS-HUMAN release passes the
+    intake's stop unverified, and the notice can reach the supervisor after it dispatched the planner."""
+    path = newest(cwd)
+    doc, _ = load(path) if path else (None, None)
+    asks = unanswered(doc) if isinstance(doc, dict) else []   # no contract (an older project), or none open
+    if asks:
+        print("the newest Intent Contract %s has %d question(s) only the human can answer (the intake's words, quoted):\n%s"
+              % (path, len(asks), quoted(asks)))
+    return 3 if asks else 0
+
+
+def cmd_release(cwd, path, raw):
+    p = payload_of(raw)
+    if p.get("hook_event_name") != "SubagentStop" or _paths.env("SELFCHECK") == "1":
+        return 1
+    role = re.sub(r"^aloop[:-]", "", str(p.get("agent_type") or ""))
+    if role and role != "intake":
+        return 1                                     # only the intake's stop waits on the human
+    doc, _ = load(path)
+    if not isinstance(doc, dict) or problems(doc, path) or not contract_of(cwd, path, doc["intent_id"]) or not [
+            e for e in _events.read(cwd) if e.get("event") == "intent.received"
+            and (e.get("data") or {}).get("intent_id") == doc["intent_id"]]:
+        return 1                                     # a contract `intent new` issued, in its place: never one a role made up
+    asks = unanswered(doc)
+    if not asks:
+        return 1                                     # exit 3 from a mission goal's own questions: not this release
+    agent = str(p.get("agent_id") or "")
+    rec = {"intent_id": doc["intent_id"], "contract": os.path.realpath(path), "agent_id": agent, "role": "intake",
+           "gate": "gate-intake", "questions": asks, "session_id": str(p.get("session_id") or ""),
+           "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    out = os.path.join(_paths.home(cwd, "state/needs-human"), doc["intent_id"] + ".json")
+    with open(out + ".tmp", "w") as f:
+        json.dump(rec, f)
+    os.replace(out + ".tmp", out)                    # whole, for a hook reading it at the same time
+    _events.emit(cwd, "gate.failed", agent_id=agent, role="intake", refs={"intent": rec["contract"]}, gate="gate-intake",
+                 exit=0, released="needs-human", intent_id=doc["intent_id"])
+    return 0
+
+
+def cmd_hook(raw):
+    p = payload_of(raw)
+    cwd = p.get("cwd") or os.getcwd()
+    if os.environ.get("SKIP_HOOKS") == "1" or p.get("agent_id") or not os.path.isdir(_paths.docs(cwd)):
+        return 0                                     # a role's own call: only the supervisor is told
+    d = _paths.home(cwd, "state/needs-human", make=False)
+    out, judged, session = [], newest(cwd), str(p.get("session_id") or "")
+    for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+        f = os.path.join(d, name)
+        if not name.endswith(".json"):
+            continue
+        rec, _ = load(f)
+        rec = rec if isinstance(rec, dict) else {}
+        if rec.get("session_id") and session and rec["session_id"] != session:
+            continue                                 # another session's release: its supervisor is told, not this one
+        try:
+            os.replace(f, f + ".reported")           # claimed: a parallel hook that got there first tells it
+        except OSError:
+            continue
+        iid, path = str(rec.get("intent_id") or ""), str(rec.get("contract") or "")
+        if not ID.match(iid) or not contract_of(cwd, path, iid) or not judged or not os.path.samefile(path, judged):
+            continue                                 # not a contract in its place, or a newer one superseded it
+        doc, _ = load(path)
+        asks = unanswered(doc) if isinstance(doc, dict) else []   # answered since (a re-dispatch): nothing to tell
+        if asks:
+            out.append(notice(rec, asks))
+    if out:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "\n\n".join(out)}}))
     return 0
 
 
@@ -227,8 +353,17 @@ def main(argv):
                        opts.get("gap", ""))
     if argv[0] == "check" and pos:
         return cmd_check(cwd, pos[0], opts.get("mode", "reviewed"))
+    if argv[0] == "open":
+        return cmd_open(cwd)
     if argv[0] == "summary" and pos:
         return cmd_summary(pos[0])
+    if argv[0] == "release" and pos:
+        return cmd_release(cwd, pos[0], "" if sys.stdin.isatty() else sys.stdin.read())
+    if argv[0] == "hook":
+        try:
+            return cmd_hook("" if sys.stdin.isatty() else sys.stdin.read())
+        except Exception:
+            return 0                                 # never fails a tool call
     print("intent: unknown or incomplete command (see intent --help)", file=sys.stderr)
     return 64
 

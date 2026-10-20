@@ -27,7 +27,9 @@ dsh:      $DSH_HOME/profiles/aloop/ (DSH_HOME defaults to ~/.dsh): the `aloop` p
           subagent_planning: planning roles) with their models, and the plugin
           hosts/dsh/aloop.mjs, loaded in place. dsh has no project-scoped plugin layer, so the
           profile is always under $DSH_HOME; it records the project it serves (or every one, with
-          --global), and only that project's `aloop-init` re-renders or uninstall removes it. The
+          --global), and only that project's `aloop-init` re-renders or uninstall removes it. Its
+          tools' models are that project's: the plugin runs each role on the models of the project
+          the session is in (`aloop models resolve`), so one profile serves every project. The
           skills go to <DIR>/.dsh/skills (or $DSH_HOME/skills with --global). + ~/.local/bin/aloop.
           Run: dsh --profile aloop
 """
@@ -313,7 +315,8 @@ def dsh_patch(st, owner):
     out = ["# " + MARK] + ([OWNER + owner] if owner else []) + [
            "# The aloop profile for DeepSeek Harness: `dsh --profile aloop`. Roles are agent presets",
            "# aloop-<role>; `subagent` dispatches the execution roles, `subagent_planning` the planning",
-           "# roles; hosts/dsh/aloop.mjs runs the gates. Supervisor model: $ALOOP_DSH_MODEL.",
+           "# roles; hosts/dsh/aloop.mjs runs the gates. Supervisor model: $ALOOP_DSH_MODEL. The tools'",
+           "# models are the rendering project's; the plugin runs each role on its own project's.",
            "- id: tool-subagent-fork          # a fork child cannot take a role",
            "  disabled: true",
            "- id: tool-workflow               # workflow children carry no role",
@@ -473,7 +476,7 @@ def rerender(project):
         print("  re-rendered %s agents (%s)" % (host, os.path.dirname(p)))
     other = dsh_elsewhere(project)
     if other:
-        print("  kept the dsh profile: it serves %s. Run `aloop install dsh --project %s` to switch it to this project." % (other, project))
+        print("  kept the dsh profile: it serves %s; its roles run on this project's models (the plugin resolves them per session)." % other)
 
 
 def main(argv):
@@ -498,7 +501,7 @@ def main(argv):
             print("%-9s %s" % (h, os.path.dirname(p)))
         other = dsh_elsewhere(opts["project"])
         if other:
-            print("%-9s %s (serves %s, not this project)" % ("dsh", dsh_profile(), other))
+            print("%-9s %s (serves %s; its roles run on this project's models)" % ("dsh", dsh_profile(), other))
         return 0
     if host == "claude":
         print("Claude Code:\n  /plugin marketplace add adeelahmad/aloop\n  /plugin install aloop@aloop-marketplace")

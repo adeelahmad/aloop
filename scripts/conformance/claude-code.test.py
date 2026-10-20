@@ -70,12 +70,18 @@ def setup():
     write(os.path.join(MAIN, "standards.md"), "# standards\n\n## Gate matrix\n\n```\ncargo test --workspace\n```\n")
 
 
-def report(role, rows):
+def report(role, rows, regressed=0, notes=""):
     """Append this attempt's report block to output.md (fresh file per case)."""
     table = "\n".join("| %s | %s |" % r for r in rows)
     write(os.path.join(STORY, "output.md"),
           "---\ntype: output\n---\n# output\n\n## S1-01-T1 · attempt 1 · %s · 2026-10-17T00:01:00Z\n"
-          "### Summary\nwork\n### Result\n| Check | Status |\n|---|---|\n%s\nregressed=0\n### Next\nnext\n" % (role, table))
+          "### Summary\nwork\n### Result\n| Check | Status |\n|---|---|\n%s\nregressed=%d\n### Next\nnext\n%s"
+          % (role, table, regressed, notes))
+
+
+# Lines in a long report: well over twice what a pipe holds (2 x 64 KiB), so a check that pipes
+# the text into a reader which stops at its first match always cuts the writer off (SIGPIPE).
+MANY = 8000
 
 
 n = [0]
@@ -165,6 +171,13 @@ case(3, "a formatted RED passes the same format check", "gate-red-verify", red_o
 # (live e2e run 7: "green (T1, unchanged)" rows blocked T2's RED 22 times). Only a NEW test may not PASS.
 report("red-worker", [("tests/add.rs::add_works", "PASS"), ("tests/sub.rs::sub_works", "FAIL")])
 case(3, "RED that reports a test already on the base as PASS is accepted", "gate-red-verify", red_ok_wt, 0)
+# The Result table and regressed= are read whole (see the §6.6 long-report case): a FAIL row or a
+# regressed=1 matched early cut off the `printf` still writing the rest, so under pipefail a long
+# report of FAILing tests read as "no FAILing test row", and a regressed RED passed.
+report("red-worker", [("tests/sub.rs::sub_works", "FAIL")] + [("tests/sub.rs::later_%04d" % i, "FAIL") for i in range(MANY)])
+case(3, "RED whose long report lists many FAILing tests is accepted", "gate-red-verify", red_ok_wt, 0)
+report("red-worker", [("tests/sub.rs::sub_works", "FAIL")], regressed=1, notes="".join("note %d: what the next role should know\n" % i for i in range(MANY)))
+case(3, "RED that reports regressed=1 ahead of a long section is still rejected", "gate-red-verify", red_ok_wt, 2, "regressed")
 
 # SCAFFOLD: `.agentic/scaffold-symbols` lines may carry notes after the symbol (live e2e run 6:
 # "ParseError (enum) @ src/lib.rs" was split into `(enum)`, `@`, … and each "defined 0 times").
@@ -264,6 +277,13 @@ case(6, "a worker that leaves no output.md report is blocked", "gate-green-verif
 case(6, "the missing-report block says how to append from an isolated worktree", "gate-green-verify", wt, 2, "cat >>")
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")])
 case(6, "a stale report from another role is blocked", "gate-green-verify", wt, 2, "not from 'green-worker'")
+# A report is read whole. `printf "$block" | grep -q` under pipefail failed whenever grep matched and
+# exited before printf had written the rest (printf: SIGPIPE, exit 141), so a well-formed report was
+# blocked as "missing '### Next'" (the `exit 0` tamper case below flaked so: 5 of 1200 runs of its
+# gate under CPU load). A report longer than a pipe holds makes that race certain.
+wt = green()
+report("green-worker", [("tests/sub.rs::sub_works", "PASS")] + [("tests/sub.rs::later_%04d" % i, "PASS") for i in range(MANY)])
+case(6, "a well-formed report longer than a pipe holds is accepted", "gate-green-verify", wt, 0)
 
 # Work must be committed on the worktree's branch, so the supervisor MERGES it (live e2e run:
 # workers left their edits uncommitted and the supervisor copied files into main instead).
@@ -448,6 +468,18 @@ rc, lines = gate("gate-structural-integrity", wt)
 results.append((9, "a reviewer blocked 3x on the same HIGH finding is released unverified (it cannot fix code)",
                 rc1 == 2 and rc == 0 and any("STUCK" in l for l in lines), "exits %d then %d" % (rc1, rc)))
 shutil.rmtree(os.path.join(MAIN, ".claude"), ignore_errors=True)
+sh("git", "worktree", "remove", "--force", wt)
+# A HIGH finding ahead of a long findings list (a big tree's ctx-symbols report) still halts:
+# `echo "$findings" | grep -q '^HIGH'` under pipefail read the SIGPIPE of the echo still writing
+# the rest as "no HIGH", and passed. A scripted ctx-symbols on PATH stands in for the real one.
+fake = os.path.join(T, "fake-ctx", "ctx-symbols")
+write(fake, "#!/bin/sh\necho 'HIGH duplicate definition: sub (src/lib.rs, src/dup.rs)'\n"
+            "i=0; while [ $i -lt %d ]; do echo \"LOW unused helper h$i (src/h$i.rs)\"; i=$((i+1)); done\n" % MANY)
+os.chmod(fake, 0o755)
+wt = worktree("structural-reviewer")
+report("structural-reviewer", [("structural review", "PASS")])
+case(7, "a HIGH finding ahead of a long findings list still halts the chain", "gate-structural-integrity", wt, 2,
+     "HIGH-severity", extra={"PATH": os.path.dirname(fake) + os.pathsep + ENV["PATH"]})
 sh("git", "worktree", "remove", "--force", wt)
 # ...and a reviewer whose OWN worktree is a host checkout under .claude/worktrees/ is still scanned:
 # the exclusion applies below the walk root, never to the root itself.

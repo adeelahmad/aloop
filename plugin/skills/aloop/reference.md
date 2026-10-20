@@ -31,6 +31,23 @@ worktree: /abs/.aladdin/worktrees/S1-02-T3. First command: `aloop bind
 exactly as on Claude Code (see "The task contract" below). Models per role come from the generated agent files
 (`aloop install` renders them from `docs/agents/defaults.md`).
 
+## NEEDS-HUMAN: an intake that stops to ask
+
+An `ask` question (irreversible, security-sensitive or intent-changing) is the human's, never the
+intake's: `gate-intake` releases its stop at once, **not verified** (as a STUCK release), records the
+questions in `.aladdin/state/needs-human/<intent_id>.json` and logs `gate.failed` (`released=needs-human`).
+You are told `[aloop gate] intake <id>: NEEDS-HUMAN — released UNVERIFIED (not a pass)` with the
+questions: with the Agent result on Claude Code (on Codex, your next tool result), in the `task` result
+on OpenCode, as a message on dsh. It is not a pass:
+
+1. Ask the human each question as written. Never answer one yourself.
+2. Re-dispatch `intake` with a `### Feedback` block quoting each question and the human's answer; it
+   records each `answer` in the contract (you never edit it).
+3. Dispatch the planner only once `gate-intake` passes. In autonomous mode this is the escalation class
+   (`intent check` exit 3).
+
+A malformed contract or an incomplete five-part intent is still blocked and sent back to the intake.
+
 ## Budget overrun → mid-sprint re-plan (the re-plan route)
 
 A task killed at its hard limit is too big — retrying it would burn the same budget

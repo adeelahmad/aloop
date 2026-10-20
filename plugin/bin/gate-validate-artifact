@@ -6,11 +6,24 @@ set -uo pipefail
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; export PATH="$BIN_DIR:$PATH"  # md-db shim -> real binary
 : "${CLAUDE_PLUGIN_ROOT:=$(cd "$BIN_DIR/.." && pwd)}"   # the schemas; a host that sets no plugin root still validates
 
-# Resolve the written file path: arg, env, or the PostToolUse stdin JSON.
+# Resolve the written file path: arg, env, or the PostToolUse stdin JSON. Read as JSON, from
+# tool_input: a greedy sed over the raw text took the LAST "file_path" anywhere (a later field's),
+# and an escaped quote cut it short, so the write it named went unchecked. A payload that is not
+# JSON blocks: the gate cannot tell what was written (fail closed).
 f="${1:-${TOOL_FILE_PATH:-}}"
 if [ -z "$f" ] && [ ! -t 0 ]; then
   json="$(cat)"
-  f="$(printf '%s' "$json" | sed -nE 's/.*"file_path"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' | head -1)"
+  f="$(printf '%s' "$json" | python3 -c '
+import json, sys
+raw = sys.stdin.read()
+try:
+    p = json.loads(raw) if raw.strip() else {}
+except ValueError:
+    sys.exit(3)
+ti = p.get("tool_input") if isinstance(p, dict) else None
+v = ti.get("file_path") if isinstance(ti, dict) else None
+sys.stdout.write(v if isinstance(v, str) and "\0" not in v else "")' 2>/dev/null)" \
+    || { echo "BLOCK[gate-validate-artifact]: the PostToolUse payload is not JSON this gate can read (or python3 is missing); it cannot tell which file was written." >&2; exit 2; }
 fi
 [ -z "$f" ] && exit 0
 

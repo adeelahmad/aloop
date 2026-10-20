@@ -33,17 +33,41 @@ GATE_NAME=supervisor-scope
 [ "${SKIP_HOOKS:-}" = "1" ] && exit 0
 
 payload="$(cat 2>/dev/null || true)"
-field() { printf '%s' "$payload" | sed -nE "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"([^\"]+)\".*/\1/p" | head -1; }
-tool="$(field tool_name)"
-file="$(field file_path)"
-[ -n "$file" ] || file="$(field filePath)"
-session="$(field session_id)"
+# The payload, read as JSON: the host's fields from the top level, the path and the command from
+# tool_input. A greedy sed over the raw text took the LAST `"<name>": "<value>"` anywhere, so a key
+# the model added to its arguments (OpenCode hands them through: an `agent_type`, a `cwd`) stood in
+# for the host's field, and an escaped quote cut a path short. One NUL-separated record; a payload
+# that is not a JSON object, or a field holding a NUL, reads as `bad` (judged once the lock is known).
+parsed="" tool="" file="" session="" agent_type="" agent_id="" cwd_p="" cmd=""
+{ IFS= read -r -d '' parsed; IFS= read -r -d '' tool; IFS= read -r -d '' file; IFS= read -r -d '' session
+  IFS= read -r -d '' agent_type; IFS= read -r -d '' agent_id; IFS= read -r -d '' cwd_p; IFS= read -r -d '' cmd; } < <(
+  printf '%s' "$payload" | python3 -c '
+import json, sys
+raw = sys.stdin.read()
+try:
+    p = json.loads(raw) if raw.strip() else {}
+except ValueError:
+    p = None
+ti = p.get("tool_input") if isinstance(p, dict) else None
+ti = ti if isinstance(ti, dict) else {}
+s = lambda v: v if isinstance(v, str) else ""
+v = [s(p.get("tool_name")), s(ti.get("file_path")) or s(ti.get("filePath")), s(p.get("session_id")), s(p.get("agent_type")),
+     s(p.get("agent_id")), s(p.get("cwd")), s(ti.get("command"))] if isinstance(p, dict) else []
+sys.stdout.write("\0".join(["ok"] + v) + "\0" if v and not any("\0" in x for x in v) else "bad\0")' 2>/dev/null)
 
 root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 [ -n "${AGENTIC_HOME:-}" ] || . "$HERE/_paths.sh"
 lock="$AGENTIC_HOME/state/sprint.lock"          # fixed path (bin/_paths.sh), git-ignored
+
+# An unreadable payload is judged like a crash: it blocks while this repo has a sprint lock, and
+# stays out of the way everywhere else (this gate sees every session on the machine).
+if [ "$parsed" != ok ]; then
+  [ -f "$lock" ] || exit 0
+  echo "BLOCK[$GATE_NAME]: the hook payload is not a JSON object this gate can read (or python3 is missing) — failing closed while a sprint is live. (Deliberate bypass? SKIP_HOOKS=1.)" >&2
+  exit 2
+fi
 
 lock_recent() {
   [ -f "$lock" ] || return 1
@@ -80,7 +104,7 @@ fi
 # outlives the sprint. Live e2e run 32: a 1200s "fallback heartbeat" set while the planner ran
 # kept the headless session idle 12 minutes after the final gate had passed.
 if [ "$tool" = "ScheduleWakeup" ]; then
-  [ -z "$(field agent_type)" ] && [ -f "$lock" ] || exit 0
+  [ -z "$agent_type" ] && [ -f "$lock" ] || exit 0
   [ "$(head -1 "$lock" 2>/dev/null)" = "$session" ] || lock_recent || exit 0
   echo "BLOCK[$GATE_NAME]: no ScheduleWakeup during a sprint. A dispatched agent's result arrives on" >&2
   echo "  its own: its completion notification starts your next turn, even when the host moved it" >&2
@@ -92,7 +116,7 @@ fi
 # A dispatched agent's Bash may READ the task contract but not rewrite it (redirect, tee,
 # sed -i, cp/mv/rm/...). Heuristic: the command names the contract AND has a write verb.
 if [ "$tool" = "Bash" ]; then
-  if [ -z "$(field agent_type)" ]; then
+  if [ -z "$agent_type" ]; then
     # MAIN agent: it never commits on main. Every commit on main arrives through
     # `task-worktree merge`, which is what makes it traceable to its task (events trace).
     # Live e2e run 16: a supervisor's `Track Cargo.lock` commit was the one commit that
@@ -102,12 +126,11 @@ if [ "$tool" = "Bash" ]; then
     [ -n "$session" ] || exit 0
     [ -f "$lock" ] || exit 0
     [ "$(head -1 "$lock" 2>/dev/null)" = "$session" ] || lock_recent || exit 0
-    cmd="$(printf '%s' "$payload" | python3 -c 'import json,sys; print((json.load(sys.stdin).get("tool_input") or {}).get("command") or "")' 2>/dev/null)"
     # Nor does it write an agent's output.md block (live e2e run 29: the final gate's report was
     # lost and the supervisor appended a final-gate block itself). A redirect or tee into a
     # docs/agents/**/output.md; reading it passes. Hosts with no agent_type (Codex, OpenCode) run
     # a worker's shell in its linked task worktree: that is the worker reporting, not judged.
-    cwd0="$(field cwd)"; [ -n "$cwd0" ] || cwd0="$PWD"
+    cwd0="$cwd_p"; [ -n "$cwd0" ] || cwd0="$PWD"
     wgd="$(cd "$cwd0" 2>/dev/null && cd "$(git rev-parse --git-dir 2>/dev/null)" 2>/dev/null && pwd -P)"
     wcd="$(cd "$cwd0" 2>/dev/null && cd "$(git rev-parse --git-common-dir 2>/dev/null)" 2>/dev/null && pwd -P)"
     if [ -n "$wgd" ] && [ "$wgd" = "$wcd" ] && printf '%s' "$cmd" | python3 -c '
@@ -132,7 +155,7 @@ for seg in re.split(r"[;&|\n]+", cmd):
     if m: print(m.group(1) or ".")' 2>/dev/null)"
     [ -n "$hits" ] || exit 0
     . "$HERE/_failclosed.sh"
-    cwd="$(field cwd)"; [ -n "$cwd" ] || cwd="$PWD"
+    cwd="$cwd_p"; [ -n "$cwd" ] || cwd="$PWD"
     while IFS= read -r d; do
       [ -n "$d" ] || continue
       case "$d" in /*) dir="$d" ;; *) dir="$cwd/$d" ;; esac
@@ -180,7 +203,7 @@ case "$tool" in Write|Edit|MultiEdit|NotebookEdit) ;; *) exit 0 ;; esac
 # Classify where the write really lands: symlinks and `..` resolved as the OS resolves them, so
 # `.aladdin/../src/a.rs` or `docs/agents/s1/../../../src/a.rs` is source. A relative path is the
 # payload cwd's. Only suffix globs are matched below, so macOS's /var -> /private/var is harmless.
-cwd_f="$(field cwd)"; [ -n "$cwd_f" ] || cwd_f="$PWD"
+cwd_f="$cwd_p"; [ -n "$cwd_f" ] || cwd_f="$PWD"
 case "$file" in /*) abs="$file" ;; *) abs="$cwd_f/$file" ;; esac
 real="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$abs" 2>/dev/null)"
 [ -n "$real" ] || real="$file"
@@ -188,7 +211,6 @@ real="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$abs"
 # Dispatched sub-agent (planner / intake / standards / red / scaffolder / green / …):
 # agent_type is present ⇒ it is doing its designated job; its own SubagentStop gate
 # constrains it. Never block a sub-agent here.
-agent_type="$(field agent_type)"
 # ...except the task contract and the supervisor's state: a worker that rewrites its contract
 # (<run-data>/state/tasks/<TASK_ID>.env, or the worktree copy) widens its own scope or budget.
 if [ -n "$agent_type" ]; then
@@ -203,7 +225,7 @@ fi
 # Fallback (only if a sub-agent's payload ever lacks agent_type): a worktree task.env naming a
 # dispatched role still exempts that agent. Only a sub-agent's: the supervisor's payload carries
 # no agent_id, and its hook may run inside a task worktree after a `cd` there.
-if [ -n "$(field agent_id)" ]; then
+if [ -n "$agent_id" ]; then
   for te in "$root/.aladdin/task.env" "$root/.agentic/task.env"; do
     if [ -f "$te" ] \
        && grep -qE '^[[:space:]]*AGENT_ROLE=("?)(red-worker|scaffolder|green-worker|planner|intake|standards|structural-reviewer|final-gate|archivist)\1' "$te" 2>/dev/null; then

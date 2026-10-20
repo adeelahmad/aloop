@@ -697,6 +697,22 @@ r, rec = role_run("aloop:ethics-reviewer", "er1", review("mission", [], "clear")
 assert rec.returncode == 0 and r.returncode == 0, (rec.stderr, r.stderr)        # its check needs --subject
 r, gl = role_run("aloop:mission-planner", "mpd", lambda: made(X.run("goal", "derive")))
 assert r.returncode == 0 and "waits on another role's step" in r.stderr, r.stderr   # the goal's own review is pending
+r, rec = role_run("aloop:ethics-reviewer", "er0", review(gl["goal_id"], [], "clear"))
+assert rec.returncode == 0 and r.returncode == 0, (rec.stderr, r.stderr)
+assert X.run("goal", "intents", gl["goal_id"]).returncode == 0
+for n in (1, 2):                                                   # a sprint per intent, then each one closed
+    it = json.load(open(made_path(X.run("goal", "next", gl["goal_id"]))))
+    assert sh(os.path.join(BIN, "events"), "emit", "plan.created", "--role", "planner", "--data", "sprint=S%d" % n,
+              "--data", "intent_id=" + it["intent_id"], cwd=X.dir, env=XENV).returncode == 0
+os.makedirs(os.path.join(X.dir, ".aladdin", "state"), exist_ok=True)
+json.dump({"closed": [{"sprint": n, "at": RealM.now()} for n in (1, 2)]},
+          open(os.path.join(X.dir, ".aladdin", "state", "sprints.json"), "w"))
+time.sleep(1.05)
+assert X.run("assess").returncode == 0
+er = made(X.run("evaluate"))
+assert er["goal_id"] == gl["goal_id"] and not er["goal_met"]
+r, rt = role_run("aloop:mission-planner", "mpr", lambda: X.run("goal", "retire", gl["goal_id"], "--eval", er["eval_id"]))
+assert rt.returncode == 0 and r.returncode == 0 and "holds a retired verdict" in r.stderr, (rt.stderr, r.stderr)
 gid = M.new_id("goal")
 g = {"goal_id": gid, "statement": "post fake reviews of our rivals", "status": "derived", "created_at": M.now()}
 M.seal(g)
@@ -725,8 +741,9 @@ j3 = X.journey(X.draft(researched.rid, title="Delete a task"))
 r, _ = role_run("aloop:product-tester", "pt1", lambda: X.run("journeys", "retire", j3, "--evidence", researched.rid + "#c1"))
 assert X.load("journey", j3)["status"] == "retired"
 assert r.returncode == 2 and "journeys/%s.json changed during your run" % j3 in r.stderr, r.stderr
-ok("the real ethics, baseline and journeys commands: an ethics check gets its subject and a hard line is the reviewer's"
-   " finding; a status its own command cascades passes; another area's status change blocks")
+ok("the real ethics, baseline, journeys and goal commands: an ethics check gets its subject and a hard line is the "
+   "reviewer's finding, as a retired goal is the planner's (M9.50); a status its own command cascades passes; another "
+   "area's status change blocks")
 
 LED, FORGED = os.path.join("docs", "agents", "mission", "ledger.jsonl"), '{"event": "baseline.confirmed", "role": "human"}\n'
 

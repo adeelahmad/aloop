@@ -59,6 +59,7 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 49 | cli (Rust binary), on #95 and #102 | v0.12.0 + #102 (f8bcbc0) | 13/13 | 13m50s | $0.87 | 1 | 0 | 3 | `make e2e-live YES=1 INTENT=cli` |
 | run 50 | cli (Rust binary), under the plan approval gate | v0.12.0 + #99 (575d95a) | 13/13 | 10m17s | $0.84 | 2 | 0 | 1 | `make e2e-live YES=1 INTENT=cli` |
 | run 51 | cli (Rust binary), under the supply-chain and secret gates | v0.12.0 + #99, #106, #107 (fdda5d9) | 13/13 | 14m24s | $0.94 | 1 | 0 | 3 | `make e2e-live YES=1 INTENT=cli` |
+| run 52 | slugify (Python), under the M0.9, M10.2 and M10.4 gates | v0.12.0 + #110 (f11f5b4) | 12/12 | 8m26s | $0.56 | 1 | 0 | 2 | `make e2e-live YES=1 INTENT=slugify` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
@@ -112,3 +113,7 @@ Run 51 (master fdda5d9: M0.9 plus #106 and #107, M10.2) is the first run under t
 secret gates: neither refused anything (no false positive), 2 tasks, 37 supervisor turns, $0.94 and
 14m24s. All 3 blocks were workers' self-checks; the intake stop also asked twice for the missing
 `constraints` part before planning.
+Run 52 is the first Python run under the plan approval, dependency, secret and stop gates: 12/12,
+$0.56 and 8m26s, the cheapest `slugify` run (run 37: $0.69, 9m42s). None of the new gates refused
+anything; its 2 blocks were self-checks (SCAFFOLD's `black --check`, and a `targets` create with no
+`planned_symbol` caught before execution).

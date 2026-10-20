@@ -78,7 +78,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 | Pipeline source | [`plugin/pipeline/`](../plugin/pipeline/) | Per activity: `persona.md`, `init.template.md`, `artifacts.md`, `gate.md` |
 | Hook wiring | [`plugin/hooks/hooks.json`](../plugin/hooks/hooks.json) | SessionStart, PreToolUse, PostToolUse, SubagentStart/Stop, Stop, UserPromptSubmit (transcript capture and the natural-language auto-trigger, `intent-trigger`) |
 | Gates | [`plugin/bin/gate-*`](../plugin/bin/README.md) | 18 gates (15 bash; `gate-commit-author` and the mission layer's `gate-mission-scope` role path guards and `gate-mission-artifact` stop check in Python), 16 wired to hooks (`gate-plan-shape` and `gate-ledger-format` are standalone checkers); exit `0` pass, `2` block with reason |
-| Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `aladdin` / `aloop` (entry points), `intent`, `budget` (time box, envelope, breach classes), `sweep` (the orchestrator loop), `targets` (semantic plan, shadow workspace, render), `ids`, `events` (audit stream, lineage, trace), `stats` (ledger, metrics, handoff), `models` / `host` / `config` (routes, HostAdapter, portable config), `transcripts`, `intent-trigger` (natural-language auto-trigger), `run-summary` (a live run's measured record for `docs/evidence/`), `install`, `aloop-init`, worktree helpers |
+| Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `aladdin` / `aloop` (entry points), `intent`, `budget` (time box, envelope, breach classes), `stop` (one stop for the whole project, M10.4), `deps` and `secrets` (the supply-chain and secret gates, M10.2), `sweep` (the orchestrator loop), `targets` (semantic plan, shadow workspace, render), `ids`, `events` (audit stream, lineage, trace), `stats` (ledger, metrics, handoff), `models` / `host` / `config` (routes, HostAdapter, portable config), `transcripts`, `intent-trigger` (natural-language auto-trigger), `run-summary` (a live run's measured record for `docs/evidence/`), `install`, `aloop-init`, worktree helpers |
 | Schemas | [`plugin/schemas/*.kdl`](../plugin/schemas/) | What `md-db validate` enforces on every planning and comms artifact |
 | `ctx-symbols` | [`plugin/tools/ctx-symbols/`](../plugin/tools/ctx-symbols/) | Rust, tree-sitter symbol resolver (Rust, Python, JS/TS, Go): count, locate, conflicts |
 | `md-db` | [`plugin/tools/md-db/`](../plugin/tools/md-db/) | Vendored Rust markdown-as-database validator (AGPL-3.0 subtree) |
@@ -111,9 +111,9 @@ The model can ignore a skill; it cannot ignore an exit code.
   model; no live DeepSeek run yet).
 - CI on every PR: Rust fmt/clippy/tests for both backends, shellcheck on every gate, the
   ROADMAP §6 conformance suite (real gates on a fixture crate, plus the focused tests that hold
-  the tool-level items: 19 of the 20 items, 78 checks; §6.15 is measured by live runs), the host tests
+  the tool-level items: 19 of the 20 items, 82 checks; §6.15 is measured by live runs), the host tests
   (budget/worktree, Codex hooks emulation, supervisor scope, hook matchers, dispatch,
-  ensure-tools, fail-closed: 73 checks; OpenCode end-to-end: 20; dsh plugin: 40, on the real dsh runtime: 32, dsh install: 9), `claude plugin validate
+  ensure-tools, fail-closed: 85 checks; OpenCode end-to-end: 31; dsh plugin: 46, on the real dsh runtime: 50, dsh install: 10), `claude plugin validate
   --strict`, eval-suite and version-lockstep checks,
   the tracking check and `host check`, plus the newer suites (targets render, host swap,
   metrics, config, the aladdin CLI, the site).
@@ -150,7 +150,7 @@ The model can ignore a skill; it cannot ignore an exit code.
   older sprint still writes them there.
 - The door catalogue is a finite list: an unlisted action is two-way, and a script or alias can hide a
   listed one, and a command whose text is computed (`$VAR`, `eval "$X"`) is read only as far as it is
-  written (M9.47). On Claude Code a call another gate denies can still use up a once-authorization (M9.48).
+  written (M9.47). On Claude Code a call another gate denies can still use up a once-authorization (M9.56).
 - Measured runs: TheNoteBook plus the `make e2e-live` runs in ROADMAP §0; no live-session test in CI.
 
 ## The docs, and which ones are current

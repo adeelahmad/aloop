@@ -50,9 +50,9 @@ def matches(matcher, names):
     return any(re.search(matcher, n) for n in names)
 
 
-def fire(event, payload):
-    """Run every matching hook like Codex: returns [(exit, stdout, stderr)]."""
-    payload = dict(payload, hook_event_name=event, turn_id="turn-1", cwd=payload.get("cwd", T))
+def fire(event, payload, claude=False):
+    """Run every matching hook like Codex (or Claude Code: no turn_id): returns [(exit, stdout, stderr)]."""
+    payload = dict(payload, hook_event_name=event, cwd=payload.get("cwd", T), **({} if claude else {"turn_id": "turn-1"}))
     key = payload.get("tool_name") if "Tool" in event else payload.get("agent_type")
     names = [key or ""] + ALIASES.get(key or "", [])
     out = []
@@ -199,5 +199,38 @@ claude = {"session_id": "c1", "transcript_path": os.path.join(T, "cc", "c1.jsonl
 r = subprocess.run(["sh", "-c", HOOKS["PreToolUse"][-1]["hooks"][0]["command"]], cwd=T, env=ENV, capture_output=True, text=True,
                    input=json.dumps(dict(claude, hook_event_name="PreToolUse", cwd=T, tool_name="Bash", tool_input={"command": "cargo test"})))
 assert "deny" not in r.stdout; ok("Claude Code worker (no turn_id, no bind) is not confined by host-adapter")
+
+# ROADMAP §4.9: an intake that stops to ask the human is released at once as NEEDS-HUMAN (never blocked
+# for rounds it cannot use), and the supervisor's next tool result carries its questions, once
+open(os.path.join(T, "docs/agents/sprint1/intake.md"), "w").write(
+    "# Intent\nWhat: export\n## Constraints\n## Failure scenarios\n## Success scenarios\n## Connections\n")
+ic = sh(os.path.join(BIN, "intent"), "new", "--source", "prompt", "--raw", "export the report as CSV")
+contract = dict(json.load(open(ic)), actor="analyst", want="CSV export", why="finance", constraints=["none"],
+                success_scenarios=["a .csv downloads"], failure_scenarios=["an empty table exports a header"],
+                connections=["report page"], done_looks_like="Export works",
+                open_questions=[{"question": "may the export include personal data?", "class": "ask"}])
+json.dump(contract, open(ic, "w"))
+intake = dict(base, agent_id="th-intake", agent_type="intake")
+fire("SubagentStart", intake)
+r = fire("SubagentStop", dict(intake, agent_transcript_path="", last_assistant_message="a question needs the human", stop_hook_active=False))
+assert not any(c == 2 for c, _, _ in r) and any("NEEDS-HUMAN" in se for _, _, se in r), r
+ok("Codex: an intake whose contract only waits on the human is released at once (NEEDS-HUMAN), not blocked")
+told = context(fire("PostToolUse", dict(base, tool_name="wait_agent", tool_input={}, tool_response="intake finished")))
+assert "intake th-intake: NEEDS-HUMAN" in told and "may the export include personal data?" in told, told
+assert "NEEDS-HUMAN" not in context(fire("PostToolUse", dict(base, tool_name="wait_agent", tool_input={}, tool_response="x")))
+ok("Codex: the supervisor's next tool result carries NEEDS-HUMAN with the questions, once")
+json.dump(dict(contract, want=""), open(ic, "w"))
+r = fire("SubagentStop", dict(intake, agent_transcript_path="", last_assistant_message="done", stop_hook_active=False))
+assert any(c == 2 and "is invalid" in se for c, _, se in r), r
+json.dump(contract, open(ic, "w"))
+ok("Codex: a malformed Intent Contract still blocks the intake's stop")
+cc = {"session_id": "c1", "transcript_path": os.path.join(T, "cc", "c1.jsonl")}
+r = fire("SubagentStop", dict(cc, agent_id="a-intake", agent_type="aloop:intake", last_assistant_message="a question",
+                              stop_hook_active=False), claude=True)
+assert not any(c == 2 for c, _, _ in r) and any("NEEDS-HUMAN" in se for _, _, se in r), r
+told = context(fire("PostToolUse", dict(cc, tool_name="Agent", tool_input={"subagent_type": "aloop:intake"}, tool_response="done"),
+                    claude=True))
+assert "intake a-intake: NEEDS-HUMAN" in told and "may the export include personal data?" in told, told
+ok("Claude Code: the intake (aloop:intake) is released at once and its Agent result carries NEEDS-HUMAN with the questions")
 
 print("\n%d checks passed" % PASS[0])

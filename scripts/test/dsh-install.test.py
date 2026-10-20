@@ -76,12 +76,12 @@ before = profile()
 run(os.path.join(BIN, "aloop-init"), "--apply", "MODEL_WORKER=strongest", cwd=B)
 assert profile() == before, "another project's aloop-init re-rendered A's profile"
 st = run(os.path.join(BIN, "install"), "status", cwd=B)
-assert "(serves %s, not this project)" % A in st, st
+assert "(serves %s; its roles run on this project's models)" % A in st, st
 out = run(os.path.join(BIN, "aloop-init"), "--apply", "MODEL_WORKER=strongest", cwd=B)
-assert "it serves %s. Run `aloop install dsh --project %s`" % (A, B) in out, out
+assert "kept the dsh profile: it serves %s; its roles run on this project's models" % A in out and "install dsh --project" not in out, out
 out = run(os.path.join(BIN, "install"), "dsh", "--uninstall", "--project", B, cwd=B)
 assert os.path.isfile(PROFILE) and "kept" in out and A in out, out
-ok("another project's init, status and uninstall leave the profile alone (its gate-dispatch would refuse A's roles)")
+ok("another project's init, status and uninstall leave A's profile alone, and say its roles run on B's own models (no re-install there)")
 
 run(os.path.join(BIN, "aloop-init"), "--apply", "MODEL_WORKER=strongest", cwd=A)
 assert 'subagent: "deepseek-v4-pro"' in profile() and "# aloop-project: %s\n" % A in profile(), profile()[:600]
@@ -135,5 +135,7 @@ for tool, group in (("subagent", "worker"), ("subagent_planning", "planning")):
     assert set(hint.group(1 if group == "worker" else 2).split(", ")) == names, (tool, hint.groups())
     assert "`%s` (%s)" % (tool, ", ".join(_routes.GROUPS[group])) in note, note
 ok("the dispatch hint and the roles' dsh note name every role of each route group (mission roles included)")
+assert re.search(r'const PROVIDER = "([^"]+)"', mjs).group(1) == ins.DSH_PROVIDER, ins.DSH_PROVIDER
+ok("the plugin routes a bare model id to the provider the profile names (a project's pinned id is that provider's)")
 
 print("\n%d checks passed" % n)
