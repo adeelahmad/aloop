@@ -24,11 +24,13 @@ quotes, escapes, line continuations, comments, heredoc bodies as data, reserved 
 $(…) and `…` read as commands too), then judged per simple command: redirect targets; cp/mv/ln/
 install/rsync destinations; rm/touch/truncate/mkdir/tee files; sed -i, perl -i and awk -i inplace
 files; dd of=, curl -o, wget -O, find -delete and -exec, tar -x, unzip, patch; `cd`, `pushd` and
-`popd` followed; git writes in the project; the `mission` and `events` CLIs. Wrappers (timeout, env, nice, sudo,
-xargs, stdbuf…) are looked through, and a shell string (`bash -c`, `eval`, `env -S`) or a script run
-by an interpreter (`python3 …/bin/mission approve`) is read again. Variables set earlier in the
-command resolve, and so do $PWD, $HOME, the environment, $(pwd) and $(mktemp …) (a scratch dir
-outside the project). What only running it would tell (a computed path) is judged by its known
+`popd` followed (but a `cd` inside a compound, group or pipeline element stays there); git writes in the
+project; the `mission` and `events` CLIs. Wrappers (timeout, env, nice, sudo, su, setsid, runuser,
+xargs, stdbuf…) are looked through, and a shell string (`bash -c`, `eval`, `env -S`, a heredoc or
+here-string fed to `bash` on stdin) or a script run by an interpreter (`python3 …/bin/mission approve`)
+is read again. Variables set earlier in the command resolve (incl. via export/declare/local and a
+`for`/`select` loop variable), and so do $PWD, $HOME, the environment, $(pwd) and $(mktemp …) (a scratch
+dir outside the project). What only running it would tell (a computed path) is judged by its known
 directory, or not at all. A write made inside a program (`python3 -c …`) is invisible here:
 gate-mission-artifact checks what changed in docs/agents/mission/ when the role stops.
 
@@ -367,7 +369,7 @@ class Scope:
         return out
 
     def shell(self, cmd, base, st=None, depth=0):
-        st = st or {"base": base, "old": None, "vars": {}, "stack": [], "dirs": []}
+        st = st or {"base": base, "old": None, "vars": {}, "stack": [], "dirs": [], "cwd": []}
         if depth > DEPTH:
             return
         for c in SR.read(cmd):
@@ -378,19 +380,53 @@ class Scope:
                 if st["stack"]:
                     st["base"], st["old"], st["vars"] = st["stack"].pop()
                 continue
+            if c == "cwd+":                               # a compound/group opens: its `cd` is scoped
+                st["cwd"].append((st["base"], st["old"]))
+                continue
+            if c == "cwd-":
+                if st["cwd"]:
+                    st["base"], st["old"] = st["cwd"].pop()
+                continue
+            saved = (st["base"], st["old"]) if c.pipe else None   # a pipeline element's `cd` does not leak
             for sub in c.subs:                            # $(…), `…`, <(…): a subshell of their own
                 self.shell(sub, None, {"base": st["base"], "old": st["old"], "vars": dict(st["vars"]),
-                                       "stack": [], "dirs": []}, depth + 1)
+                                       "stack": [], "dirs": [], "cwd": []}, depth + 1)
+            if c.loop:                                    # for/select NAME in LIST: NAME is one of the items
+                name, lst = c.loop
+                st["vars"][name] = self.resolve(lst[0].parts, st) if lst else [None]
+                continue
             for name, parts in c.assigns:
                 st["vars"][name] = self.resolve(parts, st)
+            self.exports(c, st)                           # export/declare/local/readonly/typeset NAME=…
             ws = [self.resolve(w.parts, st) for w in c.words]
             for op, fd, w in c.redirs:
                 if op in (">", ">>", ">|", "&>", "&>>", "<>") or (op == ">&" and not re.fullmatch(r"\d+|-", w.text() or "0")):
                     self.write(self.resolve(w.parts, st), st["base"], "Bash write")
             if ws:
-                self.run(ws, st, depth)
+                self.run(ws, st, depth, stdin=self.stdin_script(c.redirs))
+            if saved is not None:
+                st["base"], st["old"] = saved
 
-    def run(self, ws, st, depth, base=None):
+    def exports(self, c, st):
+        """export/declare/typeset/local/readonly NAME=VALUE records NAME, as a bare `NAME=VALUE` does."""
+        if not c.words or c.words[0].text() not in ("export", "declare", "typeset", "local", "readonly"):
+            return
+        for w in c.words[1:]:
+            if w.assign is not None:
+                st["vars"][w.assign] = self.resolve(w.value(), st)
+
+    def stdin_script(self, redirs):
+        """A program the shell would read on its stdin: a heredoc body or a `<<<` here-string word."""
+        for op, fd, w in redirs:
+            if fd not in ("", "0"):
+                continue
+            if op in ("<<", "<<-") and w.body is not None:
+                return w.body
+            if op == "<<<":
+                return w.text()
+        return None
+
+    def run(self, ws, st, depth, base=None, stdin=None):
         """Judge one command (after its wrappers) at the current dir."""
         base = st["base"] if base is None else base
         while ws:
@@ -417,7 +453,7 @@ class Scope:
                     return
                 ws = args[i:]
             elif name in ("nice", "nohup", "command", "builtin", "exec", "time", "stdbuf", "ionice", "chronic",
-                          "unbuffer", "timeout", "taskset", "caffeinate"):
+                          "unbuffer", "timeout", "taskset", "caffeinate", "setsid"):
                 if name == "command" and any(text(a) in ("-v", "-V") for a in args[:2]):
                     return
                 i, f = opts(args, {"nice": "n", "exec": "a", "time": "fo", "stdbuf": "ioe", "ionice": "cnpPu",
@@ -432,7 +468,11 @@ class Scope:
                 i, f = opts(args, "adEeIiLlnPs", ("--arg-file", "--delimiter", "--eof", "--replace", "--max-lines",
                                                   "--max-args", "--max-procs", "--max-chars", "--process-slot-var"))
                 rep = f.get("-I") or f.get("-i") or f.get("--replace")
-                rest = [([None] if isinstance(rep, str) and text(a) and rep in text(a) else a) for a in args[i:]]
+
+                def sub_rep(a):                           # replace only the {} inside a word (sh -c '… {} …')
+                    t = text(a)
+                    return [t.replace(rep, '"$__xargs"')] if isinstance(rep, str) and t is not None and rep in t else a
+                rest = [sub_rep(a) for a in args[i:]]
                 ws = (rest or [["echo"]]) + ([] if rep else [[None]])
             elif name == "flock":
                 i, f = opts(args, "wEc", ("--timeout", "--conflict-exit-code", "--command"))
@@ -456,11 +496,18 @@ class Scope:
                 else:
                     return
             elif name == "su":
-                i, f = opts(args, "csgG", ("--command", "--shell", "--group"))
+                _, f = operands(args, "csgG", ("--command", "--shell", "--group"))   # `su USER -c …`: -c anywhere
                 c = f.get("-c") or f.get("--command")
                 if isinstance(c, str):
                     self.shell(c, None, dict(st, base=base), depth + 1)
                 return
+            elif name == "runuser":
+                i, f = opts(args, "ucgGs", ("--user", "--command", "--group", "--shell"))
+                c = f.get("-c") or f.get("--command")
+                if isinstance(c, str):
+                    self.shell(c, None, dict(st, base=base), depth + 1)
+                    return
+                ws = args[i:]                             # `runuser -u USER -- CMD …`: CMD runs
             elif name in SHELLS:
                 i, f = opts(args, "oO", ("--rcfile", "--init-file"))
                 if any(k.startswith("-") and len(k) == 2 and k[1] == "c" for k in f) or "-c" in f:
@@ -470,6 +517,8 @@ class Scope:
                     return
                 ws = args[i:]                             # a script: judged by its name below
                 if not ws:
+                    if stdin is not None:                 # `bash <<EOF …`, `bash -s <<<…`: the body is its program
+                        self.shell(stdin, None, dict(st, base=base), depth + 1)
                     return
             elif PYTHON.match(name):
                 i, f = opts(args, "WXQ")
@@ -605,7 +654,7 @@ def write_targets(name, args):
             return []
         return ops if any(k in f for k in ("-e", "-f", "--expression", "--file")) else ops[1:]
     if name == "perl":
-        ops, f = operands(args, "eEMmIxl0")
+        ops, f = operands(args, "eEMmIx")             # -0/-l take only an octal value, so they do not hide a clustered -i
         if "-i" not in f and not any(k.startswith("-i") for k in f):
             return []
         return ops if ("-e" in f or "-E" in f) else ops[1:]
