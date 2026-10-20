@@ -8,35 +8,49 @@ A builder never grades its own work, and a grader never builds:
     plus run data (.aladdin/, but not its logs/ or state/) and anything outside the project: never
     source, mission.json, another role's dir or a task worktree. It never commits, never runs the loop (`mission tick|cron|init`)
     and never runs a human's step (`mission approve`, `mission <area> approve|confirm|consent|veto|restore…`,
-    `events authority`, `events emit` of a human event);
+    `events authority`, `events emit`/`events decide` of a human event). Only the mission-planner creates
+    Aladdin intents (`intent new`, `aladdin [run] "<intent>"`); the others would skip the planner and the ethics review;
   - ANY OTHER DISPATCHED AGENT (a builder, an Aladdin planner) never writes docs/agents/mission/ in any
-    tree, runs only the read-only `mission` commands (status, show, check, list, diff, --help) and
-    never emits a human event;
+    tree (not through a Bash write, a tree removal that reaches it, or a git pathspec), runs only the
+    read-only `mission` commands (status, show, check, list, diff, due, --help: a bare area such as
+    `mission evaluate` WRITES its report) and never emits a human event;
+  - NO MISSION ROLE OR BUILDER sets the judge command, ALOOP_JUDGE_CMD or ALOOP_JUDGE_TIMEOUT (an env
+    prefix, env VAR=, export/declare, or a mention in a bash -c / interpreter string): a judge command a
+    role picks could grade its own work (M9.42); the supervisor may, and the evaluator runs `mission judge run`;
   - the SUPERVISOR (no agent_type) never hand-writes a role's artifact: everything under
-    docs/agents/mission/ but mission.json (the human's, sealed by `mission approve`) is dispatched;
-  - NO ONE hand-writes docs/agents/mission/ledger.jsonl (only the mission CLI appends to it) or the captured
-    prompts (<run data>/transcripts/, the UserPromptSubmit hook's), runs a hook's `transcripts prompt|record|…`,
-    or, where a mission is set, starts a host session from a tool call (`claude -p`, `codex exec`,
-    `opencode run`: its prompt would be captured as the human's words, which a grant reads, M9.17).
+    docs/agents/mission/ but mission.json (the human's, sealed by `mission approve`) is dispatched (only
+    mkdir/touch may name the bare dir; a copy/extract/removal into or over it is a write of its contents);
+  - NO ONE hand-writes docs/agents/mission/ledger.jsonl (only the mission CLI appends to it; a bad edit is
+    undone by putting the file back — `git checkout --` when docs/ is tracked, else the human reverts it) or
+    the captured prompts (<run data>/transcripts/, the UserPromptSubmit hook's), runs a hook's
+    `transcripts prompt|record|…`, or, where a mission is set, starts a host session from a tool call
+    (`claude -p`, `codex exec`, `opencode run`: its prompt would be captured as the human's words, M9.17).
 
 Write/Edit/patch paths are exact. A Bash command is read as the shell would read it (_shellread.py:
 quotes, escapes, line continuations, comments, heredoc bodies as data, reserved words, subshells,
 $(…) and `…` read as commands too), then judged per simple command: redirect targets; cp/mv/ln/
-install/rsync destinations; rm/touch/truncate/mkdir/tee files; sed -i, perl -i and awk -i inplace
-files; dd of=, curl -o, wget -O, find -delete and -exec, tar -x, unzip, patch; `cd`, `pushd` and
-`popd` followed (but a `cd` inside a compound, group or pipeline element stays there); git writes in the
-project; the `mission` and `events` CLIs. Wrappers (timeout, env, nice, sudo, su, setsid, runuser,
-xargs, stdbuf…) are looked through, and a shell string (`bash -c`, `eval`, `env -S`, a heredoc or
-here-string fed to `bash` on stdin) or a script run by an interpreter (`python3 …/bin/mission approve`)
-is read again. Variables set earlier in the command resolve (incl. via export/declare/local and a
-`for`/`select` loop variable), and so do $PWD, $HOME, the environment, $(pwd) and $(mktemp …) (a scratch
-dir outside the project). What only running it would tell (a computed path) is judged by its known
+install/rsync destinations (and mv/rsync sources, which are removed); rm/touch/truncate/mkdir/tee
+files; sed -i, perl -i, awk -i and other in-place tools (sort -o, sponge, yq -i, ed/ex/vim -c) and
+formatters (ruff --fix, black, prettier -w, gofmt -w) inplace files; dd of=, curl -o/-O, wget,
+find -delete and -exec, tar -x/--remove-files, unzip, patch; downloads and installs with a fixed
+output location (gh clone/download, npm/pip); `cd`, `pushd` and `popd` followed (but a `cd` inside a
+compound, group or pipeline element stays there); git writes in the project (a mission role's repo
+writes, a builder's pathspecs into docs/agents/mission/, and the commands of bisect run / rebase -x /
+submodule foreach); the `mission`, `events`, `intent` and `aladdin` CLIs. A removal (rm -r, find
+-delete, rsync --delete, a moved dir) that reaches docs/agents/mission/ is blocked. Wrappers (timeout,
+env, nice, sudo, su, setsid, runuser, xargs, npx, stdbuf…) are looked through, and a shell string
+(`bash -c`, `eval`, `env -S`, a heredoc or here-string fed to `bash` on stdin) or a script run by an
+interpreter (`python3 …/bin/mission approve`) is read again. Variables set earlier in the command
+resolve (incl. via export/declare/local and a `for`/`select` loop variable), and so do $PWD, $HOME,
+the environment, $(pwd) and $(mktemp …) (a scratch dir outside the project). What only running it
+would tell (a computed path) is judged by its known
 directory, or not at all. A write made inside a program (`python3 -c …`) is invisible here:
 gate-mission-artifact checks what changed in docs/agents/mission/ when the role stops.
 
 Exit: 0 allow · 2 block (stderr, handed back to the model). Honors SKIP_HOOKS=1. Not an aloop project
 (no docs/agents/) → allow. A crash once the call is ours to judge blocks (fail closed).
 """
+import fnmatch
 import json
 import os
 import re
@@ -52,8 +66,26 @@ SHELL_TOOLS = ("Bash", "bash", "shell")
 PATCH_PATHS = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
 GIT_WRITES = {"commit", "push", "pull", "merge", "rebase", "cherry-pick", "am", "apply", "reset", "restore",
               "checkout", "switch", "stash", "rm", "mv", "add", "revert", "clean", "tag", "worktree", "notes",
-              "update-ref", "branch", "config", "submodule", "sparse-checkout", "filter-branch", "replace"}
+              "update-ref", "branch", "config", "submodule", "sparse-checkout", "filter-branch", "replace",
+              "bisect", "remote", "fetch", "update-index", "read-tree", "checkout-index", "symbolic-ref",
+              "update-server-info", "gc", "prune", "repack", "maintenance", "lfs", "hash-object"}
+# a builder's git pathspecs: (short options with a value, long ones), and whether every operand is a path
+GIT_PATHS = {"rm": ("", ("--pathspec-from-file",), True), "mv": ("", (), True),
+             "restore": ("s", ("--source", "--pathspec-from-file"), True), "clean": ("e", ("--exclude",), True),
+             "checkout": ("bB", ("--orphan", "--conflict", "--pathspec-from-file"), False),
+             "reset": ("", ("--pathspec-from-file",), False), "stash": ("m", ("--message", "--pathspec-from-file"), False)}
 CLI = {"aloop", "aladdin", "agentic"}
+ALADDIN_READS = {"status", "resume", "report", "target", "context", "refs", "callers", "callees", "shadow", "scope",
+                 "-h", "--help", "--list", "--root"}  # `aladdin` verbs that record no intent
+BIN = os.path.dirname(os.path.realpath(__file__))
+JUDGE_NAMES = {"ALOOP_JUDGE_CMD", "ALOOP_JUDGE_TIMEOUT"}         # the judge command and its time box (M9.42)
+JUDGE_VARS = re.compile(r"\bALOOP_JUDGE_(?:CMD|TIMEOUT)\b")      # its mention in a script string run elsewhere
+INTERPRETERS = re.compile(r"^(?:node|nodejs|ruby|php|deno|bun|lua|osascript)[0-9.]*$")   # perl keeps its write_targets path
+DECLARE = {"export", "declare", "typeset", "local", "readonly"}
+HUMAN_TYPES = ("plan.approved",)                      # the plan approval `events authority` emits as the human
+NPM_WRITES = {"install", "i", "add", "ci", "pack", "update", "up", "uninstall", "remove", "rm", "un", "link", "ln",
+              "dedupe", "prune", "rebuild", "init"}
+INPLACE_FMT = {"ruff", "black", "prettier", "gofmt", "isort"}   # formatters that rewrite path operands (F12)
 LOOP = {"init", "approve", "tick", "cron"}             # the human's and the supervisor's, never a dispatched agent's
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "mksh", "ash"}
 PYTHON = re.compile(r"^(python|pypy)[0-9.]*$")
@@ -95,22 +127,47 @@ def basename(v):
     return os.path.basename(last) if last and "/" in last else None
 
 
-def opts(args, value="", long_value=(), flags_end=True):
+def tail(v, n):
+    """The word `v` after its first n characters (all inside its known start)."""
+    out = list(v)
+    while n and out:
+        if len(out[0]) <= n:
+            n -= len(out.pop(0))
+        else:
+            out[0], n = out[0][n:], 0
+    return out
+
+
+def optlike(v):
+    """An option word, also one whose value is known only at run time (`-t"$D"`, `--dir=$D`)."""
+    a = text(v)
+    if a is not None:
+        return a.startswith("-") and a != "-"
+    pre = prefix(v)
+    return pre.startswith("--") and "=" in pre or not pre.startswith("--") and len(pre) >= 2 and pre[0] == "-"
+
+
+def opts(args, value="", long_value=(), words=False):
     """(index of the first operand, {option: value}) for GNU-style options. `value` names the
-    short options that take a value (attached or the next word); `long_value` the long ones."""
+    short options that take a value (attached or the next word); `long_value` the long ones.
+    A value is its text (None when unknown), or with `words` the word itself, so a computed
+    one is still judged by its known start."""
     found, i = {}, 0
+    val = (lambda w: w) if words else text
     while i < len(args):
-        a = text(args[i])
-        if a is None or a == "-" or not a.startswith("-"):
+        if not optlike(args[i]):
             break
+        a = text(args[i])
         if a == "--":
             i += 1
             break
+        a = prefix(args[i]) if a is None else a           # an unknown value after the known option
         if a.startswith("--"):
             k, eq, v = a.partition("=")
+            v = val(tail(args[i], len(k) + 1) or [""])
             if not eq and k in long_value and i + 1 < len(args):
                 i += 1
-                v = text(args[i])
+                v = val(args[i])
             found[k] = v if eq or k in long_value else True
             i += 1
             continue
@@ -118,11 +175,11 @@ def opts(args, value="", long_value=(), flags_end=True):
         while j < len(a):
             ch = a[j]
             if ch in value:
-                v = a[j + 1:]
-                if not v and i + 1 < len(args):
+                rest = tail(args[i], j + 1)
+                if not rest and i + 1 < len(args):
                     i += 1
-                    v = text(args[i])
-                found["-" + ch] = v
+                    rest = args[i]
+                found["-" + ch] = val(rest or [""])
                 break
             found["-" + ch] = True
             j += 1
@@ -130,16 +187,15 @@ def opts(args, value="", long_value=(), flags_end=True):
     return i, found
 
 
-def operands(args, value="", long_value=()):
+def operands(args, value="", long_value=(), words=False):
     """(the non-option words, {option: value}), options anywhere (GNU order)."""
     out, found, i = [], {}, 0
     while i < len(args):
-        a = text(args[i])
-        if a is not None and a.startswith("-") and a != "-":
-            if a == "--":
+        if optlike(args[i]):
+            if text(args[i]) == "--":
                 out += args[i + 1:]
                 break
-            j, f = opts(args[i:], value, long_value)
+            j, f = opts(args[i:], value, long_value, words)
             found.update(f)
             i += max(j, 1)
             continue
@@ -158,8 +214,10 @@ class Scope:
         self.roots = R.roots(project)
         self.who = self.role or self.agent_type
 
-    def path(self, target, base, what):
-        """Raise Block when writing `target` is not this caller's to do."""
+    def path(self, target, base, what, bare=False, tree=None):
+        """Raise Block when writing `target` is not this caller's to do. `bare`: the command may name
+        docs/agents/mission itself (mkdir, touch). `tree`: it removes everything under `target`
+        (rm -r, find -delete, a moved dir), bounded by find's -name tests when it has some."""
         R = self.R
         if not target or target == "-" or (base is None and not target.startswith(("/", "~"))):
             return                                        # stdout, or a dir the gate cannot know
@@ -167,14 +225,19 @@ class Scope:
         if rel is None:
             return                                        # outside the project: a scratch dir
         in_mission = R.under(rel, R.MISSION)
+        whole = (tree is not None and (R.MISSION.startswith(rel + "/") or rel == "." and root == self.main)
+                 and self.reaches(root, tree))            # the mission dir goes with it
         if R.is_prompt_log(rel):
             raise Block("%s holds the human's captured prompts: only the UserPromptSubmit hook writes it, and a mission"
                         " grant is read from the human's own words there (M9.17). Never a %s by %s."
                         % (rel, what, self.who or "the supervisor"))
         if rel == R.LEDGER:
             raise Block("%s is the mission's ledger: only `aloop mission …` commands append to it (each row is chained to"
-                        " the one before), never a %s by %s.\n  The supervisor recovers a bad edit with `git checkout -- %s`."
-                        % (rel, what, self.who or "the supervisor", rel))
+                        " the one before), never a %s by %s.\n  `aloop mission check` names a damaged or lost row. The"
+                        " supervisor undoes a bad edit by putting the file back as it was: `git checkout -- %s` when"
+                        " docs/agents/ is tracked (every row appended after its last commit is lost: `mission check` names"
+                        " each, and a step cannot be re-run while the ledger fails), otherwise the human reverts the"
+                        " edit itself, outside the loop." % (rel, what, self.who or "the supervisor", rel))
         if self.role in R.ROLES:
             if R.is_run_data(rel) and not R.is_harness_state(rel):
                 return
@@ -190,27 +253,43 @@ class Scope:
                         "    %s\n  A grader never builds: the mission roles never write source, and each writes only its own"
                         " artifacts.\n  If the work needs a change there, say so in your artifact: its owner is dispatched for it."
                         % (self.role, ", ".join("`%s`" % p for p in R.writes(self.role)), what, where, rel))
+        if whole:
+            raise Block("this %s by %s removes everything under %s, docs/agents/mission/ with it (the ledger and every"
+                        " role's artifacts):\n    %s\n  Only the mission CLI and the six mission roles write there (ROADMAP"
+                        " §4.12).%s" % (what, self.who or "the supervisor", rel, rel, "" if self.agent_type else
+                                        "\n  (Deliberate out-of-band edit outside the loop? Re-run with SKIP_HOOKS=1.)"))
         if self.agent_type:
             if in_mission:
                 raise Block("%s may not write the mission layer's artifacts (%s):\n    %s\n  A builder never grades its own"
                             " work: docs/agents/mission/ is written only by the six mission roles (ROADMAP §4.12)."
                             % (self.who, what, rel))
             return
-        if in_mission and rel not in (R.MISSION + "mission.json", R.MISSION.rstrip("/")):   # the supervisor
-            own = R.owners(rel)
+        if in_mission and rel != R.MISSION + "mission.json" and not (bare and rel == R.MISSION.rstrip("/")):
+            own = R.owners(rel)                           # the supervisor
             raise Block("the supervisor never hand-writes a mission role's artifact (%s):\n    %s\n  Dispatch %s: it writes"
                         " it, and its stop gate checks it. You run `aloop mission tick` and dispatch (ROADMAP §4.12).\n"
                         "  (Deliberate out-of-band edit outside the loop? Re-run with SKIP_HOOKS=1.)"
                         % (what, rel, " or ".join("`%s`" % o for o in own) if own else "the role that owns it"))
 
-    def write(self, v, base, what):
+    def reaches(self, root, names):
+        """Does a tree removal reach a file under the mission dir? Unbounded, always; bounded by find's -name
+        tests ((pattern, ignore case), all must match), when a file there now matches them."""
+        if not names:
+            return True
+        for _, _, files in os.walk(os.path.join(root, self.R.MISSION)):
+            for f in files:
+                if all(fnmatch.fnmatchcase(f.lower() if i else f, p.lower() if i else p) for p, i in names):
+                    return True
+        return False
+
+    def write(self, v, base, what, bare=False, tree=None):
         """Judge a written word: all of it when known, else the directory its known start names."""
         t = text(v)
         if t is None:
             pre = prefix(v)
             t = pre[:pre.rfind("/") + 1] if "/" in pre else ""
         if t:
-            self.path(os.path.expanduser(t), base, what)
+            self.path(os.path.expanduser(t), base, what, bare, tree)
 
     def mission_cli(self, args):
         R = self.R
@@ -226,8 +305,8 @@ class Scope:
                         " human, say so in your artifact: the supervisor asks them." % " ".join(t or "…" for t in ts[:2]))
         if self.role in R.ROLES:
             return
-        if not ts or cmd in R.READ_ONLY or sub in R.READ_ONLY or (cmd and not sub and set(ts[1:]) <= {"--help", "-h"}):
-            return
+        if not ts or cmd in R.READ_ONLY or sub in R.READ_ONLY or (cmd and not sub and ts[1:] and set(ts[1:]) <= {"--help", "-h"}):
+            return                                        # a bare area runs (`mission evaluate` writes a report)
         raise Block("%s may run only the read-only mission commands (status, show, check, list, diff, --help), not:\n"
                     "    mission %s\n  The mission layer's artifacts are written only by the six mission roles."
                     % (self.who, " ".join(t or "…" for t in ts)))
@@ -253,7 +332,8 @@ class Scope:
                         " written only by its own commands (`aloop mission …`) and its gates, so a hand-written one"
                         " would pass for theirs." % (event, event.split(".")[0]))
         human = (cmd == "authority" or cmd == "decide" and as_human or
-                 cmd == "emit" and (as_human or event is None or event in self.R.M.HUMAN_EVENTS or event.startswith("human.")))
+                 cmd == "emit" and (as_human or event is None or event in self.R.M.HUMAN_EVENTS + HUMAN_TYPES
+                                    or event.startswith("human.")))
         if human:
             raise Block("`events %s` is not a dispatched agent's to run: the authority record, an event with role `human`"
                         " and a human decision (%s) are the human's word.\n  If the run needs the human, say so in your"
@@ -284,8 +364,49 @@ class Scope:
                     " another agent; a session the human wants runs from their own terminal or the mission's cron line."
                     % (self.who or "the supervisor", name))
 
-    def git(self, args, base):
-        """Judge a git command: a mission role never writes the project's repo."""
+    def intents_cli(self, cli, args):
+        """`intent new` and `aladdin [run] "<intent>"` create an Aladdin intent (docs/agents/intents/):
+        only the mission-planner does that among the roles; the rest skip it and the ethics review."""
+        if self.role not in self.R.ROLES or self.role == "mission-planner":
+            return                                        # the planner owns intents; a builder/supervisor is not a role
+        pos = [text(a) for a in args if not (text(a) or "").startswith("-")]
+        a0 = text(args[0]) if args else ""
+        if cli == "aladdin":
+            if not args or a0 in ALADDIN_READS or (a0 == "run" and len(pos) < 2):
+                return                                    # a read verb, or `aladdin run` of the pending intent
+            if a0 in ("intent", "mission", "events"):
+                return                                    # delegated above to the matching CLI rule
+            new = a0 == "run" or a0 not in ALADDIN_READS  # `aladdin "<text>"` / `aladdin run "<text>"`
+        else:
+            new = (pos[0] if pos else "") == "new"
+        if new:
+            raise Block("%s does not create Aladdin intents: `%s%s` hands a goal to Aladdin, skipping the mission-planner"
+                        " and the ethics review.\n  Only the mission-planner turns a gap into a goal and its intents"
+                        " (ROADMAP §4.12); say the gap in your artifact and it is dispatched."
+                        % (self.who, cli, " " + a0 if a0 else ""))
+
+    def judge_env(self, names):
+        """A mission role or a builder may not set the judge command (or its time box): the command it
+        picks could grade its own work (M9.42). The evaluator runs the pinned `mission judge run`."""
+        if not self.agent_type:
+            return                                        # the supervisor sets it, outside the loop
+        for n in names:
+            if n in JUDGE_NAMES:
+                raise Block("%s may not set %s in a Bash command: the judge command a role picks could grade its own"
+                            " work (M9.42). The evaluator runs the pinned `aloop mission judge run`; the supervisor sets"
+                            " the judge command, outside the loop." % (self.who, n))
+
+    def judge_code(self, s):
+        """A script string run through bash -c or an interpreter: any mention of the judge command (set or read)
+        is out of a role's and a builder's hands."""
+        if self.agent_type and s and JUDGE_VARS.search(s):
+            raise Block("%s may not touch %s through a script string: a role's judge command could grade its own work"
+                        " (M9.42). The evaluator runs the pinned `aloop mission judge run`; the supervisor sets the judge"
+                        " command, outside the loop." % (self.who, "ALOOP_JUDGE_CMD / ALOOP_JUDGE_TIMEOUT"))
+
+    def git(self, args, st, base, depth):
+        """Judge a git command: a mission role never writes the project's repo, a builder never writes
+        docs/agents/mission/ through a pathspec, and bisect/rebase/submodule run their command too."""
         d, i, wt = base, 0, None
         while i < len(args):
             a = text(args[i])
@@ -294,7 +415,7 @@ class Scope:
             if a in ("-C", "--git-dir", "--work-tree") and i + 1 < len(args):
                 v = text(args[i + 1])
                 if a == "-C":
-                    d = os.path.join(d, os.path.expanduser(v)) if v is not None and (d or v.startswith("/")) else None
+                    d = os.path.join(d or "/", os.path.expanduser(v)) if v is not None else None  # absolute v ignores d
                 else:
                     wt = os.path.join(d or "/", v) if v is not None else None
                 i += 2
@@ -308,6 +429,7 @@ class Scope:
                 i += 1
         sub = text(args[i]) if i < len(args) else ""
         rest = args[i + 1:]
+        where = wt or d
         if sub == "clone":
             ops, _ = operands(rest, "bocju", ("--branch", "--origin", "--upload-pack", "--depth", "--reference",
                                                "--separate-git-dir", "--config", "--template", "--jobs", "--filter",
@@ -317,16 +439,60 @@ class Scope:
             elif ops and text(ops[0]):
                 self.write([re.sub(r"\.git$", "", os.path.basename(text(ops[0]).rstrip("/")))], d, "git clone")
             return
-        if self.role not in self.R.ROLES or not git_write(sub, [text(a) for a in rest]):
+        if sub in ("format-patch", "archive", "bundle", "init"):
+            self.git_output(sub, rest, d)                 # a file or dir git writes, judged by the caller's rules
             return
-        where = wt or d
-        if where is None:
-            return
-        root, rel = self.R.locate(where, "/", self.roots)
-        if root is None or self.R.is_run_data(rel):
-            return                                        # a scratch repo (a rival's clone), not the project's
-        raise Block("%s never runs `git %s` in the project: a mission role writes only its own artifacts, and"
-                    " committing them is the supervisor's call outside the loop." % (self.role, sub))
+        self.git_subcmd(sub, rest, st, where, depth)      # bisect run / rebase -x / submodule foreach: a command too
+        if self.role in self.R.ROLES and git_write(sub, [text(a) for a in rest]):
+            root, rel = (None, None) if where is None else self.R.locate(where, "/", self.roots)
+            if where is not None and root is not None and not self.R.is_run_data(rel):
+                raise Block("%s never runs `git %s` in the project: a mission role writes only its own artifacts, and"
+                            " committing them is the supervisor's call outside the loop." % (self.role, sub))
+        if self.agent_type and self.role not in self.R.ROLES and sub in GIT_PATHS:
+            for v in git_pathspecs(sub, rest):            # a builder's pathspec into docs/agents/mission/
+                self.write(v, where, "git %s" % sub)
+
+    def git_output(self, sub, rest, d):
+        """format-patch, archive, bundle, init: the file or directory git writes (else nothing/stdout)."""
+        if sub == "format-patch":
+            _, f = operands(rest, "o", ("--output-directory",), words=True)
+            self.write(f.get("-o") or f.get("--output-directory") or ["."], d, "git format-patch")
+        elif sub == "archive":
+            _, f = operands(rest, "o", ("--output",), words=True)
+            out = f.get("-o") or f.get("--output")
+            if out:
+                self.write(out, d, "git archive")
+        elif sub == "bundle":
+            ops, _ = operands(rest, "", (), words=True)
+            if len(ops) >= 2 and text(ops[0]) == "create":
+                self.write(ops[1], d, "git bundle")
+        elif sub == "init":
+            ops, _ = operands(rest, "", ("--template", "--separate-git-dir", "--initial-branch", "-b", "--object-format"),
+                              words=True)
+            self.write(ops[0] if ops else ["."], d, "git init")
+
+    def git_subcmd(self, sub, rest, st, where, depth):
+        """bisect run CMD, rebase -x/--exec CMD, submodule foreach CMD: CMD is a command of its own."""
+        base = where if where is not None else st["base"]
+        if sub == "bisect" and rest and text(rest[0]) == "run" and len(rest) > 1:
+            self.run(rest[1:], st, depth + 1, base=base)
+        elif sub == "rebase":
+            i = 0
+            while i < len(rest):
+                a = text(rest[i])
+                if a in ("-x", "--exec") and i + 1 < len(rest):
+                    c = text(rest[i + 1])
+                    if c is not None:
+                        self.shell(c, None, dict(st, base=base), depth + 1)
+                    i += 2
+                    continue
+                if a and a.startswith("--exec="):
+                    self.shell(a.split("=", 1)[1], None, dict(st, base=base), depth + 1)
+                i += 1
+        elif sub == "submodule":
+            ops, _ = operands(rest, "", ())
+            if ops and text(ops[0]) == "foreach" and len(ops) > 1 and text(ops[1]) is not None:
+                self.shell(text(ops[1]), None, dict(st, base=base), depth + 1)
 
     def subst(self, src, st):
         """The value of $(…) when the gate can know it: pwd, mktemp, git rev-parse --show-toplevel."""
@@ -372,6 +538,8 @@ class Scope:
         st = st or {"base": base, "old": None, "vars": {}, "stack": [], "dirs": [], "cwd": []}
         if depth > DEPTH:
             return
+        if depth:
+            self.judge_code(cmd)                          # a recursed string (bash -c, eval, $(…)): the judge var
         for c in SR.read(cmd):
             if c == "(":
                 st["stack"].append((st["base"], st["old"], dict(st["vars"])))
@@ -395,6 +563,7 @@ class Scope:
                 name, lst = c.loop
                 st["vars"][name] = self.resolve(lst[0].parts, st) if lst else [None]
                 continue
+            self.judge_env(name for name, _ in c.assigns)
             for name, parts in c.assigns:
                 st["vars"][name] = self.resolve(parts, st)
             self.exports(c, st)                           # export/declare/local/readonly/typeset NAME=…
@@ -436,6 +605,7 @@ class Scope:
             if name in ("sudo", "doas"):
                 i, _ = opts(args, "ugCDhprtTU")
                 while i < len(args) and re.match(r"^[A-Za-z_]\w*=", text(args[i]) or ""):
+                    self.judge_env([text(args[i]).split("=", 1)[0]])
                     i += 1
                 ws = args[i:]
             elif name == "env":
@@ -444,6 +614,7 @@ class Scope:
                 if isinstance(d, str):
                     base = os.path.join(base, d) if base else (d if d.startswith("/") else None)
                 while i < len(args) and re.match(r"^[A-Za-z_]\w*=", text(args[i]) or ""):
+                    self.judge_env([text(args[i]).split("=", 1)[0]])
                     i += 1
                 split = f.get("-S") or f.get("--split-string")
                 if isinstance(split, str):
@@ -464,6 +635,15 @@ class Scope:
                 if name in ("timeout", "taskset") and i < len(args):
                     i += 1                                # the duration, the cpu mask
                 ws = args[i:]
+            elif name == "npx":
+                i, f = opts(args, "pc", ("--package", "--call"))
+                c = f.get("-c") or f.get("--call")
+                if isinstance(c, str):
+                    self.shell(c, None, dict(st, base=base), depth + 1)
+                    return
+                ws = args[i:]                             # npx [flags] CMD …: judge CMD (F12)
+                if not ws:
+                    return
             elif name == "xargs":
                 i, f = opts(args, "adEeIiLlnPs", ("--arg-file", "--delimiter", "--eof", "--replace", "--max-lines",
                                                   "--max-args", "--max-procs", "--max-chars", "--process-slot-var"))
@@ -522,9 +702,14 @@ class Scope:
                     return
             elif PYTHON.match(name):
                 i, f = opts(args, "WXQ")
+                if "-c" in f and i < len(args):
+                    self.judge_code(text(args[i]))        # the judge var set or read in -c code
                 if "-c" in f or "-m" in f or i >= len(args):
                     return                                # code the gate cannot read
                 ws = args[i:]
+            elif INTERPRETERS.match(name):
+                self.judge_code(" ".join(t for t in (text(a) for a in args) if t))   # -e/-c code: the judge var
+                return                                    # interpreter code the gate cannot read
             elif name == "eval":
                 t = [text(a) for a in args]
                 if None not in t:
@@ -548,8 +733,10 @@ class Scope:
                 st["dirs"].append(st["base"])
             st["old"], st["base"] = st["base"], new
             return
-        for v in write_targets(name, args):
-            self.write(v, base, "Bash write")
+        if name in DECLARE:
+            self.judge_env(re.split(r"[-+=]", text(a) or "", 1)[0] for a in args if not (text(a) or "").startswith("-"))
+        for v, meta in write_targets(name, args):
+            self.write(v, base, "Bash write", **meta)
         if name == "find":
             self.find(args, st, base, depth)
         if name in CLI and args and text(args[0]) in ("mission", "events"):
@@ -558,26 +745,53 @@ class Scope:
             self.mission_cli(args)
         elif name == "events":
             self.events_cli(args)
+        elif name == "intent":
+            self.intents_cli("intent", args)
+        elif name == "aladdin":
+            self.intents_cli("aladdin", args)
+        elif name in CLI and args and text(args[0]) in ("intent", "aladdin"):
+            self.intents_cli(text(args[0]), args[1:])
         elif name == "git":
-            self.git(args, base)
+            self.git(args, st, base, depth)
         elif name == "transcripts" or (name in CLI and args and text(args[0]) == "transcripts"):
             self.transcripts_cli(args[1:] if name in CLI else args)
         elif name in HOSTS:
             self.host(name, args)
 
     def find(self, args, st, base, depth):
-        """find … -exec CMD {} ; and -execdir / -ok: CMD is a command too."""
+        """find … -exec CMD {} ; and -execdir / -ok: CMD is a command too. {} is a match under a start
+        path (GNU substitutes it inside any argument); -execdir runs in the match's dir (F5)."""
+        start = self.find_start(args)
         i = 0
         while i < len(args):
-            if text(args[i]) in ("-exec", "-execdir", "-ok", "-okdir"):
+            a = text(args[i])
+            if a in ("-exec", "-execdir", "-ok", "-okdir"):
                 j = i + 1
                 while j < len(args) and text(args[j]) not in (";", "+"):
                     j += 1
-                sub = [[None] if text(a) == "{}" else a for a in args[i + 1:j]]
+                here = a in ("-execdir", "-okdir")
+                sub = [self.brace(w, start, here) for w in args[i + 1:j]]
                 if sub:
-                    self.run(sub, st, depth + 1, base=base)
+                    self.run(sub, st, depth + 1, base=(start if here and start else base))
                 i = j
             i += 1
+
+    def find_start(self, args):
+        """find's first start path (where {} matches live), skipping the leading -H/-L/-P/-O/-D options."""
+        i = 0
+        while i < len(args) and re.fullmatch(r"-[HLP]|-O\d?|-D", text(args[i]) or ""):
+            i += 2 if text(args[i]) == "-D" else 1
+        t = text(args[i]) if i < len(args) else None
+        return t if t is not None and not (t.startswith(("-", "(", "!")) or t == ")") else None
+
+    @staticmethod
+    def brace(w, start, here):
+        """An -exec argument: {} (or a word holding it) is a match under `start`; in an -execdir dir it is
+        an unknown basename there. A word with no {} is passed through."""
+        t = text(w)
+        if t is None or "{}" not in t:
+            return w
+        return [None] if here or start is None else [start.rstrip("/") + "/", None]
 
 
 def shq(s):
@@ -589,11 +803,35 @@ def git_write(sub, rest):
     if sub not in GIT_WRITES:
         return False
     args = [a for a in rest if a is not None]
+    if sub in ("tag", "branch"):                          # a --sort/--format/… value is not a bundle of short flags
+        vopt = ("--sort", "--format", "--contains", "--no-contains", "--points-at", "--merged", "--no-merged")
+        cleaned, k = [], 0
+        for a in args:
+            if k:
+                k = 0
+                continue
+            if a in vopt:
+                k = 1
+                continue
+            cleaned.append(a)
+        args = cleaned
     flags = {a.split("=", 1)[0] for a in args if a.startswith("--")}
     short = "".join(a[1:] for a in args if a.startswith("-") and not a.startswith("--"))
     pos = [a for a in args if not a.startswith("-")]
     if "--dry-run" in flags or (sub in ("add", "rm", "clean", "push", "mv") and "n" in short):
         return False
+    if sub == "bisect":
+        return not (pos and pos[0] in ("log", "view", "visualize", "help", "terms"))
+    if sub == "remote":
+        return bool(pos) and pos[0] in ("add", "remove", "rm", "rename", "set-url", "set-head", "set-branches",
+                                        "prune", "update")
+    if sub == "symbolic-ref":
+        return "--delete" in flags or "d" in short or len(pos) >= 2
+    if sub == "lfs":
+        return bool(pos) and pos[0] in ("pull", "checkout", "fetch", "prune", "migrate", "push", "clean",
+                                        "install", "uninstall", "track", "untrack")
+    if sub == "hash-object":
+        return "w" in short
     if sub == "stash":
         return not (pos and pos[0] in ("list", "show"))
     if sub == "worktree":
@@ -607,6 +845,8 @@ def git_write(sub, rest):
     if sub == "config":
         if {"--global", "--system"} & flags or {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list",
                                                   "--show-origin", "--show-scope", "--get-color"} & flags or "l" in short:
+            return False
+        if pos and pos[0] in ("get", "list", "get-regexp", "get-all", "get-urlmatch"):   # git >= 2.46 read verbs
             return False
         return len(pos) >= 2 or bool({"--unset", "--unset-all", "--add", "--replace-all", "--rename-section",
                                       "--remove-section", "--edit"} & flags) or "e" in short
@@ -624,90 +864,239 @@ def git_write(sub, rest):
     return True
 
 
+def _word(v):
+    """A directory-option value as a word to judge (prefix-judged when computed), or None when absent."""
+    return v if isinstance(v, list) else None
+
+
+def git_pathspecs(sub, rest):
+    """A builder's git pathspecs (its explicit files): every operand for rm/mv/restore/clean, the ones
+    after `--` for checkout/reset/stash. Bare branch/ref ops (no pathspec) give nothing."""
+    sv, lv, _ = GIT_PATHS[sub]
+    ops, _ = operands(rest, sv, lv, words=True)
+    if sub in ("rm", "mv", "restore", "clean"):
+        return ops
+    texts = [text(a) for a in rest]
+    return rest[texts.index("--") + 1:] if "--" in texts else []
+
+
 def write_targets(name, args):
-    """The files a simple command writes (values), from its options and operands."""
+    """The files a simple command writes, as (value, meta): meta may mark `bare` (may name the mission
+    dir itself: mkdir/touch) or `tree` (removes everything under it, bounded by a name list or [])."""
     if name in ("cp", "mv", "ln", "install"):
         ops, f = operands(args, {"install": "tmogS"}.get(name, "tS"),
-                          ("--target-directory", "--suffix", "--mode", "--owner", "--group"))
-        t = f.get("-t") or f.get("--target-directory")
-        if isinstance(t, str):
-            return [[t]]
+                          ("--target-directory", "--suffix", "--mode", "--owner", "--group"), words=True)
+        t = _word(f.get("-t") or f.get("--target-directory"))
+        if t is not None:
+            return [(t, {})]                              # the target dir (F8: never a source operand)
         if name == "install" and (f.get("-d") or f.get("--directory")):
-            return ops
+            return [(o, {}) for o in ops]
         if name == "ln" and len(ops) == 1 and text(ops[0]):
-            return [[os.path.basename(text(ops[0]))]]
-        return ops[-1:] if len(ops) >= 2 else []
+            return [([os.path.basename(text(ops[0]))], {})]
+        if len(ops) < 2:
+            return []
+        dest, srcs, dt = ops[-1], ops[:-1], text(ops[-1])
+        if dt is not None and dt.endswith("/"):           # copy INTO a dir: dir + basename(source) (F5)
+            out = [([dt + os.path.basename(text(s))] if text(s) else dest, {}) for s in srcs]
+        else:
+            out = [(dest, {})]
+        if name == "mv":                                  # mv removes each source (F6)
+            out += [(s, {"tree": []}) for s in srcs]
+        return out
     if name == "rsync":
-        ops, _ = operands(args, "eBfT", ("--exclude", "--include", "--filter", "--exclude-from", "--include-from",
+        ops, f = operands(args, "eBfT", ("--exclude", "--include", "--filter", "--exclude-from", "--include-from",
                                          "--files-from", "--rsh", "--rsync-path", "--log-file", "--partial-dir",
                                          "--temp-dir", "--compare-dest", "--copy-dest", "--link-dest", "--backup-dir",
-                                         "--suffix", "--chmod", "--password-file", "--timeout", "--bwlimit"))
-        dest = ops[-1:] if len(ops) >= 2 else []
-        return [] if dest and ":" in prefix(dest[0]).split("/")[0] else dest
+                                         "--suffix", "--chmod", "--password-file", "--timeout", "--bwlimit"), words=True)
+        if len(ops) < 2:
+            return []
+        dest = ops[-1]
+        if ":" in prefix(dest).split("/")[0]:
+            return []                                     # a remote destination (host:path)
+        meta = {"tree": []} if any(k.startswith("--delete") for k in f) else {}
+        out = [(dest, meta)]
+        if "--remove-source-files" in f:                  # rsync removes each source (F6)
+            out += [(s, {}) for s in ops[:-1]]
+        return out
     if name in ("rm", "rmdir", "unlink", "shred", "tee", "mkdir", "touch", "truncate"):
-        ops, _ = operands(args, {"shred": "ns", "mkdir": "mZ", "touch": "drt", "truncate": "sr"}.get(name, ""),
+        ops, f = operands(args, {"shred": "ns", "mkdir": "mZ", "touch": "drt", "truncate": "sr"}.get(name, ""),
                           ("--mode", "--date", "--reference", "--size", "--iterations", "--random-source", "--context"))
-        return ops
+        if name == "rm" and ("-r" in f or "-R" in f or "--recursive" in f):
+            return [(o, {"tree": []}) for o in ops]       # a recursive rm reaches everything under each path (F5)
+        meta = {"bare": True} if name in ("mkdir", "touch") else {}
+        return [(o, meta) for o in ops]
     if name == "sed":
         ops, f = operands(args, "efl", ("--expression", "--file", "--line-length"))
         if not any(k == "-i" or k.startswith("--in-place") for k in f):
             return []
-        return ops if any(k in f for k in ("-e", "-f", "--expression", "--file")) else ops[1:]
+        if "-i" in f and ops and text(ops[0]) == "":      # BSD `sed -i '' …`: '' is the suffix, not the script (F3)
+            ops = ops[1:]
+        files = ops if any(k in f for k in ("-e", "-f", "--expression", "--file")) else ops[1:]
+        return [(o, {}) for o in files]
     if name == "perl":
         ops, f = operands(args, "eEMmIx")             # -0/-l take only an octal value, so they do not hide a clustered -i
         if "-i" not in f and not any(k.startswith("-i") for k in f):
             return []
-        return ops if ("-e" in f or "-E" in f) else ops[1:]
+        return [(o, {}) for o in (ops if ("-e" in f or "-E" in f) else ops[1:])]
     if name in ("awk", "gawk"):
         ops, f = operands(args, "fvFie", ("--file", "--assign", "--field-separator", "--include", "--source"))
         if "inplace" not in (f.get("-i"), f.get("--include")):
             return []
         ops = [o for o in ops if not re.match(r"^[A-Za-z_]\w*=", text(o) or "")]
-        return ops if any(k in f for k in ("-f", "--file", "-e", "--source")) else ops[1:]
+        return [(o, {}) for o in (ops if any(k in f for k in ("-f", "--file", "-e", "--source")) else ops[1:])]
     if name == "dd":
-        return [[text(a)[3:]] for a in args if (text(a) or "").startswith("of=")]
+        return [([text(a)[3:]], {}) for a in args if (text(a) or "").startswith("of=")]
+    if name in ("sort", "sponge", "yq", "dos2unix", "unix2dos", "iconv", "split", "mktemp", "scp",
+                "gzip", "gunzip", "xz", "bzip2", "ed", "ex", "vi", "vim", "view", "nvim") or name in INPLACE_FMT:
+        return inplace_targets(name, args)
     if name == "curl":
         _, f = operands(args, "dDeEFHKmoPQrTuUwxXyYzAbcCt", ("--output", "--data", "--header", "--request", "--user",
-                                                              "--url", "--config", "--write-out", "--max-time"))
-        out = f.get("-o") or f.get("--output")
-        return [[out]] if isinstance(out, str) else []
+                                                              "--url", "--config", "--write-out", "--max-time",
+                                                              "--output-dir"), words=True)
+        out = _word(f.get("-o") or f.get("--output"))
+        if out is not None:
+            return [(out, {})]
+        if f.get("-O") or f.get("--remote-name") or f.get("--remote-name-all") or f.get("-J") \
+                or f.get("--remote-header-name"):          # a remote-named download into --output-dir or the cwd (F4)
+            return [(_word(f.get("--output-dir")) or ["."], {})]
+        return []
     if name == "wget":
-        _, f = operands(args, "OPoaieUtTwQBD", ("--output-document", "--directory-prefix"))
-        out = [f.get(k) for k in ("-O", "--output-document", "-P", "--directory-prefix")]
-        return [[o] for o in out if isinstance(o, str)]
+        _, f = operands(args, "OPoaieUtTwQBD", ("--output-document", "--directory-prefix"), words=True)
+        out = _word(f.get("-O") or f.get("--output-document"))
+        if out is not None:
+            return [(out, {})]                            # an explicit document ("-" is stdout, skipped above)
+        return [(_word(f.get("-P") or f.get("--directory-prefix")) or ["."], {})]   # cwd/-P: covers -r/-m (F4)
+    if name in ("gh", "npm", "pnpm", "yarn", "pip", "pip3"):
+        return fetch_targets(name, args)                  # clones and installs with a fixed output location (F9)
     if name == "find":
-        paths = []
-        for a in args:
+        skip = 0                                          # leading -H/-L/-P/-O<n>/-D <debugopts>
+        while skip < len(args) and re.fullmatch(r"-[HLP]|-O\d?|-D", text(args[skip]) or ""):
+            skip += 2 if text(args[skip]) == "-D" else 1
+        paths, names = [], []
+        for a in args[skip:]:
             t = text(a)
-            if t is not None and (t.startswith(("-", "(", "!")) or t in (")",)):
+            if t is not None and (t.startswith(("-", "(", "!")) or t == ")"):
                 break
             paths.append(a)
-        return (paths or [["."]]) if any(text(a) == "-delete" for a in args) else []
+        for i, a in enumerate(args):
+            if text(a) in ("-name", "-iname") and i + 1 < len(args) and text(args[i + 1]) is not None:
+                names.append((text(args[i + 1]), text(a) == "-iname"))
+        return [(p, {"tree": names}) for p in (paths or [["."]])] if any(text(a) == "-delete" for a in args) else []
     if name == "tar":
         first = text(args[0]) if args else ""
-        _, f = operands(args, "CfbFgKLNTVX", ("--directory", "--file"))
+        _, f = operands(args, "CfbFgKLNTVX", ("--directory", "--file"), words=True)
         mode = (first or "").lstrip("-") if first and not first.startswith("--") else ""
         if "x" in mode.split("f")[0] or "-x" in f or "--extract" in f or "--get" in f:
-            d = f.get("-C") or f.get("--directory")
-            return [[d if isinstance(d, str) else "."]]
+            if "O" in mode or "-O" in f or "--to-stdout" in f:
+                return []                                 # extract to stdout: nothing written (F9)
+            return [(_word(f.get("-C") or f.get("--directory")) or ["."], {})]   # the extract dir (F4)
+        if ("c" in mode.split("f")[0] or "-c" in f or "--create" in f) and "--remove-files" in f:
+            ops, _ = operands(args, "CfbFgKLNTVX", ("--directory", "--file"), words=True)
+            return [(o, {"tree": []}) for o in ops]       # --remove-files deletes each archived path (F6)
         return []
     if name == "unzip":
-        ops, f = operands(args, "dxP")
-        if any(k in f for k in ("-l", "-t", "-v", "-Z", "-p", "-c", "-z")):
-            return []
-        d = f.get("-d")
-        return [[d if isinstance(d, str) else "."]]
+        _, f = operands(args, "dxP", words=True)
+        if any(k in f for k in ("-l", "-t", "-v", "-Z", "-p", "-c", "-z", "-h")) or "--help" in f:
+            return []                                     # a listing, test, pipe to stdout, or help (F10)
+        return [(_word(f.get("-d")) or ["."], {})]
     if name == "patch":
-        ops, f = operands(args, "pdiorBDFgVYz", ("--directory", "--input", "--output", "--strip"))
+        ops, f = operands(args, "pdiorBDFgVYz", ("--directory", "--input", "--output", "--strip"), words=True)
         if "--dry-run" in f:
             return []
-        out = f.get("-o") or f.get("--output")
-        if isinstance(out, str):
-            return [[out]]
+        out = _word(f.get("-o") or f.get("--output"))
+        if out is not None:
+            return [(out, {})]
         if ops:
-            return ops[:1]
-        d = f.get("-d") or f.get("--directory")
-        return [[d if isinstance(d, str) else "."]]
+            return [(ops[0], {})]
+        return [(_word(f.get("-d") or f.get("--directory")) or ["."], {})]   # the -d dir (F4)
+    return []
+
+
+def inplace_targets(name, args):
+    """In-place editors and formatters (F12): they rewrite the files/dirs they are handed."""
+    if name == "sort":
+        _, f = operands(args, "o", ("--output",), words=True)
+        out = _word(f.get("-o") or f.get("--output"))
+        return [(out, {})] if out is not None else []
+    if name == "sponge":
+        ops, _ = operands(args, "a", words=True)
+        return [(ops[0], {})] if ops else []
+    if name == "yq":
+        if "-i" not in operands(args, words=True)[1] and "--inplace" not in operands(args, words=True)[1]:
+            return []
+        ops, _ = operands(args, words=True)
+        return [(ops[-1], {})] if ops else []
+    if name in ("dos2unix", "unix2dos"):
+        ops, _ = operands(args, "", ("--newfile",), words=True)
+        return [(o, {}) for o in ops]
+    if name == "iconv":
+        _, f = operands(args, "fto", ("--from-code", "--to-code", "--output"), words=True)
+        out = _word(f.get("-o") or f.get("--output"))
+        return [(out, {})] if out is not None else []
+    if name == "split":
+        ops, _ = operands(args, "ablCn", ("--bytes", "--lines", "--number", "--suffix-length"), words=True)
+        return [(ops[1], {})] if len(ops) >= 2 else []    # the prefix operand
+    if name == "mktemp":
+        ops, f = operands(args, "p", ("--tmpdir", "--suffix"), words=True)
+        d = _word(f.get("-p"))
+        if d is not None:
+            return [(d, {"bare": True})]                  # a temp file created under -p DIR
+        if ops and not (f.get("-t") or f.get("--tmpdir")):
+            return [(ops[0], {})]                         # a template under the cwd
+        return []
+    if name in ("ed", "ex", "vi", "vim", "view", "nvim"):
+        ops, f = operands(args, "c", ("--cmd",), words=True)   # non-interactive edit (-c/-s script, or ed)
+        scripted = name == "ed" or any(k in f for k in ("-c", "--cmd", "-s"))
+        return [(o, {}) for o in ops] if scripted else []
+    if name == "scp":
+        ops, _ = operands(args, "iloFScJ", (), words=True)
+        dest = ops[-1] if len(ops) >= 2 else None
+        return [(dest, {})] if dest is not None and ":" not in prefix(dest).split("/")[0] else []
+    if name in ("gzip", "gunzip", "xz", "bzip2"):
+        ops, f = operands(args, "S", ("--suffix",), words=True)
+        if f.get("-c") or f.get("--stdout") or f.get("--to-stdout") or f.get("-t") or f.get("--test") \
+                or f.get("-l") or f.get("--list"):
+            return []                                     # stdout, test or list: the file is not replaced
+        return [(o, {}) for o in ops]
+    # a formatter with path operands (ruff/black/prettier/gofmt/…): the files it rewrites in place
+    read_only = {"--check", "--diff", "--statistics", "-l", "--list-different"}
+    ops, f = operands(args, "", ("--check", "--diff"), words=True)
+    if read_only & set(f):
+        return []
+    if name in ("ruff",) and not (f.get("--fix") or (ops and text(ops[0]) == "format")):
+        return []                                         # ruff check/analyze without --fix only reads
+    if name == "prettier" and not (f.get("-w") or f.get("--write")):
+        return []
+    if name == "gofmt" and not f.get("-w"):
+        return []
+    ops = [o for o in ops if text(o) not in (None, "check", "format", "fmt")]
+    return [(o, {}) for o in ops]
+
+
+def fetch_targets(name, args):
+    """`gh repo clone`, `gh release download`, npm/pip installs: each has a fixed output location (F9)."""
+    if name == "gh":
+        ops, f = operands(args, "RD", ("--repo", "--dir"), words=True)
+        verb = [text(o) for o in ops[:2]]
+        if verb == ["repo", "clone"]:
+            if len(ops) >= 4 and text(ops[3]):
+                return [(ops[3], {})]                     # an explicit destination
+            if len(ops) >= 3 and text(ops[2]):
+                return [([re.sub(r"\.git$", "", os.path.basename(text(ops[2]).rstrip("/")))], {})]
+            return []
+        if verb == ["release", "download"]:
+            return [(_word(f.get("-D") or f.get("--dir")) or ["."], {})]
+        return []
+    if name in ("npm", "pnpm", "yarn"):
+        ops, f = operands(args, "C", ("--prefix", "--cwd"), words=True)
+        if ops and text(ops[0]) in NPM_WRITES:
+            return [(_word(f.get("--prefix") or f.get("-C") or f.get("--cwd")) or ["."], {})]
+        return []
+    if name in ("pip", "pip3"):
+        ops, f = operands(args, "dt", ("--dest", "--target"), words=True)
+        if ops and text(ops[0]) in ("download", "wheel"):
+            return [(_word(f.get("-d") or f.get("--dest") or f.get("-t") or f.get("--target")) or ["."], {})]
+        return []
     return []
 
 
