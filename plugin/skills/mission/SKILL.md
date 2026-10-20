@@ -70,6 +70,7 @@ paste artifacts into it. A role writes its artifact only through `aloop mission 
 |---|---|---|---|
 | `SET_MISSION` | human | Set a mission with the human (above). An invalid `mission.json`: show `aloop mission check`. | `aloop mission check` exits 0 or 3 |
 | `CONFIRM_MISSION` | human | Show `aloop mission show` and relay the reason's `approve <id> <code>` line; once they have typed it, `aloop mission approve --by`. | the content is approved |
+| `STOPPED` | human | The human ran `aloop stop`: say so with its reason and do nothing else. Only they resume it (`aloop stop --clear` in their own terminal). | they clear the stop |
 | `STOP_BUDGET` | human | Show the spend and cap from `aloop mission tick --json` (`budget`). A higher cap is a mission change: edit, then their approval. | the cap is raised or the mission ends |
 | `ETHICS_REVIEW` | `ethics-reviewer` | Review the subject (the mission or a goal) against the mission's constraints; it records the tier with `aloop mission ethics`. | a review covers that content |
 | `BLOCKED` | human | A hard line, every open gap held (a hard line, or a retired goal's gaps: a new baseline version, their lift or their approval of the mission frees those), 3 failed goals in a row, a stalled sprint, an action repeated without result, or a broken record (the ledger, the confirmed baseline). Report it. | the human fixes the subject; a repeat, 3 failed goals or a retired goal's held gaps: `aloop mission tick --force --by "<their name>"`, then their `lift …` line |
