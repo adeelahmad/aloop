@@ -22,7 +22,7 @@ import tempfile
 REPO = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ROOT = os.path.join(REPO, "plugin")
 BIN = os.path.join(ROOT, "bin")
-T = tempfile.mkdtemp(prefix="aloop-roles-")
+T = os.path.realpath(tempfile.mkdtemp(prefix="aloop-roles-"))   # macOS: /var is a symlink to /private/var
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = {k: v for k, v in os.environ.items() if k not in ("SKIP_HOOKS", "AGENTIC_HOST", "AGENT_ROLE", "AGENTIC_SELFCHECK")}
 ENV.update(HOME=os.path.join(T, "home"), AGENTIC_NO_AUTOINSTALL="1")
@@ -144,6 +144,25 @@ for r in ROLES:
     assert re.search(r'"%s":\s*"gate-mission-artifact"' % re.escape(r), js), r
 assert '"gate-mission-scope"' in js and '"gate-mission-artifact", ["start"]' in js
 ok("host install: Codex and OpenCode agents rendered per route group; the OpenCode plugin wires both gates")
+
+# the mission skill (M9.12, plugin/skills/mission/) reaches OpenCode as `aloop-mission` once it ships;
+# until then the install skips it (checked on the real plugin above)
+IP = os.path.join(T, "install-plugin")
+for d in ("bin", "agents", "skills", "hosts", "mission"):
+    shutil.copytree(os.path.join(ROOT, d), os.path.join(IP, d), symlinks=True)
+if not os.path.isfile(os.path.join(ROOT, "skills", "mission", "SKILL.md")):
+    assert not os.path.exists(os.path.join(P0, ".opencode", "skills", "aloop-mission"))
+    os.makedirs(os.path.join(IP, "skills", "mission"))
+    open(os.path.join(IP, "skills", "mission", "SKILL.md"), "w").write(
+        "---\nname: mission\ndescription: Run the mission loop\n---\n# Mission\n")
+P1 = git_repo(os.path.join(T, "p1"))
+r = sh(os.path.join(IP, "bin", "install"), "opencode", "--project", P1, cwd=P1)
+assert r.returncode == 0, r.stderr
+sk = os.path.join(P1, ".opencode", "skills", "aloop-mission", "SKILL.md")
+assert os.path.isfile(sk) and "name: aloop-mission" in open(sk).read(), r.stdout
+r = sh(os.path.join(IP, "bin", "install"), "opencode", "--uninstall", "--project", P1, cwd=P1)
+assert r.returncode == 0 and not os.path.exists(os.path.dirname(sk)), (r.stdout, r.stderr)
+ok("host install: the mission skill reaches OpenCode as aloop-mission, and uninstall removes it")
 
 for r in ROLES:
     out = sh(os.path.join(BIN, "selfcheck"), r, cwd=P0)
