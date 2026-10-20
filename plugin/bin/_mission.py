@@ -11,16 +11,19 @@ The contract every area module (plugin/mission/<area>.py) builds on:
   - an artifact has `status` and `created_at`, plus its id field, and lives at LAYOUT[kind];
   - its id is issued by new_id(), never by a model;
   - `sha256` is digest() of the rest of the document, so a changed file is detectable;
-  - a human approval is an event (APPROVAL_EVENTS) whose data names the subject and sha256;
+  - a human approval is a ledger record (APPROVAL_EVENTS) whose data names the subject and
+    sha256; gates decide from ledger records, never from a status field;
   - snapshot() reads only those fields, so `mission tick` can decide from facts.
 """
 import glob
 import hashlib
 import json
+import math
 import os
 import re
 import secrets
 import time
+import uuid
 
 import _events
 import _paths
@@ -150,6 +153,8 @@ def validate(doc, schema, where="$"):
             out.append("%s is empty" % where if not doc.strip() else "%s is too short" % where)
         if "pattern" in schema and not re.search(schema["pattern"], doc):
             out.append("%s does not match %s" % (where, schema["pattern"]))
+    if isinstance(doc, float) and not math.isfinite(doc):
+        return ["%s must be a finite number" % where]
     if isinstance(doc, (int, float)) and not isinstance(doc, bool):
         if "minimum" in schema and doc < schema["minimum"]:
             out.append("%s must be >= %s" % (where, schema["minimum"]))
@@ -203,32 +208,146 @@ def emit(cwd, event, role="", refs=None, **data):
     return _events.emit(cwd, event, role=role, refs=refs, **data)
 
 
+HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed",)
+# every record a mission gate decides from: the human decisions, plus what the harness measured
+LEDGER_EVENTS = HUMAN_EVENTS + ("baseline.measured", "journey.retired")
+
+
+def ledger(cwd=None):
+    """docs/agents/mission/ledger.jsonl: every record a mission gate decides from (human decisions,
+    measurements, retirements), committed with the artifacts it covers. The event stream is
+    git-ignored run data, so a fresh checkout (another machine, a scheduled run) would otherwise
+    lose them. Each row carries the hash of the row it follows, so an edited or removed row and a
+    backdated one are detected; `mission init` marks it merge=union so branches append cleanly."""
+    return mdir(cwd, "ledger.jsonl")
+
+
+def _row_hash(row):
+    return digest(row, drop=("hash",))
+
+
+def ledger_rows(cwd):
+    """(intact rows in file order, problems): one problem per malformed line, edited row, row
+    whose predecessor is gone, or row dated before the row it follows."""
+    try:
+        with open(ledger(cwd)) as f:
+            lines = f.read().splitlines()
+    except OSError:
+        return [], []
+    rows, bad, seen = [], [], {}
+    for n, ln in enumerate(lines, 1):
+        if not ln.strip():
+            continue
+        try:
+            row = json.loads(ln)
+        except ValueError:
+            bad.append("ledger line %d is not JSON" % n)
+            continue
+        if not isinstance(row, dict) or not isinstance(row.get("data"), dict) or not isinstance(row.get("ts"), str) \
+                or row.get("event") not in LEDGER_EVENTS:
+            bad.append("ledger line %d is not a ledger row" % n)
+            continue
+        if row.get("hash") != _row_hash(row):
+            bad.append("ledger line %d was edited (its hash does not match its content)" % n)
+            continue
+        prev = row.get("prev") or ""
+        if (prev and prev not in seen) or (not prev and rows):
+            bad.append("ledger line %d follows a row that is no longer there (a row was removed or edited)" % n)
+        elif prev and row["ts"] < seen[prev]["ts"]:
+            bad.append("ledger line %d is dated before the row it follows" % n)
+        seen[row["hash"]] = row
+        rows.append(row)
+    return rows, bad
+
+
+def ledger_problems(cwd):
+    """The ledger's own problems, plus every ledger event the run log recorded that the ledger lost."""
+    rows, bad = ledger_rows(cwd)
+    have = set(r.get("event_id") for r in rows)
+    for e in _events.read(cwd):
+        if (e.get("data") or {}).get("ledger") is True and e.get("event_id") not in have:
+            bad.append("the ledger lost %s %s (the run log recorded it at %s)"
+                       % (e.get("event"), (e.get("data") or {}).get("subject"), e.get("ts")))
+    return bad
+
+
+def record(cwd, event, subject_ref, role, **data):
+    """Append one record a gate decides from to the ledger (and the event stream); returns the row."""
+    if event not in LEDGER_EVENTS:
+        raise ValueError("not a ledger event: %r" % event)
+    body = dict(data, subject=subject_ref)
+    eid = emit(cwd, event, role=role, refs={"subject": subject_ref}, ledger=True, **body) or uuid.uuid4().hex
+    rows, _ = ledger_rows(cwd)
+    ts = max([now()] + [r["ts"] for r in rows[-1:]])
+    row = {"event_id": eid, "ts": ts, "event": event, "role": role, "data": body,
+           "prev": rows[-1]["hash"] if rows else ""}
+    row["hash"] = _row_hash(row)
+    os.makedirs(os.path.dirname(ledger(cwd)), exist_ok=True)
+    with open(ledger(cwd), "a") as f:
+        f.write(json.dumps(row, sort_keys=True) + "\n")
+    return row
+
+
+def record_human(cwd, event, subject_ref, by, reason="", **data):
+    """Record a human decision about one subject; returns its event id."""
+    if event not in HUMAN_EVENTS:
+        raise ValueError("not a human decision event: %r" % event)
+    by, reason = (by or "").strip(), (reason or "").strip()
+    if not by:
+        raise ValueError("a human decision names who made it (--by)")
+    if "\n" in reason or len(reason) > 200:
+        raise ValueError("a reason is one line of at most 200 characters")
+    return record(cwd, event, subject_ref, "human", by=by, reason=reason, **data)["event_id"]
+
+
 def approve(cwd, event, subject_ref, sha, by, reason="", **data):
-    """Record a human approval of exactly this content (subject_ref at sha). The event is the
+    """Record a human approval of exactly this content (subject_ref at sha). The record is the
     proof; the artifact only points at it."""
     if event not in APPROVAL_EVENTS:
         raise ValueError("not an approval event: %r" % event)
-    by, reason = (by or "").strip(), (reason or "").strip()
-    if not by:
-        raise ValueError("an approval names who approved (--by)")
-    if "\n" in reason or len(reason) > 200:
-        raise ValueError("an approval reason is one line of at most 200 characters")
-    return emit(cwd, event, role="human", refs={"subject": subject_ref},
-                subject=subject_ref, sha256=sha, by=by, reason=reason, **data)
+    return record_human(cwd, event, subject_ref, by, reason, sha256=sha, **data)
 
 
-def approvals(cwd, event, subject_ref):
-    """Approval events for one subject, oldest first."""
-    return [e for e in _events.read(cwd)
-            if e.get("event") == event and (e.get("data") or {}).get("subject") == subject_ref]
+def records(cwd, event, subject_ref=None, role=None):
+    """The ledger's intact rows of one event type (one subject's, one role's), oldest first."""
+    rows, _ = ledger_rows(cwd)
+    return sorted([r for r in rows if r["event"] == event and (subject_ref is None or r["data"].get("subject") == subject_ref)
+                   and (role is None or r.get("role") == role)], key=lambda r: r["ts"])
+
+
+def human_events(cwd, event, subject_ref):
+    return records(cwd, event, subject_ref, role="human")
+
+
+approvals = human_events
+
+
+def newest(cwd, event, subject_ref, role=None):
+    rows = records(cwd, event, subject_ref, role)
+    return rows[-1] if rows else None
 
 
 def approved(cwd, event, subject_ref, sha):
-    """The approval event that covers exactly this content, or None."""
-    for e in reversed(approvals(cwd, event, subject_ref)):
-        if (e.get("data") or {}).get("sha256") == sha:
-            return e
-    return None
+    """The subject's newest human approval when it covers exactly this content, else None: an
+    older approval of other content is superseded, so restoring that content is not approved."""
+    rec = newest(cwd, event, subject_ref, role="human")
+    return rec if rec and rec["data"].get("sha256") == sha else None
+
+
+def covered(cwd, kind, event):
+    """(path, doc, record) of every artifact of a kind whose current content the subject's newest
+    `event` record covers exactly (the status field is outside the digest, so it is never trusted)."""
+    out = []
+    for p, d in artifacts(cwd, kind):
+        rec = newest(cwd, event, rel(cwd, p))
+        if rec and rec["data"].get("sha256") == digest(d):
+            out.append((p, d, rec))
+    return out
+
+
+def malformed(probs):
+    """True when schema problems say the shape is wrong (semantic checks would only crash or add noise)."""
+    return any(p.startswith("$") and ("missing" in p or "must be" in p) for p in probs)
 
 
 def rel(cwd, path):
@@ -269,7 +388,17 @@ def snapshot(cwd):
         snap[kind] = {"count": len(docs), "by_status": by,
                       "latest": {k: latest.get(k) for k in (kind + "_id", "status", "created_at") if k in latest}
                       if latest else None}
-    m = artifacts(cwd, "mission")
-    snap["mission"]["approved_ok"] = bool(m and m[0][1].get("status") == "approved" and approved(
-        cwd, "mission.approved", rel(cwd, m[0][0]), digest(m[0][1])))
+    snap["mission"]["approved_ok"] = bool(mission(cwd)[2])
     return snap
+
+
+def mission(cwd):
+    """(doc, sha256, approval event) of the mission; approval is the event covering its current
+    content (None when it is a draft or changed since). doc is None when there is no mission."""
+    p = path_of(cwd, "mission")
+    doc, _ = load(p)
+    if not isinstance(doc, dict):
+        return None, "", None
+    sha = digest(doc)
+    ev = approved(cwd, "mission.approved", rel(cwd, p), sha) if doc.get("status") == "approved" else None
+    return doc, sha, ev
