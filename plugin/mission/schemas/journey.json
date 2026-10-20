@@ -1,0 +1,238 @@
+{
+ "title": "journey — a user journey the evaluation layer runs (ROADMAP §4.12, M9.3): docs/agents/mission/journeys/<journey_id>.json",
+ "type": "object",
+ "required": [
+  "journey_id",
+  "title",
+  "persona",
+  "steps",
+  "metrics",
+  "pass_criteria",
+  "runner",
+  "source_refs",
+  "status",
+  "created_at"
+ ],
+ "additionalProperties": false,
+ "properties": {
+  "journey_id": {
+   "type": "string",
+   "pattern": "^jrn_"
+  },
+  "title": {
+   "type": "string",
+   "minLength": 1
+  },
+  "persona": {
+   "type": "string",
+   "minLength": 1
+  },
+  "steps": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "action",
+     "event"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+$"
+     },
+     "action": {
+      "type": "string",
+      "minLength": 1
+     },
+     "event": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_]{0,39}$"
+     }
+    }
+   }
+  },
+  "metrics": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "unit",
+     "direction",
+     "query",
+     "source_refs"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+$"
+     },
+     "name": {
+      "type": "string",
+      "minLength": 1
+     },
+     "unit": {
+      "type": "string",
+      "minLength": 1
+     },
+     "direction": {
+      "enum": [
+       "lower",
+       "higher"
+      ]
+     },
+     "tolerance": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 0.25
+     },
+     "query": {
+      "type": "object",
+      "required": [
+       "kind"
+      ],
+      "properties": {
+       "kind": {
+        "enum": [
+         "script",
+         "judge",
+         "ga4"
+        ]
+       },
+       "rubric": {
+        "type": "string",
+        "pattern": "^rub_"
+       },
+       "report": {
+        "type": "object"
+       }
+      }
+     },
+     "source_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+       "type": "string",
+       "minLength": 1
+      }
+     }
+    }
+   }
+  },
+  "pass_criteria": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "required": [
+     "id"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+$"
+     },
+     "steps": {
+      "const": "all"
+     },
+     "metric": {
+      "type": "string",
+      "minLength": 1
+     },
+     "op": {
+      "enum": [
+       "<=",
+       "<",
+       ">=",
+       ">",
+       "=="
+      ]
+     },
+     "value": {
+      "type": [
+       "number",
+       "boolean"
+      ]
+     }
+    }
+   }
+  },
+  "runner": {
+   "type": "object",
+   "required": [
+    "command"
+   ],
+   "additionalProperties": false,
+   "properties": {
+    "command": {
+     "type": "array",
+     "minItems": 1,
+     "items": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "pinned": {
+     "type": "object"
+    },
+    "timeout_s": {
+     "type": "integer",
+     "minimum": 1
+    },
+    "files": {
+     "type": "object",
+     "description": "{project path: sha256} the harness pinned for the files the command runs; a changed file stops the run"
+    }
+   }
+  },
+  "source_refs": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "string",
+    "minLength": 1
+   }
+  },
+  "supersedes": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "pattern": "^jrn_"
+  },
+  "evidence_refs": {
+   "type": "array",
+   "items": {
+    "type": "string",
+    "minLength": 1
+   }
+  },
+  "status": {
+   "enum": [
+    "proposed",
+    "active",
+    "retired"
+   ]
+  },
+  "created_at": {
+   "type": "string",
+   "minLength": 1
+  },
+  "approval": {
+   "type": "object"
+  },
+  "sha256": {
+   "type": "string",
+   "pattern": "^[0-9a-f]{64}$"
+  },
+  "retirement": {
+   "type": "object"
+  }
+ }
+}
