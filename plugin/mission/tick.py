@@ -292,7 +292,7 @@ def facts(cwd, now):
     raw, _ = M.ledger_rows(cwd)
     rows = sorted(raw, key=lambda r: r["ts"])            # the core's order: a union merge interleaves branches
     assessed, born, met = {}, {}, {}
-    f["lifted"], f["lifts"] = {}, {}
+    f["lifted"], f["lifts"], f["stops"] = {}, {}, {}
     for r in rows:
         name, d = r["event"], r["data"]
         if name == "state.assessed":
@@ -301,6 +301,8 @@ def facts(cwd, now):
             born.setdefault((d.get("subject"), d.get("sha256")), []).append(r["ts"])
         if name == "goal.met":
             met.setdefault(d.get("subject"), []).append(r["ts"])
+        if name == "mission.budget_exhausted":            # the loop stopped at a cap for this content
+            f["stops"].setdefault(d.get("sha256"), d)
         if name == "mission.lifted" and r.get("role") == "human" and str(d.get("by") or "").strip() \
                 and d.get("sha256") == M.digest(lifted(d)):      # the human's typed line granted exactly this
             f["lifted"][r["event_id"]] = d.get("block")
@@ -484,9 +486,11 @@ def rules(f):
         return act("SET_MISSION", "mission.json is invalid: %s" % "; ".join(probs), f["mission_ref"])
     if rc != 0:
         return act("CONFIRM_MISSION", probs[0] if probs else "the mission needs the human's approval", f["mission_ref"])
-    if f["budget"]["exhausted"]:
+    stop = f["stops"].get(f["check"][2].get("sha256"))
+    why = f["budget"]["exhausted"] or (stop and "%s (the ledger's stop for this content)" % stop.get("why"))
+    if why:
         return act("STOP_BUDGET", "%s: the loop stops; the human raises the cap (edit mission.json, "
-                                  "`aloop mission approve`)" % f["budget"]["exhausted"], f["mission_ref"])
+                                  "`aloop mission approve`)" % why, f["mission_ref"])
     m = {"ref": f["mission_ref"], "sha": f["check"][2].get("sha256")}
     t, why = ethics_of(f, "mission", m)
     if t == "none":
@@ -854,11 +858,9 @@ def record(cwd, d):
            mission_id=d["mission_id"], at=iso(f["now"]), loop=os.environ.get("ALOOP_MISSION_LOOP") or None)
     if d["action"] == "STOP_BUDGET":
         sha = f["check"][2].get("sha256")
-        if not any(e.get("event") == "mission.budget_exhausted" and e["data"].get("sha256") == sha
-                   for e in f["events"]):
-            M.emit(cwd, "mission.budget_exhausted", role="mission-loop", refs={"mission": f["mission_ref"]},
-                   mission_id=d["mission_id"], sha256=sha, why=f["budget"]["exhausted"], tokens=f["budget"]["tokens"],
-                   usd=f["budget"]["usd"])
+        if sha not in f["stops"]:                         # once per content, in the ledger (a clone stays stopped)
+            M.record(cwd, "mission.budget_exhausted", f["mission_ref"], "mission-loop", mission_id=d["mission_id"],
+                     sha256=sha, why=f["budget"]["exhausted"], tokens=f["budget"]["tokens"], usd=f["budget"]["usd"])
 
 
 def lifted(data):
