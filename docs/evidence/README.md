@@ -53,6 +53,7 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 44 | cli (Rust binary), first run | v0.12.0 + #68 (216dd4c) | 13/13 | 24m55s | $1.54 | 3 | 0 | 6 | `make e2e-live YES=1 INTENT=cli` |
 | run 45 | cli (Rust binary), on the task-sizing rule | v0.12.0 + #76 (eb00a74) | 13/13 | 16m22s | $1.07 | 3 | 0 | 8 | `make e2e-live YES=1 INTENT=cli` |
 | run 46 | cli (Rust binary), on both #76 fixes | v0.12.0 + #76 (286bf45) | 13/13 | 15m19s | $0.99 | 2 | 2 | 6 | `make e2e-live YES=1 INTENT=cli` |
+| run 47 | cli (Rust binary), on #81 | v0.12.0 + #81 (a653fd4) | 13/13 | 15m19s | $1.04 | 2 | 1 | 2 | `make e2e-live YES=1 INTENT=cli` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
@@ -88,3 +89,6 @@ no longer counts as a duplicate definition; a test function redefining a source 
 Run 46 is the same tool on both fixes: 3 tasks, $0.99 and 15m19s, no structural-review halt, and
 all 6 blocks were the workers' own self-checks (targets naming symbols not yet written, RED's
 `cargo fmt`). The `cli` loop now costs about what one-task brownfield runs do.
+Run 47 (on #81, which lets a later task modify a symbol an earlier one plans) had 2 blocks (from
+6), both the workers' own self-checks, and no `targets` "not defined" refusal. The planner made 2
+stories and 5 tasks this time, so cost stayed at $1.04: task count still varies run to run.

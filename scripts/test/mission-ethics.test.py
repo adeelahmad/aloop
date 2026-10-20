@@ -22,6 +22,8 @@ PASS = [0]
 sys.path.insert(0, BIN)
 sys.path.insert(0, os.path.join(ROOT, "mission"))
 import _mission as M  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
+from mission_fixture import as_human  # noqa: E402
 import ethics as E  # noqa: E402
 
 
@@ -31,7 +33,7 @@ def ok(name):
 
 
 def run(*args):
-    return subprocess.run(args, cwd=T, env=ENV, capture_output=True, text=True)
+    return as_human(lambda: subprocess.run(args, cwd=T, env=ENV, capture_output=True, text=True), T, ENV)
 
 
 def events(kind=None):
