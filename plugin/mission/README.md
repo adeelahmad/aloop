@@ -175,7 +175,7 @@ loop to move on records them:
 | journeys defined | a journey that `journeys.lifecycle` does not call retired |
 | a state report or eval | its `baseline_id` (another than the current one: re-assess, re-evaluate) and the eval's boolean `goal_met` |
 | a goal's progress | a goal is one a `goal.derived` (or `goal.approved`) ledger row covers at its content, closed by its `goal.met` row; status `derived` → `approved` → `active` (`goal intents` handed it to Aladdin) · `retired` · `blocked`; an eval narrowed to it (`goal_id`) decides its close |
-| a lifted block | a `mission.lifted` ledger row (role human, `--by`, the human's typed `lift <mission> <code>` line) for that block's key and the how-many-th lift of it; `tick --force` records it (M9.51). The repeat guard and the 3-failed-goals count restart only after a lift the ledger has |
+| a lifted block | a `mission.lifted` ledger row (role human, `--by`, the human's typed `lift <mission> <code>` line) whose code digests `{mission_id, block, lift, occurrence}`: the block's key, how many lifts of it the ledger has, and which block it was (the handout tick that tripped a repeat; the newest of 3 failed goals, which is how far that reset reaches); `tick --force` records it (M9.51). A repeat restarts at the row's own run-log event (its first copy only); the 3-failed-goals count at its `occurrence` |
 | a goal's sprints | `intent.received` {goal_id, intent_id} → `plan.created` {sprint: "S<N>", intent_id}; with no linked intent, the sprints planned since the loop handed out its `SPRINT`. Closes: `.aladdin/state/sprints.json`; `plan.approved` (spoon-fed) |
 
 Time is the ms in each harness id, so artifacts order exactly; an event stamp kept to the second
