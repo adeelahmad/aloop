@@ -105,5 +105,6 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | NOT_IMPLEMENTED | §4.13 |
 | M10.2 | No unplanned dependency (GREEN) and no credential (GREEN, final gate) | IMPLEMENTED_TESTED | `scripts/test/supply-chain.test.py` |
 | M10.2b | The stack's dependency audit in the final gate's matrix | NOT_IMPLEMENTED | §4.13 |
-| M10.3 | Fetched web content is data (no shell for fetching roles, injection eval case) | NOT_IMPLEMENTED | §4.13 |
+| M10.3 | Fetched web content is data: the market-researcher fetches only through `research archive` (no WebFetch, no curl/wget, on every host), personas, injected-page eval case | IMPLEMENTED_TESTED | `scripts/test/fetched-data.test.py` |
+| M10.3b | The same for the ethics-reviewer and product-tester (they still WebFetch: they cannot write research/), and a fetch from an interpreter (`python -c urllib`) | NOT_IMPLEMENTED | §4.13 |
 | M10.4 | `aloop stop` halts a whole project, honoured by `mission tick` | IMPLEMENTED_TESTED | `scripts/test/project-stop.test.py` |
