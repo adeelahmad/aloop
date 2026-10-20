@@ -133,8 +133,9 @@ its tests and the resolved change targets (`targets context`), never the whole r
 Determinism is structural, not vibes. Hooks enforce what the model cannot talk its way past:
 
 - the supervisor cannot write production source (`gate-supervisor-scope`), commit on main during a
-  sprint, or dispatch with its backends missing (`gate-tooling`) or on a model the project did not
-  pick (`gate-dispatch`);
+  sprint, or dispatch with its backends missing (`gate-tooling`), on a model the project did not
+  pick, or before the human approved the sprint's plan, or granted it autonomy, in a line they typed
+  (`gate-dispatch`);
 - a worker cannot leave its worktree, touch files outside its task, or pass a stop whose gate failed;
 - a gate that crashes **blocks** (`_failclosed.sh`), never a silent pass, and never a false block when a
   backend is absent (it degrades to a flagged, weaker check);
@@ -330,7 +331,7 @@ structural, not luck:
   blocking it from doing the context-heavy work itself.
 
 Live runs: `make smoke-live YES=1` (hook wiring, ~$0.004) and `make e2e-live YES=1` (the whole
-loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci`, which runs Rust fmt/clippy/tests, shellcheck, 53 Python/Node suites plus every `mission-*.test.py`,
+loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci`, which runs Rust fmt/clippy/tests, shellcheck, 55 Python/Node suites plus every `mission-*.test.py`,
 the gate conformance fixtures (`make conformance`) and eval-suite validation. Every ROADMAP
 requirement is tracked with its test in [docs/TRACKING.md](docs/TRACKING.md).
 

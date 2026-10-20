@@ -16,9 +16,9 @@ A builder never grades its own work, and a grader never builds:
     docs/agents/mission/ but mission.json (the human's, sealed by `mission approve`) is dispatched;
   - NO ONE hand-writes docs/agents/mission/ledger.jsonl (only the mission CLI appends to it) or the captured
     prompts (<run data>/transcripts/, the UserPromptSubmit hook's), runs a hook's `transcripts prompt|record|…`,
-    or, where a mission is set, starts a host session from a tool call (`claude -p`, `codex exec`,
-    `opencode run`, `dsh <profile>`: its prompt would be captured as the human's words, which a grant
-    reads, M9.17).
+    or starts a host session from a tool call (`claude -p`, `codex exec`, `opencode run`, `dsh <profile>`:
+    its prompt would be captured as the human's words, which a mission grant (M9.17) and a sprint's plan
+    approval (M0.9) read).
 
 Write/Edit/patch paths are exact. A Bash command is read as the shell would read it (_shellread.py:
 quotes, escapes, line continuations, comments, heredoc bodies as data, reserved words, subshells,
@@ -62,7 +62,7 @@ TRANSCRIPT_HOOKS = {"prompt", "record", "snapshot", "stop", "stage-in"}
 # the hosts, and their subcommands that start no session (any other word is a prompt or a session)
 HOSTS = {"claude": {"plugin", "plugins", "mcp", "config", "doctor", "update", "install", "migrate-installer",
                     "setup-token"},
-         "codex": {"login", "logout", "mcp", "completion", "debug", "apply", "a", "help", "features"},
+         "codex": {"login", "logout", "mcp", "completion", "debug", "apply", "a", "help", "features", "plugin"},
          "opencode": {"auth", "models", "upgrade", "mcp", "agent", "github", "stats", "export", "import",
                       "uninstall", "debug", "help"},
          "dsh": {"plugin"}}                           # dsh's first word is a profile to boot (aloop, headless…)
@@ -270,9 +270,8 @@ class Scope:
 
     def host(self, name, args):
         """A host session started from a tool call (`claude -p`, `codex exec`, `opencode run`, `dsh`) fires its own
-        UserPromptSubmit hook, so its prompt would be captured as the human's words (M9.17)."""
-        if self.role not in self.R.ROLES and not os.path.isdir(os.path.join(self.main, self.R.MISSION)):
-            return                                        # no mission here: no grant to forge
+        UserPromptSubmit hook, so its prompt would be captured as the human's words (M9.17). Every aloop project
+        has a grant to forge: a sprint's plan approval reads the same prompts (M0.9)."""
         ts = [text(a) for a in args]
         if ts and all(t in ("--version", "-v", "-V", "--help", "-h") for t in ts):
             return
@@ -280,9 +279,9 @@ class Scope:
         if pos and pos[0] in HOSTS[name]:
             return                                        # a tool of the host (plugin validate, mcp list), no session
         raise Block("%s starts a %s session from a tool call: its prompt fires the UserPromptSubmit hook and would be"
-                    " captured as the human's own words, which a mission grant reads (M9.17).\n  A role never starts"
-                    " another agent; a session the human wants runs from their own terminal or the mission's cron line."
-                    % (self.who or "the supervisor", name))
+                    " captured as the human's own words, which a mission grant (M9.17) and a plan approval (M0.9) read."
+                    "\n  A role never starts another agent; a session the human wants runs from their own terminal or the"
+                    " mission's cron line." % (self.who or "the supervisor", name))
 
     def git(self, args, base):
         """Judge a git command: a mission role never writes the project's repo."""

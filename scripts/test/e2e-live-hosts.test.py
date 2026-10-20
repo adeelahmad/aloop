@@ -117,6 +117,22 @@ assert not os.path.exists(os.path.join(d, "repo", ".opencode")) and "host: claud
 assert "E2E-DONE" not in cmd and "prompt: stdin" in r.stdout, cmd
 ok("default host is claude: claude -p --plugin-dir … with the prompt on stdin (no host install)")
 
+# 3b) the approval given up front is the human's typed line (ROADMAP M0.9): the prompt carries the line that
+#     grants sprint 1 autonomy, and that line, captured as the human's words, is what the recorded grant cites
+r, d = run("--host", "opencode")
+grant = re.search(r"^autonomous S1 [0-9a-f]{8}$", r.stdout, re.M)
+assert grant and "--mode autonomous" in r.stdout and "--sprint 1" in r.stdout, r.stdout
+repo = os.path.join(d, "repo")
+AUTH = [os.path.join(BIN, "events"), "authority", "--initiated-by", "e2e human", "--mode", "autonomous", "--scope", "the e2e run",
+        "--sprint", "1"]
+assert subprocess.run(AUTH, cwd=repo, env=ENV, capture_output=True, text=True).returncode == 3     # not before the human's words
+subprocess.run([os.path.join(BIN, "transcripts"), "prompt"], cwd=repo, env=ENV, check=True, capture_output=True, text=True,
+               input=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "e2e", "prompt": "Use the aloop skill.\n"
+                                 + grant.group(0) + "\nRun the whole loop."}))
+r = subprocess.run(AUTH, cwd=repo, env=ENV, capture_output=True, text=True)
+assert r.returncode == 0, r.stderr
+ok("the e2e prompt carries the human's line granting sprint 1 autonomy; captured, it records that grant")
+
 # 4) an unknown host or a missing CLI is a usage error before anything is seeded or spent
 r, _ = run("--host", "cursor")
 assert r.returncode == 2 and "cursor" in r.stdout + r.stderr, (r.returncode, r.stdout, r.stderr)

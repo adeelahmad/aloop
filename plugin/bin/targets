@@ -270,7 +270,10 @@ def problems(sdir, targets, root, doc=None):
             if exists and (not psym or locate(root, path, psym)[0] is None):
                 p.append("%s: create targets %s, which already exists (use modify/extend)" % (where, path))
         elif not exists and path not in planned:
-            p.append("%s: %s targets %s, which is neither in the tree nor planned" % (where, op, path))
+            # live runs 47-48: `extend tests/common/mod.rs` for a helper module no target created
+            p.append("%s: %s targets %s, which is neither in the tree nor planned: a new file is a create "
+                     "(\"operation\": \"create\" with its first planned_symbol), and a later target may "
+                     "extend it" % (where, op, path))
         elif exists and t.get("symbol"):
             line, _ = locate(root, path, t["symbol"])
             if line is None and not any(pp == path and ps == t["symbol"] and pr != ref
