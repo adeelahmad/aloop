@@ -94,3 +94,4 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.45 | A journey's runner has a named author | NOT_IMPLEMENTED | §4.12 |
 | M9.46 | `mission due` is the supervisor's, not a role's | NOT_IMPLEMENTED | §4.12 |
 | M9.50 | A goal sprinted with gaps still open gets a next step | NOT_IMPLEMENTED | §4.12 |
+| M9.51 | Lifting a mission block is the human's typed line, kept in the ledger | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |

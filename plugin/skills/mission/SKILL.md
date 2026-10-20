@@ -71,7 +71,7 @@ paste artifacts into it. A role writes its artifact only through `aloop mission 
 | `CONFIRM_MISSION` | human | Show `aloop mission show` and relay the reason's `approve <id> <code>` line; once they have typed it, `aloop mission approve --by`. | the content is approved |
 | `STOP_BUDGET` | human | Show the spend and cap from `aloop mission tick --json` (`budget`). A higher cap is a mission change: edit, then their approval. | the cap is raised or the mission ends |
 | `ETHICS_REVIEW` | `ethics-reviewer` | Review the subject (the mission or a goal) against the mission's constraints; it records the tier with `aloop mission ethics`. | a review covers that content |
-| `BLOCKED` | human | A hard line, 3 failed goals in a row, a stalled sprint, an action repeated without result, or a broken record (the ledger, the confirmed baseline). Report it. | the human fixes the subject; a repeat or 3 failed goals: `aloop mission tick --force --by "<their name>"` |
+| `BLOCKED` | human | A hard line, 3 failed goals in a row, a stalled sprint, an action repeated without result, or a broken record (the ledger, the confirmed baseline). Report it. | the human fixes the subject; a repeat or 3 failed goals: `aloop mission tick --force --by "<their name>"`, then their `lift …` line |
 | `ASK_CONSENT` | human | Gray tier: show the review's reason and relay the `consent <id> <code>` line tick names; once they have typed it, run the `aloop mission ethics consent` it names. It never carries over to another goal. | consent covers that content |
 | `RESEARCH` | `market-researcher` | Sourced landscape: rival products, papers, benchmarks (`aloop mission research`). When the goal is met: raise the bar, "what is best that the user is not even thinking of?" | a new research artifact |
 | `DEFINE_JOURNEYS` | `market-researcher` | User journeys from the research: scripted steps, pass criteria, an event per step, sources (`aloop mission journeys`). A baseline with nothing to earn: raise the bar (new or stricter journeys). A listed journey that no longer runs as pinned: a journey that supersedes it. | a proposed journey |
@@ -93,8 +93,8 @@ and goals once there is usage, and is never a gate.
 
 - You never write or edit anything under `docs/agents/mission/` yourself: the roles do, through
   `aloop mission <area>`. `mission.json` changes only with a new human approval.
-- You record a human approval (the mission, the baseline, a goal pick, a consent) only on the
-  human's explicit yes in this session, with `--by` naming them. Never infer one.
+- You record a human approval (the mission, the baseline, a goal pick, a consent, a lift) only
+  on the human's explicit yes in this session, with `--by` naming them. Never infer one.
 - A grant counts only in the human's own typed words (M9.17). Run the command; it exits 3 with
   `they reply  <verb> <id> <code>`. Give them that exact line once and stop; once they have
   typed it, run the command the ASK names after "then" (usually the same command; a spoon-fed

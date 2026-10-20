@@ -1095,4 +1095,96 @@ assert p.mi("due").stdout.startswith(("due:", "not due:"))
 assert p.run(os.path.join(BIN, "aloop"), "mission", "tick", "--peek").stdout.split()[0] in TICK.ROLES
 ok("tick, due and cron are area commands with --help; bare `aloop mission tick` runs")
 
+# 29) lifting a block is the human's own words (M9.17, M9.24): `--force --by` alone asks (3) for the
+#     line to reply and lifts nothing; the human's `lift` line records a mission.lifted ledger row (so
+#     a fresh checkout keeps a lifted 3-failed-goals block lifted); an old line never lifts a later
+#     block, and a lift only the run log has (a FORCE tick with no row) lifts nothing
+def lifts(p):
+    return [r for r in M.ledger_rows(p.dir)[0] if r["event"] == "mission.lifted"]
+
+
+p = Project().init()
+p.review(p.mission_ref(), p.mission_doc(), "clear", 0.1)
+for i in range(3):
+    expect(p.tick(0.2 + i * 0.01), "RESEARCH", 0)
+d = p.tick(0.3)
+expect(d, "BLOCKED", 2, "3 times")
+force = lambda h: p.run(MI, "tick", "--force", "--by", "Adeel", "--now", iso(p.at(h)))  # no one typed a line
+r = force(0.31)
+m = F.ASKED.search(r.stderr)
+assert r.returncode == 3 and m and m.group(1).split()[0] == "lift", (r.returncode, r.stdout, r.stderr)
+line1, code = m.group(1), m.group(1).split()[-1]
+assert not lifts(p) and p.ticks()[-1]["data"].get("action") != "FORCE"
+p.event("mission.tick", 0.32, role="human", action="FORCE", key="FORCE " + d["grant"], grant=d["grant"],
+        by="Adeel", who="human", at=iso(p.at(0.32)))                       # a lift only the run log has
+expect(p.tick(0.33), "BLOCKED", 2, "3 times")
+for said in ("don't " + line1, line1.replace(code, "%08x" % (int(code, 16) ^ 1)), "approve " + line1[5:]):
+    F.say(p.dir, p.env, said)
+    assert force(0.34).returncode == 3, said                               # negated, another code, another verb
+F.say(p.dir, p.env, line1)
+r = force(0.35)
+assert r.returncode == 0 and r.stdout.startswith("FORCE"), (r.stdout, r.stderr)
+(row,) = lifts(p)
+assert row["role"] == "human" and row["data"]["by"] == "Adeel" and row["data"]["prompt"]["line"] == line1, row
+assert not M.ledger_problems(p.dir)
+for i in range(3):
+    expect(p.tick(0.36 + i * 0.01), "RESEARCH", 0)                          # handed out again, 3 more times
+expect(p.tick(0.4), "BLOCKED", 2, "3 times")                               # the same work blocks again
+r = force(0.41)
+m = F.ASKED.search(r.stderr)
+assert r.returncode == 3 and m and m.group(1) != line1, r.stderr           # the old line never lifts it twice
+log = os.path.join(p.dir, ".aladdin", "logs", "events.jsonl")
+lifted = [l for l in open(log) if '"mission.lifted"' in l]
+assert len(lifted) == 1, lifted                                            # the lift's own run-log event
+with open(log, "a") as fh:
+    fh.write(lifted[0])                                                    # a copy of it, replayed
+p.event("mission.tick", 0.42, role="human", action="FORCE", key="FORCE " + d["grant"], grant=d["grant"],
+        lift=row["data"]["sha256"], by="Adeel", who="human", at=iso(p.at(0.42)))   # the old lift's sha, replayed
+expect(p.tick(0.43), "BLOCKED", 2, "3 times")
+u = Project().init()                                                       # a line typed for a block that then
+cleared(u)                                                                 # cleared by itself never lifts the
+for i in range(3):                                                         # next block of the same action
+    expect(u.tick(0.2 + i * 0.01), "ASSESS", 0)
+expect(u.tick(0.3), "BLOCKED", 2, "3 times")
+r = u.run(MI, "tick", "--force", "--by", "Adeel", "--now", iso(u.at(0.31)))
+m = F.ASKED.search(r.stderr)
+assert r.returncode == 3 and m, r.stderr
+F.say(u.dir, u.env, m.group(1))                                            # typed, never used: the report landed
+u.art("state", "recorded", 0.4)
+expect(u.tick(0.5), "EVALUATE", 0)
+u.art("eval", "recorded", 0.6, goal_met=False)
+for i in range(3):
+    expect(u.tick(7 + i * 0.01), "ASSESS", 0, "cadence")
+expect(u.tick(7.1), "BLOCKED", 2, "3 times")
+r = u.run(MI, "tick", "--force", "--by", "Adeel", "--now", iso(u.at(7.11)))
+assert r.returncode == 3 and F.ASKED.search(r.stderr).group(1) != m.group(1), (r.returncode, r.stdout, r.stderr)
+q = Project().init()
+cleared(q)
+q.art("state", "recorded", 1)
+q.art("eval", "recorded", 1.1, goal_met=False)
+for h in (1.2, 1.4, 1.6):
+    g, gd = q.art("goal", "derived", h)
+    q.review(q.ref("goal", g), gd, "hard", h + 0.05)
+expect(q.tick(1.7), "BLOCKED", 2, "3 goals")
+assert q.mi("tick", "--force", "--by", "Adeel", "--now", iso(q.at(1.75))).returncode == 0   # the human typed it
+shutil.rmtree(os.path.join(q.dir, ".aladdin"))                             # a fresh checkout: no run log
+q.review(q.mission_ref(), q.mission_doc(), "clear", 1.8)                   # mission reviews are run data (M9.4)
+expect(q.tick(1.9), "DERIVE_GOAL", 0)                                      # still lifted: the ledger has it
+w = Project().init()
+cleared(w)
+w.art("state", "recorded", 1)
+w.art("eval", "recorded", 1.1, goal_met=False)
+for h in (1.2, 1.4, 1.6):
+    g, gd = w.art("goal", "derived", h)
+    w.review(w.ref("goal", g), gd, "hard", h + 0.05)
+expect(w.tick(1.7), "BLOCKED", 2, "3 goals")
+assert w.mi("tick", "--force", "--by", "Adeel", "--now", iso(w.at(100))).returncode == 0   # a far --now
+for h in (2.0, 2.2, 2.4):
+    g, gd = w.art("goal", "derived", h)
+    w.review(w.ref("goal", g), gd, "hard", h + 0.05)
+expect(w.tick(2.5), "BLOCKED", 2, "3 goals")                               # it lifted those goals, not the future
+ok("lifting a block takes the human's typed `lift` line, recorded in the ledger (a fresh checkout keeps it); "
+   "--by alone, a run-log-only or replayed lift, a negated line, another code, an old line or a line typed for an "
+   "earlier block lift nothing, and a lift of 3 failed goals covers those goals, whatever the clock")
+
 print("mission-tick: %d checks passed" % PASS[0])
