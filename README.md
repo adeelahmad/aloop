@@ -177,8 +177,9 @@ approval of that exact content: `aloop mission approve` records only when a prom
 first 8 hex of the content's sha256, so an agent cannot approve its own change (M9.17). The records the
 gates decide from (approvals, measurements, assessments, retirements, goals) are rows in a
 hash-chained, committed ledger, so an edited or backdated row, or one removed before the newest,
-fails the check. The ethics verdicts, the `tick --force` grant and `mission.budget_exhausted` are
-still run-log events, and a removed newest row is caught only where the run log survives (M9.24). The confirmed definition of "best" is the
+fails the check. The ethics verdicts, the `tick --force` grant, `mission.budget_exhausted` and the
+project's stop (`aloop stop`) are ledger rows too, so a clone decides the same; a removed newest row is
+caught only where the run log survives (M9.24, M10.4). The confirmed definition of "best" is the
 mission's RED: a baseline whose journeys all pass already is refused. Usage telemetry (GA4,
 opt-in) informs goals and is never a gate.
 

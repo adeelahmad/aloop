@@ -28,9 +28,11 @@ import _events
 import _mission as M
 import _paths
 
-# the plan of a sprint: what the planner writes and the human approves. Comms (init.md, output.md),
-# plan-ready.md ticks, logs and stats change during execution and are not the plan.
-SPRINT_FILES = ("stories.md", "plan.md", "ids.json")
+# the plan of a sprint: what the planning activities write and the human approves, the intent and the
+# standards it is built and judged by included. Comms (init.md, output.md), plan-ready.md ticks, logs and
+# stats change during execution and are not the plan.
+SPRINT_FILES = ("stories.md", "plan.md", "ids.json", "intake.md", "standards.md")
+NEW_SPRINT_FILES = ("intake.md", "standards.md")   # in the plan since per-file pins; an older approval left them out
 STORY_FILES = ("tasks.md", "validate.md", "plan.md", "targets.json")
 STORY_DIR = re.compile(r"^s(\d+)-(\d+)-")
 TASK = re.compile(r"^S(\d+)-(\d+)-T\d+$", re.I)
@@ -59,15 +61,29 @@ def plan_files(cwd, sp):
     return [(M.rel(cwd, p), p) for p in out if os.path.isfile(p)]
 
 
+def file_sha(p):
+    with open(p, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def sprint_rels(cwd, sp, names):
+    return {M.rel(cwd, os.path.join(sprint_dir(cwd, sp), n)) for n in names}
+
+
+def plan_map(cwd, sp):
+    """{project-relative path: sha256} of the sprint's plan files as they are now."""
+    return {rel: file_sha(p) for rel, p in plan_files(cwd, sp)}
+
+
+def map_digest(files):
+    return hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+
+
 def plan_digest(cwd, sp):
     """The sha256 of the sprint's plan as it is now (None when the sprint has no dir)."""
     if not os.path.isdir(sprint_dir(cwd, sp)):
         return None
-    files = {}
-    for rel, p in plan_files(cwd, sp):
-        with open(p, "rb") as f:
-            files[rel] = hashlib.sha256(f.read()).hexdigest()
-    return hashlib.sha256(json.dumps(files, sort_keys=True).encode()).hexdigest()
+    return map_digest(plan_map(cwd, sp))
 
 
 def content(auth):
@@ -176,10 +192,12 @@ def grant_for(cwd, initiated_by, mode, scope, sprint="", policy="default", overr
     auth = {"initiated_by": initiated_by, "autonomy_mode": mode, "scope": scope, "policy": policy,
             "overrides": overrides or {}, "sprint": sp}
     if mode == "reviewed":
-        plan_sha = plan_digest(cwd, sp)
+        files = plan_map(cwd, sp)
+        plan_sha = map_digest(files)
         sha = grant_sha(auth, plan_sha)
-        grant = {"kind": "plan", "sha256": sha, "plan_sha256": plan_sha, "files": [r for r, _ in plan_files(cwd, sp)],
+        grant = {"kind": "plan", "sha256": sha, "plan_sha256": plan_sha, "files": sorted(files), "file_sha256": files,
                  "prompt": provenance(cwd, sp, VERBS["plan"], sha, "The approval of %s's plan" % sp)}
+        snapshot(cwd, files)              # the text they approved counts after later edits too (deps unplanned)
     else:
         sha = grant_sha(auth)
         # the mission's autonomy covers only its own sprints: one planned from another intent asks the human
@@ -291,6 +309,10 @@ def holds(cwd, sp, plan_sha):
     auth, g = e["authority"], e["authority"]["grant"]
     who = "%s (%s)" % (auth.get("initiated_by"), auth.get("autonomy_mode"))
     if g.get("kind") == "plan" and auth.get("autonomy_mode") == "reviewed":
+        if g.get("plan_sha256") != plan_sha and "file_sha256" not in g and g.get("plan_sha256") == map_digest(
+                {r: h for r, h in plan_map(cwd, sp).items() if r not in sprint_rels(cwd, sp, NEW_SPRINT_FILES)}):
+            return False, ["the human's approval of %s is older than its intake.md and standards.md being part of the"
+                           " plan: they approve the plan again." % sp, "  " + how]
         if g.get("plan_sha256") != plan_sha:
             return False, ["the plan of %s changed after the human approved it (approved %s, now %s): a changed plan is"
                            " a new decision." % (sp, M.code(g.get("plan_sha256") or ""), M.code(plan_sha)),
@@ -320,3 +342,75 @@ def holds(cwd, sp, plan_sha):
         return True, "%s autonomous, granted by %s, code %s" % (sp, who, M.code(g["sha256"]))
     return False, ["the newest grant of %s is neither a plan approval nor an autonomy grant (a hand-written record);"
                    " %s" % (sp, how)]
+
+
+def snap_dir(cwd, make=False):
+    return _paths.home(cwd, os.path.join("state", "plan"), make=make)
+
+
+def snapshot(cwd, files):
+    """Keep each pinned plan file's bytes under its sha256 (run data), so the text the human's grant pins
+    outlives later edits of the file; a copy counts only while it still hashes to its name."""
+    root, d = _paths.project(cwd), None
+    for rel, sha in sorted(files.items()):
+        try:
+            with open(os.path.join(root, rel), "rb") as f:
+                b = f.read()
+        except OSError:
+            continue
+        if hashlib.sha256(b).hexdigest() != sha:
+            continue
+        d = d or snap_dir(cwd, make=True)
+        dst = os.path.join(d, sha)
+        if pinned_text(cwd, rel, sha, live=False) is None:
+            with open(dst + ".tmp", "wb") as f:
+                f.write(b)
+            os.replace(dst + ".tmp", dst)
+
+
+def pinned_text(cwd, rel, sha, live=True):
+    """The text of plan file `rel` as pinned (`sha`): the file while it is unchanged, else its kept copy;
+    None when neither holds that text."""
+    paths = ([os.path.join(_paths.project(cwd), rel)] if live else []) + [os.path.join(snap_dir(cwd), sha)]
+    for p in paths:
+        try:
+            with open(p, "rb") as f:
+                b = f.read()
+        except OSError:
+            continue
+        if hashlib.sha256(b).hexdigest() == sha:
+            return b.decode("utf-8", "replace")
+    return None
+
+
+def gated(cwd, sp):
+    """{path: sha256} of the sprint's plan as the planner's gate last passed it (gate-stage2-complete records
+    `plan.gated` on the planner's stop), or {}."""
+    for e in reversed(list(_events.read(cwd))):
+        d = data(e)
+        if e.get("event") == "plan.gated" and d.get("sprint") == sp and isinstance(d.get("file_sha256"), dict) \
+                and map_digest(d["file_sha256"]) == d.get("plan_sha256"):
+            return d["file_sha256"]
+    return {}
+
+
+def pinned(cwd, sp):
+    """({path: sha256}, why) of the plan files the human's newest grant of sprint sp pins; ({}, the reason) when
+    none: a reviewed approval pins the plan they approved, whatever changed since; their autonomy grant pins the
+    plan as the planner's gate last passed it. Text that differs from its pin is no plan the human stands behind."""
+    gs = grants(cwd, sp)
+    if not gs:
+        return {}, "the human has not approved the plan of %s" % sp
+    g = gs[-1]["authority"]["grant"]
+    if g.get("kind") == "plan":
+        files = g.get("file_sha256")
+        if not isinstance(files, dict) or map_digest(files) != g.get("plan_sha256"):
+            return {}, ("the newest approval of %s pins no plan files (recorded before they were pinned file by file, "
+                        "or edited): the human approves the plan again" % sp)
+        good, why = holds(cwd, sp, g.get("plan_sha256"))
+        return (files, "") if good else ({}, why[0])
+    good, why = holds(cwd, sp, None)
+    if not good:
+        return {}, why[0]
+    files = gated(cwd, sp)
+    return (files, "") if files else ({}, "%s is autonomous, but no plan of it has passed the planner's gate yet" % sp)

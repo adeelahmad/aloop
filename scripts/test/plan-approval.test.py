@@ -152,7 +152,8 @@ tasks = os.path.join(story, "tasks.md")
 orig = open(tasks).read()
 for rel in (tasks, os.path.join(story, "validate.md"), os.path.join(story, "plan.md"),
             os.path.join(P, "docs/agents/sprint1/stories.md"), os.path.join(P, "docs/agents/sprint1/plan.md"),
-            os.path.join(P, "docs/agents/sprint1/ids.json"), os.path.join(story, "targets.json")):
+            os.path.join(P, "docs/agents/sprint1/ids.json"), os.path.join(story, "targets.json"),
+            os.path.join(P, "docs/agents/sprint1/standards.md"), os.path.join(P, "docs/agents/sprint1/intake.md")):
     before = open(rel).read() if os.path.exists(rel) else None
     write(rel, (before or "{}") + "\n")
     r = dispatch("S1-01-T1")
@@ -162,7 +163,8 @@ for rel in (tasks, os.path.join(story, "validate.md"), os.path.join(story, "plan
     else:
         write(rel, before)
     assert dispatch("S1-01-T1").returncode == 0, rel
-ok("a change to any plan file (stories, plans, ids, a story's tasks/validate/plan/targets) blocks until it is approved;"
+ok("a change to any plan file (stories, plans, ids, standards, intake, a story's tasks/validate/plan/targets) blocks"
+   " until it is approved;"
    " init.md, output.md, plan-ready.md and logs do not")
 
 # 5) the old line does not approve new content; a fresh line does
@@ -463,6 +465,49 @@ r = dispatch("S3-01-T1", cwd=Q)
 assert r.returncode == 2 and "typed before a later decision" in r.stderr, r.stderr
 ok("each dispatch re-proves the newest record: an autonomy grant with no line, an unknown prompt, edited overrides "
    "or another verb's line, and a replayed copy of an older approval, all block")
+
+# 21) the plan text a grant pins (GREEN's dependency check reads only it, deps unplanned): the sprint's newest grant
+#     decides and must hold itself; under autonomy it pins the plan the planner's gate passed, of that sprint only;
+#     a reviewed grant's per-file hashes must add up to the plan its code names
+qs4 = sprint(4, cwd=Q)
+now4 = _approval.plan_map(Q, "S4")
+gate4 = {"sprint": "S4", "file_sha256": now4, "plan_sha256": _approval.map_digest(now4)}
+_approval._events.emit(Q, "plan.gated", role="planner", **gate4)
+assert _approval.pinned(Q, "S4") == ({}, "the human has not approved the plan of S4")      # a gated plan alone pins nothing
+assert authority("--sprint", "4", cwd=Q, mode="autonomous", human=True).returncode == 0
+assert _approval.pinned(Q, "S4") == (now4, "")
+other = {"docs/agents/sprint9/stories.md": "0" * 64}
+_approval._events.emit(Q, "plan.gated", role="planner", sprint="S9", file_sha256=other,
+                       plan_sha256=_approval.map_digest(other))
+assert _approval.pinned(Q, "S4") == (now4, ""), "another sprint's gated plan pinned S4"
+auth4 = dict(auth, sprint="S4")
+append(dict(base, authority=dict(auth4, grant={"kind": "autonomy", "sha256": _approval.grant_sha(auth4)})), 21)
+files, why = _approval.pinned(Q, "S4")
+assert files == {} and "not the human's own words" in why, why                        # a forged autonomy record
+assert authority("--sprint", "4", cwd=Q, human=True).returncode == 0                      # the human approves S4's plan
+rec = [e for e in events(Q) if e["event"] == "human.approval"][-1]
+assert _approval.pinned(Q, "S4") == (now4, "") and rec["authority"]["grant"]["file_sha256"] == now4
+bad = json.loads(json.dumps(rec))
+bad["authority"]["grant"]["file_sha256"][_approval.M.rel(Q, os.path.join(qs4, "tasks.md"))] = "0" * 64
+append(bad, 22)
+files, why = _approval.pinned(Q, "S4")
+assert files == {} and "pins no plan files" in why, why                                 # hashes that do not add up
+bad = json.loads(json.dumps(rec))
+del bad["authority"]["grant"]["prompt"]
+append(bad, 23)
+files, why = _approval.pinned(Q, "S4")
+assert files == {} and "not the human's own words" in why, why                        # a reviewed record with no line
+qs5 = sprint(5, cwd=Q)
+write("docs/agents/sprint5/standards.md", "# standards\n", Q)
+old5 = {r: h for r, h in _approval.plan_map(Q, "S5").items() if not r.endswith("standards.md")}
+auth5 = dict(auth, autonomy_mode="reviewed", sprint="S5")
+append(dict(base, authority=dict(auth5, grant={"kind": "plan", "plan_sha256": _approval.map_digest(old5),
+                                               "sha256": _approval.grant_sha(auth5, _approval.map_digest(old5))})), 24)
+good, why = _approval.holds(Q, "S5", _approval.plan_digest(Q, "S5"))
+assert not good and "older than its intake.md and standards.md" in why[0], why        # an approval from before them
+ok("a grant pins plan text only while it holds: none before the human's grant, the planner's gated plan of that "
+   "sprint under autonomy, the approved files under review; a forged record or edited per-file hashes pin nothing; an "
+   "approval from before intake.md and standards.md were plan files says so")
 
 shutil.rmtree(mp.dir, ignore_errors=True)
 shutil.rmtree(sp.dir, ignore_errors=True)

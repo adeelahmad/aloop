@@ -134,4 +134,38 @@ for name in ("run.stopped", "run.resumed"):
     assert r.returncode != 0, (name, r)
 ok("events emit refuses run.stopped and run.resumed")
 
+# 8) with a mission, the stop is a committed ledger row too: a fresh clone (another machine, a scheduled
+#    run) stays stopped until the human clears it there, and that clear is a ledger row as well
+LEDGER = os.path.join(REPO, "docs", "agents", "mission", "ledger.jsonl")
+os.makedirs(os.path.dirname(LEDGER))
+open(LEDGER, "w").close()
+sh("git", "add", "-A")
+sh("git", "commit", "-qm", "mission ledger")
+assert run(STOP, "the scheduled run is burning money").returncode == 0
+rows = [json.loads(ln) for ln in open(LEDGER)]
+assert [r["event"] for r in rows] == ["run.stopped"] and rows[0]["data"]["reason"] == "the scheduled run is burning money", rows
+assert len(events("run.stopped")) == 2, events("run.stopped")       # one event per stop, not two
+sh("git", "add", "-A")
+sh("git", "commit", "-qm", "stop")
+CLONE = os.path.join(T, "clone")
+sh("git", "clone", "-q", REPO, CLONE, cwd=T)
+assert not os.path.exists(os.path.join(CLONE, ".aladdin", "state", "STOP"))
+r = run(STOP, "--status", cwd=CLONE)
+assert r.returncode == 3 and "burning money" in r.stdout, r
+assert denied(hook("pre", "Bash", CLONE, **SUPERVISOR)) and denied(hook("pre", "Write", CLONE, **WORKER))
+r = run(os.path.join(BIN, "mission"), "tick", "--json", "--peek", cwd=CLONE)
+assert json.loads(r.stdout)["action"] == "STOPPED", r.stdout
+r = run(STOP, "--clear", cwd=CLONE, env=dict(ENV, CLAUDECODE="1"))
+assert r.returncode == 2 and run(STOP, "--status", cwd=CLONE).returncode == 3, r
+r = run(STOP, "--clear", cwd=CLONE)
+assert r.returncode == 0 and run(STOP, "--status", cwd=CLONE).returncode == 0, r
+crows = [json.loads(ln) for ln in open(os.path.join(CLONE, "docs", "agents", "mission", "ledger.jsonl"))]
+assert [x["event"] for x in crows] == ["run.stopped", "run.resumed"] and crows[1]["role"] == "human", crows
+assert not denied(hook("pre", "Bash", CLONE, **SUPERVISOR))
+# the original checkout still holds its own stop until the human clears it there, with one resume row
+assert run(STOP, "--status").returncode == 3
+assert run(STOP, "--clear").returncode == 0 and run(STOP, "--status").returncode == 0
+assert [json.loads(ln)["event"] for ln in open(LEDGER)] == ["run.stopped", "run.resumed"]
+ok("with a mission the stop is a committed ledger row: a fresh clone stays stopped (hooks, tick) until the human clears it there")
+
 print("\n%d checks passed" % n[0])
