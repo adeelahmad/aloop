@@ -34,7 +34,7 @@ Then flip the task's own row in ROADMAP §4.12 and its row in `docs/TRACKING.md`
   records only when a prompt the `UserPromptSubmit` hook captured (`transcripts prompt`, in the
   checkout's `transcripts/*/events.jsonl`) has a line that starts with its verb (`GRANT_VERBS`, or the
   record's `action`: `restore`, `retire`) and names the content's code, the first 8 hex of its sha256:
-  `approve msn_… 3f2a9c1b`. Until then the command asks (exit 3) with that exact line, so the role relays
+  `approve msn_… 3f2a9c1b` (lifting a loop block: `lift msn_… <code>`, M9.51). Until then the command asks (exit 3) with that exact line, so the role relays
   it and runs again once the human has replied. A negated line ("don't approve …"), another code or verb,
   and a line captured before a later decision about the subject grant nothing: other content granted, a
   veto or a revocation, and for a baseline any version's confirmation (so an old "approve" or "restore"
@@ -175,6 +175,7 @@ loop to move on records them:
 | journeys defined | a journey that `journeys.lifecycle` does not call retired |
 | a state report or eval | its `baseline_id` (another than the current one: re-assess, re-evaluate) and the eval's boolean `goal_met` |
 | a goal's progress | a goal is one a `goal.derived` (or `goal.approved`) ledger row covers at its content, closed by its `goal.met` row; status `derived` → `approved` → `active` (`goal intents` handed it to Aladdin) · `retired` · `blocked`; an eval narrowed to it (`goal_id`) decides its close |
+| a lifted block | a `mission.lifted` ledger row (role human, `--by`, the human's typed `lift <mission> <code>` line) whose code digests `{mission_id, block, lift, occurrence}`: the block's key, how many lifts of it the ledger has, and which block it was (the handout tick that tripped a repeat; the newest of 3 failed goals, which is how far that reset reaches); `tick --force` records it (M9.51). A repeat restarts at the row's own run-log event (its first copy only); the 3-failed-goals count at its `occurrence` |
 | a goal's sprints | `intent.received` {goal_id, intent_id} → `plan.created` {sprint: "S<N>", intent_id}; with no linked intent, the sprints planned since the loop handed out its `SPRINT`. Closes: `.aladdin/state/sprints.json`; `plan.approved` (spoon-fed) |
 
 Time is the ms in each harness id, so artifacts order exactly; an event stamp kept to the second
