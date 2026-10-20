@@ -104,8 +104,8 @@ assert a.resolve_transcript({"agent_transcript_path": log}, "x") == log
 ok("usage, context pressure and transcript resolution through the adapter")
 
 # 6) dsh worker confinement (host-adapter hook, AGENTIC_HOST=dsh): dsh cannot rewrite a call, so a
-# bound writer is confined by denial. The dsh plugin passes the agent's working directory as
-# tool_input.workdir (dsh runs a command there) and makes file paths absolute.
+# bound writer is confined by denial. The dsh plugin passes the directory a command runs in as
+# tool_input.workdir (bash's own workdir, else the agent's) and joins relative paths to it.
 os.makedirs(os.path.join(T, "docs", "agents"), exist_ok=True)
 wt = run(os.path.join(BIN, "task-worktree"), "add", "S1-02-T1").stdout.strip()
 os.makedirs(os.path.join(wt, ".aladdin"), exist_ok=True)
@@ -131,7 +131,13 @@ assert pre("Bash", {"command": "cargo test", "workdir": wt}) == ""
 assert pre("Bash", {"command": "cargo test", "workdir": os.path.join(wt, "src")}) == ""
 assert "inside your worktree" in pre("Bash", {"command": "cargo test", "workdir": T})
 assert pre("Bash", {"command": "cd %s && cargo test" % wt, "workdir": T}) == ""
-ok("dsh: a bound writer's command runs only in (or `cd`s into) its worktree")
+assert "stay in your worktree" in pre("Bash", {"command": "cd %s && git commit -am x" % T, "workdir": wt})
+assert "stay in your worktree" in pre("Bash", {"command": "cd .. && touch x", "workdir": wt})
+assert "stay in your worktree" in pre("Bash", {"command": "cd && touch x", "workdir": wt})
+os.makedirs(os.path.join(wt, "src"), exist_ok=True)
+assert pre("Bash", {"command": "cd src && cargo test", "workdir": wt}) == ""
+assert pre("Bash", {"command": "cd src; cargo test", "workdir": wt}) == ""
+ok("dsh: a bound writer's command runs only in (or `cd`s into) its worktree, never `cd`s out of it")
 assert pre("Write", {"file_path": os.path.join(wt, "tests", "a.rs"), "workdir": wt}) == ""
 assert pre("Edit", {"file_path": "tests/a.rs", "workdir": wt}) == ""
 assert "edit only files inside your worktree" in pre("Edit", {"file_path": "a.py", "workdir": T})
@@ -143,5 +149,16 @@ assert pre("working_directory", {"workdir": wt}) == ""
 assert "stay in your worktree" in pre("working_directory", {"cd": T, "workdir": wt})
 assert "stay in your worktree" in pre("working_directory", {"cd": "..", "workdir": wt})
 ok("dsh: working_directory moves only within the worktree")
+os.symlink(os.path.join(T, "docs"), os.path.join(wt, "lnk"))
+assert "edit only files inside your worktree" in pre("Write", {"file_path": os.path.join(wt, "lnk", "..", "x.md"), "workdir": wt})
+assert "stay in your worktree" in pre("working_directory", {"cd": os.path.join(wt, "lnk", ".."), "workdir": wt})
+assert "inside your worktree" in pre("Bash", {"command": "touch x", "workdir": os.path.join(wt, "lnk", "..")})
+ok("dsh: a symlink out of the worktree is followed before `..` (as dsh does), so `lnk/..` is outside it")
+assert "inside your worktree" in pre("Bash", {"command": "touch x # aloop bind %s" % wt, "workdir": T})
+assert "inside your worktree" in pre("Bash", {"command": "make gen; aloop bind %s" % wt, "workdir": T})
+assert pre("Bash", {"command": "cd %s && aloop bind %s" % (wt, wt), "workdir": T}) == ""
+assert "inside your worktree" in pre("Bash", {"command": "touch x; aloop bind %s" % wt, "workdir": T}, agent="dsh-child-2")
+assert json.load(open(os.path.join(T, ".aladdin", "state", "agents", "dsh-child-2.json")))["worktree"] == wt
+ok("only a bare `aloop bind` skips the checks: a bind in a comment or chained to a command is confined (and still recorded)")
 
 print("\n%d checks passed" % PASS[0])

@@ -110,7 +110,7 @@ The model can ignore a skill; it cannot ignore an exit code.
   ROADMAP §6 conformance suite (real gates on a fixture crate, plus the focused tests that hold
   the tool-level items: 19 of the 20 items, 78 checks; §6.15 is measured by live runs), the host tests
   (budget/worktree, Codex hooks emulation, supervisor scope, hook matchers, dispatch,
-  ensure-tools, fail-closed: 73 checks; OpenCode end-to-end: 20; dsh plugin: 29, on the real dsh runtime: 23), `claude plugin validate
+  ensure-tools, fail-closed: 73 checks; OpenCode end-to-end: 20; dsh plugin: 33, on the real dsh runtime: 30, dsh install: 6), `claude plugin validate
   --strict`, eval-suite and version-lockstep checks,
   the tracking check and `host check`, plus the newer suites (targets render, host swap,
   metrics, config, the aladdin CLI, the site).

@@ -41,7 +41,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | 4.9 | HostAdapter interface extraction, gate equivalence (outer enforcement) | IMPLEMENTED_TESTED | `scripts/test/host-adapter.test.py` |
 | 4.9 | Portable `.aladdin/config.yaml` with migration | IMPLEMENTED_TESTED | `scripts/test/portable-config.test.py` |
 | 4.9 | Host swap: resume a sprint on another host from portable state (`host swap`) | IMPLEMENTED_TESTED | `scripts/test/host-swap.test.py` |
-| 4.9 | DeepSeek Harness (dsh) host: native plugin gates, role presets, worktree confinement | IMPLEMENTED_TESTED | `scripts/test/dsh-plugin.test.mjs`, `scripts/test/dsh-runtime.test.mjs` |
+| 4.9 | DeepSeek Harness (dsh) host: native plugin gates, role presets, worktree confinement, a profile per project | IMPLEMENTED_TESTED | `scripts/test/dsh-plugin.test.mjs`, `scripts/test/dsh-runtime.test.mjs`, `scripts/test/dsh-install.test.py` |
 | 4.9 | Measured live run on dsh (`make e2e-live YES=1 HOST=dsh`) | BLOCKED_HOST | needs `DEEPSEEK_API_KEY` |
 | 4.10 | Metrics table (percentiles, breaches, waste, rates, cache, context peak) | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |
 | 4.10 | Commits, tests added, time soft limits, semantic context served | IMPLEMENTED_TESTED | `scripts/test/metrics.test.py` |

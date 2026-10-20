@@ -104,6 +104,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and
 	python3 scripts/test/context-boundary.test.py
 	python3 scripts/test/model-routes.test.py
 	python3 scripts/test/host-adapter.test.py
+	python3 scripts/test/dsh-install.test.py
 	python3 scripts/test/portable-config.test.py
 	python3 scripts/test/host-swap.test.py
 	python3 scripts/test/aladdin-cli.test.py

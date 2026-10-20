@@ -75,6 +75,14 @@ for path in (".aladdin/scaffold-symbols", ".agentic/scaffold-symbols"):
     r = run(path, agent_type="aloop:red-worker")
     assert r.returncode == 0, (path, r)
 ok("a sub-agent may still write its own worktree markers (scaffold-symbols, in .aladdin/ or .agentic/)")
+for path in (".aladdin/worktrees/S1-01-T1/src/main.rs", ".agentic/worktrees/S1-01-T1/src/main.rs"):
+    r = run(path)
+    assert r.returncode == 2 and "may not write production source" in r.stderr, (path, r)
+for path in (".aladdin/worktrees/S1-01-T1/.aladdin/task.env", ".aladdin/state/tasks/S1-01-T1.env", "docs/agents/sprint1/init.md"):
+    r = run(path)
+    assert r.returncode == 0, (path, r)
+assert run(".aladdin/worktrees/S1-01-T1/src/main.rs", agent_type="aloop:green-worker").returncode == 0
+ok("live sprint: the supervisor may not edit source inside a task worktree (only its marker dir); a worker may")
 
 
 

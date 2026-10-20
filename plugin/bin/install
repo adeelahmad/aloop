@@ -26,8 +26,10 @@ dsh:      $DSH_HOME/profiles/aloop/ (DSH_HOME defaults to ~/.dsh): the `aloop` p
           as agent presets aloop-<role>, the two delegation tools (subagent: execution roles,
           subagent_planning: planning roles) with their models, and the plugin
           hosts/dsh/aloop.mjs, loaded in place. dsh has no project-scoped plugin layer, so the
-          profile is always under $DSH_HOME; the skills go to <DIR>/.dsh/skills (or
-          $DSH_HOME/skills with --global). + ~/.local/bin/aloop. Run: dsh --profile aloop
+          profile is always under $DSH_HOME; it records the project it serves (or every one, with
+          --global), and only that project's `aloop-init` re-renders or uninstall removes it. The
+          skills go to <DIR>/.dsh/skills (or $DSH_HOME/skills with --global). + ~/.local/bin/aloop.
+          Run: dsh --profile aloop
 """
 import json
 import os
@@ -99,7 +101,8 @@ def host_body(body, host):
                "dispatched with `subagent` (red-worker, scaffolder, green-worker, structural-reviewer, final-gate) or "
                "`subagent_planning` (intake, standards, planner, archivist), `agent_preset: aloop-<role>`. If you were "
                "dispatched with a worktree path, your FIRST command is `aloop bind <that path>`; then work only inside "
-               "it (your commands run there; use absolute paths under it for every file). Calls outside it are refused.\n",
+               "it (your commands run there; use absolute paths under it for every file). Calls outside it are refused. "
+               "Do not `send_message` the supervisor: your result reaches it when your stop gate passes.\n",
     }.get(host, "")
     return body.rstrip() + "\n" + note
 
@@ -249,11 +252,38 @@ def dsh_agent_options(model):
     """agentOptions for a delegation tool; an empty model is the session's default model."""
     if not model:
         return None
-    provider, _, mid = model.rpartition("/")
-    return {"provider": provider or DSH_PROVIDER, "model": mid}
+    provider, slash, mid = model.partition("/")         # a provider id has no "/"; a model id may
+    return {"provider": provider, "model": mid} if slash else {"provider": DSH_PROVIDER, "model": model}
 
 
-def dsh_patch(st):
+OWNER = "# aloop-project: "
+
+
+def dsh_owner(opts):
+    """Whom the one global profile serves: the project it was rendered for, or (global)."""
+    return opts.get("owner") or ("(global)" if opts.get("global") else os.path.realpath(opts["project"]))
+
+
+def dsh_profile_owner():
+    """The owner recorded in the installed profile; None when it records none (an older install)."""
+    try:
+        with open(os.path.join(dsh_profile(), "cordis.patch.yml")) as f:
+            for ln in f:
+                if ln.startswith(OWNER):
+                    return ln[len(OWNER):].strip()
+                if not ln.startswith("#"):
+                    break
+    except OSError:
+        pass
+    return None
+
+
+def dsh_serves(project):
+    """The profile is this project's to re-render or remove: rendered for it, for every project, or unrecorded."""
+    return dsh_profile_owner() in (None, "(global)", os.path.realpath(project))
+
+
+def dsh_patch(st, owner):
     """The aloop profile's cordis.patch.yml: patches on top of dsh's base + headless bundles."""
     roles = agents()
     work = ["aloop-" + n for n, _, _ in roles if n not in PLANNING]
@@ -269,6 +299,7 @@ def dsh_patch(st):
         return c + "}"
 
     out = ["# " + MARK,
+           OWNER + owner,
            "# The aloop profile for DeepSeek Harness: `dsh --profile aloop`. Roles are agent presets",
            "# aloop-<role>; `subagent` dispatches the execution roles, `subagent_planning` the planning",
            "# roles; hosts/dsh/aloop.mjs runs the gates. Supervisor model: $ALOOP_DSH_MODEL.",
@@ -321,7 +352,7 @@ def install_dsh(opts, st):
     write(os.path.join(prof, "package.json"), json.dumps(
         {"name": "dsh-profile-aloop", "private": True, "description": MARK, "dependencies": {},
          "dsh": {"profile": {"bundles": DSH_BUNDLES}}}, indent=2) + "\n", written)
-    write(os.path.join(prof, "cordis.patch.yml"), dsh_patch(st), written)
+    write(os.path.join(prof, "cordis.patch.yml"), dsh_patch(st, dsh_owner(opts)), written)
     base = dsh_skills_dir(opts)
     for skill, new_name in (("aloop", "aloop"), ("aladdin", "aladdin"), ("init", "aloop-init")):
         if opts.get("skills") is False:
@@ -373,8 +404,11 @@ def uninstall(host, opts):
     elif host == "dsh":
         prof = dsh_profile()
         if ours(os.path.join(prof, "cordis.patch.yml")):
-            shutil.rmtree(prof)
-            removed.append(prof)
+            if opts.get("global") or dsh_serves(opts["project"]):
+                shutil.rmtree(prof)
+                removed.append(prof)
+            else:
+                print("  kept %s: it serves %s" % (prof, dsh_profile_owner()))
         for s in ("aloop", "aladdin", "aloop-init"):
             d = os.path.join(dsh_skills_dir(opts), s)
             if os.path.isdir(d) and ours(os.path.join(d, "SKILL.md")):
@@ -391,8 +425,8 @@ def installed(project):
                     ("codex", os.path.join(os.path.expanduser("~"), ".codex", "agents", "planner.toml")),
                     ("opencode", os.path.join(project, ".opencode", "agents", "planner.md")),
                     ("dsh", os.path.join(dsh_profile(), "cordis.patch.yml"))):
-        if os.path.isfile(p) and ours(p):
-            found.append((host, p))
+        if os.path.isfile(p) and ours(p) and (host != "dsh" or dsh_serves(project)):
+            found.append((host, p))   # the dsh profile is global: only the project it serves re-renders it
     return found
 
 
@@ -405,6 +439,7 @@ def rerender(project):
             has = lambda o: ours(os.path.join(dsh_skills_dir(o), "aloop", "SKILL.md"))  # noqa: E731
             opts["global"] = not has({"project": project})
             opts["skills"] = has(opts)
+            opts["owner"] = dsh_profile_owner() or dsh_owner(opts)
         INSTALLERS[host](opts, st)
         print("  re-rendered %s agents (%s)" % (host, os.path.dirname(p)))
 

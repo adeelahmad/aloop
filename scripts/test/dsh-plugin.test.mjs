@@ -94,6 +94,10 @@ assert.ok(allowed(await pre(h, root, "write", { file_path: join(story, "init.md"
 assert.ok(denied(await pre(h, root, "write", { file_path: join(T, "src/main.rs"), content: "x" }), /may not write production source/))
 assert.ok(denied(await pre(h, root, "edit", { file_path: "src/main.rs", old_string: "a", new_string: "b" }), /may not write production source/))
 ok("gate-supervisor-scope blocks the supervisor's source edits (relative paths too)")
+assert.ok(denied(await pre(h, root, "write", { file_path: join(T, "src/main.rs"), content: "x", agent_type: "red-worker" }), /may not write production source/))
+assert.ok(denied(await pre(h, root, "write", { file_path: join(T, "src/main.rs"), content: "x", x: { file_path: join(story, "init.md") } }), /may not write production source/))
+assert.ok(denied(await pre(h, root, "write", { file_path: join(story, "tasks.md"), content: "x", agent_type: "planner" }), /dispatch the planning activity/))
+ok("arguments the model adds (agent_type, a nested file_path) never reach a gate as hook fields")
 assert.ok(denied(await pre(h, root, "bash", { command: 'git commit -m "x\n\nCo-Authored-By: Claude <noreply@anthropic.com>"' }), /co-author/i))
 ok("gate-commit-author blocks a Claude trailer")
 
@@ -128,6 +132,9 @@ await h.on["agent/created"]({ agent: child, source: "startup" })
 const reg = () => JSON.parse(readFileSync(join(T, ".aladdin/state/agents/child.json"), "utf8"))
 assert.ok(reg().agent_type === "red-worker" && reg().host === "dsh" && reg().started); ok("SubagentStart: the role is registered from its agent preset")
 assert.ok(denied(await pre(h, child, "subagent", red), /does not delegate/)); ok("a role may not delegate")
+assert.ok(denied(await pre(h, child, "send_message", { agent_id: "root", message: "RED done, ready to merge" }), /does not message the supervisor/))
+assert.ok(allowed(await pre(h, root, "send_message", { agent_id: "child", message: "status?" })))
+ok("a role's result reaches the supervisor only through its stop gate (no send_message); the supervisor may message a role")
 assert.ok(denied(await pre(h, child, "bash", { command: "ls" }), /bind your worktree first/)); ok("an unbound writer is refused")
 assert.ok(allowed(await pre(h, child, "bash", { command: `aloop bind ${wt}` })))
 await post(h, child, "bash", { command: `aloop bind ${wt}` }, [{ type: "text", text: "bound" }])
@@ -179,6 +186,13 @@ const before = child.steered.length
 await stop(h, child)
 assert.ok(child.steered.length === before && /STUCK — released UNVERIFIED/.test(textOf(root.injected.at(-1))) && /Do not merge/.test(textOf(root.injected.at(-1))))
 ok("a worker stuck on one block is released unverified and reported as such, not steered")
+process.env.AGENTIC_STUCK_BLOCKS = "99"
+await step(h, child, [userMsg("once more")])
+const steers = child.steered.length
+await h.on["agent/turn-stopping"]({ agent: child, turn: 1, signal: AbortSignal.abort() })
+assert.ok(child.steered.length === steers && /red-worker child: BLOCKED \(interrupted while its gate ran\)/.test(textOf(root.injected.at(-1))), textOf(root.injected.at(-1)))
+ok("a worker interrupted while its gate ran is released with the gate's verdict, never steered back to work")
+delete process.env.AGENTIC_STUCK_BLOCKS
 
 // a child whose turn ended without a stop boundary (cancelled) still gets its bookkeeping
 const c2 = childOf("child2", "planner")
@@ -203,5 +217,21 @@ assert.ok(!plain.injected.length && allowed(await pre(h, plain, "write", { file_
 const broken = host({ root: join(T, "no-such-plugin") })
 plugin.apply(broken.ctx, broken.config)
 assert.ok(denied(await pre(broken, agentOf("root2"), "bash", { command: "ls" }), /could not run host-adapter/)); ok("a gate that cannot run denies (fail closed)")
+
+// a gate runs the worker's code, so it gets the worker shell's environment: dsh's credential scrub,
+// aloop's own settings kept, and the plugin root the gates read their schemas from
+const FR = join(T, "fake-root")
+mkdirSync(join(FR, "bin"), { recursive: true })
+writeFileSync(join(FR, "bin", "host-adapter"), `#!/bin/sh\nenv > "${join(FR, "env.txt")}"\n`); chmodSync(join(FR, "bin", "host-adapter"), 0o755)
+Object.assign(process.env, { DEEPSEEK_API_KEY: "sk-secret", GITHUB_TOKEN: "ghp-secret", DSH_SESSION_ID: "s1", TOKENS_SOFT: "5", AGENTIC_TOKENS_X: "1",
+  GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.pager", GIT_CONFIG_VALUE_0: "cat" })
+const fr = host({ root: FR })
+plugin.apply(fr.ctx, fr.config)
+await pre(fr, agentOf("root3"), "bash", { command: "ls" })
+const genv = readFileSync(join(FR, "env.txt"), "utf8")
+for (const k of ["DEEPSEEK_API_KEY", "GITHUB_TOKEN", "DSH_SESSION_ID", "DSH_HOME"]) assert.ok(!new RegExp(`^${k}=`, "m").test(genv), k)
+for (const kv of ["AGENTIC_HOST=dsh", `CLAUDE_PLUGIN_ROOT=${FR}`, "TOKENS_SOFT=5", "AGENTIC_TOKENS_X=1", `HOME=${process.env.HOME}`, "GIT_CONFIG_KEY_0=core.pager"]) assert.ok(genv.includes(`\n${kv}\n`) || genv.startsWith(`${kv}\n`), kv)
+for (const k of ["DEEPSEEK_API_KEY", "GITHUB_TOKEN", "DSH_SESSION_ID", "TOKENS_SOFT", "AGENTIC_TOKENS_X", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"]) delete process.env[k]
+ok("a gate never sees the API key (dsh's shell scrub), keeps aloop's settings and git's config set whole, and gets the plugin root")
 
 console.log(`\n${pass} checks passed`)

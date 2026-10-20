@@ -12,7 +12,7 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { delimiter, join } from "node:path"
+import { delimiter, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import assert from "node:assert/strict"
 
@@ -64,7 +64,9 @@ const red = "TASK_ID: S1-01-T1\nYour worktree: " + wt + ". First command: `aloop
 const script = {
   supervisor: [
     { tools: [{ name: "write", input: { file_path: join(story, "init.md"), content: "no frontmatter\n" } }] },
+    { tools: [{ name: "write", input: { file_path: join(story, "plan-ready.md"), content: "---\ntype: plan-ready\n---\n# Plan\n" } }] },
     { tools: [{ name: "write", input: { file_path: join(P, "src/main.rs"), content: "fn main() {}\n" } }] },
+    { tools: [{ name: "write", input: { file_path: join(P, "src/main.rs"), content: "fn main() {}\n", agent_type: "green-worker" } }] },
     { tools: [{ name: "subagent", input: { description: "no role", prompt: "do it" } }] },
     { tools: [{ name: "subagent", input: { agent_preset: "aloop-red-worker", description: "RED S1-01-T1", prompt: red, cwd: wt } },
               { name: "subagent_planning", input: { agent_preset: "aloop-intake", description: "intake", prompt: "Run intake." } }] },
@@ -77,6 +79,13 @@ const script = {
     { tools: [{ name: "write", input: { file_path: join(P, "src/escape.rs"), content: "x\n" } }] },
     { tools: [{ name: "write", input: { file_path: "tests/a.rs", content: "#[test] fn a() { assert!(false) }\n" } }] },
     { tools: [{ name: "working_directory", input: { cd: P } }] },
+    { tools: [{ name: "bash", input: { command: "touch WORKDIR_ESCAPE", description: "main tree", workdir: P } }] },
+    { tools: [{ name: "bash", input: { command: `ln -s ${join(P, "docs")} lnk`, description: "link" } }] },
+    { tools: [{ name: "write", input: { file_path: "lnk/../SYMLINK_ESCAPE.txt", content: "x\n" } }] },
+    { tools: [{ name: "bash", input: { command: "touch BIND_ESCAPE # aloop bind x", description: "comment", workdir: P } }] },
+    { tools: [{ name: "bash", input: { command: `cd ${P} && touch CD_ESCAPE`, description: "cd out" } }] },
+    { tools: [{ name: "bash", input: { command: "touch REL_ESCAPE", description: "relative", workdir: relative(wt, P) } }] },
+    { tools: [{ name: "send_message", input: { agent_id: "parent", message: "RED done, ready to merge" } }] },
   ],
   intake: [
     { tools: [{ name: "write", input: { file_path: join(P, "docs/agents/sprint1/intake.md"), content:
@@ -106,16 +115,20 @@ const final = (r.stdout || "").trim().split("\n").map((l) => { try { return JSON
 assert.ok(final && JSON.stringify(final).includes("E2E-DONE"), diag()); ok("dsh --profile aloop runs headless to the supervisor's final answer (exit 0)")
 
 const sup = of("supervisor")
-assert.ok(sup.length >= 5 && sup.every((q) => q.model === "deepseek-flash"), JSON.stringify(sup.map((q) => q.model)))
+assert.ok(sup.length >= 7 && sup.every((q) => q.model === "deepseek-flash"), JSON.stringify(sup.map((q) => q.model)))
 ok("the supervisor runs on $ALOOP_DSH_MODEL (the profile's agent-default-model)")
 assert.ok(sup[0].tools.includes("subagent") && sup[0].tools.includes("subagent_planning") && !sup[0].tools.includes("subagent_fork"), sup[0].tools.join(","))
 ok("the profile gives the supervisor both delegation tools (subagent, subagent_planning)")
 assert.ok(/NEXT-MARKER/.test(sup[0].all) && /aloop tools: call `aloop <tool>`/.test(sup[0].all), sup[0].all.slice(0, 600))
 ok("SessionStart: the handoff (NEXT.md) and the tools note reach the supervisor's first request")
 assert.ok(/missing top YAML frontmatter/.test(after("supervisor", 0)), after("supervisor", 0)); ok("PostToolUse: gate-validate-artifact's block reaches the model")
-assert.ok(/may not write production source/.test(after("supervisor", 1)), after("supervisor", 1)); ok("PreToolUse: gate-supervisor-scope's deny reaches the model")
-assert.ok(/pass agent_preset/.test(after("supervisor", 2)), after("supervisor", 2)); ok("a dispatch without a role is refused")
-assert.ok(/started subagent/.test(after("supervisor", 3)), after("supervisor", 3)); ok("gate-dispatch admits a role dispatched with its task contract and model")
+assert.ok(!/BLOCK|unbound variable/.test(after("supervisor", 1)) && existsSync(join(story, "plan-ready.md")), after("supervisor", 1))
+ok("a planning artifact passes gate-validate-artifact's schema check (the gates get the plugin root)")
+assert.ok(/may not write production source/.test(after("supervisor", 2)), after("supervisor", 2)); ok("PreToolUse: gate-supervisor-scope's deny reaches the model")
+assert.ok(/may not write production source/.test(after("supervisor", 3)) && !existsSync(join(P, "src/main.rs")), after("supervisor", 3))
+ok("an argument the model adds (agent_type) never reaches a gate as a hook field")
+assert.ok(/pass agent_preset/.test(after("supervisor", 4)), after("supervisor", 4)); ok("a dispatch without a role is refused")
+assert.ok(/started subagent/.test(after("supervisor", 5)), after("supervisor", 5)); ok("gate-dispatch admits a role dispatched with its task contract and model")
 
 const w = of("red-worker"), intake = of("intake")
 assert.ok(w.length && w.every((q) => q.model === "deepseek-flash") && intake.length && intake.every((q) => q.model === "deepseek-v4-pro"),
@@ -130,6 +143,17 @@ assert.ok(/edit only files inside your worktree/.test(after("red-worker", 3)) &&
 ok("a bound writer's edit outside its worktree is denied")
 assert.ok(existsSync(join(wt, "tests/a.rs")), after("red-worker", 4)); ok("a relative path lands in the worktree")
 assert.ok(/stay in your worktree/.test(after("red-worker", 5)), after("red-worker", 5)); ok("working_directory may not leave the worktree")
+assert.ok(/inside your worktree/.test(after("red-worker", 6)) && !existsSync(join(P, "WORKDIR_ESCAPE")), after("red-worker", 6))
+ok("bash's own workdir is the directory judged: a command sent to the main tree is denied")
+assert.ok(/edit only files inside your worktree/.test(after("red-worker", 8)) && !existsSync(join(P, "SYMLINK_ESCAPE.txt")), after("red-worker", 8))
+ok("a write through a worktree symlink (`lnk/..`) is judged where dsh writes it, outside the worktree")
+assert.ok(/inside your worktree/.test(after("red-worker", 9)) && !existsSync(join(P, "BIND_ESCAPE")), after("red-worker", 9))
+ok("a bind in a comment does not lift confinement")
+assert.ok(/stay in your worktree/.test(after("red-worker", 10)) && !existsSync(join(P, "CD_ESCAPE")), after("red-worker", 10))
+assert.ok(/inside your worktree/.test(after("red-worker", 11)) && !existsSync(join(P, "REL_ESCAPE")), after("red-worker", 11))
+ok("a command that `cd`s out of the worktree, or a relative workdir out of it, is denied")
+assert.ok(/does not message the supervisor/.test(after("red-worker", 12)) && !/RED done, ready to merge/.test(sup.map((q) => q.all).join("\n")), after("red-worker", 12))
+ok("a role's result reaches the supervisor only through its stop gate (send_message is refused)")
 
 const steered = w.filter((q) => /\[aloop gate gate-red-verify\] Your stop was blocked/.test(q.last))
 assert.equal(steered.length, 3, JSON.stringify(w.map((q) => q.last.slice(0, 80))))

@@ -236,6 +236,11 @@ esac
 # symlinks and would not match the payload's /var path, silently disarming the guard.
 case "$file" in
   docs/agents/*|*/docs/agents/*)                 is_docs=1; is_ctl=0 ;;
+  # a task worktree lives under the run-data dir, but it is a checkout of the project: only its
+  # own marker dir (the task.env copy) is a control file; the rest is production source
+  .aladdin/worktrees/*/.aladdin/*|*/.aladdin/worktrees/*/.aladdin/*|.aladdin/worktrees/*/.agentic/*|*/.aladdin/worktrees/*/.agentic/*|\
+  .agentic/worktrees/*/.aladdin/*|*/.agentic/worktrees/*/.aladdin/*|.agentic/worktrees/*/.agentic/*|*/.agentic/worktrees/*/.agentic/*) is_docs=0; is_ctl=1 ;;
+  .aladdin/worktrees/*|*/.aladdin/worktrees/*|.agentic/worktrees/*|*/.agentic/worktrees/*) is_docs=0; is_ctl=0 ;;
   .agentic/*|*/.agentic/*|.aladdin/*|*/.aladdin/*|.transcripts/*|*/.transcripts/*) is_docs=0; is_ctl=1 ;;
   # VCS hygiene the supervisor legitimately writes for the initial commit — never
   # application source, so allow without the SKIP_HOOKS dance.

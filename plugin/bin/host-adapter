@@ -14,10 +14,12 @@ PreToolUse (Codex, OpenCode, dsh — Claude Code isolates workers itself): workt
     every patched/written path must be under it — otherwise the call is denied with the
     exact fix. (The OpenCode plugin rewrites args instead of denying: it calls this with
     AGENTIC_HOST=opencode and reads the binding back.)
-  - dsh runs a command in the agent's working directory (its bash has no workdir argument),
-    which the dsh plugin passes as tool_input.workdir: a command whose workdir is inside the
-    worktree is inside it, and relative paths resolve against that directory. The
+  - dsh runs a command in bash's own `workdir` argument or else the agent's working directory;
+    the dsh plugin passes that directory as tool_input.workdir: a command whose workdir is inside
+    the worktree is inside it, and relative paths resolve against that directory. The
     working_directory tool may move only within the worktree.
+  - Only a command that is just the bind (`[cd X &&] aloop bind <worktree>`) skips the checks:
+    anything chained to it, or a bind in a comment, is confined like any other command.
 
 Deterministic, never fails a tool call on an internal error.
 """
@@ -34,6 +36,7 @@ import _usage  # noqa: E402
 
 WRITERS = ("red-worker", "scaffolder", "green-worker")
 BIND = re.compile(r"(?:^|[;&|]\s*|\s)(?:\S*/)?(?:(?:aloop|agentic)\s+bind|bin/bind)\s+(\S+)")
+ONLY_BIND = re.compile(r"^\s*(?:cd\s+\S+\s*&&\s*)?(?:\S*/)?(?:(?:aloop|agentic)\s+bind|bin/bind)\s+\S+\s*$")
 PATCH_PATHS = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
 
 
@@ -88,7 +91,9 @@ def pre_tool(payload, cwd, agent_id, role, host):
                 reg["worktree"] = target
                 reg["bound_at"] = time.time()
                 save(p, reg)
-            return                                   # let `aloop bind` itself run and report
+                wt = target
+            if ONLY_BIND.match(cmd):
+                return                               # let `aloop bind` itself run and report
     if role not in WRITERS or host not in ("codex", "dsh"):
         return        # readers aren't confined; Claude Code isolates natively; OpenCode rewrites args itself
     workdir = ti.get("workdir") if host == "dsh" and isinstance(ti.get("workdir"), str) else ""
@@ -104,12 +109,16 @@ def pre_tool(payload, cwd, agent_id, role, host):
             deny("stay in your worktree %s — `working_directory` may only move inside it" % wt)
         return
     if tool in ("Bash", "bash", "shell"):
-        if workdir and under(workdir, wt):
-            return                                   # dsh runs it in the agent's directory, inside the worktree
         try:
             first = shlex.split(cmd.strip().split("&&")[0])
         except ValueError:
             first = []
+        if workdir and under(workdir, wt):           # dsh runs it there, inside the worktree…
+            to = os.path.expanduser(first[1].split(";")[0] if len(first) > 1 else "~")
+            if not first or first[0] != "cd" or under(to if os.path.isabs(to) else os.path.join(workdir, to), wt):
+                return                               # …unless it first `cd`s out of it
+            deny("stay in your worktree %s: run the command there (no `cd` out of it)" % wt)
+            return
         if not (len(first) == 2 and first[0] == "cd" and os.path.realpath(first[1]) == os.path.realpath(wt)):
             deny("run every shell command inside your worktree: `cd %s && %s`" % (wt, cmd.strip()[:200]))
         return

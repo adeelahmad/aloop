@@ -48,6 +48,19 @@ const TOOL = { bash: "Bash", write: "Write", edit: "Edit", read: "Read", glob: "
 const STUCK = /\bSTUCK\b.*NOT verified/
 const TOOLS_NOTE = "aloop tools: call `aloop <tool>` (e.g. `aloop selfcheck`, `aloop stats show`); never search for them."
 
+// A gate runs the worker's own code (its tests), so it gets the environment dsh gives the worker's
+// shell: credential-shaped names and DSH_* dropped (dsh-subprocess's scrub), aloop's own settings
+// (TOKENS_SOFT…) and git's GIT_CONFIG_COUNT/KEY_n/VALUE_n set kept whole (a dropped KEY_n makes
+// every git command fail), plus the plugin root the gates read their schemas from.
+const SCRUB = /KEY|PASSWORD|SECRET|TOKEN/i
+const KEEP = /^(AGENTIC_|ALOOP_|ALADDIN_|CLAUDE_PLUGIN_)|^(SPRINT_)?TOKENS_(SOFT|HARD)$|^TOKEN_METER$|^TASK_ENV_KEYS$|^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/
+function gateEnv(root) {
+  const env = {}
+  for (const [k, v] of Object.entries(process.env))
+    if (v !== undefined && !/^DSH_/i.test(k) && (KEEP.test(k) || !SCRUB.test(k))) env[k] = v
+  return { ...env, AGENTIC_HOST: "dsh", ...(root ? { CLAUDE_PLUGIN_ROOT: root } : {}) }
+}
+
 const safe = (s) => String(s || "").replace(/[^A-Za-z0-9_.-]/g, "_")
 const freeze = (o) => { Object.freeze(o); for (const v of Object.values(o)) if (v && typeof v === "object" && !Object.isFrozen(v)) freeze(v); return o }
 // a dsh UserMessage (what @deepseek-ai/dsh-llm's createUserMessage builds); `plugin` is a reserved source kind
@@ -129,16 +142,28 @@ export function apply(ctx, config = {}) {
     if (typeof exec.arguments !== "string") return exec.arguments || {}
     try { return JSON.parse(exec.arguments) } catch { return {} }
   }
-  // Claude-shaped tool_input. dsh runs a command in the agent's working directory (bash has no
-  // workdir argument), so that directory travels as `workdir`; file paths are made absolute.
+  // Claude-shaped tool_input, built from each tool's declared arguments only: dsh accepts extra
+  // keys, and a gate must never read a field the model made up (an `agent_type` beside a
+  // file_path). Any other tool's arguments travel as one JSON string. `workdir` is the directory
+  // dsh really runs in (bash's own `workdir`, else the agent's). Relative paths are joined the
+  // way dsh joins them (`<dir>/<path>`, `..` kept), never normalised here: like dsh,
+  // host-adapter follows a symlink before `..`.
   function toolInput(tool, a, wd) {
-    const abs = (p) => (p && !isAbsolute(p) ? resolve(wd, p) : p)
-    if (tool === "bash") return { command: a.command || "", description: a.description, workdir: wd }
-    if (DISPATCH.has(tool)) return { subagent_type: String(a.agent_preset || "").replace(/^aloop-/, ""), description: a.description,
-      prompt: a.prompt || "", cwd: a.cwd, model: MODELS[tool] || "" }
-    if (tool === "working_directory") return { cd: abs(a.cd), workdir: wd }
-    if (a.file_path) return { ...a, file_path: abs(a.file_path), workdir: wd }
-    return { ...a, workdir: wd }
+    const str = (v) => (typeof v === "string" ? v : undefined)
+    const at = (p) => (p === undefined || isAbsolute(p) ? p : `${wd}${sep}${p}`)
+    if (DISPATCH.has(tool)) return { subagent_type: String(a.agent_preset || "").replace(/^aloop-/, ""), description: str(a.description),
+      prompt: str(a.prompt) || "", cwd: str(a.cwd), model: MODELS[tool] || "" }
+    switch (tool) {
+      case "bash": return { command: str(a.command) || "", description: str(a.description), workdir: at(str(a.workdir)) ?? wd }
+      case "working_directory": return { cd: at(str(a.cd)), workdir: wd }
+      case "write": return { file_path: at(str(a.file_path)), content: str(a.content), workdir: wd }
+      case "edit": return { file_path: at(str(a.file_path)), old_string: str(a.old_string), new_string: str(a.new_string),
+        replace_all: a.replace_all === true, workdir: wd }
+      case "read": return { file_path: at(str(a.file_path)), offset: a.offset, limit: a.limit, workdir: wd }
+      case "read_image": return { file_path: at(str(a.file_path)), workdir: wd }
+      case "glob": case "grep": return { pattern: str(a.pattern), path: at(str(a.path)), include: str(a.include), workdir: wd }
+      default: return { arguments: JSON.stringify(a), workdir: wd }
+    }
   }
 
   // Run one of this plugin's bin/ scripts with the hook JSON on stdin. Async: one Node process
@@ -157,7 +182,7 @@ export function apply(ctx, config = {}) {
       }
       let child
       try {
-        child = spawn(join(BIN, script), args, { cwd, env: { ...process.env, AGENTIC_HOST: "dsh" } })
+        child = spawn(join(BIN, script), args, { cwd, env: gateEnv(ROOT) })
       } catch (e) { return finish(1, e) }
       // a hung script is killed after 10 minutes (as on OpenCode); spawn's own `timeout` would keep a
       // timer alive for a script that never started
@@ -185,6 +210,8 @@ export function apply(ctx, config = {}) {
     const s = info(exec.agent)
     if (!active(s)) return null
     const tool = exec.name, a = argsOf(exec)
+    if (s.child && tool === "send_message")    // as on Claude Code, the result reaches the supervisor only through its stop gate
+      return "aloop: a role does not message the supervisor: your result reaches it when your stop gate passes. Write your report in your output.md block, then finish."
     if (DISPATCH.has(tool)) {
       if (s.child) return "aloop: a role does not delegate. Finish your own task and report back to the supervisor."
       if (!a.agent_preset) return "aloop: dispatch an aloop role: pass agent_preset: \"aloop-<role>\" (subagent: red-worker, scaffolder, green-worker, structural-reviewer, final-gate; subagent_planning: intake, standards, planner, archivist)."
@@ -226,7 +253,7 @@ export function apply(ctx, config = {}) {
   }
 
   // A child's stop: its role's gate decides. Returns true when the child was steered back to work.
-  async function childStop(s, agent) {
+  async function childStop(s, agent, signal) {
     const p = payload("SubagentStop", s, { stop_hook_active: s.blocks > 0 })
     await run("host-adapter", ["hook"], p, s.project)
     const g = GATES[s.role]
@@ -237,13 +264,13 @@ export function apply(ctx, config = {}) {
       if (res.code === 0 && STUCK.test(res.stderr || "")) s.verdict = { stuck: res.stderr }
       else if (res.code === 2 || res.error) {
         const why = res.code === 2 ? res.stderr || "blocked" : denyOf(res, g)
-        if (s.blocks < MAX) {
+        if (s.blocks < MAX && !signal?.aborted) {     // an interrupted child is released, never revived
           s.blocks++
           // Claude semantics: a blocked stop sends the reason back and the sub-agent keeps working.
           agent.steer(msg(`[aloop gate ${g}] Your stop was blocked:\n${why}\nFix it, run \`aloop selfcheck\`, then finish.`))
           return true
         }
-        s.verdict = { blocked: why }
+        s.verdict = { blocked: why, interrupted: !!signal?.aborted }
       } else s.verdict = null
     }
     await release(s, p)
@@ -261,14 +288,14 @@ export function apply(ctx, config = {}) {
     if (!v || !root) return
     root.inject(msg(v.stuck
       ? `[aloop gate] ${s.role} ${s.id}: STUCK — released UNVERIFIED (not a pass): the sub-agent hit the same block repeatedly:\n${v.stuck}\nDo not merge. Discard its worktree and re-dispatch the task with a Feedback block that addresses the reason, or re-plan.`
-      : `[aloop gate] ${s.role} ${s.id}: BLOCKED after ${MAX} fix rounds — the sub-agent did not pass its gate:\n${v.blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`))
+      : `[aloop gate] ${s.role} ${s.id}: BLOCKED ${v.interrupted ? "(interrupted while its gate ran)" : `after ${MAX} fix rounds`} — the sub-agent did not pass its gate:\n${v.blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`))
   }
-  async function rootStop(s, agent) {
+  async function rootStop(s, agent, signal) {
     const p = payload("Stop", s, { stop_hook_active: s.blocks > 0 })
     await run("transcripts", ["snapshot"], p, s.project)
     const res = await run("stats", ["hook"], p, s.project)
     if (res.json?.systemMessage) process.stderr.write(`[aloop] ${res.json.systemMessage}\n`)
-    if (res.json?.decision === "block" && res.json.reason && s.blocks < MAX) {
+    if (res.json?.decision === "block" && res.json.reason && s.blocks < MAX && !signal?.aborted) {
       s.blocks++
       agent.steer(msg(res.json.reason))
       return
@@ -333,12 +360,12 @@ export function apply(ctx, config = {}) {
     return extra.length ? { ...d, additionalContexts: [...(d.additionalContexts || []), ...extra] } : d
   }, { prepend: true })
 
-  ctx.on("agent/turn-stopping", async ({ agent }) => {
+  ctx.on("agent/turn-stopping", async ({ agent, signal }) => {
     try {
       const s = info(agent)
       if (!active(s)) return
-      if (s.child) await childStop(s, agent)
-      else await rootStop(s, agent)
+      if (s.child) await childStop(s, agent, signal)
+      else await rootStop(s, agent, signal)
     } catch {}                    // a throw would fail the turn
   })
 

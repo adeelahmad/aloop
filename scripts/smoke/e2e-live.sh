@@ -46,7 +46,9 @@ done
 case "$HOST" in claude|codex|opencode|dsh) ;; *) echo "unknown host: $HOST (claude|codex|opencode|dsh)"; exit 2 ;; esac
 command -v "$HOST" >/dev/null || { echo "$HOST CLI not found"; exit 2; }
 USER_DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
-if [ "$HOST" = dsh ] && [ -z "$DRY" ] && [ -z "${DEEPSEEK_API_KEY:-}" ] && ! grep -qs '^DEEPSEEK_API_KEY=.' "$USER_DSH_HOME/.env"; then
+# the key as dsh reads its .env (node's parser: `export`, spaces and quotes allowed; empty is none)
+dsh_env_key() { node -e 'try { process.exit(require("node:util").parseEnv(require("node:fs").readFileSync(process.argv[1], "utf8")).DEEPSEEK_API_KEY ? 0 : 1) } catch { process.exit(1) }' "$1" 2>/dev/null; }
+if [ "$HOST" = dsh ] && [ -z "$DRY" ] && [ -z "${DEEPSEEK_API_KEY:-}" ] && ! dsh_env_key "$USER_DSH_HOME/.env"; then
   echo "dsh: no DeepSeek API key: export DEEPSEEK_API_KEY=sk-... (or put DEEPSEEK_API_KEY=sk-... in $USER_DSH_HOME/.env)"; exit 2
 fi
 case "$FIXTURE" in
@@ -160,12 +162,11 @@ else
   cargo generate-lockfile -q 2>/dev/null || true
 fi
 git add -A && git commit -qm init
+# A dsh home of the run's own, on every host and before aloop-init: init re-renders an installed
+# dsh profile, and the user's must never change (dsh: no user patches, the sessions stay with the run)
+export DSH_HOME="$T/dsh-home"; mkdir -p "$DSH_HOME"
+if [ "$HOST" = dsh ] && [ -f "$USER_DSH_HOME/.env" ]; then cp "$USER_DSH_HOME/.env" "$DSH_HOME/.env"; fi
 "$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="${WORKER_MODEL:-economical}" MODEL_WORKER="${WORKER_MODEL:-economical}" GITIGNORE=yes >/dev/null
-# dsh: its own home in the run dir (no user patches; the sessions stay with the run), with the key
-if [ "$HOST" = dsh ]; then
-  export DSH_HOME="$T/dsh-home"; mkdir -p "$DSH_HOME"
-  [ -f "$USER_DSH_HOME/.env" ] && cp "$USER_DSH_HOME/.env" "$DSH_HOME/.env"
-fi
 # Codex, OpenCode and dsh load the agents, skills and hooks from the project (dsh: its profile): render them in.
 [ "$HOST" = claude ] || "$PLUGIN/bin/install" "$HOST" --project . >/dev/null
 git add -A && git commit -qm "aloop init" >/dev/null 2>&1 || true
