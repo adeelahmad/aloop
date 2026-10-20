@@ -53,7 +53,9 @@ each goal (none → ETHICS_REVIEW, pending → ASK_CONSENT, hard or broken → B
 re-derived; one rule with the gate: a hard line follows its words to any goal, a review edited
 after it was recorded is broken), and a committed review of tier hard, so a checkout without the
 run log fails closed; the eval's
-`goal_met`; Aladdin's intent, plan and sprint events and .aladdin/state/sprints.json; the
+`goal_met`; a goal only with its goal.derived (or goal.approved) record, closed by goal.met, and an
+eval narrowed to it (goal_id) decides its close (`aloop mission goal close`); Aladdin's intent,
+plan and sprint events and .aladdin/state/sprints.json; the
 sprint lock; and the token ledger (<run data>/ledger/). A goal's sprints are planned from its intents (intent.received
 goal_id → plan.created intent_id), else since the loop handed out its SPRINT. A stamp kept to
 the second ties toward "after".
@@ -96,7 +98,6 @@ ROLES = {
     "DERIVE_GOAL": ("role", ["mission-planner"]), "WAIT": ("none", []),
 }
 EXIT = {"role": 0, "supervisor": 0, "human": 3, "none": 4}
-OPEN = ("derived", "approved", "active")
 MAX_HANDOUTS = 3          # the same action in a row without a result, then BLOCKED (a retry is not progress)
 MAX_GOALS = 3             # goals in a row that were blocked or retired or crossed a hard line
 STALL = 12 * 3600 * 1000  # a planned sprint with no event, close or lock refresh for this long has stalled
@@ -288,11 +289,15 @@ def facts(cwd, now):
     # decides, so restoring content an older approval covered is a rollback, not approved
     raw, _ = M.ledger_rows(cwd)
     rows = sorted(raw, key=lambda r: r["ts"])            # the core's order: a union merge interleaves branches
-    assessed = {}
+    assessed, born, met = {}, {}, {}
     for r in rows:
         name, d = r["event"], r["data"]
         if name == "state.assessed":
             assessed[d.get("subject")] = d.get("sha256")
+        if name in ("goal.derived", "goal.approved"):
+            born.setdefault((d.get("subject"), d.get("sha256")), []).append(r["ts"])
+        if name == "goal.met":
+            met.setdefault(d.get("subject"), []).append(r["ts"])
         sub = tuple(x if isinstance(x, str) else None for x in (d.get("subject"), d.get("sha256")))
         if name in M.APPROVAL_EVENTS and r.get("role") == "human" and str(d.get("by") or "").strip():
             newest[(name, sub[0])] = sub[1]
@@ -302,6 +307,10 @@ def facts(cwd, now):
     f["ledger_head"] = raw[-1]["hash"] if raw else ""
     # a state report counts only with the state.assessed record of its content (mission assess)
     f["kinds"]["state"] = [a for a in f["kinds"]["state"] if assessed.get(a["ref"]) == a["sha"]]
+    # a goal is one `mission goal derive` recorded (goal.derived, or the human's goal.approved, for
+    # its content) and it is closed by its goal.met record, as `mission evaluate` reads them
+    f["kinds"]["goal"] = [dict(a, met=any(t >= max(born[(a["ref"], a["sha"])]) for t in met.get(a["ref"], [])))
+                          for a in f["kinds"]["goal"] if (a["ref"], a["sha"]) in born]
     # fail closed: a committed hard review holds on a checkout without the run log (ROADMAP M9.24);
     # every other ethics fact is `mission ethics`'s verdict (ethics_of)
     for a in f["kinds"].get("ethics", []):
@@ -495,7 +504,7 @@ def rules(f):
     if b:
         return b
     g = latest(f, "goal")
-    if g and g["status"] in OPEN:
+    if g and not g["met"] and g["status"] not in ("blocked", "retired"):
         r = goal_rule(f, g, mode, now, cad)
         if r:
             return r
@@ -667,22 +676,35 @@ def goal_rule(f, g, mode, now, cad):
                                   "for its content): the human picks it or stops the sprint" % (running[-1], g["id"]),
                        g["ref"])
         return act("OFFER_OPTIONS", "spoon-fed: show the human goal %s's ranked options; their pick is "
-                                    "goal.approved" % g["id"], g["ref"])
+                                    "goal.approved (aloop mission goal approve %s --by NAME)" % (g["id"], g["id"]),
+                   g["ref"])
     if g["status"] in ("derived", "approved"):
-        return act("PLAN_INTENTS", "goal %s is cleared: turn its top gaps into Aladdin intents" % g["id"], g["ref"])
+        return act("PLAN_INTENTS", "goal %s is cleared: turn its gaps into Aladdin intents (aloop mission goal "
+                                   "intents %s)" % (g["id"], g["id"]), g["ref"])
     if running:
         return sprint_rule(f, g, running[-1], mode, now, cad)
     done = goal_sprints(f, g)
+    e = latest(f, "eval")
+    mine = e if e and e["doc"].get("goal_id") == g["id"] and e["ms"] > g["ms"] else None
+    if mine and goal_met(f, mine):
+        return act("EVALUATE", "goal %s is met in eval %s: close it (aloop mission goal close %s --eval %s)"
+                   % (g["id"], mine["id"], g["id"], mine["id"]), g["ref"])
     sprinted = {iid for _, _, iid in f["plans"]}
     left = [i for i in f["intents"].get(g["id"]) or [] if i not in sprinted]
     if done and not left:
+        s = latest(f, "state")
+        if mine and mine["ms"] > max(f["closed"][n] for n in done) and (not s or mine["ms"] >= s["ms"]):
+            return act("BLOCKED", "goal %s's intents were all sprinted and eval %s still lists %d gap(s) of it: the "
+                                  "human decides (a goal that is not met is never closed: ROADMAP M9.50)"
+                       % (g["id"], mine["id"], len(mine["doc"].get("gaps") or [])), g["ref"], pin=mine["id"])
         return None                              # every intent sprinted and closed: assess and evaluate
     since = max([f["closed"][n] for n in done] + [sprint_handout(f, g) or 0, g["ms"]])
     if f["lock"] and f["lock"] > since:
         return act("WAIT", "a sprint is being planned (the sprint lock is fresh)", g["ref"],
                    iso(f["lock"] + 15 * 60 * 1000))
     what = "intent %s is not sprinted yet" % left[0] if left else "no sprint was planned for it"
-    return act("SPRINT", "goal %s is active and %s: run /aladdin on it" % (g["id"], what), g["ref"])
+    return act("SPRINT", "goal %s is active and %s: `aloop mission goal next %s` makes it the next intent, then "
+                         "/aladdin on it" % (g["id"], what, g["id"]), g["ref"])
 
 
 def sprint_rule(f, g, n, mode, now, cad):
@@ -736,6 +758,16 @@ def cycle(f, now, cad):
              if t and t > e["ms"]] + (["baseline"] if measured_other(f, e) else [])
     if stale:
         return act("EVALUATE", "the latest eval %s is older than the %s" % (e["id"], ", ".join(stale)), e["ref"])
+    gid = e["doc"].get("goal_id")
+    if gid:      # narrowed to a goal's targets while it was open: it says nothing about the whole mission
+        g = next((x for x in f["kinds"]["goal"] if x["id"] == gid), None)
+        if g and not g["met"] and ethics_of(f, "goal", g)[0] == "hard":
+            return act("BLOCKED", "goal %s crossed a hard line, and `mission evaluate` still narrows to it (ROADMAP "
+                                  "M9.29): no new goal can be derived until it is set aside; the human looks"
+                       % gid, g["ref"])
+        if not g or g["met"]:
+            return act("EVALUATE", "eval %s was narrowed to goal %s, which is closed: evaluate the whole mission "
+                                   "(aloop mission evaluate)" % (e["id"], gid), e["ref"])
     running = sorted(n for n, t in f["planned"].items() if n not in f["closed"] and t >= f["since"])
     if running:
         n = running[-1]
@@ -745,11 +777,13 @@ def cycle(f, now, cad):
         nxt = min(s["ms"] + cad, last_activity(f, n) + STALL)
         return act("WAIT", "sprint %d is running; the next goal is derived after it closes" % n, "", iso(nxt))
     if not goal_met(f, e):
-        if fails:
-            g, why = fails[0]
-            return act("DERIVE_GOAL", "goal %s %s: derive another from eval %s's gap list" % (g["id"], why, e["id"]),
-                       e["ref"])
-        return act("DERIVE_GOAL", "eval %s shows gaps: derive the next goal from its gap list" % e["id"], e["ref"])
+        why = "goal %s %s: derive another from" % (fails[0][0]["id"], fails[0][1]) if fails else "eval %s shows " \
+            "gaps: derive the next goal from" % e["id"]
+        if f["mission"].get("mode") == "spoon-fed":
+            return act("OFFER_OPTIONS", "spoon-fed: %s eval %s's gap list; show the human its ranked gaps (aloop "
+                                        "mission goal options), and their pick derives it (aloop mission goal derive "
+                                        "--pick GAP_ID --by NAME)" % (why, e["id"]), e["ref"])
+        return act("DERIVE_GOAL", "%s eval %s's gap list (aloop mission goal derive)" % (why, e["id"]), e["ref"])
     evals = f["kinds"]["eval"]
     prev = evals[-2] if len(evals) > 1 else None
     if r and prev and goal_met(f, prev) and r["ms"] > prev["ms"] and now - r["ms"] < cad:
