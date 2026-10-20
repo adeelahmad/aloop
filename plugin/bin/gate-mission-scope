@@ -217,8 +217,8 @@ class Scope:
                     % (self.who, " ".join(t or "…" for t in ts)))
 
     def events_cli(self, args):
-        """`events authority` is the human's authority record, and an event with role `human` or a human
-        decision's type is the human's word: neither is a dispatched agent's to emit."""
+        """`events authority` is the human's authority record, and an event or decision with role `human` (or
+        a human decision's type) is the human's word: none is a dispatched agent's to record."""
         if not self.agent_type:
             return
         ts = [text(a) for a in args]
@@ -231,9 +231,9 @@ class Scope:
             else:
                 pos.append(t)
         cmd, event, role = (ts[0] if ts else ""), (pos[0] if pos else ""), opt.get("role", "")
-        human = (cmd == "authority" or
-                 cmd == "emit" and (role is None or event is None or role.strip().lower() == "human" or
-                                    event in self.R.M.HUMAN_EVENTS or event.startswith("human.")))
+        as_human = role is None or role.strip().lower() == "human"
+        human = (cmd == "authority" or cmd == "decide" and as_human or
+                 cmd == "emit" and (as_human or event is None or event in self.R.M.HUMAN_EVENTS or event.startswith("human.")))
         if human:
             raise Block("`events %s` is not a dispatched agent's to run: the authority record, an event with role `human`"
                         " and a human decision (%s) are the human's word.\n  If the run needs the human, say so in your"

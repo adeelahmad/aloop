@@ -250,6 +250,8 @@ ROWS = [
     (E, P, 'aloop events emit gate.passed --role "$(cat r)"', 2),
     (E, P, "python3 %s emit telemetry.consent --role human" % os.path.join(BIN, "events"), 2),
     (E, P, "aloop events emit gate.passed --role evaluator --data note=human", 0),
+    (G, T1, "aloop events decide acceptance --reason 'tests pass' --role human", 2),
+    (G, T1, "aloop events decide implementation --reason 'smaller diff' --task S1-01-T1", 0),
     (E, P, "aloop events query --event mission.approved", 0),
     (S, P, "aloop mission baseline show", 0),
     (SUP, P, "aloop events authority --initiated-by adeel --mode reviewed --scope 'sprint 1'", 0),
