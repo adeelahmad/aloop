@@ -37,6 +37,12 @@ Usage:
         an active goal (sealed, as derived) and a recorded evaluation of it, newer than the goal,
         that says goal_met: status met, a goal.met ledger record (a goal already met: exit 0, no new record). Exit 2
         while a target (or a regression) is still open, or for a goal that is not active
+  mission goal retire GOAL_ID --eval EVAL_ID
+        an active goal (sealed, as derived) whose every intent was sprinted (its sprints closed), and the
+        newest evaluation, of this goal, made after those closes, that still lists gaps: status retired, a
+        goal.retired ledger record
+        (a goal already retired: exit 0, no new record). `mission evaluate` then covers the whole
+        mission and a new goal is derived; a retired goal takes no more intents or sprints (M9.50)
   mission goal show GOAL_ID [--json]
         the goal, its check, and the principles block it carries
 """
@@ -170,6 +176,10 @@ def check(cwd, gid):
     facts = {"goal_id": gid, "path": M.rel(cwd, gpath), "status": g.get("status"), "autonomy": g.get("autonomy"),
              "sha256": sha, "ethics": None}
     blocks += derived_problems(cwd, g) if not blocks else []
+    rec = EV.retirement(cwd, g) if not blocks else None
+    if rec:
+        blocks.append("goal %s was retired (eval %s still listed its gaps after every intent was sprinted): "
+                      "derive another goal" % (gid, rec["data"].get("eval_id")))
     if blocks:
         return 2, blocks, asks, facts
     mpath, m = mission_of(cwd)
@@ -283,9 +293,10 @@ def cmd_derive(cwd, o):
     if edoc.get("goal_id"):
         gdoc, _ = M.load(M.path_of(cwd, "goal", edoc["goal_id"]))
         if isinstance(gdoc, dict) and EV.retired(cwd, gdoc):
-            report(["eval %s is narrowed to goal %s, which an ethics hard line has retired: run mission evaluate "
-                    "(with no active goal it covers the whole mission), then derive from it"
-                    % (edoc["eval_id"], edoc["goal_id"])], [])
+            report(["eval %s is narrowed to goal %s, which %s: run mission evaluate (with no active goal it covers "
+                    "the whole mission), then derive from it"
+                    % (edoc["eval_id"], edoc["goal_id"], "was retired with its gaps still open"
+                       if EV.retirement(cwd, gdoc) else "an ethics hard line has retired")], [])
         else:
             report(["eval %s is narrowed to goal %s's targets (it was active): a new goal comes from an eval of the "
                     "whole mission (close goal %s, then mission evaluate)"
@@ -487,8 +498,8 @@ def cmd_next(cwd, gid):
             return r.returncode
         print(p)
         return 0
-    print("[goal] every intent of %s has a plan; when its sprints close, evaluate and `mission goal close`" % gid,
-          file=sys.stderr)
+    print("[goal] every intent of %s has a plan; when its sprints close, evaluate: `mission goal close` if it is "
+          "met, else `mission goal retire`" % gid, file=sys.stderr)
     return 1
 
 
@@ -511,6 +522,9 @@ def cmd_close(cwd, gid, eid):
     if M.records(cwd, "goal.met", M.rel(cwd, gpath)):     # the record decides, never the status field
         print("[goal] %s is already met" % gid, file=sys.stderr)
         return 0
+    if EV.retirement(cwd, g):
+        report(["goal %s was retired: a retired goal never closes (derive another)" % gid], [])
+        return 2
     if g["status"] != "active":
         report(["goal %s is %s: only an active goal closes (handed off with `mission goal intents`)"
                 % (gid, g["status"])], [])
@@ -536,6 +550,101 @@ def cmd_close(cwd, gid, eid):
     M.record(cwd, "goal.met", M.rel(cwd, gpath), "evaluator", goal_id=gid, eval_id=eid, eval_event=ev.get("event_id"),
              sha256=M.digest(g))
     print("[goal] %s met (eval %s)" % (gid, eid), file=sys.stderr)
+    return 0
+
+
+def sprint_closes(cwd):
+    """{sprint number: close stamp} from `stats sprint-close`'s sprints.json, as `mission tick` reads it."""
+    st, _ = M.load(os.path.join(_paths.home(cwd, "state", make=False), "sprints.json"))
+    out = {}
+    for c in st.get("closed") if isinstance(st, dict) and isinstance(st.get("closed"), list) else []:
+        try:
+            out[int(c.get("sprint"))] = c.get("at")
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return out
+
+
+def retire_problems(cwd, g, eid):
+    """(eval doc, eval.completed record, why goal g is not retired on eval eid yet) (ROADMAP M9.50), the
+    rule `mission tick` asks before it hands out RETIRE_GOAL: eid is the newest eval, narrowed to the goal
+    and not met, made after every one of the goal's intents was planned and its sprints closed."""
+    import tick as T      # noqa: E402 — the loop's own clocks, so the gate and the loop agree on "after"
+    gid = g["goal_id"]
+    doc, ev, bad = eval_record(cwd, eid)
+    if bad:
+        return doc, ev, bad
+    if doc.get("goal_id") != gid:
+        return doc, ev, ["eval %s is not an evaluation of goal %s (it evaluates %s): evaluate while the goal is "
+                         "active" % (eid, gid, doc.get("goal_id") or "the whole mission")]
+    if doc["goal_met"]:
+        return doc, ev, ["goal %s is met in eval %s: close it (mission goal close %s --eval %s)" % (gid, eid, gid, eid)]
+    newest = latest_eval(cwd)
+    if newest != eid:
+        return doc, ev, ["eval %s is not the newest eval (%s is): retire on what the loop reads now" % (eid, newest)]
+    have = goal_intents(cwd, gid)
+    sprints = {}
+    for e in _events.read(cwd):
+        d = e.get("data") or {}
+        m = re.match(r"^S(\d+)$", str(d.get("sprint") or (e.get("ids") or {}).get("sprint") or ""))
+        if e.get("event") == "plan.created" and m:
+            sprints.setdefault(d.get("intent_id"), set()).add(int(m.group(1)))
+    unplanned = [gap["gap_id"] for gap in g["gaps"] if gap["gap_id"] not in have
+                 or have[gap["gap_id"]][1].get("intent_id") not in sprints]
+    if unplanned:
+        return doc, ev, ["goal %s's gap %s has no plan yet (its intent is not sprinted): sprint every intent first "
+                         "(mission goal next %s)" % (gid, ", ".join(unplanned), gid)]
+    closes = sprint_closes(cwd)
+    mine = sorted(set().union(*(sprints[have[gap["gap_id"]][1]["intent_id"]] for gap in g["gaps"])))
+    open_ = [n for n in mine if n not in closes]
+    if open_:
+        return doc, ev, ["goal %s's sprint %d is not closed (`stats sprint-close`): retire after its sprints"
+                         % (gid, open_[0])]
+    if T.ms_doc(doc, "eval") <= max(T.ms_end(closes[n]) or 0 for n in mine):
+        return doc, ev, ["eval %s was made before goal %s's last sprint closed: assess and evaluate after its sprints"
+                         % (eid, gid)]
+    return doc, ev, []
+
+
+def cmd_retire(cwd, gid, eid):
+    """Set aside an active goal whose sprints left its gaps open (ROADMAP M9.50): a goal.retired ledger
+    record, so `mission evaluate` covers the whole mission again and the loop derives past it."""
+    gpath = M.path_of(cwd, "goal", gid)
+    g, _ = M.load(gpath)
+    if not isinstance(g, dict):
+        report(["no goal %s" % gid], [])
+        return 2
+    try:
+        bad = list(M.problems(g, "goal", gpath))
+    except ValueError as e:
+        bad = ["goal %s cannot be hashed (%s)" % (gid, e)]
+    bad = bad or derived_problems(cwd, g)
+    if bad:
+        report(bad, [])
+        return 2
+    if M.ledger_block(cwd, "goal"):
+        return 2
+    if EV.retirement(cwd, g):
+        print("[goal] %s is already retired" % gid, file=sys.stderr)
+        return 0
+    if M.records(cwd, "goal.met", M.rel(cwd, gpath)):
+        report(["goal %s is met: a met goal is never retired" % gid], [])
+        return 2
+    if g["status"] != "active":
+        report(["goal %s is %s: only an active goal is retired (handed off with `mission goal intents`, every "
+                "intent sprinted)" % (gid, g["status"])], [])
+        return 2
+    doc, ev, bad = retire_problems(cwd, g, eid)
+    if bad:
+        report(bad, [])
+        return 2
+    g["status"] = "retired"
+    M.save(gpath, g)
+    still = [x.get("gap_id") for x in doc["gaps"] if isinstance(x, dict)]
+    M.record(cwd, "goal.retired", M.rel(cwd, gpath), "mission-planner", goal_id=gid, eval_id=eid,
+             eval_event=ev.get("event_id"), sha256=M.digest(g), open=still)
+    print("[goal] %s retired with %d gap(s) still open (eval %s): evaluate the whole mission and derive another"
+          % (gid, len(still), eid), file=sys.stderr)
     return 0
 
 
@@ -586,9 +695,9 @@ def main(argv, cwd):
         return cmd_options(cwd, o)
     if cmd == "derive":
         return cmd_derive(cwd, o)
-    if cmd not in ("check", "approve", "intents", "next", "close", "show"):
-        print("mission goal: unknown command %r (options, derive, check, approve, intents, next, close, show)" % cmd,
-              file=sys.stderr)
+    if cmd not in ("check", "approve", "intents", "next", "close", "retire", "show"):
+        print("mission goal: unknown command %r (options, derive, check, approve, intents, next, close, retire, show)"
+              % cmd, file=sys.stderr)
         return 64
     if not pos or not GOAL_ID.match(pos[0]):
         print("mission goal %s GOAL_ID (gol_…)" % cmd, file=sys.stderr)
@@ -616,4 +725,9 @@ def main(argv, cwd):
             print("mission goal close GOAL_ID --eval EVAL_ID", file=sys.stderr)
             return 64
         return cmd_close(cwd, gid, o["eval"])
+    if cmd == "retire":
+        if not o.get("eval"):
+            print("mission goal retire GOAL_ID --eval EVAL_ID", file=sys.stderr)
+            return 64
+        return cmd_retire(cwd, gid, o["eval"])
     return cmd_show(cwd, gid, o.get("json"))

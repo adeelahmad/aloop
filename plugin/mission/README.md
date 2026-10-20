@@ -60,7 +60,7 @@ A gate checks structure and evidence, never whether a judgment is right.
   draft or changed since its newest approval.
 - **The ledger** `docs/agents/mission/ledger.jsonl` holds every record a gate decides from
   (`LEDGER_EVENTS`: the human decisions, `baseline.measured`, `journey.retired`, `ethics.reviewed`,
-  `ethics.blocked`, `goal.derived`, `goal.met`, `door.crossed`), committed with the artifacts.
+  `ethics.blocked`, `goal.derived`, `goal.met`, `goal.retired`, `door.crossed`), committed with the artifacts.
   `M.record(cwd, event, subject, role, **data)` appends one (and emits the event); `M.record_human` /
   `M.approve` are the human-only forms. The event stream is git-ignored run data, so a fresh checkout
   reads the ledger only. Each row carries the hash of the row it follows: an edited, removed,
@@ -111,8 +111,8 @@ A gate checks structure and evidence, never whether a judgment is right.
   matches it, and the newest is the newest by the ledger's order. Every input is the content its
   record covers: the state a `state.assessed` ledger record (only `mission assess` measures), the
   baseline a confirmation, each journey the content the baseline froze, and the goal a `goal.derived`
-  or `goal.approved` record (the newest such goal with no later `goal.met` record is the active one; a
-  status field activates nothing) whose targets are criteria the baseline froze. Anything else blocks
+  or `goal.approved` record (the newest such goal with no later `goal.met` record, no `goal.retired`
+  record and no hard line is the active one; a status field activates nothing) whose targets are criteria the baseline froze. Anything else blocks
   `evaluate` and `evaluate check`.
 
 ## Notes for the tracks (from mapping the repo, 2026-10-20)
@@ -186,7 +186,7 @@ loop to move on records them:
 | the baseline | as `baseline.py` decides it: `current` (the newest `baseline.confirmed` row), `measured_ok`, `vetoed`, `evaluate`; a replacement applies after the mission's `veto_window_h` from its `baseline.measured` row |
 | journeys defined | a journey that `journeys.lifecycle` does not call retired |
 | a state report or eval | its `baseline_id` (another than the current one: re-assess, re-evaluate) and the eval's boolean `goal_met` |
-| a goal's progress | a goal is one a `goal.derived` (or `goal.approved`) ledger row covers at its content, closed by its `goal.met` row; status `derived` → `approved` → `active` (`goal intents` handed it to Aladdin) · `retired` · `blocked`; an eval narrowed to it (`goal_id`) decides its close |
+| a goal's progress | a goal is one a `goal.derived` (or `goal.approved`) ledger row covers at its content, closed by its `goal.met` row or set aside by its `goal.retired` row (M9.50: `goal retire`, once every intent was sprinted and the newest eval of it, made after the closes, still lists gaps); status `derived` → `approved` → `active` (`goal intents` handed it to Aladdin) · `retired` · `blocked`; an eval narrowed to it (`goal_id`) decides its close or retirement |
 | a stop at a spend cap | a `mission.budget_exhausted` ledger row (role mission-loop) for the mission's content, written once by the first `STOP_BUDGET` tick (M9.24): a clone stays stopped until a raised cap changes the content |
 | a lifted block | a `mission.lifted` ledger row (role human, `--by`, the human's typed `lift <mission> <code>` line) whose code digests `{mission_id, block, lift, occurrence}`: the block's key, how many lifts of it the ledger has, and which block it was (the handout tick that tripped a repeat; the newest of 3 failed goals, which is how far that reset reaches); `tick --force` records it (M9.51). A repeat restarts at the row's own run-log event (its first copy only); the 3-failed-goals count at its `occurrence` |
 | a goal's sprints | `intent.received` {goal_id, intent_id} → `plan.created` {sprint: "S<N>", intent_id}; with no linked intent, the sprints planned since the loop handed out its `SPRINT`. Closes: `.aladdin/state/sprints.json`; `plan.approved` (spoon-fed) |

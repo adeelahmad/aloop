@@ -14,12 +14,14 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
 from mission_fixture import ASKED, Project, M, BIN  # noqa: E402
 
 sys.path.insert(0, M.AREAS_DIR)
 import _events  # noqa: E402
+import _paths  # noqa: E402
 import ethics as E  # noqa: E402
 import evaluate as EV  # noqa: E402
 import goal as G  # noqa: E402
@@ -431,10 +433,69 @@ assert r.returncode == 2 and "names its goal" in r.stderr, r.stderr
 json.dump(it, open(paths[0], "w"))
 ok("intent: a mission intent names its goal and gap, passes the goal's gate, and is checked in the goal's autonomy")
 
-# 13) the area is discovered; --help is the docstring
+# 13) retire (M9.50): an active goal whose every intent was sprinted, and whose newest evaluation, made after
+#     its sprints closed, still lists its gaps, is set aside by a goal.retired ledger record (the planner's): `mission evaluate`
+#     then covers the whole mission and a new goal is derived; a retired goal takes no more intents or sprints
+p4, (k1, _), ek = setup("autonomous")
+assert review(p4, "mission").returncode == 0
+gk = made(p4.run("goal", "derive"))["goal_id"]
+assert review(p4, gk).returncode == 0
+r = p4.run("goal", "retire", gk, "--eval", ek["eval_id"])
+assert r.returncode == 2 and "only an active goal" in r.stderr, r.stderr
+assert p4.run("goal", "retire", gk).returncode == 64
+assert len(p4.run("goal", "intents", gk).stdout.split()) == 2
+ek2 = evaluate(p4)
+assert ek2["goal_id"] == gk and not ek2["goal_met"]
+r = p4.run("goal", "retire", gk, "--eval", ek2["eval_id"])
+assert r.returncode == 2 and "has no plan yet" in r.stderr, r.stderr          # sprint every intent first
+for n in (1, 2):
+    path = p4.run("goal", "next", gk).stdout.strip()
+    _events.emit(p4.dir, "plan.created", role="planner", sprint="S%d" % n, intent_id=json.load(open(path))["intent_id"])
+r = p4.run("goal", "retire", gk, "--eval", ek2["eval_id"])
+assert r.returncode == 2 and "sprint 1 is not closed" in r.stderr, r.stderr       # its sprints still run
+closes = os.path.join(_paths.home(p4.dir, "state"), "sprints.json")
+stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+json.dump({"closed": [{"sprint": 1, "at": stamp}]}, open(closes, "w"))
+r = p4.run("goal", "retire", gk, "--eval", ek2["eval_id"])
+assert r.returncode == 2 and "sprint 2 is not closed" in r.stderr, r.stderr
+json.dump({"closed": [{"sprint": 1, "at": stamp}, {"sprint": 2, "at": stamp}]}, open(closes, "w"))
+r = p4.run("goal", "retire", gk, "--eval", ek2["eval_id"])
+assert r.returncode == 2 and "before" in r.stderr and "evaluate" in r.stderr, r.stderr   # it predates the closes
+r = p4.run("goal", "retire", gk, "--eval", ek["eval_id"])
+assert r.returncode == 2 and "not an evaluation of goal" in r.stderr, r.stderr
+time.sleep(1.05)                                    # a close stamp keeps the second: after it is the next one
+ek3 = evaluate(p4)
+assert ek3["goal_id"] == gk and not ek3["goal_met"]
+r = p4.run("goal", "retire", gk, "--eval", ek2["eval_id"])
+assert r.returncode == 2 and "not the newest eval" in r.stderr, r.stderr          # the loop reads ek3 now
+r = p4.run("goal", "retire", gk, "--eval", ek3["eval_id"])
+assert r.returncode == 0, r.stderr
+gkref = M.rel(p4.dir, p4.path("goal", gk))
+recs = M.records(p4.dir, "goal.retired", gkref)
+assert len(recs) == 1 and recs[0]["role"] == "mission-planner" and recs[0]["data"]["eval_id"] == ek3["eval_id"], recs
+assert recs[0]["data"]["sha256"] == M.digest(p4.load("goal", gk)) and p4.load("goal", gk)["status"] == "retired"
+assert recs[0]["data"]["open"] == [x["gap_id"] for x in ek3["gaps"]], recs[0]["data"]
+r = p4.run("goal", "retire", gk, "--eval", ek3["eval_id"])
+assert r.returncode == 0 and len(M.records(p4.dir, "goal.retired", gkref)) == 1, r.stderr   # once
+for args in (("next", gk), ("intents", gk), ("check", gk), ("close", gk, "--eval", ek3["eval_id"])):
+    r = p4.run("goal", *args)
+    assert r.returncode == 2 and "retired" in r.stderr, (args, r.returncode, r.stderr)
+r = p4.run("goal", "derive")
+assert r.returncode == 2 and "was retired with its gaps still open" in r.stderr, r.stderr   # the eval narrowed to it
+assert EV.active_goal(p4.dir) is None
+ek4 = evaluate(p4)
+assert ek4["goal_id"] is None
+assert made(p4.run("goal", "derive"))["goal_id"] != gk
+r = tool(p4, EVENTS, "emit", "goal.retired", "--data", "goal_id=%s" % gk)
+assert r.returncode == 64 and "only its own command" in r.stderr, r.stderr
+ok("retire: an active goal whose intents were all sprinted (sprints closed) and whose newest evaluation, made after "
+   "the closes, still lists gaps is retired by a goal.retired record (once); it takes no more work, and the whole "
+   "mission is evaluated and derived again")
+
+# 14) the area is discovered; --help is the docstring
 assert "goal" in p.run("--list").stdout.split() and "Aladdin handoff" in p.run("goal", "--help").stdout
 assert p.run("goal", "nope").returncode == 64 and p.run("goal", "check").returncode == 64
-for x in (p, s, h):
+for x in (p, s, h, p4):
     shutil.rmtree(x.dir, ignore_errors=True)
 ok("discovered as an area; usage errors are 64")
 

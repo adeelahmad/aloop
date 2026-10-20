@@ -38,9 +38,9 @@ KIND = "eval"
 def active_goal(cwd):
     """The goal being worked, from the records: the newest goal whose current content a
     goal.derived (or the human's goal.approved) record covers, no later goal.met record closed and
-    no ethics hard line retired (M9.29: it never closes, so the next eval covers the whole mission
-    and the loop derives past it). A status field activates nothing. A goal (M9.11) names its
-    targets as [{"journey_id", "criterion_id"}]."""
+    nothing retired (an ethics hard line, M9.29, or `goal retire` once its sprints left gaps open,
+    M9.50: it never closes, so the next eval covers the whole mission and the loop derives past it).
+    A status field activates nothing. A goal (M9.11) names its targets as [{"journey_id", "criterion_id"}]."""
     best = None
     for path, d in M.artifacts(cwd, "goal"):
         ref, sha = M.rel(cwd, path), M.digest(d)
@@ -53,8 +53,20 @@ def active_goal(cwd):
 
 
 def retired(cwd, goal):
-    """A goal an ethics hard line holds (the verdict's own rule: this goal, or its words under any id)."""
-    return isinstance(goal.get("goal_id"), str) and E.verdict(cwd, "goal", goal["goal_id"])[2].get("state") == "hard"
+    """A goal set aside: `goal retire` recorded it (M9.50), or an ethics hard line holds it (the
+    verdict's own rule: this goal, or its words under any id)."""
+    return isinstance(goal.get("goal_id"), str) and (bool(retirement(cwd, goal)) or
+                                                     E.verdict(cwd, "goal", goal["goal_id"])[2].get("state") == "hard")
+
+
+def retirement(cwd, goal):
+    """The goal.retired ledger record of this goal's content (`mission goal retire`: its intents were
+    all sprinted and an evaluation of it after them still listed gaps), or None."""
+    if not isinstance(goal.get("goal_id"), str):
+        return None
+    sha = M.digest(goal)
+    return next((r for r in reversed(M.records(cwd, "goal.retired", M.rel(cwd, M.path_of(cwd, "goal", goal["goal_id"]))))
+                 if r["data"].get("sha256") == sha), None)
 
 
 def goal_problems(cwd, goal, bdoc):

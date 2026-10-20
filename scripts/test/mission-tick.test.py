@@ -9,6 +9,7 @@ baselines here are real: proposed, measured twice and confirmed through `aloop m
 """
 import contextlib
 import fcntl
+import glob
 import io
 import json
 import os
@@ -1029,8 +1030,8 @@ ok("the loop takes ethics from the gate's verdict: a hard-lined goal's words sta
 
 # 27) goals through `aloop mission goal`, on the real clock: derive → review → intents → next and a sprint per
 #     intent → evaluate (narrowed to the goal) → close → evaluate the whole mission; a goal file nobody derived
-#     is no goal; a goal whose sprints all closed with gaps open, or that crossed a hard line while evaluate
-#     still narrows to it, is the human's
+#     is no goal; a goal whose sprints all closed with gaps open is the planner's to retire (M9.50), and one
+#     that crossed a hard line while evaluate still narrows to it is retired (M9.29)
 def later(p):
     time.sleep(1.05)                                                       # stamps are kept to the second
     return (time.time() * 1000 - p.t0) / H
@@ -1060,8 +1061,9 @@ for n in (1, 2):
 expect(p.tick(later(p)), "ASSESS", 0, "sprint 2 closed")
 assert p.mi("assess").returncode == 0
 expect(p.tick(later(p)), "EVALUATE", 0)
-assert p.mi("evaluate").returncode == 0                                    # narrowed to the goal: not met
-expect(p.tick(later(p)), "BLOCKED", 2, "M9.50")
+r = p.mi("evaluate")                                                       # narrowed to the goal: not met
+expect(p.tick(later(p), "--peek"), "RETIRE_GOAL", 0, "aloop mission goal retire %s --eval %s"
+       % (gid, json.load(open(r.stdout.strip()))["eval_id"]))
 p.app(**PASSING)
 assert p.mi("assess").returncode == 0
 expect(p.tick(later(p)), "EVALUATE", 0)
@@ -1096,7 +1098,7 @@ cleared(s)
 assert s.mi("assess").returncode == 0 and s.mi("evaluate").returncode == 0
 expect(s.tick(later(s)), "OFFER_OPTIONS", 3, "aloop mission goal options")
 ok("goals run through `aloop mission goal` (derive, intents, next, close) and the loop names each command; a "
-   "goal file nobody derived is none; open gaps after every sprint go to the human; a hard-lined goal is retired "
+   "goal file nobody derived is none; open gaps after every sprint: retire it; a hard-lined goal is retired "
    "and the loop derives another (M9.29); spoon-fed offers the gap list")
 
 # 28) discovery and help: the three areas are found by name
@@ -1310,5 +1312,57 @@ assert json.loads(k.mi("evaluate", "check", "--json").stdout)["eval_id"] == kb
 ok("a gap list counts only intact (its eval.completed ledger record, its shape and seal): a file nobody computed "
    "or an edited one says nothing, and the loop, `evaluate check` and `goal` take the newest intact one by the "
    "ledger's order; on a fresh checkout they, `goal derive` and `goal close` read the same records")
+
+# 32) a goal whose intents were all sprinted and whose evaluation still lists its gaps is retired (M9.50): the
+#     planner's `goal retire` records goal.retired in the ledger, the loop evaluates the whole mission and
+#     derives past it (the retired goal counts as a failed one, 3 in a row are the human's), and a fresh
+#     checkout keeps the retirement
+p = Project().init()
+cleared(p)
+assert p.mi("assess").returncode == 0 and p.mi("evaluate").returncode == 0
+gid = json.load(open(p.mi("goal", "derive").stdout.strip()))["goal_id"]
+p.review(p.ref("goal", gid), p.load("goal", gid), "clear")
+assert p.mi("goal", "intents", gid).returncode == 0
+n = 0
+while True:
+    r = p.mi("goal", "next", gid)
+    if r.returncode == 1:
+        break
+    assert r.returncode == 0, r.stderr
+    n += 1
+    p.event("plan.created", later(p), sprint="S%d" % n, intent_id=json.load(open(r.stdout.strip()))["intent_id"])
+    p.sprint_closed(n, later(p))
+assert n == len(p.load("goal", gid)["gaps"]) > 0
+later(p)                                                                   # the close keeps its second: assess after it
+assert p.mi("assess").returncode == 0
+expect(p.tick(later(p)), "EVALUATE", 0)
+eid = json.load(open(p.mi("evaluate").stdout.strip()))["eval_id"]
+d = p.tick(later(p))
+expect(d, "RETIRE_GOAL", 0, "aloop mission goal retire %s --eval %s" % (gid, eid))
+assert d["roles"] == ["mission-planner"] and d["who"] == "role", d
+ip = sorted(glob.glob(os.path.join(p.dir, "docs", "agents", "intents", "int_*.json")))[0]
+os.rename(ip, ip + ".aside")                                               # the gate refuses: the loop says why
+expect(p.tick(later(p), "--peek"), "BLOCKED", 2, "`mission goal retire` refuses")
+assert "has no plan yet" in p.tick(later(p), "--peek")["reason"]
+os.rename(ip + ".aside", ip)
+r = p.mi("goal", "retire", gid, "--eval", eid)
+assert r.returncode == 0, r.stderr
+assert [x["data"]["eval_id"] for x in M.ledger_rows(p.dir)[0] if x["event"] == "goal.retired"] == [eid]
+expect(p.tick(later(p)), "EVALUATE", 0, "retired")                         # its narrowed eval says nothing now
+assert p.mi("evaluate").returncode == 0
+expect(p.tick(later(p), "--peek"), "DERIVE_GOAL", 0, "goal %s was retired" % gid)
+shutil.rmtree(os.path.join(p.dir, ".aladdin"))                             # a fresh checkout keeps the retirement
+expect(p.tick(later(p), "--peek"), "DERIVE_GOAL", 0, "goal %s was retired" % gid)
+w = Project().init()                                                       # 3 retired goals in a row: the human's
+cleared(w)
+w.art("state", "recorded", 1)
+w.art("eval", "recorded", 1.1, goal_met=False)
+for h in (1.2, 1.4, 1.6):
+    g, gd = w.art("goal", "active", h)                                     # its status says active; the record decides
+    with w.clock(h + 0.05):
+        M.record(w.dir, "goal.retired", w.ref("goal", g), "mission-planner", goal_id=g, sha256=M.digest(gd))
+expect(w.tick(1.7), "BLOCKED", 2, "3 goals")
+ok("a goal sprinted with gaps still open is the planner's to retire: a goal.retired ledger record, then the whole "
+   "mission is evaluated and another goal derived (a fresh checkout keeps it); 3 retired in a row are the human's")
 
 print("mission-tick: %d checks passed" % PASS[0])

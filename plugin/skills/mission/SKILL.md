@@ -19,7 +19,8 @@ do exactly the action it names, and tick again. *Models explore. Gates decide.*
 
 The loop is IBM's autonomic MAPE-K over `docs/agents/mission/`: monitor (ASSESS), analyze
 (EVALUATE), plan (DERIVE_GOAL, PLAN_INTENTS), execute (SPRINT, an Aladdin sprint). A met goal
-sends it back to the mission to raise the bar. Every command is `aloop mission …`; each
+sends it back to the mission to raise the bar; a goal its sprints did not meet is retired
+(RETIRE_GOAL) and the next one is derived. Every command is `aloop mission …`; each
 area explains itself with `aloop mission <area> --help`, and `aloop mission --list` lists them.
 
 ## Setting a mission (first run only)
@@ -84,6 +85,7 @@ paste artifacts into it. A role writes its artifact only through `aloop mission 
 | `ASSESS` | `state-assessor` | Measure the product with the pinned scripts; numbers only, no opinions (`aloop mission assess`). | a new state report |
 | `EVALUATE` | `evaluator` | Compare the state with the baseline and the rivals: the gap list and `goal_met` (`aloop mission evaluate`); it never builds. A goal met in its eval: `aloop mission goal close <goal_id> --eval <eval_id>`. | a new eval, or a closed goal |
 | `DERIVE_GOAL` | `mission-planner` | The eval's top gaps become one goal, with the standing principles for the mode (`aloop mission goal derive`). | a derived goal |
+| `RETIRE_GOAL` | `mission-planner` | Every intent of the goal was sprinted and the newest eval of it still lists gaps: set it aside (`aloop mission goal retire <goal_id> --eval <eval_id>`); the next eval covers the whole mission and another goal is derived. | a `goal.retired` record |
 | `WAIT` | — | A sprint is running, planning is under way, or the raised bar is still met. Stop. | the cron wakes the loop |
 
 Usage telemetry (Google Analytics) is opt-in (`aloop mission telemetry`): it feeds research

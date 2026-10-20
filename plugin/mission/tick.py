@@ -39,6 +39,9 @@ The loop is IBM's autonomic MAPE-K over docs/agents/mission/: monitor (ASSESS), 
   ASSESS            state-assessor      no state report since the baseline, the last sprint, or the cadence
   EVALUATE          evaluator           the latest eval is older than the state, research, journeys or baseline
   DERIVE_GOAL       mission-planner     the latest eval shows gaps and no goal is in flight
+  RETIRE_GOAL       mission-planner     every intent of the goal was sprinted and the newest eval, narrowed
+                                        to it and made after its sprints closed, still lists its gaps
+                                        (`mission goal retire` would accept it; else BLOCKED, its reason)
   WAIT              —                   a sprint is running; or the raised bar is still met
 
 Facts, never a model's word: `mission check`; artifact status, harness ids (their time) and
@@ -55,8 +58,9 @@ each goal (none → ETHICS_REVIEW, pending → ASK_CONSENT, hard or broken → B
 re-derived; one rule with the gate: a hard line follows its words to any goal, a review edited
 after it was recorded is broken), and a committed review of tier hard, so a checkout without the
 run log fails closed; a gap list
-only with its eval.completed record (its `goal_met` and gaps); a goal only with its goal.derived (or goal.approved) record, closed by goal.met, and an
-eval narrowed to it (goal_id) decides its close (`aloop mission goal close`); Aladdin's intent,
+only with its eval.completed record (its `goal_met` and gaps); a goal only with its goal.derived (or goal.approved) record, closed by goal.met or set
+aside by goal.retired, and an eval narrowed to it (goal_id) decides its close or retirement (`aloop mission goal
+close`, `retire`); Aladdin's intent,
 plan and sprint events and .aladdin/state/sprints.json; the
 sprint lock; and the token ledger (<run data>/ledger/). A goal's sprints are planned from its intents (intent.received
 goal_id → plan.created intent_id), else since the loop handed out its SPRINT. A stamp kept to
@@ -98,7 +102,8 @@ ROLES = {
     "OFFER_OPTIONS": ("human", ["mission-planner"]), "PLAN_INTENTS": ("role", ["mission-planner"]),
     "SPRINT": ("supervisor", []), "APPROVE_PLAN": ("human", []),
     "ASSESS": ("role", ["state-assessor"]), "EVALUATE": ("role", ["evaluator"]),
-    "DERIVE_GOAL": ("role", ["mission-planner"]), "WAIT": ("none", []),
+    "DERIVE_GOAL": ("role", ["mission-planner"]), "RETIRE_GOAL": ("role", ["mission-planner"]),
+    "WAIT": ("none", []),
 }
 EXIT = {"role": 0, "supervisor": 0, "human": 3, "none": 4}
 MAX_HANDOUTS = 3          # the same action in a row without a result, then BLOCKED (a retry is not progress)
@@ -293,7 +298,7 @@ def facts(cwd, now):
     # decides, so restoring content an older approval covered is a rollback, not approved
     raw, _ = M.ledger_rows(cwd)
     rows = sorted(raw, key=lambda r: r["ts"])            # the core's order: a union merge interleaves branches
-    assessed, born, met = {}, {}, {}
+    assessed, born, met, retired = {}, {}, {}, set()
     f["lifted"], f["lifts"], f["stops"] = {}, {}, {}
     for r in rows:
         name, d = r["event"], r["data"]
@@ -303,6 +308,8 @@ def facts(cwd, now):
             born.setdefault((d.get("subject"), d.get("sha256")), []).append(r["ts"])
         if name == "goal.met":
             met.setdefault(d.get("subject"), []).append(r["ts"])
+        if name == "goal.retired":                        # `mission goal retire` set it aside (M9.50)
+            retired.add((d.get("subject"), d.get("sha256")))
         if name == "mission.budget_exhausted":            # the loop stopped at a cap for this content
             f["stops"].setdefault(d.get("sha256"), d)
         if name == "mission.lifted" and r.get("role") == "human" and str(d.get("by") or "").strip() \
@@ -327,7 +334,8 @@ def facts(cwd, now):
     f["kinds"]["eval"] = [evals[r] for r in order if r in evals]
     # a goal is one `mission goal derive` recorded (goal.derived, or the human's goal.approved, for
     # its content) and it is closed by its goal.met record, as `mission evaluate` reads them
-    f["kinds"]["goal"] = [dict(a, met=any(t >= max(born[(a["ref"], a["sha"])]) for t in met.get(a["ref"], [])))
+    f["kinds"]["goal"] = [dict(a, met=any(t >= max(born[(a["ref"], a["sha"])]) for t in met.get(a["ref"], [])),
+                               retired=(a["ref"], a["sha"]) in retired)
                           for a in f["kinds"]["goal"] if (a["ref"], a["sha"]) in born]
     # fail closed: a committed hard review holds on a checkout without the run log (ROADMAP M9.24);
     # every other ethics fact is `mission ethics`'s verdict (ethics_of)
@@ -461,9 +469,9 @@ def failed_goals(f):
         if g["ms"] <= f["reset_at"]:
             break
         hard = ethics_of(f, "goal", g)[0] == "hard"
-        if not hard and g["status"] not in ("blocked", "retired"):
+        if not hard and not g["retired"] and g["status"] not in ("blocked", "retired"):
             break
-        out.append((g, "crosses a hard line" if hard else "was %s" % g["status"]))
+        out.append((g, "crosses a hard line" if hard else "was retired" if g["retired"] else "was %s" % g["status"]))
     return out
 
 
@@ -527,7 +535,7 @@ def rules(f):
     if b:
         return b
     g = latest(f, "goal")
-    if g and not g["met"] and g["status"] not in ("blocked", "retired"):
+    if g and not g["met"] and not g["retired"] and g["status"] not in ("blocked", "retired"):
         r = goal_rule(f, g, mode, now, cad)
         if r:
             return r
@@ -719,9 +727,17 @@ def goal_rule(f, g, mode, now, cad):
     if done and not left:
         s = latest(f, "state")
         if mine and mine["ms"] > max(f["closed"][n] for n in done) and (not s or mine["ms"] >= s["ms"]):
-            return act("BLOCKED", "goal %s's intents were all sprinted and eval %s still lists %d gap(s) of it: the "
-                                  "human decides (a goal that is not met is never closed: ROADMAP M9.50)"
-                       % (g["id"], mine["id"], len(mine["doc"].get("gaps") or [])), g["ref"], pin=mine["id"])
+            import goal as G      # noqa: E402 — the gate's own rule (ROADMAP M9.50), so the loop and it agree
+            why = G.retire_problems(f["cwd"], g["doc"], mine["id"])[2]
+            if why:
+                return act("BLOCKED", "goal %s's intents were all sprinted and eval %s still lists its gaps, but "
+                                      "`mission goal retire` refuses (%s): the human looks" % (g["id"], mine["id"], why[0]),
+                           g["ref"], pin=mine["id"])
+            return act("RETIRE_GOAL", "goal %s's intents were all sprinted and eval %s still lists %d gap(s) of it: "
+                                      "retire it (aloop mission goal retire %s --eval %s), then evaluate the whole "
+                                      "mission and derive the next goal"
+                       % (g["id"], mine["id"], len(mine["doc"].get("gaps") or []), g["id"], mine["id"]),
+                       g["ref"], pin=mine["id"])
         return None                              # every intent sprinted and closed: assess and evaluate
     since = max([f["closed"][n] for n in done] + [sprint_handout(f, g) or 0, g["ms"]])
     if f["lock"] and f["lock"] > since:
@@ -764,7 +780,7 @@ def cycle(f, now, cad):
     s, e, r, j = latest(f, "state"), latest(f, "eval"), latest(f, "research"), latest(f, "journey")
     fails = failed_goals(f)
     if len(fails) >= MAX_GOALS:
-        return act("BLOCKED", "%d goals in a row were blocked or crossed a hard line (latest: %s): the human looks; "
+        return act("BLOCKED", "%d goals in a row were blocked, retired or crossed a hard line (latest: %s): the human looks; "
                               "`aloop mission tick --force --by NAME` lets the loop derive again"
                    % (len(fails), fails[0][0]["id"]), fails[0][0]["ref"], grant="GOALS")
     closes = sorted((t, n) for n, t in f["closed"].items())
@@ -788,6 +804,10 @@ def cycle(f, now, cad):
         g = next((x for x in f["kinds"]["goal"] if x["id"] == gid), None)
         if g and not g["met"] and ethics_of(f, "goal", g)[0] == "hard":
             return act("EVALUATE", "goal %s crossed a hard line, so it is retired and eval %s, narrowed to it, says "
+                                   "nothing: evaluate the whole mission (aloop mission evaluate)" % (gid, e["id"]),
+                       e["ref"])
+        if g and not g["met"] and g["retired"]:
+            return act("EVALUATE", "goal %s was retired with its gaps still open, so eval %s, narrowed to it, says "
                                    "nothing: evaluate the whole mission (aloop mission evaluate)" % (gid, e["id"]),
                        e["ref"])
         if not g or g["met"]:
