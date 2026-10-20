@@ -10,10 +10,13 @@ GATE_NAME="gate-intake"
 # shellcheck source=/dev/null
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_failclosed.sh"   # a crash blocks, never allows
 
+# shellcheck source=/dev/null
+. "$BIN_DIR/_finddoc.sh"                                # agentic_find_doc: never a host's agent definition
+
 f="${1:-${INTAKE_FILE:-}}"
 if [ -z "$f" ]; then
-  f="$(find . -maxdepth 6 -name intake.md 2>/dev/null | head -1)"
-  [ -z "$f" ] && f="$(find . -maxdepth 6 -name stories.md 2>/dev/null | head -1)"
+  f="$(agentic_find_doc intake.md)"
+  [ -z "$f" ] && f="$(agentic_find_doc stories.md)"
 fi
 if [ -z "$f" ] || [ ! -f "$f" ]; then
   echo "WARN[$GATE_NAME]: no intake.md/stories.md found; five-part intent check skipped (weaker)" >&2
@@ -47,6 +50,21 @@ echo "[$GATE_NAME] five-part intent present in $f" >&2
 ic="$(ls -t "$(dirname "$f")"/../intents/int_*.json "$(dirname "$f")"/intents/int_*.json 2>/dev/null | head -1)"
 if [ -n "$ic" ]; then
   "$BIN_DIR/intent" check "$ic" --mode "${AGENTIC_AUTONOMY_MODE:-reviewed}"; rc=$?
-  [ "$rc" = 0 ] || { echo "BLOCK[$GATE_NAME]: Intent Contract $ic $([ "$rc" = 3 ] && echo "has questions only the human can answer — ask them, record each answer" || echo "is invalid")" >&2; exit 2; }
+  if [ "$rc" = 3 ]; then
+    # NEEDS-HUMAN release (ROADMAP §4.9), as a STUCK release: questions only the human can answer are not
+    # the intake's to fix, so blocking its stop buys fix rounds it cannot use (or an answer it made up). A
+    # host's stop is released at once, NOT verified, and the questions are recorded for the supervisor
+    # (`intent release`); a self-check or a direct run still blocks. Read only now: no payload, no wait.
+    payload=""
+    [ -t 0 ] || IFS= read -r -d '' -t 2 payload || true
+    if printf '%s' "$payload" | "$BIN_DIR/intent" release "$ic"; then
+      echo "[$GATE_NAME] NEEDS-HUMAN — Intent Contract $ic has questions only the human can answer; stop released, NOT verified." >&2
+      echo "  Not a pass. Supervisor: ask the human each ASK question above, then re-dispatch intake with the answers in a ### Feedback block (it records each one)." >&2
+      exit 0
+    fi
+    echo "BLOCK[$GATE_NAME]: Intent Contract $ic has questions only the human can answer — never answer one yourself: list them in your report and finish (your stop reaches the supervisor as NEEDS-HUMAN, and it asks the human)" >&2
+    exit 2
+  fi
+  [ "$rc" = 0 ] || { echo "BLOCK[$GATE_NAME]: Intent Contract $ic is invalid" >&2; exit 2; }
 fi
 exit 0

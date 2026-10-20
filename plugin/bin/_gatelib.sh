@@ -283,13 +283,16 @@ validate_comms() {
   local last; last="$(awk '/^## /{n=NR} END{print n+0}' "$out")"
   [ "${last:-0}" -gt 0 ] || fail "output.md has no '## <task> · attempt N · <role> · <ts>' block — append your report. How: $how"
   local block; block="$(awk -v s="$last" 'NR>=s' "$out")"
+  # Here-strings, never `printf "$block" | grep -q`: grep -q exits at its match, the printf still
+  # writing the rest dies of SIGPIPE (141), and pipefail read a well-formed block as missing a
+  # section (conformance §6.6 flaked on "missing '### Next'"; a block past what a pipe holds always did).
   if [ -n "${AGENT_ROLE:-}" ]; then
-    printf '%s\n' "$block" | head -1 | grep -q "$AGENT_ROLE" \
+    grep -q "$AGENT_ROLE" <<<"${block%%$'\n'*}" \
       || fail "the latest output.md block is not from '$AGENT_ROLE' — append YOUR report block for this dispatch (one block per attempt, append-only). How: $how"
   fi
-  printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Summary' || fail "latest output.md block missing '### Summary'"
-  printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Result'  || fail "latest output.md block missing '### Result'"
-  printf '%s\n' "$block" | grep -qE '^###[[:space:]]*Next'    || fail "latest output.md block missing '### Next'"
+  grep -qE '^###[[:space:]]*Summary' <<<"$block" || fail "latest output.md block missing '### Summary'"
+  grep -qE '^###[[:space:]]*Result'  <<<"$block" || fail "latest output.md block missing '### Result'"
+  grep -qE '^###[[:space:]]*Next'    <<<"$block" || fail "latest output.md block missing '### Next'"
   note "comms ok: latest output.md block is a well-formed '${AGENT_ROLE:-?}' report in $(basename "$dir")"
 }
 
@@ -472,13 +475,15 @@ standards_file() {
   done
   for d in "$(repo_dir)" "${AGENTIC_PROJECT:-}"; do
     [ -n "$d" ] || continue
-    c="$(find "$d" -maxdepth 6 -name standards.md -not -path '*/worktrees/*' 2>/dev/null | sort | tail -1)"
+    c="$(agentic_find_doc standards.md "$d")"   # not a host's agent definition, not a linked worktree's
     [ -n "$c" ] && { printf '%s\n' "$c"; return 0; }
   done
   return 0
 }
 # shellcheck source=/dev/null
 . "$GATELIB_DIR/_matrix.sh"                      # standards_matrix_lines
+# shellcheck source=/dev/null
+. "$GATELIB_DIR/_finddoc.sh"                     # agentic_find_doc
 
 # Run the gate matrix declared in standards.md (standards-bind-gates). Falls back
 # to a default Rust matrix with a WARN if standards.md / its matrix is not found.

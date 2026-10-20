@@ -69,10 +69,11 @@ assert run(H, "describe", "--host", "vim").returncode == 64
 ok("host describe: capabilities, dispatch vocabulary, boundary, isolation, gates and models per host")
 
 # 3) what a host cannot do is Unsupported, never faked
-for h in ("claude", "codex", "opencode", "dsh"):
-    assert "unsupported" in d[h]["send"], (h, d[h]["send"])            # no host has live messaging (dsh: unproven)
-assert d["claude"]["compact"].startswith("compact the session")
-assert all("unsupported" in d[h]["compact"] for h in ("codex", "opencode", "dsh"))
+for h in ("claude", "codex", "opencode"):
+    assert "unsupported" in d[h]["send"], (h, d[h]["send"])            # no live messaging to a running worker
+assert "send_message" in d["dsh"]["send"] and "next step" in d["dsh"]["send"], d["dsh"]["send"]   # proven: dsh-runtime.test.mjs
+assert all(d[h]["compact"].startswith("compact the session") for h in ("claude", "dsh"))
+assert all("unsupported" in d[h]["compact"] for h in ("codex", "opencode"))
 try:
     _host.adapter("codex").compact()
     raise AssertionError("codex compact should be Unsupported")
