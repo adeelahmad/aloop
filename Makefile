@@ -73,7 +73,7 @@ shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent
 .PHONY: pycheck
 pycheck: ## Byte-compile the Python hook scripts
 	@python3 -m py_compile plugin/bin/budget plugin/bin/stats plugin/bin/aloop-init plugin/bin/gate-commit-author plugin/bin/_paths.py \
-	    plugin/bin/_usage.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/capabilities plugin/bin/models plugin/bin/_routes.py plugin/bin/host plugin/bin/_host.py plugin/bin/config plugin/bin/_config.py plugin/bin/layout plugin/bin/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
+	    plugin/bin/_usage.py plugin/bin/_prices.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/capabilities plugin/bin/models plugin/bin/_routes.py plugin/bin/host plugin/bin/_host.py plugin/bin/config plugin/bin/_config.py plugin/bin/layout plugin/bin/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
 	    plugin/bin/mission plugin/bin/_mission.py plugin/bin/_mission_roles.py plugin/bin/_shellread.py plugin/bin/gate-mission-scope plugin/bin/gate-mission-artifact $$(ls plugin/mission/*.py 2>/dev/null) \
 	  && rm -rf plugin/bin/__pycache__ plugin/mission/__pycache__ && echo "python ok"
 

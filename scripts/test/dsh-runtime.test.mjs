@@ -191,5 +191,19 @@ const line = JSON.parse(readFileSync(join(hostDir, rootLog), "utf8").split("\n")
 assert.deepEqual(line.message.usage, { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 50, cache_creation_input_tokens: 0 })
 ok("token usage is written Claude-shaped per session and per role (.aladdin/host/dsh)")
 assert.ok(readdirSync(join(P, ".aladdin/ledger")).some((f) => f.endsWith(".jsonl"))); ok("Stop: the token ledger is written for the session")
+// dsh prints no cost: run-summary prices these logs by the model id dsh sent (the price table's key),
+// every call at the scripted usage, between its off-peak and its peak price (the band is the call's time)
+writeFileSync(join(T, "out.jsonl"), r.stdout || "")
+const rs = spawnSync(join(BIN, "run-summary"), [T, "--host", "dsh"], { env, encoding: "utf8" })
+assert.equal(rs.status, 0, rs.stderr)
+const sum = JSON.parse(readFileSync(join(T, "summary.json"), "utf8"))
+assert.deepEqual(Object.keys(sum.cost_by_model || {}).sort(), ["deepseek-flash", "deepseek-v4-pro"], JSON.stringify(sum))
+for (const [m, [miss, hit, out]] of Object.entries({ "deepseek-flash": [0.15, 0.003, 0.6], "deepseek-v4-pro": [0.66, 0.022, 1.98] })) {
+  const c = sum.cost_by_model[m], low = c.calls * (100 * miss + 50 * hit + 10 * out) / 1e6
+  assert.ok(c.calls > 0 && c.in === 100 * c.calls && c.cache_read === 50 * c.calls && c.out === 10 * c.calls, JSON.stringify(c))
+  assert.ok(c.usd >= low - 1e-6 && c.usd <= 2 * low + 1e-6, JSON.stringify([m, c, low]))
+}
+assert.ok(sum.cost_usd !== null, JSON.stringify(sum))
+ok("run-summary prices the runtime's usage per model id dsh sent (deepseek-flash, deepseek-v4-pro), never unmeasured")
 
 console.log(`\n${pass} checks passed`)
