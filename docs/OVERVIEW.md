@@ -47,7 +47,10 @@ The model can ignore a skill; it cannot ignore an exit code.
    - `standards` produces a cited coding standard;
    - `planner` writes the sprint contract and, per story, the semantic plan `targets.json`
      (tasks, tests, change targets) from which `tasks.md` / `validate.md` / `plan.md` are rendered.
-   The supervisor then **stops for approval**.
+   The supervisor then **stops for approval**, and that stop is a gate: `gate-dispatch` starts no
+   worker until the human types the `approve SN <code>` line naming this exact plan, and a changed plan
+   needs a new line; or they grant the sprint autonomy (`autonomous SN <code>`, or an approved
+   autonomous mission), which covers its re-plans (M0.9).
 3. **Execution** — human absent. For each task, a worker runs in its own git worktree:
    - **RED** writes tests that must fail *by assertion* and touch no production code;
    - **SCAFFOLD** creates each planned symbol exactly once, as a stub;

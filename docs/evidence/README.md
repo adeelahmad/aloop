@@ -57,6 +57,7 @@ the cost cell reads — and the intent cell names the host. What each run found 
 | run 47 | cli (Rust binary), on #81 | v0.12.0 + #81 (a653fd4) | 13/13 | 15m19s | $1.04 | 2 | 1 | 2 | `make e2e-live YES=1 INTENT=cli` |
 | run 48 | cli (Rust binary), on the task-merge rule | v0.12.0 + #90 (a60cd04) | 13/13 | 14m13s | $0.76 | 2 | 0 | 5 | `make e2e-live YES=1 INTENT=cli` |
 | run 49 | cli (Rust binary), on #95 and #102 | v0.12.0 + #102 (f8bcbc0) | 13/13 | 13m50s | $0.87 | 1 | 0 | 3 | `make e2e-live YES=1 INTENT=cli` |
+| run 50 | cli (Rust binary), under the plan approval gate | v0.12.0 + #99 (575d95a) | 13/13 | 10m17s | $0.84 | 2 | 0 | 1 | `make e2e-live YES=1 INTENT=cli` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
@@ -101,3 +102,8 @@ tasks, one per story, with no merge refusal: the rule's persona line was enough.
 Run 49 (on #95, which stops the Rust suppression grep matching an iterator's `.skip(1)`, and #102)
 had 3 gate blocks, from 5, with no suppression or `targets` "neither in the tree nor planned"
 refusal. It planned 2 tasks again, for $0.87 in 13m50s.
+Run 50 (on #99, M0.9) is the first run under the plan approval gate. The prompt carried the human's
+typed `autonomous S1 <code>` line; the supervisor recorded the grant with it before its first dispatch
+(a `human.approval` of kind autonomy that cites the captured line), and `gate-dispatch` then admitted
+every dispatch of the sprint (S1-01-T1, S1-01-T2, S1-SR-W2, S1-FG) with no dispatch block. 2 tasks,
+25 supervisor turns, $0.84 and 10m17s (run 49: $0.87, 13m50s); its 1 block was a worker's self-check.
