@@ -242,10 +242,11 @@ def emit(cwd, event, role="", refs=None, **data):
 # a human decision that is not an approval: a veto, an opt-out
 HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed", "telemetry.revoked")
 # every record a mission gate decides from: the human decisions, plus what the harness measured,
-# assessed, retired, reviewed (a hard ethics line stays blocked on a fresh checkout), derived and the
-# loop's own stop at a spend cap (a clone stays stopped)
-LEDGER_EVENTS = HUMAN_EVENTS + ("baseline.measured", "state.assessed", "journey.retired", "ethics.reviewed",
-                                "ethics.blocked", "goal.derived", "goal.met", "mission.budget_exhausted")
+# assessed, evaluated (a clone trusts the same gap lists), retired, reviewed (a hard ethics line stays
+# blocked on a fresh checkout), derived and the loop's own stop at a spend cap (a clone stays stopped)
+LEDGER_EVENTS = HUMAN_EVENTS + ("baseline.measured", "state.assessed", "eval.completed", "journey.retired",
+                                "ethics.reviewed", "ethics.blocked", "goal.derived", "goal.met",
+                                "mission.budget_exhausted")
 
 
 def ledger(cwd=None):

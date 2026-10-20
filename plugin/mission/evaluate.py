@@ -16,9 +16,10 @@ no active goal, every criterion the baseline froze is a target (the definition o
 Usage:
   mission evaluate [STATE_ID] [--rival REF]… [--json]
         evaluate a state report (default: the latest); writes docs/agents/mission/eval/<id>.json
-        (sealed) and emits eval.completed. Exit 0 · 2 block (the state is not intact or its runs disagree)
+        (sealed) and records eval.completed in the ledger. Exit 0 · 2 block (the state is not intact or
+        its runs disagree)
   mission evaluate check [EVAL_ID] [--json]
-        the gap list is intact and follows from its state, baseline and goal. Exit 0 · 2
+        the gap list is intact, recorded and follows from its state, baseline and goal. Exit 0 · 2
 """
 import json
 import os
@@ -172,9 +173,9 @@ def cmd_evaluate(cwd, sid, o):
                goal_id=(goal or {}).get("goal_id"), rival_refs=o.get("rival", []), status="recorded", created_at=M.now())
     M.seal(doc)
     path = M.save(M.path_of(cwd, KIND, eid), doc)
-    M.emit(cwd, "eval.completed", role="evaluator", refs={"eval": M.rel(cwd, path), "state": M.rel(cwd, spath)},
-           eval_id=eid, sha256=doc["sha256"], state_id=state["state_id"], goal_id=doc["goal_id"],
-           goal_met=res["goal_met"], gaps=len(res["gaps"]), regressions=res["regressions"])
+    M.record(cwd, "eval.completed", M.rel(cwd, path), "evaluator", eval_id=eid, sha256=doc["sha256"],
+             state_id=state["state_id"], goal_id=doc["goal_id"], goal_met=res["goal_met"], gaps=len(res["gaps"]),
+             regressions=res["regressions"])
     if o.get("json"):
         print(json.dumps(doc, indent=1))
     else:
@@ -185,8 +186,15 @@ def cmd_evaluate(cwd, sid, o):
     return 0
 
 
+def recorded(cwd, path, doc):
+    """The eval.completed ledger record of exactly this content (only `mission evaluate` writes it), or None."""
+    rec = M.newest(cwd, "eval.completed", M.rel(cwd, path))
+    return rec if rec and rec["data"].get("sha256") == M.digest(doc) else None
+
+
 def latest(cwd):
-    rows = M.artifacts(cwd, KIND)
+    """The newest gap list `mission evaluate` recorded (a file with no record is not one)."""
+    rows = [(p, d) for p, d in M.artifacts(cwd, KIND) if recorded(cwd, p, d)]
     return max(rows, key=lambda pd: (pd[1].get("created_at", ""), pd[0])) if rows else (None, None)
 
 
@@ -194,6 +202,16 @@ def problems(cwd, path, doc):
     out = M.problems(doc, KIND, path)
     if out:
         return out
+    out = follows(cwd, doc)
+    if not recorded(cwd, path, doc):
+        out.append("eval %s has no eval.completed record for this content: only `mission evaluate` evaluates"
+                   % doc["eval_id"])
+    return out
+
+
+def follows(cwd, doc):
+    """A well-formed gap list's problems against its inputs: sealed, and recomputed from them."""
+    out = []
     if "sha256" not in doc:
         out.append("a gap list is sealed when it is written")
     spath = M.path_of(cwd, "state", doc["state_id"])

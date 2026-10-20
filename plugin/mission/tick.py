@@ -53,8 +53,8 @@ as their records say (a retirement is a record); `mission ethics`'s verdict on t
 each goal (none → ETHICS_REVIEW, pending → ASK_CONSENT, hard or broken → BLOCKED, or a goal
 re-derived; one rule with the gate: a hard line follows its words to any goal, a review edited
 after it was recorded is broken), and a committed review of tier hard, so a checkout without the
-run log fails closed; the eval's
-`goal_met`; a goal only with its goal.derived (or goal.approved) record, closed by goal.met, and an
+run log fails closed; a gap list
+only with its eval.completed record (its `goal_met` and gaps); a goal only with its goal.derived (or goal.approved) record, closed by goal.met, and an
 eval narrowed to it (goal_id) decides its close (`aloop mission goal close`); Aladdin's intent,
 plan and sprint events and .aladdin/state/sprints.json; the
 sprint lock; and the token ledger (<run data>/ledger/). A goal's sprints are planned from its intents (intent.received
@@ -291,12 +291,14 @@ def facts(cwd, now):
     # decides, so restoring content an older approval covered is a rollback, not approved
     raw, _ = M.ledger_rows(cwd)
     rows = sorted(raw, key=lambda r: r["ts"])            # the core's order: a union merge interleaves branches
-    assessed, born, met = {}, {}, {}
+    assessed, evaluated, born, met = {}, set(), {}, {}
     f["lifted"], f["lifts"], f["stops"] = {}, {}, {}
     for r in rows:
         name, d = r["event"], r["data"]
         if name == "state.assessed":
             assessed[d.get("subject")] = d.get("sha256")
+        if name == "eval.completed":
+            evaluated.add((d.get("subject"), d.get("sha256")))
         if name in ("goal.derived", "goal.approved"):
             born.setdefault((d.get("subject"), d.get("sha256")), []).append(r["ts"])
         if name == "goal.met":
@@ -318,6 +320,9 @@ def facts(cwd, now):
     f["ledger_head"] = raw[-1]["hash"] if raw else ""
     # a state report counts only with the state.assessed record of its content (mission assess)
     f["kinds"]["state"] = [a for a in f["kinds"]["state"] if assessed.get(a["ref"]) == a["sha"]]
+    # and a gap list only with the eval.completed record of its content (mission evaluate), as `evaluate
+    # check` and `goal derive` read it: a file nobody computed, or an edited one, says nothing (M9.27)
+    f["kinds"]["eval"] = [a for a in f["kinds"]["eval"] if (a["ref"], a["sha"]) in evaluated]
     # a goal is one `mission goal derive` recorded (goal.derived, or the human's goal.approved, for
     # its content) and it is closed by its goal.met record, as `mission evaluate` reads them
     f["kinds"]["goal"] = [dict(a, met=any(t >= max(born[(a["ref"], a["sha"])]) for t in met.get(a["ref"], [])))
@@ -402,13 +407,7 @@ def has(f, event, a):
 
 
 def goal_met(f, e):
-    if "goal_met" in e["doc"]:
-        return e["doc"]["goal_met"] is True
-    for ev in f["events"]:
-        d = ev["data"]
-        if ev.get("event") == "eval.completed" and d.get("eval_id") == e["id"]:
-            return d.get("goal_met") is True
-    return False
+    return e["doc"].get("goal_met") is True              # its record covers this content
 
 
 def latest(f, kind):

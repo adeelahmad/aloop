@@ -101,6 +101,10 @@ class Project:
             with self.clock(hours):
                 M.record(self.dir, "goal.derived", self.ref(kind, aid), "mission-planner", goal_id=aid,
                          sha256=M.digest(doc))
+        if kind == "eval" and record:                   # as `mission evaluate` records it
+            with self.clock(hours):
+                M.record(self.dir, "eval.completed", self.ref(kind, aid), "evaluator", eval_id=aid,
+                         sha256=M.digest(doc), goal_met=fields.get("goal_met"))
         M.save(M.path_of(self.dir, kind, aid), doc)
         return aid, doc
 
@@ -1194,5 +1198,50 @@ p.review(p.mission_ref(), p.mission_doc(), "clear", 1.3)
 d = p.tick(1.4)
 assert d["action"] != "STOP_BUDGET", d                                     # the raised cap resumes the loop
 ok("a hit cap is a ledger row for the mission's content: a fresh checkout stays stopped until the cap is raised")
+
+# 31) a gap list counts only with the eval.completed ledger record of its content (M9.27), as `evaluate check`
+#     and `goal derive` read it: an eval file nobody computed, or one edited after it was recorded, says nothing
+#     (not even "goal met"), and a fresh checkout keeps the gap lists `mission evaluate` wrote, so the loop and
+#     the goal commands decide the same there
+p = Project().init()
+cleared(p)
+sid = json.load(open(p.mi("assess").stdout.strip()))["state_id"]
+bid = TICK.B.current_id(p.dir)
+fake, fdoc = p.art("eval", "recorded", later(p), record=False, state_id=sid, baseline_id=bid, goal_id=None, gaps=[],
+                  earned=[], regressions=0, metrics=[], rival_refs=[], goal_met=True)
+M.seal(fdoc)
+M.save(M.path_of(p.dir, "eval", fake), fdoc)                               # sealed and well-formed, but never computed
+expect(p.tick(later(p), "--peek"), "EVALUATE", 0, "no eval yet")             # not RESEARCH: nobody computed it
+r = p.mi("evaluate", "check", fake)
+assert r.returncode == 2 and "no eval.completed record for this content" in r.stderr, r.stderr
+os.remove(M.path_of(p.dir, "eval", fake))
+r = p.mi("evaluate")
+assert r.returncode == 0, r.stderr
+eid = json.load(open(r.stdout.strip()))["eval_id"]
+assert [x["data"]["eval_id"] for x in M.ledger_rows(p.dir)[0] if x["event"] == "eval.completed"] == [eid]
+expect(p.tick(later(p), "--peek"), "DERIVE_GOAL", 0, eid)
+real = p.load("eval", eid)
+M.save(M.path_of(p.dir, "eval", eid), dict(real, gaps=[], goal_met=True))  # edited after it was recorded
+expect(p.tick(later(p), "--peek"), "EVALUATE", 0, "no eval yet")
+M.save(M.path_of(p.dir, "eval", eid), real)
+shutil.rmtree(os.path.join(p.dir, ".aladdin"))                             # a fresh checkout: no run log
+expect(p.tick(later(p)), "DERIVE_GOAL", 0, eid)
+assert p.mi("evaluate", "check").returncode == 0                           # the latest recorded one, from the ledger
+r = p.mi("goal", "derive")
+assert r.returncode == 0, r.stderr                                         # goal derive reads the same record
+gid = json.load(open(r.stdout.strip()))["goal_id"]
+p.review(p.ref("goal", gid), p.load("goal", gid), "clear")
+assert p.mi("goal", "intents", gid).returncode == 0
+p.app(**PASSING)
+assert p.mi("assess").returncode == 0
+r = p.mi("evaluate")
+e2 = json.load(open(r.stdout.strip()))["eval_id"]
+assert p.load("eval", e2)["goal_id"] == gid and p.load("eval", e2)["goal_met"] is True
+shutil.rmtree(os.path.join(p.dir, ".aladdin"))
+expect(p.tick(later(p)), "EVALUATE", 0, "aloop mission goal close %s --eval %s" % (gid, e2))
+r = p.mi("goal", "close", gid, "--eval", e2)
+assert r.returncode == 0, r.stderr                                         # ordered by the ledger, not the run log
+ok("a gap list counts only with its eval.completed ledger record: a file nobody computed or an edited one says "
+   "nothing, and on a fresh checkout the loop, `evaluate check`, `goal derive` and `goal close` read the same records")
 
 print("mission-tick: %d checks passed" % PASS[0])
