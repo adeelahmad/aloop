@@ -5,13 +5,16 @@ calls (ROADMAP §4.12, M9.6), for tests: no network, no Google account, no token
   /admin/v1beta/…   Admin API: accountSummaries, properties, :acknowledgeUserDataCollection,
                     dataStreams, measurementProtocolSecrets, keyEvents
   /data/v1beta/…    Data API: :runReport, :runRealtimeReport
-  /mp/debug/mp/collect   the Measurement Protocol validation server
+  /mp/debug/mp/collect   the Measurement Protocol validation server (like Google's, it checks the
+                         payload and never the measurement_id or api_secret)
 
 Point the client at it with ALADDIN_GA_BASE=http://127.0.0.1:<port>. The port is the first
 line on stdout. Admin and Data calls need `Authorization: Bearer $FAKE_GA_TOKEN` (default
 `fake-token`); the Measurement Protocol takes none. Test controls:
   POST /_control {json}   merge into the scenario: accounts (0, 1, 2…), users, new_users,
                           thresholded, events {name: [count, users]}, realtime {name: [count, users]}
+                          (all on the property's first stream), mp_messages [extra validation
+                          messages], redirect (a path every admin/data call is 302-redirected to)
   GET  /_log              every request so far: [{method, path, query, auth, body}]
 """
 import json
@@ -20,7 +23,7 @@ import re
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import urlsplit
 
 TOKEN = os.environ.get("FAKE_GA_TOKEN", "fake-token")
 ACK = ("I acknowledge that I have the necessary privacy disclosures and rights from my end users for the "
@@ -35,7 +38,8 @@ RESERVED = {"ad_activeview", "ad_click", "ad_exposure", "ad_impression", "ad_que
             "user_engagement"}
 
 LOCK = threading.Lock()
-SCENARIO = {"accounts": 1, "users": 0, "new_users": 0, "thresholded": False, "events": {}, "realtime": {}}
+SCENARIO = {"accounts": 1, "users": 0, "new_users": 0, "thresholded": False, "events": {}, "realtime": {},
+            "mp_messages": [], "redirect": ""}
 DB = {"n": 1000, "properties": {}, "acked": set(), "streams": {}, "secrets": {}, "key_events": {}}
 LOG = []
 
@@ -121,17 +125,29 @@ def admin(method, parts, body):
     return err(404, "NOT_FOUND", "unknown admin path")
 
 
-def wanted(body):
-    f = ((body.get("dimensionFilter") or {}).get("filter") or {})
-    return set((f.get("inListFilter") or {}).get("values") or []) if f.get("fieldName") == "eventName" else None
+def filters(expr):
+    """{fieldName: filter} of a dimensionFilter: one filter, or an andGroup of them."""
+    if not expr:
+        return {}
+    if "filter" in expr:
+        return {expr["filter"]["fieldName"]: expr["filter"]}
+    out = {}
+    for e in (expr.get("andGroup") or {}).get("expressions") or []:
+        out.update(filters(e))
+    return out
 
 
-def report(body, source):
+def report(prop, body, source):
     dims = [d["name"] for d in body.get("dimensions") or []]
     mets = [m["name"] for m in body.get("metrics") or []]
+    f = filters(body.get("dimensionFilter"))
     rows = []
-    if dims == ["eventName"]:
-        keep = wanted(body)
+    first = sorted((s for s in DB["streams"].values() if s["name"].startswith(prop + "/")), key=lambda s: s["name"])
+    sid = (f.get("streamId") or {}).get("stringFilter", {}).get("value")
+    if sid is not None and (not first or first[0]["name"].rsplit("/", 1)[-1] != sid):
+        pass                                    # another stream: none of the scenario's traffic
+    elif dims == ["eventName"]:
+        keep = set((f.get("eventName") or {}).get("inListFilter", {}).get("values") or []) if "eventName" in f else None
         for name, (count, users) in sorted(SCENARIO[source].items()):
             if keep is None or name in keep:
                 vals = {"eventCount": count, "totalUsers": users, "activeUsers": users}
@@ -161,22 +177,14 @@ def data(method, parts, body):
     if verb == "runReport":
         if not body.get("dateRanges"):
             return err(400, "INVALID_ARGUMENT", "dateRanges is required")
-        return report(body, "events")
+        return report("properties/" + pid, body, "events")
     if verb == "runRealtimeReport":
-        return report(body, "realtime")
+        return report("properties/" + pid, body, "realtime")
     return err(404, "NOT_FOUND", "unknown data method")
 
 
-def mp_debug(query, body):
-    msgs = []
-    mid, secret = (query.get("measurement_id") or [""])[0], (query.get("api_secret") or [""])[0]
-    streams = [s for s in DB["streams"].values() if s["webStreamData"]["measurementId"] == mid]
-    if not streams:
-        msgs.append({"fieldPath": "measurement_id", "description": "Unknown measurement_id %s" % mid,
-                     "validationCode": "VALUE_INVALID"})
-    elif not any(s["secretValue"] == secret and s["name"].startswith(streams[0]["name"] + "/") for s in DB["secrets"].values()):
-        msgs.append({"fieldPath": "api_secret", "description": "api_secret is not valid for this stream",
-                     "validationCode": "VALUE_INVALID"})
+def mp_debug(body):
+    msgs = list(SCENARIO["mp_messages"])
     if not body.get("client_id"):
         msgs.append({"fieldPath": "client_id", "description": "client_id is required", "validationCode": "VALUE_REQUIRED"})
     events = body.get("events") or []
@@ -223,7 +231,12 @@ class H(BaseHTTPRequestHandler):
             LOG.append({"method": method, "path": u.path, "query": u.query, "auth": auth, "body": body})
             parts = [p for p in u.path.split("/") if p]
             if parts[:2] == ["mp", "debug"] and parts[2:] == ["mp", "collect"] and method == "POST":
-                return self.reply(*mp_debug(parse_qs(u.query), body))
+                return self.reply(*mp_debug(body))
+            if parts[:1] in (["admin"], ["data"]) and SCENARIO["redirect"]:
+                self.send_response(302)
+                self.send_header("Location", SCENARIO["redirect"])
+                self.send_header("Content-Length", "0")
+                return self.end_headers()
             if parts[:1] in (["admin"], ["data"]):
                 if auth != "Bearer " + TOKEN:
                     return self.reply(*err(401, "UNAUTHENTICATED", "Request had invalid authentication credentials."))

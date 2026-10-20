@@ -3,36 +3,41 @@
 Real usage drives most of a later goal once there is enough of it, so it is captured from day
 one through GA4, which the agents set up through Google's APIs: no server to host, nothing to
 buy. Nothing reaches the network until a human consents to the exact terms below, and a
-revoke stops it. Agents see aggregate counts from fixed report definitions only.
+revoke stops the agents' use of it. Agents see aggregate counts of the consented stream only.
 
 Usage:
   mission telemetry init --uri URL [--name NAME] [--time-zone TZ] [--force]
         draft the terms (what is measured, why, what agents see, GA's user-data acknowledgement,
-        the OAuth scopes) as a sealed record, status off. Nothing leaves the machine.
-        --force re-drafts the terms of the existing record (consent is asked again).
+        the credential) as a sealed record. Nothing leaves the machine. --force re-drafts the
+        terms of the existing record; changed terms need a new consent.
   mission telemetry consent --by NAME [--reason TEXT]
         the human opts in to exactly these terms: telemetry.consent names their sha256
   mission telemetry revoke --by NAME [--reason TEXT]
-        opt out: setup, debug-hit and report refuse until a new consent
+        opt out: setup, debug-hit and report refuse, usage stops driving goals, and the local
+        Measurement Protocol secret is deleted. The app's own GA tag is the app's code: check
+        names the files that still carry it.
   mission telemetry auth
         the one-time Google sign-in, as pastable steps (the only human step)
   mission telemetry setup [--account accounts/N] [--property properties/N]
-        Admin API, idempotent: find or create the property, acknowledge user-data collection,
-        a web data stream for the uri, a Measurement Protocol secret (kept in .aladdin/state/,
-        never in docs/) and a key event for each active journey's last step
+        Admin API, idempotent: find or create the property (--account picks or replaces it),
+        acknowledge user-data collection, a web data stream for the uri, a Measurement
+        Protocol secret (kept in .aladdin/state/, never in docs/) and a key event for each
+        active journey's last step
   mission telemetry debug-hit
-        send every active journey step's event to GA's validation server; the result is recorded
+        confirm the local secret is live on the stream (Admin API; Google's validation server
+        does not check secrets), then send every active journey step's event to that server
   mission telemetry report [--realtime] [--json]
-        the fixed Data API reports: settled (28 days ending 3 days ago, so ≥48h old) or realtime
-        (the last 30 minutes, a quick signal only); written to docs/agents/mission/telemetry/reports/
+        the fixed Data API reports, scoped to the stream: settled (28 days ending 3 days ago,
+        so ≥48h old) or realtime (a quick signal only); written to docs/agents/mission/telemetry/reports/
   mission telemetry share [--json]
         how much of the next goal usage may drive, from the latest settled report: 0 below
         50 users over 28 days or when GA thresholded the data, else 0.7 (research keeps 0.3)
   mission telemetry show [--json]
   mission telemetry check [--json]
         the structural check: consent covers the current terms; once consented, every active
-        journey step's event is emitted by non-test source code; once configured, a passing
-        debug hit covers the current events. Usage numbers never change its exit.
+        journey step's event is emitted by non-test code in this checkout; once set up, the
+        app carries the stream's measurement id, the key events match the journeys and a
+        passing debug hit covers the current events. Usage numbers never change its exit.
         Exit 0 ok (or off) · 2 block · 3 needs the human · 64 usage
 
 Environment: ALADDIN_GA_ACCESS_TOKEN (an OAuth access token), ALADDIN_GA_TOKEN_COMMAND (default
@@ -59,6 +64,9 @@ SCOPES = ("https://www.googleapis.com/auth/analytics.edit", "https://www.googlea
 ACKNOWLEDGEMENT = ("I acknowledge that I have the necessary privacy disclosures and rights from my end users for the "
                    "collection and processing of their data, including the association of such data with the "
                    "visitation information Google Analytics collects from my site and/or app property.")
+CREDENTIAL = ("a service account the human adds to their Analytics account as Editor; agents mint its tokens with "
+              "gcloud, carrying only the scopes below. Signing in also leaves the human's gcloud credentials "
+              "(cloud-platform) on this machine, as any gcloud use does")
 HOSTS = {"admin": "https://analyticsadmin.googleapis.com", "data": "https://analyticsdata.googleapis.com",
          "mp": "https://www.google-analytics.com"}
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
@@ -67,8 +75,8 @@ TOKEN_COMMAND = "gcloud auth application-default print-access-token"
 # the minimum-sample rule (§4.12 call): small numbers are noise, and GA hides them anyway
 MIN_USERS, WINDOW_DAYS, USAGE_SHARE, RESEARCH_FLOOR = 50, 28, 0.7, 0.3
 SETTLED = {"startDate": "30daysAgo", "endDate": "3daysAgo"}   # 28 days; the newest is ≥48h old, so settled
-# the fixed report definitions (hashed into every report). Aggregate dimensions only: agents
-# never see a user or client id
+# the fixed report definitions (hashed into every report); request() scopes each to the stream.
+# Aggregate dimensions only: agents never see a user or client id
 AGGREGATE_DIMENSIONS = {"eventName", "date", "newVsReturning", "deviceCategory"}
 REPORTS = {
     "users": {"api": "runReport", "body": {"dateRanges": [SETTLED], "metrics": [
@@ -80,41 +88,52 @@ REPORTS = {
 }
 SETTLED_REPORTS = ("users", "journeys")
 
-# GA4 event names: a letter, then letters, digits or underscores, at most 40; reserved names and prefixes
+# GA4 event names, conservatively: an ASCII letter, then letters, digits or _, at most 40; the
+# Measurement Protocol's reserved names (plus the app-only ones) and Firebase's reserved prefixes
 EVENT_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
 RESERVED = {"ad_activeview", "ad_click", "ad_exposure", "ad_impression", "ad_query", "ad_reward", "adunit_exposure",
             "app_clear_data", "app_exception", "app_install", "app_remove", "app_store_refund", "app_update",
             "app_upgrade", "dynamic_link_app_open", "dynamic_link_app_update", "dynamic_link_first_open", "error",
-            "first_open", "first_visit", "in_app_purchase", "notification_dismiss", "notification_foreground",
-            "notification_open", "notification_receive", "os_update", "session_start", "session_start_with_rollout",
-            "user_engagement"}
-RESERVED_PREFIXES = ("_", "firebase_", "ga_", "google_", "gtag.")
-MP_BATCH = 25                     # events per Measurement Protocol request
+            "firebase_campaign", "firebase_in_app_message_action", "firebase_in_app_message_dismiss",
+            "firebase_in_app_message_impression", "first_open", "first_visit", "in_app_purchase",
+            "notification_dismiss", "notification_foreground", "notification_open", "notification_receive",
+            "notification_send", "os_update", "screen_view", "session_start", "user_engagement"}
+RESERVED_PREFIXES = ("_", "firebase_", "ga_", "google_")
+MP_BATCH = 25                     # events per Measurement Protocol request (the validator does not enforce it)
 DEBUG_CLIENT_ID = "aloop.debug"   # the debug hit's client id: no user's
 PROBE_EVENT = "aloop_probe"       # sent when no journey has events yet, to prove the wiring
 SECRET_NAME = "aloop"
 
-# the emit check reads code, not docs, data or tests
+# the emit check reads this checkout's code, not docs, data or tests
 CODE_EXT = {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".vue", ".svelte", ".astro", ".html", ".htm", ".py",
-            ".rb", ".erb", ".go", ".rs", ".java", ".kt", ".swift", ".dart", ".php", ".cs", ".ex", ".exs", ".m"}
-SKIP_DIRS = {"docs", "test", "tests", "__tests__", "spec", "specs", "fixtures", "node_modules", "vendor", "dist", "build"}
-TEST_FILE = re.compile(r"(^test_|_test\.[^.]+$|\.(test|spec)\.[^.]+$)")
+            ".rb", ".erb", ".go", ".rs", ".java", ".kt", ".swift", ".dart", ".php", ".cs", ".cshtml", ".razor",
+            ".ex", ".exs", ".heex", ".m", ".ejs", ".hbs", ".handlebars", ".njk", ".twig", ".liquid", ".pug",
+            ".haml", ".slim", ".jinja", ".j2", ".mustache"}
+SKIP_DIRS = {"docs", "test", "tests", "__tests__", "__mocks__", "spec", "specs", "fixtures", "cypress", "e2e",
+             "playwright", "testdata", "node_modules", "vendor", "dist", "build"}
+TEST_FILE = re.compile(r"(^test_|^tests\.py$|^conftest\.py$|_(test|spec)\.[^.]+$|\.(test|spec|cy|e2e)\.[^.]+$"
+                       r"|(Test|Tests|Spec)\.[^.]+$)")
+SCAN_LIMIT = 2 * 1024 * 1024      # bytes read per file
 
-AUTH_STEPS = """One-time Google sign-in (the only human step; paste in a terminal on your Mac):
-  1. A Google Analytics account (skip if you have one): https://analytics.google.com -> Start measuring.
-  2. A Google Cloud project with the two Analytics APIs on:
-       gcloud projects create aloop-ga-$RANDOM --set-as-default   # or: gcloud config set project YOUR_PROJECT
-       gcloud services enable analyticsadmin.googleapis.com analyticsdata.googleapis.com
-  3. An OAuth client for that project: https://console.cloud.google.com/auth/clients -> Create client ->
-     Desktop app -> Download JSON, saved as ~/aloop-ga-client.json (the first time, the consent screen asks
-     for an app name and your email, and you add yourself as a test user).
-  4. Sign in once:
-       gcloud auth application-default login --client-id-file="$HOME/aloop-ga-client.json" \\
-         --scopes=https://www.googleapis.com/auth/analytics.edit,https://www.googleapis.com/auth/analytics.readonly,https://www.googleapis.com/auth/cloud-platform
+AUTH_STEPS = """One-time Google sign-in (the only human step). Paste in a terminal with gcloud installed:
+  gcloud auth login
+  P=aloop-ga-$RANDOM; gcloud projects create $P && gcloud config set project $P
+  gcloud services enable analyticsadmin.googleapis.com analyticsdata.googleapis.com iam.googleapis.com iamcredentials.googleapis.com
+  gcloud iam service-accounts create aloop-ga --display-name="aloop GA"
+  SA=aloop-ga@$P.iam.gserviceaccount.com
+  gcloud iam service-accounts add-iam-policy-binding $SA --member="user:$(gcloud config get-value account)" --role=roles/iam.serviceAccountTokenCreator
+  gcloud auth application-default login --impersonate-service-account=$SA --scopes=https://www.googleapis.com/auth/analytics.edit,https://www.googleapis.com/auth/analytics.readonly
+  echo $SA
+Then in a browser: https://analytics.google.com -> Admin -> Account access management -> + -> Add users ->
+paste that service-account email, role Editor -> Add. (No Analytics account yet? Admin -> Create account first.)
 Then: aloop mission telemetry setup"""
 
 
 class Usage(Exception):
+    pass
+
+
+class Help(Exception):
     pass
 
 
@@ -141,16 +160,35 @@ def current(cwd):
 
 
 def consent_state(cwd, path, doc):
-    """none | revoked | stale (the last consent covers other terms) | ok, from the events only."""
+    """none | revoked | stale (the last consent covers other terms) | ok, from human events only:
+    an event any other role wrote is not a consent (approval provenance itself is M9.17)."""
     ref, last = M.rel(cwd, path), None
     for e in _events.read(cwd):
-        if e.get("event") in ("telemetry.consent", "telemetry.revoked") and (e.get("data") or {}).get("subject") == ref:
+        if e.get("event") in ("telemetry.consent", "telemetry.revoked") and e.get("role") == "human" \
+                and (e.get("data") or {}).get("subject") == ref:
             last = e
     if last is None:
         return "none", None
     if last["event"] == "telemetry.revoked":
         return "revoked", last
-    return ("ok" if (last.get("data") or {}).get("sha256") == terms_sha(doc) else "stale"), last
+    sha = terms_sha(doc)
+    if (last.get("data") or {}).get("sha256") == sha and M.approved(cwd, "telemetry.consent", ref, sha):
+        return "ok", last
+    return "stale", last
+
+
+def bound(doc):
+    """Set up for the current terms: a property and a stream measuring exactly the consented uri."""
+    return bool(doc.get("property") and (doc.get("stream") or {}).get("default_uri") == doc["terms"]["uri"])
+
+
+def derive_status(cwd, path, doc):
+    state = consent_state(cwd, path, doc)[0]
+    if state == "revoked":
+        return "revoked"
+    if state != "ok":
+        return "off"
+    return "configured" if bound(doc) else "consented"
 
 
 OPT_IN = ("telemetry is opt-in and off: `aloop mission telemetry init --uri URL`, then a human runs "
@@ -209,6 +247,20 @@ def write_secret(cwd, telemetry_id, data):
     return p
 
 
+def local_time_zone():
+    """The machine's IANA zone (the property's reporting zone), or Google's example zone."""
+    tz = os.environ.get("TZ", "").lstrip(":")
+    if "/" not in tz:
+        try:
+            tz = os.path.realpath("/etc/localtime").split("zoneinfo/", 1)[1]
+        except (OSError, IndexError):
+            tz = ""
+    if tz.startswith(("posix/", "right/")):
+        tz = tz.split("/", 1)[1]
+    ok = re.match(r"^[A-Z][A-Za-z_]+/[A-Za-z0-9_+\-/]+$", tz) and not tz.startswith("Etc/")
+    return tz if ok else "America/Los_Angeles"
+
+
 # ── journeys (M9.3's files, read by contract fields only) and the emit check ─────────
 def journeys(cwd):
     """Active journeys as [(name, [step event, …])], oldest first."""
@@ -224,6 +276,11 @@ def journey_events(cwd):
     return sorted({e for _, evs in journeys(cwd) for e in evs})
 
 
+def key_events(cwd):
+    """The key event of each active journey: its last step's event."""
+    return sorted({evs[-1] for _, evs in journeys(cwd) if evs and not name_problem(evs[-1])})
+
+
 def events_sha(evs):
     return M.digest({"events": sorted(evs)}, drop=())
 
@@ -236,7 +293,21 @@ def name_problem(name):
     return None
 
 
-def source_files(root):
+def checkout(cwd):
+    """The source tree being checked: cwd's own checkout (a worker's linked worktree included),
+    while journeys and the record stay in the main worktree's docs/agents/mission/."""
+    try:
+        r = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True,
+                           timeout=30)
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return _paths.project(cwd)
+
+
+def source_files(root, code_only=True):
+    """Non-test, non-doc files of the checkout (tracked or new, never git-ignored)."""
     try:
         out = subprocess.run(["git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
                              capture_output=True, text=True, timeout=60)
@@ -249,26 +320,38 @@ def source_files(root):
         parts = f.replace(os.sep, "/").split("/")
         if any(p.startswith(".") or p in SKIP_DIRS for p in parts[:-1]) or TEST_FILE.search(parts[-1]):
             continue
-        if os.path.splitext(f)[1].lower() in CODE_EXT:
+        if not code_only or os.path.splitext(f)[1].lower() in CODE_EXT:
             yield f
+
+
+def scan(cwd, patterns, code_only=True):
+    """{key: "file:line"} for each pattern's first hit in the checkout's files."""
+    root, found = checkout(cwd), {}
+    for f in source_files(root, code_only):
+        if len(found) == len(patterns):
+            break
+        try:
+            with open(os.path.join(root, f), errors="ignore") as fh:
+                text = fh.read(SCAN_LIMIT)
+        except OSError:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            for k, rx in patterns.items():
+                if k not in found and rx.search(line):
+                    found[k] = "%s:%d" % (f, i)
+    return found
 
 
 def emitted(cwd, names):
     """{event: "file:line"} for each name found as a quoted literal ('x', "x" or `x`) in code."""
-    root, found = _paths.project(cwd), {}
-    want = {n: re.compile(r"(['\"`])%s\1" % re.escape(n)) for n in names}
-    for f in source_files(root):
-        if len(found) == len(want):
-            break
-        try:
-            with open(os.path.join(root, f), errors="ignore") as fh:
-                for i, line in enumerate(fh, 1):
-                    for n, rx in want.items():
-                        if n not in found and rx.search(line):
-                            found[n] = "%s:%d" % (f, i)
-        except OSError:
-            continue
-    return found
+    return scan(cwd, {n: re.compile(r"(['\"`])%s\1" % re.escape(n)) for n in names})
+
+
+def tagged(cwd, measurement_id):
+    """Where the checkout carries the stream's measurement id (code, config or env file), or None."""
+    hit = scan(cwd, {"mid": re.compile(r"(?<![A-Za-z0-9-])%s(?![A-Za-z0-9])" % re.escape(measurement_id))},
+               code_only=False)
+    return hit.get("mid")
 
 
 # ── the network: three Google hosts, or one loopback fake ────────────────────────────
@@ -277,7 +360,7 @@ def endpoint(api):
     if not base:
         return HOSTS[api]
     u = urlsplit(base)
-    if u.scheme not in ("http", "https") or u.hostname not in LOOPBACK:
+    if u.scheme not in ("http", "https") or u.hostname not in LOOPBACK or u.username or u.password:
         raise Usage("ALADDIN_GA_BASE must be a loopback URL (a test fake), not %r: a token never leaves for "
                     "another host" % base)
     return base.rstrip("/") + "/" + api
@@ -296,6 +379,13 @@ def token():
     return out if r.returncode == 0 and out and not any(c.isspace() for c in out) else None
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Google's APIs never redirect; following one would carry the bearer token to another host."""
+
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
 def call(method, api, path, body=None, tok=None, query=None):
     url = endpoint(api) + path + ("?" + urlencode(query) if query else "")
     headers = {"Content-Type": "application/json"}
@@ -304,10 +394,9 @@ def call(method, api, path, body=None, tok=None, query=None):
     req = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(), headers=headers,
                                  method=method)
     # a loopback fake is reached directly, never through a proxy
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({})) if _paths.env("GA_BASE") else \
-        urllib.request.build_opener()
+    handlers = [_NoRedirect()] + ([urllib.request.ProxyHandler({})] if _paths.env("GA_BASE") else [])
     try:
-        with opener.open(req, timeout=60) as r:
+        with urllib.request.build_opener(*handlers).open(req, timeout=60) as r:
             raw = r.read()
         return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
@@ -321,31 +410,32 @@ def call(method, api, path, body=None, tok=None, query=None):
 
 
 def listall(path, key, tok):
-    """Every item of a paged Admin API list."""
+    """Every item of a paged Admin API list (each list has its own page-size cap, so none is sent)."""
     out, page = [], None
     while True:
-        q = {"pageSize": 200}
-        if page:
-            q["pageToken"] = page
-        r = call("GET", "admin", path, tok=tok, query=q)
+        r = call("GET", "admin", path, tok=tok, query={"pageToken": page} if page else None)
         out += r.get(key) or []
         page = r.get("nextPageToken")
         if not page:
             return out
 
 
+SIGN_IN = re.compile(r"insufficient authentication scopes|ACCESS_TOKEN_SCOPE_INSUFFICIENT|invalid_grant", re.I)
+API_OFF = re.compile(r"has not been used|is disabled|SERVICE_DISABLED|accessNotConfigured")
+
+
 def ga_failed(e):
     """Map a GA error to an exit: credentials and API access are the human's (3), the rest block (2)."""
-    if e.code == 401:
+    if e.code == 401 or (e.code == 403 and SIGN_IN.search(e.message)):
         say("ASK", "Google rejected the credentials (%s).\n%s" % (e.message, AUTH_STEPS))
         return 3
-    if e.code == 403 and re.search(r"has not been used|is disabled|SERVICE_DISABLED|accessNotConfigured", e.message):
+    if e.code == 403 and API_OFF.search(e.message):
         say("ASK", "an Analytics API is off in your Google Cloud project (%s). Paste:\n"
             "  gcloud services enable analyticsadmin.googleapis.com analyticsdata.googleapis.com" % e.message)
         return 3
     if e.code == 403:
-        say("ASK", "the signed-in Google account lacks access (%s): give it the Editor role on the Analytics "
-            "account (Admin -> Account access management), or pass --account / --property you can edit" % e.message)
+        say("ASK", "the signed-in Google identity lacks access (%s): add it to the Analytics account as Editor "
+            "(Admin -> Account access management), or pass --account / --property it can edit" % e.message)
         return 3
     say("BLOCK", "Google Analytics: %s" % e)
     return 2
@@ -362,12 +452,11 @@ def need_token():
 def cmd_init(cwd, o):
     uri = o.get("uri") or ""
     if not re.match(r"^https?://[^\s/]+", uri):
-        say("BLOCK", "--uri must be the app's http(s) URL (what is measured is part of the terms)")
-        return 64
+        raise Usage("--uri must be the app's http(s) URL (what is measured is part of the terms)")
     path, doc = current(cwd)
     if doc is not None and not o.get("force"):
         say("BLOCK", "%s exists; `aloop mission telemetry init --uri URL --force` re-drafts its terms "
-            "(consent is asked again)" % M.rel(cwd, path))
+            "(changed terms need a new consent)" % M.rel(cwd, path))
         return 2
     mission, _ = M.load(M.path_of(cwd, "mission"))
     mission = mission if isinstance(mission, dict) else {}
@@ -376,11 +465,11 @@ def cmd_init(cwd, o):
              "purpose": "usage of %s informs research and goal-setting for the mission; it is never a gate" % uri,
              "collects": ["the app's Google Analytics 4 web measurement on this uri",
                           "one event per user-journey step (its name and engagement time)"],
-             "agents_see": "aggregate counts only (event name, users, new users) from fixed report definitions; "
-                           "never a user or client id",
-             "acknowledgement": ACKNOWLEDGEMENT, "scopes": list(SCOPES),
+             "agents_see": "aggregate counts of this uri's stream only (event name, users, new users) from fixed "
+                           "report definitions; never a user or client id",
+             "acknowledgement": ACKNOWLEDGEMENT, "credential": CREDENTIAL, "scopes": list(SCOPES),
              "others": "once other people use the app, a consent banner (Consent Mode v2) is a journey requirement"}
-    settings = {"display_name": name, "time_zone": o.get("time_zone") or "Etc/GMT", "currency": "USD"}
+    settings = {"display_name": name, "time_zone": o.get("time_zone") or local_time_zone(), "currency": "USD"}
     if doc is None:
         tid = M.new_id("telemetry")
         path = M.path_of(cwd, "telemetry", tid)
@@ -389,11 +478,15 @@ def cmd_init(cwd, o):
                "property": None, "acknowledged": False, "stream": None, "secret": None, "key_events": [],
                "debug_hit": None}
     else:
-        doc.update(terms=terms, settings=settings, status="off")
+        if (doc.get("terms") or {}).get("uri") != uri:     # another uri: the old stream measures something else
+            doc.update(stream=None, secret=None, key_events=[], debug_hit=None)
+        doc.update(terms=terms, settings=settings)
+    doc["status"] = derive_status(cwd, path, doc)
     store(path, doc)
     print(path)
-    say("ASK", "terms drafted (nothing was sent): a human reviews `aloop mission telemetry show` and runs "
-        "`aloop mission telemetry consent --by NAME`")
+    if doc["status"] == "off":
+        say("ASK", "terms drafted (nothing was sent): a human reviews `aloop mission telemetry show` and runs "
+            "`aloop mission telemetry consent --by NAME`")
     return 0
 
 
@@ -419,7 +512,7 @@ def cmd_consent(cwd, o):
         return 2
     eid = M.approve(cwd, "telemetry.consent", M.rel(cwd, path), terms_sha(doc), by, reason,
                     telemetry_id=doc["telemetry_id"], uri=doc["terms"]["uri"])
-    doc["status"] = "configured" if doc.get("stream") else "consented"
+    doc["status"] = derive_status(cwd, path, doc)
     doc["approval"] = {"event_id": eid, "by": by, "at": M.now()}
     store(path, doc)
     print("[telemetry] %s: %s consented to the terms (sha256 %s)" % (doc["telemetry_id"], by, terms_sha(doc)[:12]),
@@ -436,31 +529,47 @@ def cmd_revoke(cwd, o):
     ref = M.rel(cwd, path)
     M.emit(cwd, "telemetry.revoked", role="human", refs={"subject": ref}, subject=ref, by=by, reason=reason,
            telemetry_id=doc.get("telemetry_id"))
+    try:
+        os.remove(secret_file(cwd, doc["telemetry_id"]))
+    except OSError:
+        pass
     doc["status"] = "revoked"
     M.save(path, doc)       # status is outside the digest: the seal still holds
-    print("[telemetry] %s revoked by %s: nothing is sent until a new consent" % (doc.get("telemetry_id"), by),
+    print("[telemetry] %s revoked by %s: agents stop setup, debug hits and usage reports, usage no longer drives "
+          "goals, and the local Measurement Protocol secret is deleted. The app's own GA tag keeps sending until "
+          "it is removed (`aloop mission telemetry check` names where it is)." % (doc["telemetry_id"], by),
           file=sys.stderr)
     return 0
 
 
 def pick_property(doc, o, tok):
-    """(account, property, rc): the property given, recorded, found by display name, or created in
-    the one reachable account. Which account is the human's call when there are none or several (rc 3)."""
-    prop = o.get("property") or doc.get("property")
-    if prop:
-        call("GET", "admin", "/v1beta/" + prop, tok=tok)
-        return doc.get("account"), prop, 0
+    """(account, property, rc): --property, else the recorded one (unless --account asks to pick
+    again), else found by display name or created in the one reachable account. Which account
+    is the human's call when there are none or several, or when the recorded one is gone (rc 3)."""
+    if o.get("property"):
+        call("GET", "admin", "/v1beta/" + o["property"], tok=tok)
+        return doc.get("account") if o["property"] == doc.get("property") else None, o["property"], 0
+    if doc.get("property") and not o.get("account"):
+        try:
+            call("GET", "admin", "/v1beta/" + doc["property"], tok=tok)
+            return doc.get("account"), doc["property"], 0
+        except GAError as e:
+            if e.code not in (403, 404) or SIGN_IN.search(e.message) or API_OFF.search(e.message):
+                raise
+            say("ASK", "the recorded property %s is not reachable (%s): rerun with `--account accounts/N` to find or "
+                "create one there, or `--property properties/N`" % (doc["property"], e.message))
+            return None, None, 3
     summaries = listall("/v1beta/accountSummaries", "accountSummaries", tok)
     if o.get("account"):
         found = [a for a in summaries if a.get("account") == o["account"]]
         if not found:
-            say("BLOCK", "%s is not an account the signed-in Google user can reach (%s)"
+            say("BLOCK", "%s is not an account the signed-in Google identity can reach (%s)"
                 % (o["account"], ", ".join(a.get("account", "") for a in summaries) or "none"))
             return None, None, 2
     elif not summaries:
-        say("ASK", "the signed-in Google user has no Analytics account: create one at https://analytics.google.com "
-            "(Admin -> Create account; Google needs you to accept its terms there), then rerun "
-            "`aloop mission telemetry setup`")
+        say("ASK", "the signed-in Google identity has no Analytics account: create one at https://analytics.google.com "
+            "(Admin -> Create account; Google needs you to accept its terms there) and add the service account "
+            "to it, then rerun `aloop mission telemetry setup`")
         return None, None, 3
     elif len(summaries) > 1:
         say("ASK", "several Analytics accounts: choose one, e.g. `aloop mission telemetry setup --account %s` (%s)"
@@ -514,23 +623,23 @@ def cmd_setup(cwd, o):
         store(path, doc)
         local = read_secret(cwd, tid)
         secrets = listall("/v1beta/%s/measurementProtocolSecrets" % s["name"], "measurementProtocolSecrets", tok)
-        sec = next((x for x in secrets if local and x.get("name") == local.get("name")), None) or \
-            next((x for x in secrets if x.get("displayName") == SECRET_NAME and x.get("secretValue")), None)
+        sec = next((x for x in secrets if local and x.get("name") == local.get("name") and x.get("secretValue")), None) \
+            or next((x for x in secrets if x.get("displayName") == SECRET_NAME and x.get("secretValue")), None)
         if sec is None:
             sec = call("POST", "admin", "/v1beta/%s/measurementProtocolSecrets" % s["name"],
                        {"displayName": SECRET_NAME}, tok)
-        value = sec.get("secretValue") or (local or {}).get("api_secret")
-        if not value:
+        if not sec.get("secretValue"):
             raise GAError(0, "NO_SECRET", "Google returned no Measurement Protocol secret value")
-        write_secret(cwd, tid, {"telemetry_id": tid, "stream": s["name"], "name": sec["name"], "api_secret": value})
+        write_secret(cwd, tid, {"telemetry_id": tid, "stream": s["name"], "name": sec["name"],
+                                "api_secret": sec["secretValue"]})
         doc["secret"] = {"name": sec["name"], "display_name": sec.get("displayName") or SECRET_NAME}
-        want = [evs[-1] for _, evs in journeys(cwd) if evs and not name_problem(evs[-1])]
+        want = key_events(cwd)
         have = {k.get("eventName") for k in listall("/v1beta/%s/keyEvents" % prop, "keyEvents", tok)}
         for ev in sorted(set(want) - have):
             call("POST", "admin", "/v1beta/%s/keyEvents" % prop, {"eventName": ev, "countingMethod": "ONCE_PER_EVENT"},
                  tok)
-        doc["key_events"] = sorted(set(want))
-        doc["status"] = "configured"
+        doc["key_events"] = want
+        doc["status"] = derive_status(cwd, path, doc)
         store(path, doc)
     except GAError as e:
         return ga_failed(e)
@@ -547,8 +656,8 @@ def cmd_debug_hit(cwd, o):
         return rc
     endpoint("mp")
     sec = read_secret(cwd, doc["telemetry_id"])
-    if not doc.get("stream") or not sec:
-        say("BLOCK", "not set up on this machine yet: `aloop mission telemetry setup` first")
+    if not bound(doc) or not sec:
+        say("BLOCK", "not set up for %s on this machine: `aloop mission telemetry setup` first" % doc["terms"]["uri"])
         return 2
     evs = journey_events(cwd)
     bad = ["event %r %s" % (e, name_problem(e)) for e in evs if name_problem(e)]
@@ -556,14 +665,24 @@ def cmd_debug_hit(cwd, o):
         say("BLOCK", b)
     if bad:
         return 2
-    mid, msgs = doc["stream"]["measurement_id"], []
-    send = evs or [PROBE_EVENT]
+    tok = need_token()
+    if not tok:
+        return 3
+    mid, msgs, send = doc["stream"]["measurement_id"], [], evs or [PROBE_EVENT]
     try:
-        for i in range(0, len(send), MP_BATCH):
-            body = {"client_id": DEBUG_CLIENT_ID,
-                    "events": [{"name": e, "params": {"engagement_time_msec": 1}} for e in send[i:i + MP_BATCH]]}
-            r = call("POST", "mp", "/debug/mp/collect", body, query={"measurement_id": mid, "api_secret": sec["api_secret"]})
-            msgs += r.get("validationMessages") or []
+        # Google's validation server checks the payload, never the secret: prove the secret on the Admin API
+        live = listall("/v1beta/%s/measurementProtocolSecrets" % doc["stream"]["name"], "measurementProtocolSecrets", tok)
+        if not any(x.get("name") == sec.get("name") and x.get("secretValue") == sec["api_secret"] for x in live):
+            msgs.append({"fieldPath": "api_secret", "validationCode": "SECRET_NOT_LIVE",
+                         "description": "the local Measurement Protocol secret is not live on %s (deleted or for "
+                                        "another stream): rerun `aloop mission telemetry setup`" % doc["stream"]["name"]})
+        else:
+            for i in range(0, len(send), MP_BATCH):
+                body = {"client_id": DEBUG_CLIENT_ID, "validation_behavior": "ENFORCE_RECOMMENDATIONS",
+                        "events": [{"name": e, "params": {"engagement_time_msec": 1}} for e in send[i:i + MP_BATCH]]}
+                r = call("POST", "mp", "/debug/mp/collect", body,
+                         query={"measurement_id": mid, "api_secret": sec["api_secret"]})
+                msgs += r.get("validationMessages") or []
     except GAError as e:
         return ga_failed(e)
     doc["debug_hit"] = {"at": M.now(), "ok": not msgs, "measurement_id": mid, "events_sha256": events_sha(evs),
@@ -601,11 +720,18 @@ def simplify(r):
             "thresholded": bool(meta.get("subjectToThresholding")), "data_loss": bool(meta.get("dataLossFromOtherRow"))}
 
 
-def request(name, events):
-    """The exact body sent for a fixed report: its definition, filtered to the journey events."""
+def stream_id(doc):
+    return doc["stream"]["name"].rsplit("/", 1)[-1]
+
+
+def request(name, events, stream):
+    """The exact body sent for a fixed report: its definition, scoped to the consented stream and,
+    for event reports, to the journey events."""
     body = json.loads(json.dumps(REPORTS[name]["body"]))
+    exprs = [{"filter": {"fieldName": "streamId", "stringFilter": {"matchType": "EXACT", "value": stream}}}]
     if REPORTS[name].get("events"):
-        body["dimensionFilter"] = {"filter": {"fieldName": "eventName", "inListFilter": {"values": sorted(events)}}}
+        exprs.append({"filter": {"fieldName": "eventName", "inListFilter": {"values": sorted(events)}}})
+    body["dimensionFilter"] = exprs[0] if len(exprs) == 1 else {"andGroup": {"expressions": exprs}}
     return body
 
 
@@ -627,8 +753,8 @@ def cmd_report(cwd, o):
     if rc:
         return rc
     endpoint("data")
-    if not doc.get("property"):
-        say("BLOCK", "no property yet: `aloop mission telemetry setup` first")
+    if not bound(doc):
+        say("BLOCK", "no stream for %s yet: `aloop mission telemetry setup` first" % doc["terms"]["uri"])
         return 2
     tok = need_token()
     if not tok:
@@ -638,7 +764,8 @@ def cmd_report(cwd, o):
         for n in (("realtime",) if realtime else SETTLED_REPORTS):
             if REPORTS[n].get("events") and not evs:
                 continue            # only journey events are read; none yet, nothing to read
-            r = call("POST", "data", "/v1beta/%s:%s" % (doc["property"], REPORTS[n]["api"]), request(n, evs), tok)
+            r = call("POST", "data", "/v1beta/%s:%s" % (doc["property"], REPORTS[n]["api"]),
+                     request(n, evs, stream_id(doc)), tok)
             results[n] = simplify(r)
     except GAError as e:
         return ga_failed(e)
@@ -652,9 +779,9 @@ def cmd_report(cwd, o):
         sh = share(users, thr, True)
     rid = M.new_id("telemetry")
     rep = {"report_id": rid, "telemetry_id": doc["telemetry_id"], "kind": "realtime" if realtime else "settled",
-           "fetched_at": M.now(), "property": doc["property"], "definitions_sha256": M.digest(REPORTS, drop=()),
-           "date_range": "last 30 minutes" if realtime else SETTLED, "events": evs, "results": results,
-           "sample": sample, "share": sh}
+           "fetched_at": M.now(), "property": doc["property"], "stream": doc["stream"]["name"],
+           "definitions_sha256": M.digest(REPORTS, drop=()), "date_range": "last 30 minutes" if realtime else SETTLED,
+           "events": evs, "results": results, "sample": sample, "share": sh}
     M.seal(rep)
     p = M.save(M.mdir(cwd, "telemetry", "reports", rid + ".json"), rep)
     M.emit(cwd, "telemetry.report", role="mission", refs={"report": M.rel(cwd, p)}, report_id=rid, kind=rep["kind"],
@@ -671,19 +798,21 @@ def cmd_report(cwd, o):
 
 def latest_share(cwd):
     """The usage/research split for the next goal (M9.11 reads this): from the newest settled report
-    whose seal holds, and only while the consent covers the terms."""
+    of the current record and stream whose seal holds, and only while the consent covers the terms."""
     path, doc = current(cwd)
     none = {"usage": 0, "research": 1, "report": None}
     if doc is None or consent_state(cwd, path, doc)[0] != "ok":
         return dict(none, reason="telemetry is off, revoked or not consented: research only")
+    stream = (doc.get("stream") or {}).get("name") if bound(doc) else None
     for p in sorted(glob.glob(M.mdir(cwd, "telemetry", "reports", "*.json")), reverse=True):
         rep, _ = M.load(p)
-        if not isinstance(rep, dict) or rep.get("kind") != "settled" or rep.get("sha256") != M.digest(rep):
+        if not isinstance(rep, dict) or rep.get("kind") != "settled" or rep.get("sha256") != M.digest(rep) \
+                or rep.get("telemetry_id") != doc["telemetry_id"] or not stream or rep.get("stream") != stream:
             continue
         s = rep.get("sample") or {}
         return dict(share(int(s.get("users") or 0), bool(s.get("thresholded")), True), report=rep.get("report_id"),
                     users=s.get("users"))
-    return dict(none, reason="no settled usage report yet: research only")
+    return dict(none, reason="no settled usage report for this stream yet: research only")
 
 
 def cmd_share(cwd, o):
@@ -709,7 +838,11 @@ def evaluate(cwd):
     if state == "none":
         return 0, [], dict(facts, note="telemetry off (opt-in): drafted, not consented")
     if state == "revoked":
-        return 0, [], dict(facts, note="telemetry revoked (opt-out) by %s" % (ev.get("data") or {}).get("by"))
+        mid = (doc.get("stream") or {}).get("measurement_id")
+        at = tagged(cwd, mid) if mid else None
+        return 0, [], dict(facts, still_tagged=at, note="telemetry revoked (opt-out) by %s%s" % (
+            (ev.get("data") or {}).get("by"), "; the app still carries %s at %s (remove it to stop collection)"
+            % (mid, at) if at else ""))
     if state == "stale":
         return 3, ["the consent does not cover the current terms: a human runs "
                    "`aloop mission telemetry consent --by NAME`"], facts
@@ -724,13 +857,24 @@ def evaluate(cwd):
         problems.append("journey %r step event %r is not emitted by any non-test source file (instrumentation is "
                         "part of done)" % (m["journey"], m["event"]))
     facts.update(events=evs, emitted=found, missing=missing)
-    if doc.get("stream"):
+    if doc.get("stream") and not bound(doc):
+        problems.append("the stream measures %s, not the consented %s: `aloop mission telemetry setup`"
+                        % (doc["stream"]["default_uri"], doc["terms"]["uri"]))
+    elif bound(doc):
+        mid = doc["stream"]["measurement_id"]
+        facts["tagged"] = tagged(cwd, mid)
+        if not facts["tagged"]:
+            problems.append("the app does not carry the stream's measurement id %s (e.g. gtag('config', '%s')): "
+                            "its events would reach no stream" % (mid, mid))
+        if doc.get("key_events") != key_events(cwd):
+            problems.append("the key events %s do not match the active journeys' last steps %s: "
+                            "`aloop mission telemetry setup`" % (doc.get("key_events"), key_events(cwd)))
         dh = doc.get("debug_hit")
         if not dh:
             problems.append("no debug hit yet: `aloop mission telemetry debug-hit`")
         elif not dh.get("ok"):
-            problems.append("the last debug hit failed GA validation: fix it and rerun `aloop mission telemetry debug-hit`")
-        elif dh.get("measurement_id") != doc["stream"]["measurement_id"] or dh.get("events_sha256") != events_sha(evs):
+            problems.append("the last debug hit failed: fix it and rerun `aloop mission telemetry debug-hit`")
+        elif dh.get("measurement_id") != mid or dh.get("events_sha256") != events_sha(evs):
             problems.append("the debug hit is stale (the journey events or stream changed): "
                             "`aloop mission telemetry debug-hit`")
     return (2 if problems else 0), problems, facts
@@ -744,7 +888,7 @@ def cmd_check(cwd, o):
         say("ASK" if rc == 3 else "BLOCK", b)
     if rc == 0:
         print("[telemetry] %s" % (facts.get("note") or "ok: consented, instrumented%s" % (
-            ", debug hit fresh" if facts.get("status") == "configured" else "")), file=sys.stderr)
+            ", tagged, debug hit fresh" if facts.get("tagged") else "")), file=sys.stderr)
     return rc
 
 
@@ -760,9 +904,9 @@ def cmd_show(cwd, o):
         return 0
     t = doc["terms"]
     print("Telemetry %s (%s, consent: %s)\nMeasures: %s\nPurpose: %s\nCollects: %s\nAgents see: %s\nOthers: %s\n"
-          "Google's acknowledgement: %s\nScopes: %s" % (doc["telemetry_id"], doc.get("status"), state, t["uri"],
-                                                       t["purpose"], "; ".join(t["collects"]), t["agents_see"],
-                                                       t["others"], t["acknowledgement"], " ".join(t["scopes"])))
+          "Google's acknowledgement: %s\nCredential: %s\nScopes: %s" % (
+              doc["telemetry_id"], doc.get("status"), state, t["uri"], t["purpose"], "; ".join(t["collects"]),
+              t["agents_see"], t["others"], t["acknowledgement"], t["credential"], " ".join(t["scopes"])))
     if doc.get("property"):
         print("Property: %s · stream %s · key events: %s" % (doc["property"], (doc.get("stream") or {}).get(
             "measurement_id"), ", ".join(doc.get("key_events") or []) or "none"))
@@ -774,35 +918,44 @@ def cmd_auth(cwd, o):
     return 0
 
 
-CMDS = {"init": cmd_init, "consent": cmd_consent, "revoke": cmd_revoke, "auth": cmd_auth, "setup": cmd_setup,
-        "debug-hit": cmd_debug_hit, "report": cmd_report, "share": cmd_share, "show": cmd_show, "check": cmd_check}
-FLAGS = ("json", "force", "realtime")
+CMDS = {"init": (cmd_init, {"uri", "name", "time_zone", "force"}), "consent": (cmd_consent, {"by", "reason"}),
+        "revoke": (cmd_revoke, {"by", "reason"}), "auth": (cmd_auth, set()),
+        "setup": (cmd_setup, {"account", "property"}), "debug-hit": (cmd_debug_hit, set()),
+        "report": (cmd_report, {"realtime", "json"}), "share": (cmd_share, {"json"}), "show": (cmd_show, {"json"}),
+        "check": (cmd_check, {"json"})}
+FLAGS = {"json", "force", "realtime"}
 
 
-def parse(argv):
-    opts, pos, k = {}, [], None
+def parse(argv, allowed):
+    """Options of one command: only its own, so a typo or a --help never runs a network command."""
+    opts, k = {}, None
     for a in argv:
         if k:
             opts[k], k = a, None
-        elif a.startswith("--"):
-            k = a[2:].replace("-", "_")
-            if k in FLAGS:
-                opts[k], k = True, None
+        elif a in ("-h", "--help"):
+            raise Help()
+        elif not a.startswith("--") or a[2:].replace("-", "_") not in allowed:
+            raise Usage("unexpected %r (allowed: %s)" % (a, " ".join(sorted("--" + x.replace("_", "-")
+                                                                             for x in allowed)) or "no options"))
+        elif a[2:].replace("-", "_") in FLAGS:
+            opts[a[2:].replace("-", "_")] = True
         else:
-            pos.append(a)
+            k = a[2:].replace("-", "_")
     if k:
-        opts[k] = ""
-    return opts, pos
+        raise Usage("--%s needs a value" % k.replace("_", "-"))
+    return opts
 
 
 def main(argv, cwd):
-    fn = CMDS.get(argv[0])
-    if fn is None:
+    if argv[0] not in CMDS:
         say("BLOCK", "unknown command %r (mission telemetry --help)" % argv[0])
         return 64
-    o, _ = parse(argv[1:])
+    fn, allowed = CMDS[argv[0]]
     try:
-        return fn(cwd, o)
+        return fn(cwd, parse(argv[1:], allowed))
+    except Help:
+        print(__doc__.strip())
+        return 0
     except Usage as e:
         say("BLOCK", str(e))
         return 64
