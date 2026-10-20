@@ -47,7 +47,7 @@ A gate checks structure and evidence, never whether a judgment is right.
   draft or changed since its newest approval.
 - **The ledger** `docs/agents/mission/ledger.jsonl` holds every record a gate decides from
   (`LEDGER_EVENTS`: the human decisions, `baseline.measured`, `journey.retired`, `ethics.reviewed`,
-  `ethics.blocked`, `goal.derived`, `goal.met`), committed with the artifacts.
+  `ethics.blocked`, `goal.derived`, `goal.met`, `door.crossed`), committed with the artifacts.
   `M.record(cwd, event, subject, role, **data)` appends one (and emits the event); `M.record_human` /
   `M.approve` are the human-only forms. The event stream is git-ignored run data, so a fresh checkout
   reads the ledger only. Each row carries the hash of the row it follows: an edited, removed,
@@ -119,6 +119,11 @@ A gate checks structure and evidence, never whether a judgment is right.
   newest file before normalizing it). `record_authority` also approves the latest plan:
   record a goal's authority only after its sprint's `ids freeze`. `aladdin "<intent>"` refuses a
   bare intent containing `/`; use `aladdin run`.
+- **M9.30 doors.** `doors.json` is the catalogue (anything unlisted is two-way); `doors.py` matches an
+  action by program and arguments, reads the human's `door.authorized` / `door.revoked` ledger rows
+  (`HUMAN_EVENTS`), and runs as the PreToolUse hook `mission doors hook` (deny JSON, fails closed with
+  exit 2). A gate that knows an action is a one-way door can call `doors.verdict(cwd, tool, input)`.
+  The core principles live in `principles.md` `## Core`, rendered by `principles.render_core()`.
 - **M9.17 approvals.** Any session can run `mission approve --by anyone` or `events authority`, or
   append a well-formed ledger row; an approval has to cite a captured human prompt before it means a
   human approved.

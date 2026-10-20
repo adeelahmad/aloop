@@ -1,0 +1,564 @@
+{
+ "version": 1,
+ "default_branch": "main|master",
+ "doors": [
+  {
+   "id": "push-default-branch",
+   "grant": "standing",
+   "title": "Push or merge into the default branch",
+   "why": "others build on it; undoing it is a new public change",
+   "bash": [
+    {
+     "prog": "git",
+     "args": "^push\\b(?!.*--dry-run)",
+     "flag": "\\+?(?:[^:\\s]*:)?(?:refs/heads/)?{DEF}"
+    },
+    {
+     "prog": "git",
+     "args": "^push(?:\\s+(?:-u|--set-upstream))?(?:\\s+[\\w.-]+)?$",
+     "when": "on-default-branch"
+    },
+    {
+     "prog": "gh",
+     "args": "^pr\\s+merge\\b"
+    }
+   ],
+   "tools": [
+    "^mcp__github__(?:merge_pull_request|enable_pr_auto_merge)$",
+    {
+     "tool": "^mcp__github__(?:push_files|create_or_update_file|delete_file)$",
+     "input": {
+      "branch": "{DEF}"
+     }
+    }
+   ],
+   "examples": {
+    "bash": [
+     "git push origin main",
+     "git -C r push origin HEAD:master",
+     "bash -c \"git push origin main\"",
+     "gh pr merge 12 --squash",
+     "git push"
+    ],
+    "tools": [
+     "mcp__github__merge_pull_request"
+    ]
+   }
+  },
+  {
+   "id": "force-push-or-delete-remote",
+   "grant": "standing",
+   "title": "Force-push, or delete a remote branch or tag",
+   "why": "it rewrites or removes history others may already have",
+   "bash": [
+    {
+     "prog": "git",
+     "args": "^push\\b(?!.*--dry-run)",
+     "flag": "-f|--force|--force-with-lease(?:=.*)?|--force-if-includes|--mirror|--delete|--prune|-d|-[A-Za-z]*[fd][A-Za-z]*|[+:]\\S+"
+    }
+   ],
+   "examples": {
+    "bash": [
+     "git push --force origin f",
+     "git push origin :old",
+     "git push origin +f",
+     "git push --delete origin v1"
+    ]
+   }
+  },
+  {
+   "id": "discard-local-work",
+   "grant": "standing",
+   "title": "Discard uncommitted or unpushed work in the main checkout",
+   "why": "work that was never committed or pushed cannot be brought back",
+   "bash": [
+    {
+     "prog": "git",
+     "when": "main-worktree",
+     "args": "^(?:reset\\b.*\\s--hard\\b|clean\\b.*\\s-[A-Za-z]*f|checkout\\s+(?:--\\s+)?\\.$|restore\\b(?!.*--staged).*\\s\\.$|stash\\s+(?:drop|clear)\\b|branch\\s+.*-D\\b|worktree\\s+remove\\b.*--force)"
+    }
+   ],
+   "examples": {
+    "bash": [
+     "git reset --hard",
+     "git clean -fdx",
+     "git stash clear",
+     "git branch -D old",
+     "git checkout -- ."
+    ]
+   }
+  },
+  {
+   "id": "publish-release",
+   "grant": "standing",
+   "title": "Publish a release or a package",
+   "why": "a published version is public and cannot be cleanly unpublished",
+   "bash": [
+    {
+     "prog": "npm|pnpm|yarn|bun",
+     "args": "^publish\\b(?!.*--dry-run)"
+    },
+    {
+     "prog": "cargo",
+     "args": "^publish\\b(?!.*--dry-run)"
+    },
+    {
+     "prog": "twine",
+     "args": "^upload\\b"
+    },
+    {
+     "prog": "gem",
+     "args": "^push\\b"
+    },
+    {
+     "prog": "poetry|uv|hatch|flit",
+     "args": "^publish\\b"
+    },
+    {
+     "prog": "gh",
+     "args": "^release\\s+(?:create|upload|edit|delete)\\b"
+    },
+    {
+     "prog": "git",
+     "args": "^push\\b(?!.*--dry-run).*\\s--tags\\b"
+    },
+    {
+     "prog": "docker|podman",
+     "args": "^(?:image\\s+)?push\\b"
+    }
+   ],
+   "examples": {
+    "bash": [
+     "npm publish",
+     "cargo publish",
+     "gh release create v1.0.0",
+     "docker push me/app:1",
+     "twine upload dist/x.whl",
+     "git push origin --tags"
+    ]
+   }
+  },
+  {
+   "id": "production-deploy",
+   "grant": "standing",
+   "title": "Deploy, or change live infrastructure",
+   "why": "users see it at once; a rollback is a new change",
+   "bash": [
+    {
+     "prog": "terraform|tofu",
+     "args": "^(?:apply|destroy|import|state\\s+(?:rm|mv|push))\\b"
+    },
+    {
+     "prog": "pulumi",
+     "args": "^(?:up|destroy|refresh)\\b"
+    },
+    {
+     "prog": "kubectl",
+     "args": "^(?:apply|create|delete|replace|patch|scale|set|edit|drain|cordon|rollout\\s+(?:restart|undo))\\b"
+    },
+    {
+     "prog": "helm",
+     "args": "^(?:install|upgrade|uninstall|rollback|delete)\\b"
+    },
+    {
+     "prog": "cdk",
+     "args": "^(?:deploy|destroy)\\b"
+    },
+    {
+     "prog": "serverless|sls",
+     "args": "^(?:deploy|remove)\\b"
+    },
+    {
+     "prog": "fly|flyctl",
+     "args": "^deploy\\b"
+    },
+    {
+     "prog": "vercel",
+     "args": "(?:^|\\s)--prod\\b"
+    },
+    {
+     "prog": "netlify",
+     "args": "^deploy\\b.*--prod\\b"
+    },
+    {
+     "prog": "gcloud",
+     "args": "\\bdeploy\\b"
+    },
+    {
+     "prog": "aws",
+     "args": "^(?:cloudformation\\s+(?:deploy|delete-stack|update-stack)|ecs\\s+update-service|lambda\\s+update-function-code|ec2\\s+terminate-instances|s3\\s+(?:rm|sync)\\b.*--delete)"
+    }
+   ],
+   "examples": {
+    "bash": [
+     "terraform apply -auto-approve",
+     "kubectl apply -f k8s/",
+     "helm upgrade app ./chart",
+     "fly deploy",
+     "vercel --prod"
+    ]
+   }
+  },
+  {
+   "id": "send-external-message",
+   "grant": "standing",
+   "title": "Send a message or a post outside the project",
+   "why": "a sent message cannot be unsent; others read and act on it",
+   "bash": [
+    {
+     "prog": "sendmail|mail|mailx|mutt"
+    }
+   ],
+   "tools": [
+    "(?i)^mcp__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin)\\w*?__(?:send|reply|forward|post|chat_post)\\w*$"
+   ],
+   "examples": {
+    "bash": [
+     "mail -s hi a@b.c"
+    ],
+    "tools": [
+     "mcp__Gmail__send_message",
+     "mcp__slack__post_message"
+    ]
+   }
+  },
+  {
+   "id": "system-change",
+   "grant": "standing",
+   "title": "Change the machine outside the project",
+   "why": "it affects every project and user on the machine",
+   "bash": [
+    {
+     "prog": "sudo|doas|su"
+    },
+    {
+     "prog": "apt|apt-get|yum|dnf|zypper|apk",
+     "args": "^(?:install|remove|purge|upgrade|dist-upgrade|autoremove|add|del)\\b"
+    },
+    {
+     "prog": "pacman",
+     "args": "^-[A-Za-z]*[SRU]"
+    },
+    {
+     "prog": "brew",
+     "args": "^(?:install|uninstall|reinstall|upgrade|remove|tap|untap)\\b"
+    },
+    {
+     "prog": "systemctl|service",
+     "args": "\\b(?:start|stop|restart|reload|enable|disable|mask|kill|daemon-reload)\\b"
+    },
+    {
+     "prog": "launchctl",
+     "args": "^(?:load|unload|bootstrap|bootout|enable|disable|kickstart)\\b"
+    },
+    {
+     "prog": "crontab",
+     "args": "^(?!-l\\b)"
+    },
+    {
+     "prog": "npm|pnpm|yarn",
+     "flag": "-g|--global"
+    }
+   ],
+   "examples": {
+    "bash": [
+     "sudo rm -rf /opt/x",
+     "apt-get install -y jq",
+     "brew install jq",
+     "systemctl restart nginx",
+     "npm install -g pnpm",
+     "crontab -e"
+    ]
+   }
+  },
+  {
+   "id": "destructive-db",
+   "grant": "once",
+   "title": "Drop, truncate or bulk-delete data in a database",
+   "why": "deleted data is gone unless a backup is restored",
+   "bash": [
+    {
+     "prog": "psql|mysql|mariadb|sqlite3|sqlcmd|duckdb|clickhouse-client|cockroach",
+     "args": "(?i)\\b(?:drop\\s+(?:table|database|schema|view|index)|truncate\\b|delete\\s+from\\s+\\S+\\s*(?:;|$))"
+    },
+    {
+     "prog": "dropdb|dropuser"
+    },
+    {
+     "prog": "redis-cli",
+     "args": "(?i)\\bflush(?:all|db)\\b"
+    },
+    {
+     "prog": "mongo|mongosh",
+     "args": "(?i)\\b(?:dropDatabase|\\.drop\\(\\)|deleteMany\\(\\{\\}\\))"
+    },
+    {
+     "prog": "rails|rake",
+     "args": "^db:(?:drop|reset|purge|schema:load)\\b"
+    },
+    {
+     "prog": "prisma",
+     "args": "^(?:migrate\\s+reset|db\\s+push\\b.*--force-reset)"
+    },
+    {
+     "prog": "npx|bunx|pnpm",
+     "args": "^(?:exec\\s+)?prisma\\s+(?:migrate\\s+reset|db\\s+push\\b.*--force-reset)"
+    }
+   ],
+   "examples": {
+    "bash": [
+     "psql -c 'DROP TABLE users'",
+     "redis-cli FLUSHALL",
+     "dropdb app",
+     "rails db:drop",
+     "sqlite3 app.db 'DELETE FROM users;'"
+    ]
+   }
+  },
+  {
+   "id": "visibility-or-sharing",
+   "grant": "once",
+   "title": "Make something public, or share it with others",
+   "why": "once seen or copied it cannot be made private again",
+   "bash": [
+    {
+     "prog": "gh",
+     "args": "^(?:repo\\s+(?:edit\\b.*--visibility\\s+public|create\\b.*--public)|gist\\s+create\\b.*\\s(?:--public|-p)\\b)"
+    }
+   ],
+   "tools": [
+    "(?i)^mcp__\\w*?__(?:share_file|share|add_permission|create_permission)$"
+   ],
+   "examples": {
+    "bash": [
+     "gh repo edit --visibility public",
+     "gh gist create --public a.txt"
+    ],
+    "tools": [
+     "mcp__Google_Drive__share_file"
+    ]
+   }
+  },
+  {
+   "id": "credentials-and-secrets",
+   "grant": "once",
+   "title": "Set, rotate, reveal or delete a secret or credential",
+   "why": "a leaked or lost credential cannot be taken back",
+   "bash": [
+    {
+     "prog": "gh",
+     "args": "^(?:(?:secret|variable)\\s+(?:set|delete|remove)|auth\\s+token)\\b"
+    },
+    {
+     "prog": "vault",
+     "args": "^(?:kv\\s+(?:put|delete|destroy|patch)|write|delete)\\b"
+    },
+    {
+     "prog": "aws",
+     "args": "^(?:secretsmanager\\s+(?:create|put|delete|update|get-secret-value)|iam\\s+(?:create-access-key|delete-access-key|attach-|put-))"
+    },
+    {
+     "prog": "kubectl",
+     "args": "^(?:create|delete)\\s+secret\\b"
+    },
+    {
+     "prog": "security",
+     "args": "^(?:add|delete|find)-(?:generic|internet)-password\\b"
+    },
+    {
+     "prog": "op",
+     "args": "^(?:item\\s+(?:create|edit|delete|get)|read)\\b"
+    }
+   ],
+   "examples": {
+    "bash": [
+     "gh secret set TOKEN",
+     "vault kv put secret/x a=1",
+     "op read op://v/i/f"
+    ]
+   }
+  },
+  {
+   "id": "change-agent-settings",
+   "grant": "standing",
+   "title": "Change the agent's own settings, hooks or gates",
+   "why": "settings and gates decide what every later step may do",
+   "paths": [
+    "^\\.claude/settings(?:\\.local)?\\.json$",
+    "^\\.codex/config\\.toml$"
+   ],
+   "plugin_paths": [
+    "^hooks/hooks\\.json$",
+    "^bin/(?:gate-[^/]+|_failclosed\\.sh|_gatelib\\.sh)$",
+    "^mission/doors\\.(?:json|py)$"
+   ],
+   "bash": [
+    {
+     "writes": "(?:^|/)\\.claude/settings(?:\\.local)?\\.json$"
+    }
+   ],
+   "examples": {
+    "paths": [
+     ".claude/settings.json",
+     ".claude/settings.local.json"
+    ],
+    "bash": [
+     "echo '{}' > .claude/settings.json"
+    ]
+   }
+  },
+  {
+   "id": "bypass-gate",
+   "grant": "never",
+   "title": "Skip or switch off a gate",
+   "why": "the gates decide what is accepted; an agent never turns one off",
+   "bash": [
+    {
+     "env": "(?:SKIP_HOOKS|AGENTIC_NO_BUDGET)=(?!0?$).*"
+    },
+    {
+     "prog": "export",
+     "flag": "(?:SKIP_HOOKS|AGENTIC_NO_BUDGET)=(?!0?$).*"
+    },
+    {
+     "prog": "git",
+     "args": "^commit\\b",
+     "flag": "--no-verify|-[A-Za-z]*n[A-Za-z]*"
+    },
+    {
+     "prog": "git",
+     "args": "^(?:push|merge|rebase|am|cherry-pick)\\b",
+     "flag": "--no-verify"
+    }
+   ],
+   "examples": {
+    "bash": [
+     "SKIP_HOOKS=1 aloop task-worktree merge S1-1-T1",
+     "git commit --no-verify -m x",
+     "export AGENTIC_NO_BUDGET=1",
+     "env SKIP_HOOKS=1 make"
+    ]
+   }
+  },
+  {
+   "id": "forge-human-record",
+   "grant": "never",
+   "title": "Write a human's decision on their behalf",
+   "why": "only the human authorizes a one-way door or approves; an agent asks",
+   "bash": [
+    {
+     "prog": "aloop",
+     "args": "^mission\\s+doors\\s+(?:authorize|revoke)\\b"
+    },
+    {
+     "prog": "mission",
+     "args": "^doors\\s+(?:authorize|revoke)\\b"
+    },
+    {
+     "writes": "(?:^|/)mission/ledger\\.jsonl$"
+    },
+    {
+     "prog": "sed|perl",
+     "flag": "-[A-Za-z]*i.*",
+     "args": "(?:^|/|\\s)mission/ledger\\.jsonl\\b"
+    }
+   ],
+   "paths": [
+    "^docs/agents/mission/ledger\\.jsonl$"
+   ],
+   "examples": {
+    "bash": [
+     "aloop mission doors authorize push-default-branch --by me --reason r",
+     "echo x >> docs/agents/mission/ledger.jsonl",
+     "sed -i s/a/b/ docs/agents/mission/ledger.jsonl"
+    ],
+    "paths": [
+     "docs/agents/mission/ledger.jsonl"
+    ]
+   }
+  },
+  {
+   "id": "change-intent",
+   "grant": "command",
+   "title": "Change what the human asked for",
+   "why": "the intent is the human's; a changed goal needs their word",
+   "answer": "the Intent Contract's ask answer (intent check)"
+  },
+  {
+   "id": "ethics-gray",
+   "grant": "command",
+   "title": "Go ahead in an ethics gray area",
+   "why": "only the human consents to a gray area",
+   "answer": "aloop mission ethics consent --subject ID --by NAME --reason TEXT"
+  },
+  {
+   "id": "approve-mission",
+   "grant": "command",
+   "title": "Approve a mission or its changed content",
+   "why": "the mission is the human's goal",
+   "answer": "aloop mission approve --by NAME"
+  },
+  {
+   "id": "confirm-baseline",
+   "grant": "command",
+   "title": "Confirm or tighten the baseline",
+   "why": "the baseline defines what better means",
+   "answer": "aloop mission baseline confirm ID --by NAME"
+  },
+  {
+   "id": "retire-journey",
+   "grant": "command",
+   "title": "Retire or weaken a pinned journey",
+   "why": "it lowers the bar the mission is measured by",
+   "answer": "aloop mission journeys approve ID --by NAME --reason TEXT"
+  },
+  {
+   "id": "telemetry-consent",
+   "grant": "command",
+   "title": "Collect usage telemetry",
+   "why": "it is the users' data",
+   "answer": "aloop mission telemetry consent --by NAME"
+  },
+  {
+   "id": "spend-past-cap",
+   "grant": "command",
+   "title": "Spend past the budget cap",
+   "why": "the cap is the human's",
+   "answer": "raise the cap in .aladdin/config.yaml"
+  }
+ ],
+ "two_way_examples": {
+  "bash": [
+   "git switch -c f && pytest -q",
+   "git push -u origin claude/x",
+   "git push --dry-run origin main",
+   "grep -rn \"git push origin main\" docs",
+   "git commit -m \"never git push origin main\"",
+   "echo SKIP_HOOKS=1",
+   "SKIP_HOOKS=0 make test",
+   "gh pr create --draft --title t --body b",
+   "npm publish --dry-run",
+   "cargo test",
+   "terraform plan",
+   "kubectl get pods",
+   "cat docs/agents/mission/ledger.jsonl",
+   "crontab -l",
+   "git push origin main:refs/heads/claude/x-main-fix",
+   "npm install",
+   "aloop mission doors list",
+   "git commit -m x",
+   "git reset --soft HEAD~1",
+   "docker build ."
+  ],
+  "tools": [
+   "Read",
+   "mcp__github__create_pull_request",
+   "mcp__github__push_files"
+  ],
+  "paths": [
+   "src/a.py",
+   "docs/agents/mission/research/x.json",
+   "README.md"
+  ]
+ }
+}

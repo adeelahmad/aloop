@@ -82,3 +82,4 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.25 | A baseline binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
 | M9.26 | A goal's sprint history is read from committed records | NOT_IMPLEMENTED | §4.12 |
 | M9.27 | The mission loop trusts an eval only when `evaluate check` would | NOT_IMPLEMENTED | §4.12 |
+| M9.30 | Core agent principles; one-way / two-way door rule enforced by a gate | IMPLEMENTED_TESTED | `scripts/test/mission-doors.test.py` |

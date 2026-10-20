@@ -37,6 +37,7 @@ EVENT_TYPES = {
     "ethics.reviewed", "ethics.consent", "ethics.blocked",
     "telemetry.consent", "telemetry.revoked", "telemetry.setup", "telemetry.report",
     "judge.run",
+    "door.authorized", "door.revoked", "door.denied", "door.crossed",
 }
 ENVELOPE = ("schema", "event_id", "ts", "event", "ids", "parent_event_id", "caused_by", "role", "host",
             "model", "authority", "decision", "refs", "data")

@@ -118,6 +118,9 @@ The model can ignore a skill; it cannot ignore an exit code.
   11–19 min; word frequencies with two dependent stories: 13/13, $0.79–1.56, 13–45 min; the last three runs $0.95–1.03, 1–6 supervisor wakes, 0–5 plugin-source reads,
   every merged commit traced to its task by `events trace`). Every run so far has found a gate false positive or a
   dead path that unit tests missed; ROADMAP M0.8 lists them.
+- The door rule (ROADMAP §4.12, M9.30): every agent gets the core principles at session start, and a
+  PreToolUse gate stops a one-way door (a push to the default branch, a release, a deploy, a secret, …)
+  until the human records an authorization; two-way doors pass without a question.
 - One measured real run (*TheNoteBook*, a Go backend): ~17K LOC, 322 tests, 74 commits in 6
   sprints for ~1.55M output tokens, 76% of it on Sonnet. See the
   [README](../README.md#evidence).
@@ -136,6 +139,8 @@ The model can ignore a skill; it cannot ignore an exit code.
   are set). Worktree-local markers (`task.env`, `budget-exceeded`, `scaffold-symbols`) live in
   the worker worktree's `.aladdin/` too, and are read from `.agentic/` where a host or an
   older sprint still writes them there.
+- The door catalogue is a finite list: an unlisted action is two-way, and a script or alias can hide a
+  listed one. Codex and OpenCode get the door hook with M9.31.
 - Measured runs: TheNoteBook plus the `make e2e-live` runs in ROADMAP §0; no live-session test in CI.
 
 ## The docs, and which ones are current

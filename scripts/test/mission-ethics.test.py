@@ -219,7 +219,21 @@ assert run(MI, "ethics", "check", "--subject", gid3).returncode == 2
 os.remove(p5)
 r = run(MI, "ethics", "check", "--subject", gid3)
 assert r.returncode == 2 and "hard line" in r.stderr, r.stderr   # the ethics.blocked event still holds
-ok("hard: record blocks and emits ethics.blocked; consent refused; a later softer review or a deleted file never unlocks")
+gref = M.rel(T, M.path_of(T, "goal", gid3))
+assert [x["event_id"] for x in M.records(T, "ethics.blocked", gref)] == [blk[0]["event_id"]]   # a ledger record
+stream = os.path.join(T, ".aladdin", "logs", "events.jsonl")
+os.rename(stream, stream + ".gone")              # a fresh checkout: the git-ignored run log is gone
+r = run(MI, "ethics", "check", "--subject", gid3)
+assert r.returncode == 2 and "hard line" in r.stderr, r.stderr
+os.rename(stream + ".gone", stream)
+led = M.ledger(T)
+keep = open(led).read()
+open(led, "w").write(keep.replace('"categories": ["illegal"]', '"categories": ["other"]'))
+assert keep != open(led).read()
+r = run(MI, "ethics", "check", "--subject", gid3)
+assert r.returncode == 2 and "ledger is broken" in r.stderr, r.stderr   # an edited hard line decides nothing
+open(led, "w").write(keep)
+ok("hard: record blocks and records ethics.blocked in the ledger; consent refused; a later softer review, a deleted file, a lost run log or an edited row never unlocks")
 
 # 8) tampering: an edited review fails its seal; an edited subject binding is a review of other content
 rev = json.load(open(path))
@@ -285,7 +299,11 @@ sub = fd["subject"]
 M.emit(T, "ethics.reviewed", role="ethics-reviewer", ethics_id=fd["ethics_id"], subject=sub["ref"],
        sha256=sub["sha256"], review_sha256=fd["sha256"], tier="clear")
 r = run(MI, "ethics", "check", "--subject", gF)
-assert r.returncode == 2 and "is not the sealed review's" in r.stderr, r.stderr
+assert r.returncode == 3 and "gray area" in r.stderr, r.stderr      # a stream-only record decides nothing
+M.record(T, "ethics.reviewed", sub["ref"], "ethics-reviewer", ethics_id=fd["ethics_id"], sha256=sub["sha256"],
+         review_sha256=fd["sha256"], tier="clear")
+r = run(MI, "ethics", "check", "--subject", gF)
+assert r.returncode == 2 and "is not the sealed review's" in r.stderr, r.stderr   # a ledger row must agree too
 gC = goal("a lighter theme")
 rC, _ = start(gC)
 assert fill(rC, [{"category": "other", "tier": "gray", "reason": "contrast drops"}], "gray").returncode == 3
