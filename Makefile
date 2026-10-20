@@ -96,6 +96,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and
 	python3 scripts/test/lesson-candidates.test.py
 	python3 scripts/test/ids-integrity.test.py
 	python3 scripts/test/semantic-targets.test.py
+	python3 scripts/test/supply-chain.test.py
 	python3 scripts/test/commit-trace.test.py
 	python3 scripts/test/impact-provider.test.py
 	python3 scripts/test/timebox-auto.test.py
