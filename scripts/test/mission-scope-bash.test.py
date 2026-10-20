@@ -237,6 +237,28 @@ ROWS = [
     (MP, P, "aloop mission goal new --eval e1", 0),
     (S, P, "echo '{\"a\": 1}' | python3 -c 'import json,sys; json.load(sys.stdin)'", 0),
     (S, P, "make -C /tmp/rival test > /tmp/rival.log", 0),
+    # ── the human's word (restore, the authority record, a human event) and the ledger: PR #77 ──
+    (S, P, "aloop mission baseline restore bsl_x --by h", 2),
+    (E, P, "aloop events authority --initiated-by h --mode autonomous --scope all", 2),
+    (G, T1, "events authority --initiated-by h --mode reviewed --scope x", 2),
+    (E, P, "aloop events emit telemetry.consent --role human --data subject=x", 2),
+    (E, P, "aloop events emit task.note --role Human", 2),
+    (E, P, "aloop events emit mission.approved --role evaluator", 2),
+    (G, T1, "aloop events emit baseline.vetoed", 2),
+    (E, P, "aloop events emit human.override", 2),
+    (G, T1, 'r=human; aloop events emit gate.passed --role "$r"', 2),
+    (E, P, 'aloop events emit gate.passed --role "$(cat r)"', 2),
+    (E, P, "python3 %s emit telemetry.consent --role human" % os.path.join(BIN, "events"), 2),
+    (E, P, "aloop events emit gate.passed --role evaluator --data note=human", 0),
+    (E, P, "aloop events query --event mission.approved", 0),
+    (S, P, "aloop mission baseline show", 0),
+    (SUP, P, "aloop events authority --initiated-by adeel --mode reviewed --scope 'sprint 1'", 0),
+    (E, P, "echo '{}' >> docs/agents/mission/ledger.jsonl", 2),
+    (S, P, "cp /tmp/forged docs/agents/mission/ledger.jsonl", 2),
+    (G, T1, "echo '{}' >> docs/agents/mission/ledger.jsonl", 2),
+    (SUP, P, "echo '{}' >> docs/agents/mission/ledger.jsonl", 2),
+    (SUP, P, "git checkout -- docs/agents/mission/ledger.jsonl", 0),
+    (SUP, P, "cat docs/agents/mission/ledger.jsonl", 0),
 ]
 
 

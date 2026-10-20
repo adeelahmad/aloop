@@ -19,7 +19,9 @@ its stop the run's changes (the files now against the start record) must show:
      not, and a path whose owner role had a run overlapping this one is that run's to answer for. A
      status-only change to another role's artifact counts unless the human approved it. docs/agents/intents/ is
      shared with Aladdin: only an intent with source `mission` is a role's (the Mission Planner's);
-  5. a human event (an approval, a consent, `mission.set`) appended to the event log during the run is
+  5. the mission's ledger (docs/agents/mission/ledger.jsonl) still verifies if it changed during the run:
+     only the mission CLI appends to it (M9.17 covers a forged append);
+  6. a human event (an approval, a consent, `mission.set`) appended to the event log during the run is
      named in a note and in `gate.passed` (`human_events`): the gate cannot tell who ran it, and
      M9.17 binds an approval to the human's own prompt. A human approval of a file is not a write.
 A pass records `artifact.created|updated` per artifact (role, agent id, path, kind, sha256): the
@@ -152,6 +154,14 @@ def judge(R, M, project, role, run):
             problems.append("%s changed during your run, and it is %s's artifact, not yours: a role writes only its own"
                             " (a builder never grades its own work). Undo that change; if it is needed, say so in your"
                             " artifact and its owner is dispatched for it" % (rel, " or ".join(own_by)))
+
+    if before is not None and (before.get(R.LEDGER) or [None])[0] != (now.get(R.LEDGER) or [None])[0]:
+        had = run.get("ledger_problems") or []            # the CLI only appends chained rows: an edit breaks the chain
+        bad = [x for x in R.ledger_problems(project) if x not in had]
+        if bad:
+            problems.append("%s changed during your run and no longer verifies:\n      %s\n    Only `aloop mission` commands"
+                            " append to it, so this run is not accepted. Say what you ran in your final message"
+                            % (R.LEDGER, "\n      ".join(bad[:5])))
 
     def is_intent(rel):
         """An intent this role handed to Aladdin (`intent new --source mission`); the human's and
@@ -307,7 +317,8 @@ def stop(p, argv):
                  human_events=[{"event": e.get("event"), "subject": (e.get("data") or {}).get("subject"),
                                 "by": (e.get("data") or {}).get("by")} for e in humans])
     if run and agent_id:                                  # closed, and the baseline of this agent's next task
-        run.update(stopped=time.time(), files=R.scan(project), events_at=R.events_size(project))
+        run.update(stopped=time.time(), files=R.scan(project), events_at=R.events_size(project),
+                   ledger_problems=R.ledger_problems(project))
         M.save(R.run_file(project, agent_id), run)
     return 0
 

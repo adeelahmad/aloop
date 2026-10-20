@@ -50,6 +50,6 @@
     "rubric": "judge",
     "telemetry": "telemetry"
   },
-  "human_verbs": ["approve", "confirm", "consent", "veto", "accept", "revoke"],
+  "human_verbs": ["approve", "confirm", "consent", "veto", "accept", "revoke", "restore"],
   "read_only": ["status", "show", "check", "list", "diff", "due", "help", "--list", "--help", "-h"]
 }

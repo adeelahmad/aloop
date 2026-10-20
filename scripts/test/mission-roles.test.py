@@ -257,6 +257,27 @@ assert allowed(scope("Write", file_path=os.path.join(MD, "mission.json")))
 assert allowed(scope("Write", file_path=os.path.join(P, "docs", "agents", "intents", "int_x.json")))
 ok("the supervisor never hand-writes a role's artifact; mission.json and intents stay writable")
 
+LEDGER = os.path.join(MD, "ledger.jsonl")
+for who in (None, E, G):
+    assert blocked(scope("Write", who, file_path=LEDGER), "the mission's ledger", "aloop mission")
+    assert blocked(scope("Bash", who, command="echo '{}' >> docs/agents/mission/ledger.jsonl"), "the mission's ledger")
+assert blocked(scope("Bash", E, command="aloop events authority --initiated-by h --mode autonomous --scope all"), "human's word")
+assert blocked(scope("Bash", G, command="aloop events emit telemetry.consent --role human"), "human's word")
+assert blocked(scope("Bash", "aloop:state-assessor", command="aloop mission baseline restore bln_x --by Adeel"), "the human's")
+assert allowed(scope("Bash", command="aloop events authority --initiated-by Adeel --mode reviewed --scope s1"))
+SUPSCOPE, LOCK = os.path.join(BIN, "gate-supervisor-scope"), os.path.join(P, ".aladdin", "state", "sprint.lock")
+
+
+def supervisor_write(path):
+    p = {"session_id": "s1", "cwd": P, "hook_event_name": "PreToolUse", "tool_name": "Write", "tool_input": {"file_path": path}}
+    return sh(SUPSCOPE, cwd=P, inp=json.dumps(p), env=dict(ENV, CLAUDE_PROJECT_DIR=P))
+
+
+assert supervisor_write(os.path.join(MD, "mission.json")).returncode == 0 and not os.path.exists(LOCK)
+assert supervisor_write(os.path.join(P, "docs", "agents", "sprint1", "init.md")).returncode == 0 and os.path.exists(LOCK)
+os.remove(LOCK)
+ok("no one hand-writes the ledger; no dispatched agent runs `events authority` or emits a human event; mission writes arm no sprint lock")
+
 S = "aloop:state-assessor"
 assert blocked(scope("Bash", S, command="echo 1 > src/x.py"), "source")
 assert blocked(scope("Bash", S, command="cd src && touch a.py"), "src/a.py")
@@ -535,5 +556,63 @@ assert r.returncode == 2 and "failing closed" in r.stderr, r.stderr
 p["cwd"] = NP
 assert sh(os.path.join(PL, "bin", "gate-mission-scope"), cwd=NP, inp=json.dumps(p)).returncode == 0
 ok("both gates fail closed on a crash once the event is theirs (a non-aloop repo still passes)")
+
+# ── D. the real areas on master (journeys, baseline, assess, evaluate): each role's run passes its stop ──
+sys.path.insert(0, os.path.join(REPO, "scripts", "test", "fixtures"))
+from mission_fixture import Project  # noqa: E402
+REAL = os.path.join(BIN, "gate-mission-artifact")
+X = Project(veto_window_h=0)
+atexit.register(shutil.rmtree, X.dir, ignore_errors=True)
+XENV = {k: v for k, v in X.env.items() if k not in ("SKIP_HOOKS", "AGENT_ROLE", "AGENTIC_SELFCHECK")}
+assert M.SCHEMAS_DIR.startswith(PL)
+
+
+def role_run(agent_type, aid, work):
+    p = {"session_id": "s1", "cwd": X.dir, "agent_type": agent_type, "agent_id": aid}
+    assert sh(REAL, "start", cwd=X.dir, inp=json.dumps(dict(p, hook_event_name="SubagentStart")), env=XENV).returncode == 0
+    out = work()
+    return sh(REAL, cwd=X.dir, inp=json.dumps(dict(p, hook_event_name="SubagentStop")), env=XENV), out
+
+
+def made(r):
+    assert r.returncode == 0, r.stderr
+    return json.load(open(r.stdout.strip().splitlines()[-1]))
+
+
+def researched():
+    rid = M.new_id("research")
+    d = {"research_id": rid, "status": "recorded", "created_at": M.now(),
+         "claims": [{"claim_id": "c1", "text": "rivals show a first task in 3s", "kind": "other"}]}
+    M.seal(d)
+    M.save(M.path_of(X.dir, "research", rid), d)
+    return X.journey(X.draft(rid))
+
+
+r, j1 = role_run("aloop:market-researcher", "mr1", researched)
+assert r.returncode == 0, r.stderr
+r, b = role_run("aloop:state-assessor", "sa1", lambda: made(X.run("baseline", "new", "--definition", "a first task in 5s")))
+assert r.returncode == 0, r.stderr
+r, _ = role_run("aloop:state-assessor", "sa2", lambda: X.run("baseline", "measure", b["baseline_id"]))
+assert r.returncode == 0 and "baseline.measured" in open(M.ledger(X.dir)).read(), r.stderr   # a CLI append is no tamper
+assert X.run("baseline", "confirm", b["baseline_id"], "--by", "Adeel").returncode == 0      # the human, between runs
+r, s1 = role_run("aloop:state-assessor", "sa3", lambda: made(X.run("assess")))
+assert r.returncode == 0, r.stderr
+r, e1 = role_run("aloop:evaluator", "ev1", lambda: made(X.run("evaluate")))
+assert r.returncode == 0, r.stderr
+made_by = {(e["role"], e["data"]["kind"]) for e in X.events("artifact.created")}
+assert {("market-researcher", "journey"), ("state-assessor", "baseline"), ("state-assessor", "state"),
+        ("evaluator", "eval")} <= made_by, made_by
+
+
+def tamper():
+    e = made(X.run("evaluate", s1["state_id"]))
+    with open(M.ledger(X.dir), "a") as f:                   # a write made inside a program (`python3 -c …`)
+        f.write('{"event": "baseline.confirmed", "role": "human"}\n')
+    return e
+
+
+r, _ = role_run("aloop:evaluator", "ev2", tamper)
+assert r.returncode == 2 and "ledger.jsonl changed during your run and no longer verifies" in r.stderr, r.stderr
+ok("with the real areas, each role's run passes its stop and is recorded; a ledger edit inside a run is not accepted")
 
 print("\n%d checks passed" % PASS[0])

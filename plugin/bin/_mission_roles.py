@@ -24,6 +24,7 @@ import _paths
 ROLES_FILE = os.path.join(M.AREAS_DIR, "roles.json")
 MISSION = "docs/agents/mission/"
 INTENTS = "docs/agents/intents/"
+LEDGER = MISSION + "ledger.jsonl"   # appended only by the mission CLI (_mission.record)
 RUN_DATA = (".aladdin/", ".agentic/", ".transcripts/")
 OPEN_RUN_TTL = 90 * 60        # an open run older than this (its stop never came) owns nothing: a role's
                               # hard time box (budget ROLE_PROFILES, 60 min) plus a grace
@@ -174,9 +175,17 @@ def human_events_since(project, offset):
     return out
 
 
+def ledger_problems(project):
+    """The ledger's problems now (_mission.ledger_problems), so a stop blames a run only for new ones."""
+    try:
+        return M.ledger_problems(project)
+    except Exception as e:                                # noqa: BLE001 — a start record never fails on it
+        return ["cannot verify the ledger: %s" % e]
+
+
 def record_start(project, agent_id, role):
     rec = {"agent_id": agent_id, "role": role, "started": time.time(), "files": scan(project),
-           "events_at": events_size(project)}
+           "events_at": events_size(project), "ledger_problems": ledger_problems(project)}
     M.save(run_file(project, agent_id), rec)
     return rec
 

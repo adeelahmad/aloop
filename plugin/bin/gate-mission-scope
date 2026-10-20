@@ -7,18 +7,21 @@ A builder never grades its own work, and a grader never builds:
     ethics-reviewer) writes only its own paths (plugin/mission/roles.json `writes`) in the main tree,
     plus run data (.aladdin/, but not its logs/ or state/) and anything outside the project: never
     source, mission.json, another role's dir or a task worktree. It never commits, never runs the loop (`mission tick|cron|init`)
-    and never runs a human's step (`mission approve`, `mission <area> approve|confirm|consent|veto…`);
+    and never runs a human's step (`mission approve`, `mission <area> approve|confirm|consent|veto|restore…`,
+    `events authority`, `events emit` of a human event);
   - ANY OTHER DISPATCHED AGENT (a builder, an Aladdin planner) never writes docs/agents/mission/ in any
-    tree, and runs only the read-only `mission` commands (status, show, check, list, diff, --help);
+    tree, runs only the read-only `mission` commands (status, show, check, list, diff, --help) and
+    never emits a human event;
   - the SUPERVISOR (no agent_type) never hand-writes a role's artifact: everything under
-    docs/agents/mission/ but mission.json (the human's, sealed by `mission approve`) is dispatched.
+    docs/agents/mission/ but mission.json (the human's, sealed by `mission approve`) is dispatched;
+  - NO ONE hand-writes docs/agents/mission/ledger.jsonl: only the mission CLI appends to it.
 
 Write/Edit/patch paths are exact. A Bash command is read as the shell would read it (_shellread.py:
 quotes, escapes, line continuations, comments, heredoc bodies as data, reserved words, subshells,
 $(…) and `…` read as commands too), then judged per simple command: redirect targets; cp/mv/ln/
 install/rsync destinations; rm/touch/truncate/mkdir/tee files; sed -i, perl -i and awk -i inplace
 files; dd of=, curl -o, wget -O, find -delete and -exec, tar -x, unzip, patch; `cd`, `pushd` and
-`popd` followed; git writes in the project; the `mission` CLI. Wrappers (timeout, env, nice, sudo,
+`popd` followed; git writes in the project; the `mission` and `events` CLIs. Wrappers (timeout, env, nice, sudo,
 xargs, stdbuf…) are looked through, and a shell string (`bash -c`, `eval`, `env -S`) or a script run
 by an interpreter (`python3 …/bin/mission approve`) is read again. Variables set earlier in the
 command resolve, and so do $PWD, $HOME, the environment, $(pwd) and $(mktemp …) (a scratch dir
@@ -152,6 +155,10 @@ class Scope:
         if rel is None:
             return                                        # outside the project: a scratch dir
         in_mission = R.under(rel, R.MISSION)
+        if rel == R.LEDGER:
+            raise Block("%s is the mission's ledger: only `aloop mission …` commands append to it (each row is chained to"
+                        " the one before), never a %s by %s.\n  The supervisor recovers a bad edit with `git checkout -- %s`."
+                        % (rel, what, self.who or "the supervisor", rel))
         if self.role in R.ROLES:
             if R.is_run_data(rel) and not R.is_harness_state(rel):
                 return
@@ -208,6 +215,30 @@ class Scope:
         raise Block("%s may run only the read-only mission commands (status, show, check, list, diff, --help), not:\n"
                     "    mission %s\n  The mission layer's artifacts are written only by the six mission roles."
                     % (self.who, " ".join(t or "…" for t in ts)))
+
+    def events_cli(self, args):
+        """`events authority` is the human's authority record, and an event with role `human` or a human
+        decision's type is the human's word: neither is a dispatched agent's to emit."""
+        if not self.agent_type:
+            return
+        ts = [text(a) for a in args]
+        opt, pos, k = {}, [], None
+        for t in ts[1:]:                                  # as bin/events parses: `--key value`
+            if k:
+                opt[k], k = t, None
+            elif t is not None and t.startswith("--"):
+                k = t[2:].replace("-", "_")
+            else:
+                pos.append(t)
+        cmd, event, role = (ts[0] if ts else ""), (pos[0] if pos else ""), opt.get("role", "")
+        human = (cmd == "authority" or
+                 cmd == "emit" and (role is None or event is None or role.strip().lower() == "human" or
+                                    event in self.R.M.HUMAN_EVENTS or event.startswith("human.")))
+        if human:
+            raise Block("`events %s` is not a dispatched agent's to run: the authority record, an event with role `human`"
+                        " and a human decision (%s) are the human's word.\n  If the run needs the human, say so in your"
+                        " final message: the supervisor asks them."
+                        % (" ".join(t or "…" for t in ts[:2]), ", ".join(sorted(self.R.M.HUMAN_EVENTS))))
 
     def git(self, args, base):
         """Judge a git command: a mission role never writes the project's repo."""
@@ -430,10 +461,12 @@ class Scope:
             self.write(v, base, "Bash write")
         if name == "find":
             self.find(args, st, base, depth)
-        if name in CLI and args and text(args[0]) == "mission":
-            self.mission_cli(args[1:])
+        if name in CLI and args and text(args[0]) in ("mission", "events"):
+            (self.mission_cli if text(args[0]) == "mission" else self.events_cli)(args[1:])
         elif name == "mission":
             self.mission_cli(args)
+        elif name == "events":
+            self.events_cli(args)
         elif name == "git":
             self.git(args, base)
 

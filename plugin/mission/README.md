@@ -91,6 +91,9 @@ A gate checks structure and evidence, never whether a judgment is right.
   on TASK_ID and ATTEMPT). Block `mission approve`, `baseline confirm|veto`, `journeys approve`
   and `events authority` for sub-agents, plus `baseline restore` and any direct Write/Edit of
   `docs/agents/mission/ledger.jsonl` (only the CLI appends to it).
+  *Done in M9.9:* every list above names the six, or leaves them out on purpose (the worker-only
+  lists, `_gate_stuck` and the AGENT_ROLE fallback; `agent-io.kdl` too, since a mission role writes
+  no init.md or output.md); `mission-roles.test.py` checks each wired list.
 - **M9.11 goals.** Add `mission` to the `intent` SOURCES. `gate-intake` checks the newest
   `int_*.json` by mtime and `ids freeze` links a plan to the last `intent.normalized` anywhere, so
   queued mission intents need an explicit link. `record_authority` also approves the latest plan:
