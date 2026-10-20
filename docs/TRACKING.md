@@ -63,10 +63,10 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.1 | Research: every claim has a source ref; sources archived with a matching sha256 | NOT_IMPLEMENTED | §4.12 |
 | M9.2 | Baseline: re-runnable, measured twice within tolerance, frozen and versioned on human confirmation | IMPLEMENTED_TESTED | `scripts/test/mission-baseline.test.py` |
 | M9.3 | Journeys and metrics: events per step, query definitions, no removal or weakening without approval | IMPLEMENTED_TESTED | `scripts/test/mission-journeys.test.py` |
-| M9.4 | Ethics: three tiers; gray consent bound to the goal; hard line never unlocked | NOT_IMPLEMENTED | §4.12 |
+| M9.4 | Ethics: three tiers; gray consent bound to the goal; hard line never unlocked | IMPLEMENTED_TESTED | `scripts/test/mission-ethics.test.py` |
 | M9.5 | LLM judges: pinned model, hashed rubric, several runs, agreement threshold | NOT_IMPLEMENTED | §4.12 |
 | M9.6 | Telemetry (GA4): opt-in, Admin API setup, debug hit, fixed reports, minimum sample; never a gate | IMPLEMENTED_TESTED | `scripts/test/mission-telemetry.test.py` |
-| M9.7 | Standing principles in two variants (autonomous, spoon-fed) | NOT_IMPLEMENTED | §4.12 |
+| M9.7 | Standing principles in two variants (autonomous, spoon-fed) | IMPLEMENTED_TESTED | `scripts/test/mission-principles.test.py` |
 | M9.8 | Mission loop: `tick` from facts, zero-token `due`, cron, budget caps | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.9 | Six fixed mission roles, wired; role path guards; artifact check at stop | NOT_IMPLEMENTED | §4.12 |
 | M9.10 | State Assessor report and Evaluator gap list | IMPLEMENTED_TESTED | `scripts/test/mission-evaluate.test.py` |
@@ -74,9 +74,9 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.12 | `/aloop:mission` skill | IMPLEMENTED_TESTED | `scripts/test/mission-skill.test.py` |
 | M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12 |
 | M9.17 | Approvals name the captured human prompt | NOT_IMPLEMENTED | §4.12 |
-| M9.19 | Mission spend counts mission sessions only | NOT_IMPLEMENTED | §4.12 |
-| M9.20 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |
-| M9.21 | Mission USD meter prices fast mode and server tools | NOT_IMPLEMENTED | §4.12 |
-| M9.22 | Mission loop takes its ethics facts from the ethics verdict | NOT_IMPLEMENTED | §4.12 |
-| M9.23 | `--force` grants and ethics reviews are ledger rows | NOT_IMPLEMENTED | §4.12 |
-| M9.24 | A baseline binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
+| M9.20 | Mission spend counts mission sessions only | NOT_IMPLEMENTED | §4.12 |
+| M9.21 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |
+| M9.22 | Mission USD meter prices fast mode and server tools | NOT_IMPLEMENTED | §4.12 |
+| M9.23 | Mission loop takes its ethics facts from the ethics verdict | NOT_IMPLEMENTED | §4.12 |
+| M9.24 | `--force` grants and ethics reviews are ledger rows | NOT_IMPLEMENTED | §4.12 |
+| M9.25 | A baseline binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |

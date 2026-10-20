@@ -131,7 +131,8 @@ try:
     forged = subprocess.run([os.path.join(BIN, "events"), "emit", "telemetry.consent", "--role", "supervisor",
                              "--data", "subject=" + M.rel(T, path), "--data", "sha256=" + TM.terms_sha(doc)],
                             cwd=T, env=ENV, capture_output=True, text=True)
-    assert forged.returncode == 0, forged.stderr
+    assert forged.returncode == 64 and "only its own command" in forged.stderr, forged.stderr  # events emit refuses it
+    M.emit(T, "telemetry.consent", role="supervisor", subject=M.rel(T, path), sha256=TM.terms_sha(doc))  # appended anyway
     assert run("setup").returncode == 3 and run("check").returncode == 0 and calls() == []   # not a consent
     assert run("consent").returncode == 64                    # who consents is required
     r = run("consent", "--by", "Adeel", "--reason", "my own app, day one")

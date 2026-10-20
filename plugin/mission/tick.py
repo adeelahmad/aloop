@@ -58,7 +58,7 @@ Budget: spend counts every token-ledger row since the mission was set (the whole
 toward stopping). Tokens are uncached input, cache writes and output (on Claude Code nearly all
 new input is a cache write; cache reads are not counted); USD prices every class per model
 (PRICES), a cache write at the 1-hour rate, an unknown model at the highest known rate. The
-ledger has no fast-mode or server-tool charges yet (ROADMAP M9.21).
+ledger has no fast-mode or server-tool charges yet (ROADMAP M9.22).
 """
 import calendar
 import glob
