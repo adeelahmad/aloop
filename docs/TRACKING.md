@@ -75,7 +75,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.10 | State Assessor report and Evaluator gap list | IMPLEMENTED_TESTED | `scripts/test/mission-evaluate.test.py` |
 | M9.11 | Goals become Aladdin intents; lineage reaches the mission | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py` |
 | M9.12 | `/aloop:mission` skill | IMPLEMENTED_TESTED | `scripts/test/mission-skill.test.py` |
-| M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12; offline: `scripts/test/mission-e2e.test.py`; open: the live cycle |
+| M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12; offline: `scripts/test/mission-e2e.test.py`; the live harness (`scripts/smoke/e2e-mission.sh`, `mission_driver.py`), at zero tokens: `scripts/test/mission-e2e-live.test.py`; open: the live cycle, `make e2e-mission YES=1` |
 | M9.17 | Approvals name the captured human prompt | IMPLEMENTED_TESTED | `scripts/test/mission-core.test.py` |
 | M9.20 | Mission spend counts mission sessions only | NOT_IMPLEMENTED | §4.12 |
 | M9.21 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |
@@ -102,6 +102,14 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.53 | The mission loop hands out a goal's commands only when `goal check` passes | NOT_IMPLEMENTED | §4.12 |
 | M9.54 | Scope gate reader residuals (computed cd, failed cd, loop cd accumulation) | NOT_IMPLEMENTED | §4.12 |
 | M9.55 | One goal in flight, picked by one clock | NOT_IMPLEMENTED | §4.12 |
+| M9.80 | A gate's budget release is marked in the gate log | NOT_IMPLEMENTED | §4.12 |
+| M9.81 | The live run's post-run checks run the repo's code on a throwaway clone | NOT_IMPLEMENTED | §4.12 |
+| M9.82 | The gates run tests with their own bytecode cache | NOT_IMPLEMENTED | §4.12 |
+| M9.83 | `mission.set` names who set the mission | NOT_IMPLEMENTED | §4.12 |
+| M9.84 | `run-summary --kind mission` replaces the smoke summary | NOT_IMPLEMENTED | §4.12 |
+| M9.85 | `journeys new` writes only a complete journey | IMPLEMENTED_TESTED | `scripts/test/mission-journeys.test.py` |
+| M9.86 | A grant's `by` is bound to the human who typed its line | NOT_IMPLEMENTED | §4.12 |
+| M9.87 | A task worktree keeps the files a live journey's runner pins | NOT_IMPLEMENTED | §4.12 |
 | M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | NOT_IMPLEMENTED | §4.13 |
 | M10.2 | No unplanned dependency (GREEN) and no credential (GREEN, final gate) | IMPLEMENTED_TESTED | `scripts/test/supply-chain.test.py` |
 | M10.2b | The stack's dependency audit in the final gate's matrix | NOT_IMPLEMENTED | §4.13 |

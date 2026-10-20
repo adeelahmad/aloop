@@ -6,6 +6,7 @@ journey is never dropped or weakened without evidence and, when it weakens the
 evaluation, a human approval.
     python3 scripts/test/mission-journeys.test.py
 """
+import glob
 import hashlib
 import json
 import os
@@ -26,21 +27,32 @@ def ok(name):
 p = Project()
 rid = p.research(["c1", "c2"])
 
-# 1) the harness issues the id; a skeleton is not a journey yet; a complete draft is
+# 1) the harness issues the id; a skeleton or an incomplete draft is refused with every problem and writes
+# nothing (a written journey can never be rewritten or deleted by its role, so a broken one would block for
+# good: the first live run's researcher was stuck with three); a complete draft is a journey
+jdir = os.path.dirname(p.path("journey", "jrn_" + "0" * 20))
 r = p.run("journeys", "new", "--title", "Add a task", "--persona", "first-time user")
-assert r.returncode == 0, r.stderr
-skel = json.load(open(r.stdout.strip()))
-assert skel["journey_id"].startswith("jrn_") and skel["status"] == "proposed"
-r = p.run("journeys", "check", skel["journey_id"])
-assert r.returncode == 2 and "steps needs at least 1" in r.stderr and "source_refs needs at least 1" in r.stderr, r.stderr
-os.remove(p.path("journey", skel["journey_id"]))
+assert r.returncode == 2 and r.stdout == "", (r.returncode, r.stdout, r.stderr)
+assert "steps needs at least 1" in r.stderr and "source_refs needs at least 1" in r.stderr, r.stderr
+assert "nothing written" in r.stderr and "--from" in r.stderr, r.stderr
+titled = p.draft(rid, steps=[dict(s, title=s.pop("action")) for s in p.draft(rid)["steps"]])   # the live run's draft
+inline = dict(titled, runner={"command": ["python3", "-c", "print(1)"], "pinned": PIN, "timeout_s": 60})
+for d, want in ((titled, ["$.steps[0].action is missing"]), (p.draft(rid, source_refs=[rid + "#c9"]), ["c9"]),
+                (p.draft(rid, runner={"command": ["python3", "tools/journey.py"]}), ["runner.pinned"]),
+                (inline, ["runs inline code", "$.steps[0].action is missing"])):     # every problem at once
+    dp = os.path.join(p.dir, "d1.json")
+    json.dump(d, open(dp, "w"))
+    r = p.run("journeys", "new", "--from", dp)
+    assert r.returncode == 2 and r.stdout == "" and "nothing written" in r.stderr, (r.returncode, r.stdout, r.stderr)
+    assert all(w in r.stderr for w in want) and r.stderr.count("runs inline code") <= 1, (want, r.stderr)
+assert not glob.glob(os.path.join(jdir, "*.json")) and not p.events("journey.proposed"), os.listdir(jdir)
 jid = p.journey(p.draft(rid, journey_id="jrn_00000000000000000000", status="active"))
 doc = p.load("journey", jid)
 assert jid != "jrn_00000000000000000000" and doc["status"] == "proposed", doc   # a draft cannot pick its id or status
 r = p.run("journeys", "check")
 assert r.returncode == 0, r.stderr
 assert [e["data"]["journey_id"] for e in p.events("journey.proposed")][-1] == jid
-ok("journeys new: harness id and status; a skeleton fails the check; a complete journey passes")
+ok("journeys new: harness id and status; a skeleton or an incomplete draft is refused and writes nothing; a complete journey passes")
 
 # 2) the deterministic checks on a journey's structure
 sys.path.insert(0, M.AREAS_DIR)
@@ -204,7 +216,8 @@ open(os.path.join(p.dir, "tools", "nan.py"), "w").write('print(\'{"steps": {"ope
 rec, err = J.run_journey(p.dir, dict(base, runner={"command": ["python3", "tools/nan.py"]}))
 assert rec is None and "NaN is not a measurement" in err, err
 assert R.drift(float("nan"), 9.0) == float("inf") and not R.drift(float("inf"), 9.0) <= 0.25
-broken = p.journey(dict(p.draft(rid), steps=[{"id": "open", "action": "open"}]))
+broken = p.journey(p.draft(rid))                    # `new` refuses a broken draft: break the file on disk instead
+p.save("journey", broken, dict(p.load("journey", broken), steps=[{"id": "open", "action": "open"}]))
 r = p.run("journeys", "diff", fresh, broken)
 assert r.returncode == 2 and "only valid journeys compare" in r.stderr, r.stderr
 r = p.run("journeys", "retire", fresh, "--replaced-by", broken, "--evidence", rid + "#c1")

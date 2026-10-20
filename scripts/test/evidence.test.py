@@ -69,12 +69,65 @@ for c in cells:
     assert c[2] and "make e2e-live YES=1" in c[-1], c
 ok("docs/evidence/README.md: every run row carries intent, version, checks, wall, cost and its reproduce command")
 
-# 3) every public time/cost figure is a ledger row; the demo rows link to the ledger
+
+# 2b) the mission runs (scripts/smoke/e2e-mission.sh) have their own table: every `| mission N |` row carries
+#     its fixture, plugin, checks, sessions / grants, sprints, wall, cost, tick's own estimate, the outcome and
+#     its reproduce command
+MISSION_HEADER = "| run | fixture | plugin | checks | sessions / grants | sprints | wall | cost | tick estimate | outcome | reproduce |"
+
+
+def mission_row_problems(line):
+    """What is wrong with one `| mission N |` ledger row ([] when nothing is)."""
+    c = [x.strip() for x in line.strip().strip("|").split("|")]
+    if len(c) != 11:
+        return ["%d cells, not 11 (%s)" % (len(c), MISSION_HEADER)]
+    want = ((0, r"mission \d+", "run"), (3, r"\d+/\d+", "checks N/M"), (4, r"\d+ / \d+", "sessions / grants"),
+            (5, r"\d+", "sprints"), (6, r"\d+m\d\ds", "wall"), (7, r"(?:≥)?\$\d+\.\d\d", "cost $x.xx"),
+            (8, r"\$\d+\.\d\d|—", "tick estimate $x.xx or —"))
+    bad = ["%s is %r" % (what, c[i]) for i, rx, what in want if not re.fullmatch(rx, c[i])]
+    bad += ["%s is empty" % what for i, what in ((1, "fixture"), (2, "plugin"), (9, "outcome")) if not c[i]]
+    if "make e2e-mission YES=1" not in c[10]:
+        bad.append("no reproduce command (make e2e-mission YES=1)")
+    return bad
+
+
+assert "## Mission runs" in ledger, "the ledger has a table for the mission runs"
+assert MISSION_HEADER in ledger[ledger.index("## Mission runs"):], "the mission table has its header"
+intro = ledger[:ledger.index("| run | intent |")]
+assert "scripts/smoke/e2e-live.sh" in intro and "scripts/smoke/e2e-mission.sh" in intro, "the header names both run scripts"
+mrows = [l for l in ledger.splitlines() if re.match(r"^\| mission \d+ \|", l)]
+for l in mrows:
+    assert not mission_row_problems(l), (l, mission_row_problems(l))
+mcells = [[c.strip() for c in l.strip("|").split("|")] for l in mrows]
+placeholder = "| mission <N> | todo (claude) | v<version> | <N>/<M> | <s> / <g> | <n> | <wall> | <cost> | <tick> | <outcome> | `make e2e-mission YES=1` |"
+assert len(mission_row_problems(placeholder)) == 7, mission_row_problems(placeholder)
+assert mission_row_problems(placeholder.replace("make e2e-mission YES=1", "make e2e-live YES=1"))[-1].startswith("no reproduce")
+assert mission_row_problems("| mission 1 | todo | v1 |") == ["3 cells, not 11 (%s)" % MISSION_HEADER]
+MT = tempfile.mkdtemp(prefix="agentic-evidence-mission-")
+os.makedirs(os.path.join(MT, "sessions"))
+os.makedirs(os.path.join(MT, "repo"))
+subprocess.run(["git", "init", "-q", os.path.join(MT, "repo")], check=True)
+for n, (usd, turns) in enumerate(((1.10, 30), (0.25, 12)), 1):
+    with open(os.path.join(MT, "sessions", "%02d.jsonl" % n), "w") as f:
+        f.write(json.dumps({"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": usd,
+                            "num_turns": turns}) + "\n")
+r = subprocess.run(["python3", os.path.join(ROOT, "scripts", "smoke", "mission_summary.py"), MT, "--sessions",
+                    os.path.join(MT, "sessions"), "--kind", "mission", "--checks", "18/19", "--secs", "4000", "--run", "1",
+                    "--plugin", plug], capture_output=True, text=True)
+assert r.returncode == 0, r.stderr
+mrow = [l for l in r.stdout.splitlines() if l.startswith("| mission ")][-1]
+assert not mission_row_problems(mrow) and "| $1.35 |" in mrow and "| 66m40s |" in mrow and "| 18/19 |" in mrow, mrow
+ms = json.load(open(os.path.join(MT, "summary.json")))
+assert ms["kind"] == "mission" and ms["cost_usd"] == 1.35 and ms["turns"] == 42, ms
+ok("the mission table: every `| mission N |` row has checks, sessions / grants, sprints, wall, cost, tick estimate, "
+   "outcome and `make e2e-mission YES=1`; a placeholder row is rejected; mission_summary.py writes a row that passes")
+
+# 3) every public time/cost figure is a ledger row (a run or a mission run); the demo rows link to the ledger
 readme = open(os.path.join(ROOT, "README.md")).read()
 site = open(os.path.join(ROOT, "docs", "index.html")).read()
 figures = set(re.findall(r"^\| .+ \| .+ \| (\d+m\d+s) \| (\$\d+\.\d+) \|$", readme, re.M)) | set(re.findall(r"(\d+m\d+s) for (\$\d+\.\d+)", site))
 assert figures
-pairs = {(c[4], c[5]) for c in cells}
+pairs = {(c[4], c[5]) for c in cells} | {(c[6], c[7]) for c in mcells if c[7].startswith("$")}
 for f in figures:
     assert f in pairs, "public figure %r is not a ledger row" % (f,)
 demo = readme[readme.index("## Demo"):readme.index("## Test-driven agents")]
@@ -86,5 +139,8 @@ ok("every public time/cost figure is a ledger row; README demo, README evidence 
 e2e = open(os.path.join(ROOT, "scripts", "smoke", "e2e-live.sh")).read()
 assert "run-summary" in e2e, "e2e-live.sh must call run-summary so each run leaves summary.json and a ledger row"
 ok("e2e-live.sh ends with run-summary")
+mission_sh = open(os.path.join(ROOT, "scripts", "smoke", "e2e-mission.sh")).read()
+assert "mission_summary.py" in mission_sh, "e2e-mission.sh must write the mission run's summary.json and ledger row"
+ok("e2e-mission.sh ends with the mission summary")
 
 print("\n%d checks passed" % PASS[0])

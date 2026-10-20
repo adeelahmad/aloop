@@ -8,9 +8,12 @@ is (proposed, active, retired) is read from the ledger, never from its status fi
 runner's script is pinned by its sha256 like the tools it runs.
 
 Usage:
-  mission journeys new (--from DRAFT.json | --title T --persona P)
+  mission journeys new --from DRAFT.json [--title T] [--persona P]
         issue the harness id and write docs/agents/mission/journeys/<id>.json (proposed);
-        emits journey.proposed. Prints the path.
+        emits journey.proposed. Prints the path. Only a complete journey is written: a draft
+        that `check` would block is refused with every problem, and nothing is written (so keep
+        the draft outside the project). --title and --persona fill in what the draft leaves
+        out. Exit 0 · 2
   mission journeys check [ID…] [--json]
         every journey that is not retired (or the ones named): schema; unique ids; each step's
         event is a valid GA4 event name; each metric has a query definition; a pass criterion
@@ -306,13 +309,17 @@ def cmd_new(cwd, o):
            "metrics": [], "pass_criteria": [], "runner": {"command": []}, "source_refs": []}
     doc.update({k: v for k, v in draft.items() if k not in ("journey_id", "status", "sha256", "approval", "retirement")})
     doc.update({"journey_id": jid, "status": "proposed", "created_at": M.now()})
+    bad = []
     if isinstance(doc.get("runner"), dict):
         files, bad = runner_files(cwd, doc["runner"])
-        if bad:
-            for b in bad:
-                print("BLOCK[journeys]: %s" % b, file=sys.stderr)
-            return 2
         doc["runner"] = dict(doc["runner"], files=files)
+    bad += [b for b in problems(cwd, jpath(cwd, jid), doc) if b not in bad]
+    if bad:     # its role can never rewrite or delete a written journey, so a broken one would block for good
+        for b in bad:
+            print("BLOCK[journeys]: %s" % b, file=sys.stderr)
+        print("journeys: nothing written: fix the draft (keep it outside the project) and run "
+              "`mission journeys new --from DRAFT.json` again", file=sys.stderr)
+        return 2
     path = M.save(jpath(cwd, jid), doc)
     M.emit(cwd, "journey.proposed", role="mission", refs={"journey": M.rel(cwd, path)}, journey_id=jid)
     print(path)

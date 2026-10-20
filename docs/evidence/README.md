@@ -1,11 +1,13 @@
 # Evidence: the measured runs behind every public number
 
 Every time or cost figure in the [README](../../README.md), on the [site](../index.html) and in
-[ROADMAP §0](../ROADMAP.md#0-at-a-glance) is a row here. Each row is one live run of the whole
+[ROADMAP §0](../ROADMAP.md#0-at-a-glance) is a row here. Each row of the first table is one live run of the whole
 loop (`scripts/smoke/e2e-live.sh`): a one-line intent through intake, standards, planning,
 RED/SCAFFOLD/GREEN per task, structural review and the final gate, to merged, tested code in a
-real host session (Claude Code, or Codex/OpenCode with `HOST=`) with the approval given up front. The numbers come from the harness
-(`run-summary` reads the session's `result` lines and the gate log), never from the model.
+real host session (Claude Code, or Codex/OpenCode with `HOST=`) with the approval given up front.
+Each row of [Mission runs](#mission-runs) is one live mission cycle (`scripts/smoke/e2e-mission.sh`).
+The numbers come from the harness (`run-summary` and `scripts/smoke/mission_summary.py` read the
+sessions' `result` lines and the gate log), never from the model.
 `scripts/test/evidence.test.py` fails if a public figure has no row, or a row has no reproduce
 command.
 
@@ -117,3 +119,28 @@ Run 52 is the first Python run under the plan approval, dependency, secret and s
 $0.56 and 8m26s, the cheapest `slugify` run (run 37: $0.69, 9m42s). None of the new gates refused
 anything; its 2 blocks were self-checks (SCAFFOLD's `black --check`, and a `targets` create with no
 `planned_symbol` caught before execution).
+
+## Mission runs
+
+Each row is one live mission cycle (`make e2e-mission YES=1`, ROADMAP M9.13) on the seeded to-do
+fixture (`scripts/smoke/fixtures/todo-mission/`): a one-line mission through research, one journey,
+a baseline measured twice, a goal, its sprint and re-evaluation, to `goal.met`. The script types
+only the first message (the mission's answers) and each grant line a session showed the human
+(mission approve, baseline confirm), as `scripted-human (e2e)`: a row proves the relay and the
+loop, not a human's review. `make e2e-mission YES=1 DRY=1` seeds the repo and prints the plan
+without spending anything. The run leaves `summary.json`, `summary.md` and a ready-to-paste row
+(`scripts/smoke/mission_summary.py`); add the row here.
+
+| run | fixture | plugin | checks | sessions / grants | sprints | wall | cost | tick estimate | outcome | reproduce |
+|---|---|---|---|---|---|---|---|---|---|---|
+| mission 1 | todo (claude) | v0.12.0 (378d019) | 11/24 | 2 / 1 | 0 | 4m24s | $0.33 | $0.38 | stopped: the baseline's pre-grant check (three broken journey drafts, M9.85; a rival in the baseline; the check read a draft as the journey: all fixed) | `make e2e-mission YES=1` |
+| mission 2 | todo (claude) | v0.12.0 (17d307f) | 22/24 | 4 / 2 | 1 | 15m32s | ≥$0.97 | $1.80 | GOAL MET (misses: the seed-test check, fixed; a GREEN stuck release, M9.87) | `make e2e-mission YES=1` |
+
+Columns: *checks* are the run's own post-run checks (N/M); *sessions / grants* count the host
+sessions it started and the mission ledger's human grant rows that verify (an edited or uncited row is
+not counted: `summary.json` lists it under `ledger_problems`); *cost* is the sum of each
+session's last `result` line (≥ when a session ended without one); *tick estimate* is `mission tick`'s
+own price of the token ledger since the mission was set (— when unmeasured); *outcome* is
+`GOAL MET` or the run's stop reason. A row has this shape (placeholders, not a result):
+
+    | mission <N> | todo (claude) | v<version> (<sha>) | <N>/<M> | <s> / <g> | <n> | <m>m<ss>s | $<x.xx> | $<y.yy> | GOAL MET | `make e2e-mission YES=1` |
