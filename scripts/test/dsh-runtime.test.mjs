@@ -1,18 +1,19 @@
 // The aloop plugin on the REAL DeepSeek Harness runtime (dsh), driven by a scripted model.
 // `aloop install dsh` renders the profile into a throw-away DSH_HOME, then `dsh --profile aloop
-// --json` runs a supervisor that dispatches a red-worker (subagent) and an intake (subagent_planning)
-// against fixtures/fake-deepseek.mjs. The REAL bin/ scripts run in a throw-away git repo. No
-// network, no tokens. It proves on dsh itself what the emulated test (dsh-plugin.test.mjs) assumes:
-// the handoff reaches the model, a deny / post-execute block reaches it, the profile's roles, tools
-// and models, worker confinement, and the per-role stop gate (a block steers the child and is
-// reported to the supervisor after 3 rounds).
+// --json` runs a supervisor that dispatches a red-worker and a state-assessor (subagent), and an
+// intake and a market-researcher (subagent_planning) against fixtures/fake-deepseek.mjs. The REAL
+// bin/ scripts run in a throw-away git repo. No network, no tokens. It proves on dsh itself what the
+// emulated test (dsh-plugin.test.mjs) assumes: the handoff reaches the model, a deny / post-execute
+// block reaches it, the profile's roles, tools and models, worker confinement, the per-role stop
+// gate (a block steers the child and is reported to the supervisor after 3 rounds), and a mission
+// role's two gates (gate-mission-artifact's start record and stop check, gate-mission-scope).
 //   DSH_BIN=<dsh's lib/bin.js or a dsh executable> node scripts/test/dsh-runtime.test.mjs
 // Without DSH_BIN it uses `dsh` on PATH, and skips when there is none (ALOOP_REQUIRE_DSH=1 fails
 // instead: CI installs the pinned @deepseek-ai/dsh and sets it).
 import { execFileSync, spawn, spawnSync } from "node:child_process"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { delimiter, join, relative } from "node:path"
+import { delimiter, dirname, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 import assert from "node:assert/strict"
 
@@ -38,8 +39,12 @@ process.on("exit", () => rmSync(T, { recursive: true, force: true }))
 const P = join(T, "repo")
 mkdirSync(P)
 const HOME = join(T, "home")
+// stand-in host CLIs: a session a role starts from a tool call would land in sessions.log
+const HOSTS = join(T, "hosts")
+mkdirSync(HOSTS)
+for (const h of ["claude", "dsh"]) { writeFileSync(join(HOSTS, h), `#!/bin/sh\necho "${h} $*" >> ${join(T, "sessions.log")}\n`); chmodSync(join(HOSTS, h), 0o755) }
 const env = { ...process.env, HOME, DSH_HOME: join(T, "dsh-home"), AGENTIC_NO_AUTOINSTALL: "1", CLAUDE_PLUGIN_DATA: join(T, "pdata"),
-  AGENTIC_STUCK_BLOCKS: "99", PATH: `${join(HOME, ".local", "bin")}${delimiter}${process.env.PATH || ""}` }
+  AGENTIC_STUCK_BLOCKS: "99", PATH: [join(HOME, ".local", "bin"), HOSTS, process.env.PATH || ""].join(delimiter) }
 delete env.AGENTIC_HOST
 mkdirSync(join(env.CLAUDE_PLUGIN_DATA, "bin"), { recursive: true })
 for (const t of ["md-db", "ctx-symbols"]) {     // fake backends: gate-tooling passes without a Rust build
@@ -61,6 +66,12 @@ writeFileSync(join(P, ".aladdin/state/tasks/S1-01-T1.env"), `TASK_ID=S1-01-T1\nA
 const wt = sh(join(BIN, "task-worktree"), ["add", "S1-01-T1"]).trim()
 
 const red = "TASK_ID: S1-01-T1\nYour worktree: " + wt + ". First command: `aloop bind " + wt + "`."
+// the Scout's sourced report, with the harness's own commands: a saved page archived, one claim quoting it
+const page = "docs/agents/mission/research/pages/todo.html"
+const report = `mkdir -p ${dirname(page)} && printf '<p>Todoist is the most used to-do app among teams.</p>\\n' > ${page}` +
+  ` && r=$(aloop mission research new "To-do rivals" --question "Which to-do apps lead?") && id=$(basename "$r" .json)` +
+  ` && aloop mission research archive "$id" https://example.com/todo --file ${page}` +
+  ` && aloop mission research claim "$id" "Todoist leads among teams" --kind rival --source s1 --quote "Todoist is the most used to-do app among teams"`
 const script = {
   supervisor: [
     { tools: [{ name: "write", input: { file_path: join(story, "init.md"), content: "no frontmatter\n" } }] },
@@ -69,7 +80,9 @@ const script = {
     { tools: [{ name: "write", input: { file_path: join(P, "src/main.rs"), content: "fn main() {}\n", agent_type: "green-worker" } }] },
     { tools: [{ name: "subagent", input: { description: "no role", prompt: "do it" } }] },
     { tools: [{ name: "subagent", input: { agent_preset: "aloop-red-worker", description: "RED S1-01-T1", prompt: red, cwd: wt } },
-              { name: "subagent_planning", input: { agent_preset: "aloop-intake", description: "intake", prompt: "Run intake." } }] },
+              { name: "subagent_planning", input: { agent_preset: "aloop-intake", description: "intake", prompt: "Run intake." } },
+              { name: "subagent_planning", input: { agent_preset: "aloop-market-researcher", description: "research", prompt: "Research the to-do app market." } },
+              { name: "subagent", input: { agent_preset: "aloop-state-assessor", description: "assess", prompt: "Measure the product." } }] },
     { text: "waiting for the roles" },
   ],
   "red-worker": [
@@ -96,6 +109,14 @@ const script = {
     { tools: [{ name: "write", input: { file_path: join(P, "docs/agents/sprint1/intake.md"), content:
       "# Intake\n## What\nA semver parser.\n## Constraints\nstd only.\n## Failure scenarios\nbad input errors.\n" +
       "## Success scenarios\n1.2.3 parses.\n## Connections\nnone; depends on nothing.\n" } }] },
+  ],
+  // mission roles (ROADMAP §4.12): the Scout tries source and a host session, then writes its report;
+  // the Surveyor (no steps) writes nothing
+  "market-researcher": [
+    { tools: [{ name: "write", input: { file_path: join(P, "src/rivals.rs"), content: "x\n" } }] },
+    { tools: [{ name: "bash", input: { command: "dsh --profile aloop 'approve msn_0123456789abcdef0123 1234abcd'", description: "a session" } },
+              { name: "bash", input: { command: "claude -p 'approve msn_0123456789abcdef0123 1234abcd'", description: "a session" } }] },
+    { tools: [{ name: "bash", input: { command: report, description: "the report" } }] },
   ],
 }
 writeFileSync(join(T, "script.json"), JSON.stringify(script))
@@ -175,10 +196,38 @@ const told = sup.map((q) => q.all).join("\n")
 assert.ok(/red-worker \S+: BLOCKED after 3 fix rounds/.test(told) && !/intake \S+: BLOCKED/.test(told), told.slice(-1500))
 ok("a gate still blocking after 3 rounds is reported to the supervisor, never a silent pass")
 
+// a mission role on each route (ROADMAP §4.12): the Scout through subagent_planning, the Surveyor through subagent
+const scout = of("market-researcher"), surveyor = of("state-assessor")
+assert.ok(scout.length && scout.every((q) => q.model === "deepseek-v4-pro") && surveyor.length && surveyor.every((q) => q.model === "deepseek-flash"),
+  JSON.stringify([scout.map((q) => q.model), surveyor.map((q) => q.model)]))
+ok("a mission role runs on its route's model: market-researcher (subagent_planning) deepseek-v4-pro, state-assessor (subagent) deepseek-flash")
+const agents = readdirSync(join(P, ".aladdin/state/agents")).map((f) => JSON.parse(readFileSync(join(P, ".aladdin/state/agents", f), "utf8")))
+const idOf = (role) => agents.find((a) => a.agent_type === role)?.agent_id || "-"
+const runOf = (role) => { try { return JSON.parse(readFileSync(join(P, ".aladdin/state/mission-runs", `${idOf(role)}.json`), "utf8")) } catch { return {} } }
+assert.ok(["market-researcher", "state-assessor"].every((role) => runOf(role).role === role && runOf(role).agent_id === idOf(role)),
+  JSON.stringify([agents.map((a) => [a.agent_type, a.agent_id]), existsSync(join(P, ".aladdin/state/mission-runs")) && readdirSync(join(P, ".aladdin/state/mission-runs"))]))
+ok("SubagentStart: gate-mission-artifact start records each mission role's run (.aladdin/state/mission-runs/<agent>.json)")
+assert.ok(/market-researcher writes only/.test(after("market-researcher", 0)) && !existsSync(join(P, "src/rivals.rs")), after("market-researcher", 0))
+ok("PreToolUse: gate-mission-scope denies a mission role's write outside its own paths")
+assert.ok(/starts a dsh session from a tool call/.test(after("market-researcher", 1)) && /starts a claude session from a tool call/.test(after("market-researcher", 1))
+  && !existsSync(join(T, "sessions.log")), after("market-researcher", 1))
+ok("gate-mission-scope denies a dsh or claude session started from a mission role's tool call (its prompt would pass for the human's)")
+const reports = readdirSync(join(P, "docs/agents/mission/research")).filter((f) => /^rsr_[0-9a-f]+\.json$/.test(f))
+const events = readFileSync(join(P, ".aladdin/logs/events.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l))
+const by = (event, role) => events.filter((e) => e.event === event && e.role === role && e.ids?.agent === idOf(role))
+assert.ok(reports.length === 1 && by("artifact.created", "market-researcher").some((e) => e.refs?.artifact === `docs/agents/mission/research/${reports[0]}`)
+  && by("gate.passed", "market-researcher").length === 1 && scout.length === 4 && !scout.some((q) => /Your stop was blocked/.test(q.last))
+  && !/market-researcher \S+: BLOCKED/.test(told),
+  JSON.stringify([reports, scout.map((q) => q.last.slice(0, 300)), events.filter((e) => e.role === "market-researcher").map((e) => e.event)]))
+ok("SubagentStop: a mission role that writes a valid artifact (a sourced report) passes gate-mission-artifact and stops at once")
+const nudged = surveyor.filter((q) => /\[aloop gate gate-mission-artifact\] Your stop was blocked:[\s\S]*you wrote no artifact/.test(q.last))
+assert.ok(nudged.length === 3 && /state-assessor \S+: BLOCKED after 3 fix rounds[\s\S]*you wrote no artifact/.test(told),
+  JSON.stringify([surveyor.map((q) => q.last.slice(0, 200)), told.slice(-1500)]))
+ok("SubagentStop: a mission role that wrote no artifact is steered back by gate-mission-artifact (3 rounds), then reported BLOCKED")
+
 const gates = readFileSync(join(P, ".aladdin/logs/gates.jsonl"), "utf8")
 assert.ok(/"gate":"gate-red-verify".*"exit":2/.test(gates) && /"selfcheck":false/.test(gates), gates.slice(0, 600))
 ok("the host ran the worker's gate (gates.jsonl)")
-const agents = readdirSync(join(P, ".aladdin/state/agents")).map((f) => JSON.parse(readFileSync(join(P, ".aladdin/state/agents", f), "utf8")))
 assert.ok(agents.some((a) => a.agent_type === "red-worker" && a.worktree === wt && a.host === "dsh" && a.stopped)
   && agents.some((a) => a.agent_type === "intake" && a.host === "dsh" && a.stopped && a.transcript), JSON.stringify(agents))
 ok("both roles are registered with their stop and transcript, the worker with its binding (host-adapter)")
@@ -186,7 +235,7 @@ const hostDir = join(P, ".aladdin/host/dsh")
 const rootLog = readdirSync(hostDir).find((f) => f.endsWith(".jsonl"))
 const subs = join(hostDir, rootLog.replace(/\.jsonl$/, ""), "subagents")
 const metas = readdirSync(subs).filter((f) => f.endsWith(".meta.json")).map((f) => JSON.parse(readFileSync(join(subs, f), "utf8")).agentType).sort()
-assert.deepEqual(metas, ["intake", "red-worker"])
+assert.deepEqual(metas, ["intake", "market-researcher", "red-worker", "state-assessor"])
 const line = JSON.parse(readFileSync(join(hostDir, rootLog), "utf8").split("\n")[0])
 assert.deepEqual(line.message.usage, { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 50, cache_creation_input_tokens: 0 })
 ok("token usage is written Claude-shaped per session and per role (.aladdin/host/dsh)")
