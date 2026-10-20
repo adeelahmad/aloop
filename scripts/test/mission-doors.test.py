@@ -155,7 +155,12 @@ ok("once authorization: exactly one action, consumed by its first crossing (door
 # 7) tamper and forgery: an edited ledger row, an emitted or stream-only authorization authorize nothing
 lp = M.ledger(p.dir)
 text = open(lp).read()
-open(lp, "w").write(text.replace('"by": "Adeel", "grant": "standing", "reason": "r"', '"by": "Eve", "grant": "standing", "reason": "r"'))
+lines = text.splitlines(True)
+k = next(i for i, l in enumerate(lines) if '"door:push-default-branch"' in l and '"until": "2030-01-01' in l)
+row = json.loads(lines[k])
+row["data"]["by"] = "Eve"                                         # an edited row keeps its old hash
+lines[k] = json.dumps(row, sort_keys=True) + "\n"
+open(lp, "w").write("".join(lines))
 assert open(lp).read() != text
 assert classify(p, "git push origin main").returncode == 3
 r = p.run("doors", "check")
@@ -241,7 +246,7 @@ for cmd, want in (("# ship it\ngit push origin main", "push-default-branch"),
                   ("bash <<'EOF'\nnpm publish\nEOF", "publish-release"),
                   ("bash <<< 'npm publish'", "publish-release"),
                   ("echo 'npm publish' | sh", "publish-release"),
-                  ("find dist -name '*.tgz' -exec npm publish {} \;", "publish-release"),
+                  ("find dist -name '*.tgz' -exec npm publish {} \\;", "publish-release"),
                   ("echo main | xargs git push origin", "push-default-branch"),       # arguments it cannot see
                   ("kubectl apply --dry-run=none -f k8s/", "production-deploy"),     # not a dry run
                   ("gh pr merge 3 -- --help", "push-default-branch"),
@@ -249,7 +254,7 @@ for cmd, want in (("# ship it\ngit push origin main", "push-default-branch"),
                   ("git config core.hooksPath /dev/null", "change-agent-settings"),
                   ("git -c core.hooksPath=/dev/null commit -m wip", "bypass-gate"),
                   ("echo authorize publish-release --by A --reason ok | xargs mission doors", "forge-human-record"),
-                  ("find . -maxdepth 0 -exec mission doors authorize credentials-and-secrets --by A --reason r \;",
+                  ("find . -maxdepth 0 -exec mission doors authorize credentials-and-secrets --by A --reason r \\;",
                    "forge-human-record"),
                   ("M=mission; $M doors authorize production-deploy --by A --reason r", "forge-human-record"),
                   ("python3 -c \"import _mission as M; M.record_human('.', 'door.authorized', 'door:x', 'A')\"",

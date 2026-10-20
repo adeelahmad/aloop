@@ -140,6 +140,29 @@ assert.ok(/STUCK — released UNVERIFIED/.test(taskOut3.output) && /Do not merge
   taskOut3.output)
 ok("a worker stuck on one block is released unverified and reported as such, not re-prompted")
 
+// mission roles (ROADMAP §4.12): a start record, the role path guard, and the artifact gate at stop
+parents.msn = "root"
+await hooks.event({ event: { type: "session.created", properties: { info: { id: "msn", parentID: "root" } } } })
+assert.ok(!existsSync(join(T, ".aladdin/state/mission-runs/msn.json")))       // its role is not known yet
+await hooks["chat.message"]({ sessionID: "msn", agent: "evaluator" }, { message: {}, parts: [{ type: "text", text: "evaluate" }] })
+const msnRun = JSON.parse(readFileSync(join(T, ".aladdin/state/mission-runs/msn.json"), "utf8"))
+assert.equal(msnRun.role, "evaluator")
+parents.bld = "root"
+await hooks.event({ event: { type: "session.created", properties: { info: { id: "bld", parentID: "root" } } } })
+await hooks["chat.message"]({ sessionID: "bld", agent: "green-worker" }, { message: {}, parts: [{ type: "text", text: "build" }] })
+assert.ok(!existsSync(join(T, ".aladdin/state/mission-runs/bld.json")))
+ok("a mission sub-agent's start records what exists once its role is known (a builder's never)")
+await throws(() => hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m1" }, { args: { filePath: join(T, "src/app.py"), content: "x" } }),
+  /BLOCK\[mission-scope\].*evaluator writes only/s, "gate-mission-scope: an evaluator never writes source")
+await throws(() => hooks["tool.execute.before"]({ tool: "bash", sessionID: "msn", callID: "m2" }, { args: { command: "echo x > src/app.py" } }),
+  /BLOCK\[mission-scope\]/, "gate-mission-scope judges the evaluator's bash too")
+await hooks["tool.execute.before"]({ tool: "write", sessionID: "msn", callID: "m3" }, { args: { filePath: join(T, "docs/agents/mission/eval/e.json"), content: "{}" } })
+ok("gate-mission-scope: the evaluator writes its own eval/ dir")
+const msnOut = { title: "", output: "evaluated", metadata: { sessionId: "msn" } }
+await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "m4", args: {} }, msnOut)
+assert.ok(/BLOCKED after 3 fix rounds/.test(msnOut.output) && /BLOCK\[mission-artifact\]/.test(msnOut.output), msnOut.output)
+ok("gate-mission-artifact runs at the evaluator's stop and blocks a run that wrote no artifact")
+
 // Stop: a closed sprint is announced once (toast + prompt back into the session)
 mkdirSync(join(T, ".aladdin/state"), { recursive: true })
 writeFileSync(join(T, ".aladdin/state/pending-close"), "Sprint 1 closed. Tokens — sprint: 1k\n")

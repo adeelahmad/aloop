@@ -61,6 +61,8 @@ init.md and output.md are NEW artifacts with fixed sections -> fully md-db-valid
     skills/aloop/SKILL.md the supervisor's playbook (canonical)
     pipeline/planning/retrospective/  runs FIRST every planning session (the archivist)
     agents/archivist.md          read-only; distills memory from the transcripts
+    agents/{market-researcher,product-tester,state-assessor,evaluator,mission-planner,ethics-reviewer}.md
+                                 the mission layer's six fixed roles (ROADMAP §4.12; mission/roles.json)
     schemas/memory.kdl           validates docs/agents/memory.md
     bin/transcripts                  full capture (stage-in / record / prompt / snapshot / stop)
     tools/ctx-symbols/           the symbol backend (build + install)

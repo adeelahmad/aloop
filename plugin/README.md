@@ -49,6 +49,8 @@ A copy on PATH or in `~/.local/bin` is used instead of building a second one.
 | Orchestrator (the skill, main session) | `sonnet` |
 | Planning: intake, standards, planner, archivist | `claude-opus-5-5` |
 | Execution: red-worker, scaffolder, green-worker, structural-reviewer, final-gate | `sonnet` |
+| Mission layer (§4.12), planning route: market-researcher, evaluator, mission-planner, ethics-reviewer | `claude-opus-5-5` |
+| Mission layer, worker route: product-tester, state-assessor | `sonnet` |
 
 Every execution-worker attempt is time-boxed on **tokens and wall clock**, each with a
 soft limit (the worker is warned inside its tool results) and a hard limit (the worker

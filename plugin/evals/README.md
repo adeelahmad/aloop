@@ -24,6 +24,15 @@ its **hard limits** — independently of the full sprint. Every suite maps to th
 | `agents/structural-reviewer.json` | structural-reviewer | `gate-structural-integrity` |
 | `agents/final-gate.json` | final-gate | `gate-final` |
 | `agents/archivist.json` | archivist | `gate-memory` |
+| `agents/market-researcher.json` | market-researcher (mission) | `gate-mission-artifact` |
+| `agents/product-tester.json` | product-tester (mission) | `gate-mission-artifact` |
+| `agents/state-assessor.json` | state-assessor (mission) | `gate-mission-artifact` |
+| `agents/evaluator.json` | evaluator (mission) | `gate-mission-artifact` |
+| `agents/mission-planner.json` | mission-planner (mission) | `gate-mission-artifact` |
+| `agents/ethics-reviewer.json` | ethics-reviewer (mission) | `gate-mission-artifact` |
+
+The six mission roles (ROADMAP §4.12) each have four cases: happy, edge, and two negatives, one
+crossing a hard limit and one writing outside the role's own paths (`gate-mission-scope` refuses it).
 
 ## Schema
 

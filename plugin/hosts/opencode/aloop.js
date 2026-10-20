@@ -16,7 +16,8 @@
 //   PostToolUse        tool.execute.after → transcripts record, budget post; context is
 //                      appended to the tool output; `continue: false` aborts the session
 //   SubagentStart      event session.created (child session) → host-adapter, transcripts
-//                      stage-in; gate-tooling on the worker's first tool call (role known)
+//                      stage-in; gate-tooling on the worker's first tool call (role known);
+//                      a mission role's gate-mission-artifact start on its first chat.message
 //   SubagentStop       tool.execute.after of the `task` tool → the role's gate; a block is
 //                      sent back to the sub-agent (it keeps working) up to 3 rounds, then
 //                      reported in the task result
@@ -36,6 +37,10 @@ const GATES = {
   "red-worker": "gate-red-verify", scaffolder: "gate-scaffold-verify", "green-worker": "gate-green-verify",
   "structural-reviewer": "gate-structural-integrity", "final-gate": "gate-final",
   intake: "gate-intake", standards: "gate-standards-cited", planner: "gate-stage2-complete", archivist: "gate-memory",
+  // the mission roles (ROADMAP §4.12): each one's artifacts are checked when it stops
+  "market-researcher": "gate-mission-artifact", "product-tester": "gate-mission-artifact",
+  "state-assessor": "gate-mission-artifact", "evaluator": "gate-mission-artifact",
+  "mission-planner": "gate-mission-artifact", "ethics-reviewer": "gate-mission-artifact",
 }
 const TOOL = { bash: "Bash", write: "Write", edit: "Edit", apply_patch: "apply_patch", read: "Read", task: "Agent" }
 const EDITS = new Set(["write", "edit", "apply_patch"])
@@ -146,7 +151,16 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       if (!input.sessionID) return
       const s = await info(input.sessionID)
       if (input.agent) s.agent = input.agent
-      if (!active() || s.parentID) return
+      if (!active()) return
+      if (s.parentID) {
+        // A mission role's SubagentStart: record what exists once its role is known (its first message
+        // comes before its first tool call); the stop gate diffs against it
+        if (GATES[s.agent] === "gate-mission-artifact" && !s.missionStart) {
+          s.missionStart = true
+          run("gate-mission-artifact", ["start"], await payload("SubagentStart", input.sessionID))
+        }
+        return
+      }
       const text = (output.parts || []).filter((x) => x.type === "text").map((x) => x.text).join("\n")
       if (text.startsWith("[aloop")) return                     // our own injections
       const pl = await payload("UserPromptSubmit", input.sessionID, { prompt: text })
@@ -192,6 +206,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       }
       const checks = []
       if (EDITS.has(input.tool)) checks.push(["gate-supervisor-scope", []])
+      if (EDITS.has(input.tool) || input.tool === "bash") checks.push(["gate-mission-scope", []])   // role path guards
       if (input.tool === "bash") checks.push(["gate-commit-author", []])
       checks.push(["budget", ["hook", "pre"]])
       for (const [script, a] of checks) {

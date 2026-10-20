@@ -375,4 +375,35 @@ z.save("baseline", zb1, zdoc)
 assert z.run("baseline", "check").returncode == 0
 ok("an edited, moved or malformed current version decides nothing; a veto binds content in any order; a restore sticks")
 
+# 14) the human's old words never decide again (M9.17): a restore line is spent once another version is current
+y = Project(veto_window_h=0)
+yr = y.research(["c1"])
+y.journey(y.draft(yr))
+yb1 = new_id(y.run("baseline", "new", "--definition", "a first task in under 5 seconds"))
+assert y.run("baseline", "measure", yb1).returncode == 0
+r = y.raw("baseline", "confirm", yb1, "--by", "Adeel")
+assert r.returncode == 3 and "they reply  confirm %s " % yb1 in r.stderr, r.stderr    # --by alone confirms nothing
+assert y.run("baseline", "confirm", yb1, "--by", "Adeel").returncode == 0
+
+
+def then(definition):
+    b = new_id(y.run("baseline", "new", "--definition", definition, "--supersedes", y.run("baseline", "current").stdout.strip(),
+                     "--evidence", yr + "#c1"))
+    assert y.run("baseline", "measure", b).returncode == 0 and y.run("baseline", "apply", b).returncode == 0, b
+    return b
+
+
+then("faster")
+assert y.run("baseline", "restore", yb1, "--by", "Adeel", "--reason", "too early").returncode == 0
+said = M.newest(y.dir, "baseline.confirmed", M.rel(y.dir, y.path("baseline", yb1)))["data"]["prompt"]["line"]
+assert said.startswith("restore %s " % yb1), said
+yb3 = then("faster again")
+r = y.raw("baseline", "restore", yb1, "--by", "Adeel", "--reason", "the same words again")
+assert r.returncode == 3 and "they reply  %s  " % said in r.stderr, r.stderr          # the same line, but said before yb3
+assert y.run("baseline", "current").stdout.strip() == yb3
+y.say(said)                                                                            # said again, now
+assert y.raw("baseline", "restore", yb1, "--by", "Adeel", "--reason", "meant it").returncode == 0
+assert y.run("baseline", "current").stdout.strip() == yb1
+ok("a grant is the human's own words: --by alone confirms nothing, and an old restore line is spent once another version applied")
+
 print("mission-baseline: %d checks passed" % PASS[0])
