@@ -123,11 +123,20 @@ const wt = sh(join(BIN, "task-worktree"), ["add", "S1-01-T1"]).trim()
 assert.ok(allowed(await pre(h, root, "subagent", { ...red, cwd: wt })))
 assert.ok(readFileSync(join(wt, ".aladdin/task.env"), "utf8").includes("STORY_DIR="), "gate-dispatch copies the contract into the worktree")
 ok("dispatch: no role, no TASK_ID line or no task contract is refused; a complete one is admitted")
-const stale = host({ root: ROOT, models: { subagent: "deepseek-v4-pro" } })     // rendered before MODEL_WORKER changed
+// the one profile's tool models are another project's (or from before MODEL_WORKER changed): a role
+// still runs on THIS project's model, so gate-dispatch admits it and every request of the child uses it
+const stale = host({ root: ROOT, project: "/elsewhere", models: { subagent: "deepseek-v4-pro", subagent_planning: "deepseek-flash" } })
 plugin.apply(stale.ctx, stale.config)
-await stale.on["agent/created"]({ agent: agentOf("root"), source: "startup" })
-assert.ok(denied(await pre(stale, agentOf("root"), "subagent", { ...red, cwd: wt }), /dispatch red-worker with model: deepseek-flash/))
-ok("gate-dispatch refuses a delegation tool whose model is not the project's (re-run `aloop install dsh`)")
+const sroot = agentOf("sroot")
+await stale.on["agent/created"]({ agent: sroot, source: "startup" })
+assert.ok(allowed(await pre(stale, sroot, "subagent", { ...red, cwd: wt })))
+const request = (hh, agent, config) => hh.on["agent/request"]({ agent, turn: 1, step: 1, signal: new AbortController().signal }, async () => Object.freeze({ ...config }))
+const profiled = { provider: "deepseek-official", model: "deepseek-v4-pro", reasoningEffort: "high", maxTokens: 9000 }
+const sred = childOf("sred", "red-worker", { parentSession: "sroot" }), splan = childOf("splan", "planner", { parentSession: "sroot" })
+assert.deepEqual(await request(stale, sred, profiled), { provider: "deepseek-official", model: "deepseek-flash", maxTokens: 9000 })
+assert.deepEqual(await request(stale, splan, { provider: "deepseek-official", model: "deepseek-flash" }), { provider: "deepseek-official", model: "deepseek-v4-pro" })
+assert.deepEqual(await request(stale, sroot, profiled), profiled)
+ok("a role runs on its project's model (`aloop models resolve`), not the profile's: dispatch admitted, every request routed to it (a new route takes its own effort); the supervisor's own route is untouched")
 
 // SubagentStart, delegation, isolation
 const child = childOf("child", "red-worker")
@@ -241,6 +250,9 @@ assert.ok(!plain.injected.length && allowed(await pre(h, plain, "write", { file_
 const broken = host({ root: join(T, "no-such-plugin") })
 plugin.apply(broken.ctx, broken.config)
 assert.ok(denied(await pre(broken, agentOf("root2"), "bash", { command: "ls" }), /could not run host-adapter/)); ok("a gate that cannot run denies (fail closed)")
+assert.ok(denied(await pre(broken, agentOf("root2"), "subagent", { ...red, cwd: wt }), /could not resolve red-worker's model/))
+await assert.rejects(request(broken, childOf("bchild", "red-worker", { parentSession: "root2" }), profiled), /no model for red-worker/)
+ok("a role whose project's model cannot be resolved is neither dispatched nor run on the profile's model (fail closed)")
 
 // a gate runs the worker's code, so it gets the worker shell's environment: dsh's credential scrub,
 // aloop's own settings kept, and the plugin root the gates read their schemas from
@@ -274,18 +286,41 @@ assert.ok(/^DATABASE_URL=pg:\/\/x$/m.test(fenv) && /^SCOPE_GLOBS=src\/\*\*$/m.te
 for (const k of ["SKIP_HOOKS", "GATE_RUN_TESTS", "REPO_DIR", "AGENTIC_NO_BUDGET", "DATABASE_URL", "SCOPE_GLOBS"]) delete process.env[k]
 ok("a gate switch from the project's .env (SKIP_HOOKS, GATE_RUN_TESTS, REPO_DIR, AGENTIC_*) never reaches a gate; an exported one and other names do")
 
-// the one dsh profile serves one project: a session in another is told how to switch it
+// the one dsh profile was installed for another project: its role models are this one's anyway, but the
+// aloop skills dsh loads live in each project's .dsh/skills (or $DSH_HOME/skills with --global)
 const fo = host({ root: ROOT, project: "/elsewhere", models: { subagent: "deepseek-flash", subagent_planning: "deepseek-v4-pro" } })
 plugin.apply(fo.ctx, fo.config)
 const r6 = agentOf("root6")
 await fo.on["agent/created"]({ agent: r6, source: "startup" })
-assert.ok(/rendered for \/elsewhere.*aloop install dsh --project/s.test(textOf(r6.injected[0])), textOf(r6.injected[0]))
+assert.ok(/no aloop skills for dsh.*aloop install dsh --project/s.test(textOf(r6.injected[0])) && !/role models are that project's/.test(textOf(r6.injected[0])), textOf(r6.injected[0]))
+for (const [i, skills] of [join(T, ".dsh/skills/aloop"), join(process.env.DSH_HOME, "skills/aloop")].entries()) {
+  mkdirSync(skills, { recursive: true }); writeFileSync(join(skills, "SKILL.md"), "x\n")
+  const r6b = agentOf(`root6-${i}`)
+  await fo.on["agent/created"]({ agent: r6b, source: "startup" })
+  assert.ok(!/aloop install dsh/.test(textOf(r6b.injected[0])), textOf(r6b.injected[0]))
+  rmSync(skills, { recursive: true })
+}
 const fs = host({ root: ROOT, project: realpathSync(T), models: {} })
 plugin.apply(fs.ctx, fs.config)
 const r7 = agentOf("root7")
 await fs.on["agent/created"]({ agent: r7, source: "startup" })
-assert.ok(!/rendered for/.test(textOf(r7.injected[0])))
-ok("a session in a project the dsh profile does not serve is told to run `aloop install dsh` there (its role models are another project's)")
+assert.ok(!/aloop install dsh/.test(textOf(r7.injected[0])))
+ok("a session in a project the dsh profile was not installed for is told to install the aloop skills there only when it has none (its own or --global)")
+
+// a project whose route is a Claude id resolves to "" on dsh (the session's own model): its role runs on
+// the supervisor's route, never on the profile's (another project's); a pinned provider/model splits at the first "/"
+const U = mkdtempSync(join(tmpdir(), "aloop-dsh-u-"))
+process.on("exit", () => rmSync(U, { recursive: true, force: true }))
+for (const c of [["init", "-q"], ["config", "user.email", "ada@x.io"], ["config", "user.name", "Ada"], ["commit", "-q", "--allow-empty", "-m", "init"]])
+  execFileSync("git", c, { cwd: U })
+execFileSync(join(BIN, "aloop-init"), ["--apply", "MODEL_PLANNING=opus", "MODEL_WORKER_DSH=openrouter/deepseek/deepseek-chat-v3"], { cwd: U })
+const uroot = agentOf("uroot", { cwd: U })
+uroot.session.requestHeader = () => ({ config: { provider: "deepseek-official", model: "deepseek-flash", reasoningEffort: "max" } })
+await stale.on["agent/created"]({ agent: uroot, source: "startup" })
+const uplan = childOf("uplan", "intake", { parentSession: "uroot", cwd: U }), ugreen = childOf("ugreen", "green-worker", { parentSession: "uroot", cwd: U })
+assert.deepEqual(await request(stale, uplan, profiled), { provider: "deepseek-official", model: "deepseek-flash", reasoningEffort: "max", maxTokens: 9000 })
+assert.deepEqual(await request(stale, ugreen, profiled), { provider: "openrouter", model: "deepseek/deepseek-chat-v3", maxTokens: 9000 })
+ok("a role whose project leaves its model to the session runs on the supervisor's route; a provider-qualified pin is routed to that provider")
 
 // an interrupted supervisor Stop still delivers the sprint-close notice (stats announces it once)
 const r5 = agentOf("root5")

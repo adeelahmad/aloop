@@ -4,13 +4,14 @@
 // against fixtures/fake-deepseek.mjs. The REAL bin/ scripts run in a throw-away git repo. No
 // network, no tokens. It proves on dsh itself what the emulated test (dsh-plugin.test.mjs) assumes:
 // the handoff reaches the model, a deny / post-execute block reaches it, the profile's roles, tools
-// and models, worker confinement, and the per-role stop gate (a block steers the child and is
-// reported to the supervisor after 3 rounds).
+// and models, worker confinement, the per-role stop gate (a block steers the child and is
+// reported to the supervisor after 3 rounds), and that the one install runs a second project's
+// roles on that project's own models.
 //   DSH_BIN=<dsh's lib/bin.js or a dsh executable> node scripts/test/dsh-runtime.test.mjs
 // Without DSH_BIN it uses `dsh` on PATH, and skips when there is none (ALOOP_REQUIRE_DSH=1 fails
 // instead: CI installs the pinned @deepseek-ai/dsh and sets it).
 import { execFileSync, spawn, spawnSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { delimiter, join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -98,19 +99,23 @@ const script = {
       "## Success scenarios\n1.2.3 parses.\n## Connections\nnone; depends on nothing.\n" } }] },
   ],
 }
-writeFileSync(join(T, "script.json"), JSON.stringify(script))
+// one headless `dsh --profile aloop` run in `cwd` against the scripted model; every request it made, logged
+async function session(cwd, name, steps) {
+  const file = join(T, `${name}.json`), log = join(T, `${name}.jsonl`)
+  writeFileSync(file, JSON.stringify(steps))
+  const fake = spawn(process.execPath, [join(HERE, "fixtures", "fake-deepseek.mjs")], { env: { ...env, FAKE_SCRIPT: file, FAKE_LOG: log } })
+  const port = await new Promise((ok, no) => { fake.stdout.once("data", (d) => ok(String(d).trim())); fake.once("error", no) })
+  const run = spawnSync(dshCmd[0], [...dshCmd.slice(1), "--profile", "aloop", "--json", "Use the aloop skill. Intent: a semver parser"], {
+    cwd, encoding: "utf8", timeout: 300000,
+    env: { ...env, DEEPSEEK_BASE_URL: `http://127.0.0.1:${port}`, DEEPSEEK_API_KEY: "sk-fake", DSH_PERMISSION_MODE: "danger-full-access",
+      DSH_TELEMETRY_DISABLED: "1", ALOOP_DSH_MODEL: "deepseek-flash" } })
+  fake.kill()
+  return { r: run, reqs: existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : [] }
+}
 
 // a project .env that switches the gates off (it can come with a clone): dsh loads it, the gates ignore it
 writeFileSync(join(P, ".env"), "SKIP_HOOKS=1\nGATE_RUN_TESTS=0\n")
-const LOG = join(T, "fake.jsonl")
-const fake = spawn(process.execPath, [join(HERE, "fixtures", "fake-deepseek.mjs")], { env: { ...env, FAKE_SCRIPT: join(T, "script.json"), FAKE_LOG: LOG } })
-const port = await new Promise((ok, no) => { fake.stdout.once("data", (d) => ok(String(d).trim())); fake.once("error", no) })
-const r = spawnSync(dshCmd[0], [...dshCmd.slice(1), "--profile", "aloop", "--json", "Use the aloop skill. Intent: a semver parser"], {
-  cwd: P, encoding: "utf8", timeout: 300000,
-  env: { ...env, DEEPSEEK_BASE_URL: `http://127.0.0.1:${port}`, DEEPSEEK_API_KEY: "sk-fake", DSH_PERMISSION_MODE: "danger-full-access",
-    DSH_TELEMETRY_DISABLED: "1", ALOOP_DSH_MODEL: "deepseek-flash" } })
-fake.kill()
-const reqs = existsSync(LOG) ? readFileSync(LOG, "utf8").trim().split("\n").map((l) => JSON.parse(l)) : []
+const { r, reqs } = await session(P, "fake", script)
 const of = (role) => reqs.filter((q) => q.role === role)
 const after = (role, step) => of(role).find((q) => q.step === step + 1)?.last || ""
 const diag = () => `exit ${r.status}\n${(r.stderr || "").slice(-3000)}\n${(r.stdout || "").slice(-2000)}`
@@ -191,5 +196,42 @@ const line = JSON.parse(readFileSync(join(hostDir, rootLog), "utf8").split("\n")
 assert.deepEqual(line.message.usage, { input_tokens: 100, output_tokens: 10, cache_read_input_tokens: 50, cache_creation_input_tokens: 0 })
 ok("token usage is written Claude-shaped per session and per role (.aladdin/host/dsh)")
 assert.ok(readdirSync(join(P, ".aladdin/ledger")).some((f) => f.endsWith(".jsonl"))); ok("Stop: the token ledger is written for the session")
+
+// One install serves every project: a second project with other models, where `aloop install dsh` never
+// ran (the one profile still records the first project and its models), runs each role on ITS models.
+const Q = join(T, "repo-q")
+mkdirSync(Q)
+const shq = (cmd, args) => execFileSync(cmd, args, { cwd: Q, env, encoding: "utf8" })
+shq("git", ["init", "-q"]); shq("git", ["config", "user.email", "ada@x.io"]); shq("git", ["config", "user.name", "Ada"])
+shq("git", ["commit", "-q", "--allow-empty", "-m", "init"])
+const PROFILE = join(env.DSH_HOME, "profiles/aloop/cordis.patch.yml"), rendered = readFileSync(PROFILE, "utf8")
+shq(join(BIN, "aloop-init"), ["--apply", "TOKENS_SOFT=100000", "TOKENS_HARD=200000", "MODEL_PLANNING_DSH=deepseek-flash", "MODEL_WORKER_DSH=deepseek-v4-pro"])
+assert.ok(readFileSync(PROFILE, "utf8") === rendered && rendered.includes(`# aloop-project: ${realpathSync(P)}\n`)
+  && /toolName: subagent, .*model: "deepseek-flash"/.test(rendered) && /toolName: subagent_planning, .*model: "deepseek-v4-pro"/.test(rendered), rendered.slice(0, 1200))
+ok("a second project's init leaves the one profile as the first project rendered it (its owner and models)")
+const qstory = join(Q, "docs/agents/sprint1/s1-01-x")
+mkdirSync(qstory, { recursive: true })
+mkdirSync(join(Q, ".aladdin/state/tasks"), { recursive: true })
+writeFileSync(join(Q, ".aladdin/state/tasks/S1-01-T1.env"), `TASK_ID=S1-01-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\nSTORY_DIR=${qstory}\n`)
+const q = await session(Q, "fake-q", {
+  supervisor: [
+    { tools: [{ name: "subagent", input: { agent_preset: "aloop-red-worker", description: "RED S1-01-T1", prompt: "TASK_ID: S1-01-T1\nWrite the failing tests." } },
+              { name: "subagent_planning", input: { agent_preset: "aloop-intake", description: "intake", prompt: "Run intake." } }] },
+    { text: "waiting for the roles" },
+  ],
+  intake: script.intake.map((s) => ({ tools: s.tools.map((t) => ({ ...t, input: { ...t.input, file_path: join(Q, "docs/agents/sprint1/intake.md") } })) })),
+})
+const qof = (role) => q.reqs.filter((x) => x.role === role)
+assert.equal(q.r.status, 0, `exit ${q.r.status}\n${(q.r.stderr || "").slice(-3000)}`)
+const qsup = qof("supervisor"), dispatched = qsup.find((x) => x.step === 1)?.last || ""
+assert.ok((dispatched.match(/started subagent/g) || []).length === 2 && !/BLOCK\[dispatch\]/.test(dispatched), dispatched)
+ok("gate-dispatch admits the second project's roles with no `aloop install dsh` there")
+const qw = qof("red-worker"), qi = qof("intake")
+assert.ok(qw.length && qw.every((x) => x.model === "deepseek-v4-pro") && qi.length && qi.every((x) => x.model === "deepseek-flash"),
+  JSON.stringify([qw.map((x) => x.model), qi.map((x) => x.model)]))
+assert.ok(of("red-worker").every((x) => x.model === "deepseek-flash") && of("intake").every((x) => x.model === "deepseek-v4-pro"))
+ok("each project's roles run on its own models from one profile: the second's workers deepseek-v4-pro (MODEL_WORKER_DSH), planning deepseek-flash (MODEL_PLANNING_DSH)")
+assert.ok(/no aloop skills for dsh.*aloop install dsh --project/s.test(qsup[0].all) && !/role models are that project's/.test(qsup[0].all), qsup[0].all.slice(0, 1500))
+ok("a session in a project without aloop's dsh skills is told to install them there, never that its role models are another project's")
 
 console.log(`\n${pass} checks passed`)

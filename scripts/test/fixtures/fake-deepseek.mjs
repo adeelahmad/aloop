@@ -6,8 +6,9 @@
 // `aloop install dsh` opens every role's persona with; none → supervisor), and its step is the
 // number of assistant messages it already holds. A step is {"text": "..."} (ends the turn) or
 // {"tools": [{"name", "input"}, ...]}; past the end of a role's steps the reply is "<role> done"
-// (the supervisor's is "E2E-DONE"). Every request is logged with the text it carried, so a test
-// can assert what the model was shown (a deny reason, an injected gate verdict, the handoff).
+// (the supervisor's is "E2E-DONE"). Every request is logged with its model and the text it
+// carried, so a test can assert which model ran and what it was shown (a deny reason, an
+// injected gate verdict, the handoff).
 import { createServer } from "node:http"
 import { appendFileSync, readFileSync } from "node:fs"
 

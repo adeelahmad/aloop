@@ -25,6 +25,9 @@
 //   Stop               agent/turn-stopping of a root agent → transcripts snapshot, stats hook; a
 //                      `decision: block` reason steers the session
 // Roles are agent presets `aloop-<role>` (a child carries its preset in session.header.agentPreset).
+// Models: the one profile's delegation tools start a role on the models of the project it was rendered
+// for; agent/request routes each of the role's requests to its OWN project's model (`aloop models resolve
+// <role>` in the session's project, the answer gate-dispatch checks), so one install serves every project.
 // Token usage: every assistant/message session event is appended, Claude-shaped, to
 // <run-data>/host/dsh/<root>.jsonl (children: <root>/subagents/agent-<id>.jsonl), so the ledger
 // and the time box read it like any Claude transcript.
@@ -32,6 +35,7 @@
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs"
+import { homedir } from "node:os"
 import { dirname, isAbsolute, join, resolve, sep } from "node:path"
 import { parseEnv } from "node:util"
 
@@ -54,6 +58,7 @@ const DISPATCH = new Set(["subagent", "subagent_planning"])
 const TOOL = { bash: "Bash", write: "Write", edit: "Edit", read: "Read", glob: "Glob", grep: "Grep", subagent: "Agent", subagent_planning: "Agent" }
 const STUCK = /\bSTUCK\b.*NOT verified/
 const TOOLS_NOTE = "aloop tools: call `aloop <tool>` (e.g. `aloop selfcheck`, `aloop stats show`); never search for them."
+const PROVIDER = "deepseek-official"      // bin/install's DSH_PROVIDER: a bare model id is DeepSeek's own
 
 // A gate runs the worker's own code (its tests), so it gets the environment dsh gives the worker's
 // shell: credential-shaped names and DSH_* dropped (dsh-subprocess's scrub), aloop's own settings
@@ -84,6 +89,11 @@ const freeze = (o) => { Object.freeze(o); for (const v of Object.values(o)) if (
 const msg = (text) => freeze({ role: "user", id: randomUUID(), content: [{ type: "text", text }], source: { kind: "aloop" } })
 const textOf = (content) => typeof content === "string" ? content : (content || []).map((b) => b?.text || "").filter(Boolean).join("\n")
 const under = (p, root) => { const r = resolve(p), w = resolve(root); return r === w || r.startsWith(w + sep) }
+// a model id as the profile routes it (bin/install's dsh_agent_options): `<provider>/<model>`, or a bare DeepSeek id
+const routeOf = (m) => { const i = m.indexOf("/"); return i < 0 ? { provider: PROVIDER, model: m } : { provider: m.slice(0, i), model: m.slice(i + 1) } }
+// the aloop skills dsh loads for a project: its own .dsh/skills, or $DSH_HOME/skills (`--global`)
+const hasSkills = (project) => [join(project, ".dsh"), process.env.DSH_HOME?.trim() || join(homedir(), ".dsh")]
+  .some((d) => existsSync(join(d, "skills", "aloop", "SKILL.md")))
 
 // The project a directory belongs to: the main tree, also from inside a linked worktree.
 function projectOf(dir) {
@@ -109,13 +119,13 @@ export function apply(ctx, config = {}) {
   const ROOT = config.root
   const BIN = join(ROOT, "bin")
   const MAX = Number.isInteger(config.maxStopBlocks) ? config.maxStopBlocks : 3
-  const MODELS = config.models || {}
   // A model's shell gets dsh's own environment (secrets and DSH_* removed), so this reaches every
   // `aloop …` the supervisor or a worker runs: bin/ scripts then know their host.
   process.env.AGENTIC_HOST = "dsh"
   const FROM_FILE = fileSwitches(process.cwd())
   if (FROM_FILE.size) process.stderr.write(`[aloop] gates ignore ${[...FROM_FILE].join(", ")} from ${join(process.cwd(), ".env")} (export a setting to use it)\n`)
   const sessions = new Map()      // session id -> state
+  const dispatched = new Map()    // a delegation call's id -> the model its role runs on
 
   function info(x) {
     const session = x?.session || x
@@ -173,11 +183,11 @@ export function apply(ctx, config = {}) {
   // dsh really runs in (bash's own `workdir`, else the agent's). Relative paths are joined the
   // way dsh joins them (`<dir>/<path>`, `..` kept), never normalised here: like dsh,
   // host-adapter follows a symlink before `..`.
-  function toolInput(tool, a, wd) {
+  function toolInput(tool, a, wd, model = "") {
     const str = (v) => (typeof v === "string" ? v : undefined)
     const at = (p) => (p === undefined || isAbsolute(p) ? p : `${wd}${sep}${p}`)
     if (DISPATCH.has(tool)) return { subagent_type: String(a.agent_preset || "").replace(/^aloop-/, ""), description: str(a.description),
-      prompt: str(a.prompt) || "", cwd: str(a.cwd), model: MODELS[tool] || "" }
+      prompt: str(a.prompt) || "", cwd: str(a.cwd), model }
     switch (tool) {
       case "bash": return { command: str(a.command) || "", description: str(a.description), workdir: at(str(a.workdir)) ?? wd }
       case "working_directory": return { cd: at(str(a.cd)), workdir: wd }
@@ -230,6 +240,12 @@ export function apply(ctx, config = {}) {
     return null
   }
   const gate = async (script, args, input, cwd) => denyOf(await run(script, args, input, cwd), script)
+  // The model a role runs on: its project's own ("" = the session's own model), never the profile's.
+  // null when it cannot be resolved: the dispatch is refused and a request fails (fail closed).
+  async function modelOf(s, role) {
+    const res = await run("models", ["resolve", role], {}, s.project)
+    return res.code === 0 && !res.error ? res.stdout.trim() : null
+  }
 
   async function preTool(exec) {
     const s = info(exec.agent)
@@ -240,8 +256,12 @@ export function apply(ctx, config = {}) {
     if (DISPATCH.has(tool)) {
       if (s.child) return "aloop: a role does not delegate. Finish your own task and report back to the supervisor."
       if (!a.agent_preset) return "aloop: dispatch an aloop role: pass agent_preset: \"aloop-<role>\" (subagent: red-worker, scaffolder, green-worker, structural-reviewer, final-gate, product-tester, state-assessor; subagent_planning: intake, standards, planner, archivist, market-researcher, evaluator, mission-planner, ethics-reviewer)."
+      const role = String(a.agent_preset).replace(/^aloop-/, ""), m = await modelOf(s, role)
+      if (m === null) return `aloop: could not resolve ${role}'s model in ${s.project} (\`aloop models resolve ${role}\`)`
+      dispatched.set(exec.callId, m)
     }
-    const p = payload("PreToolUse", s, { tool_name: TOOL[tool] || tool, tool_input: toolInput(tool, a, await wdOf(s, exec.agent)), tool_use_id: exec.callId })
+    const p = payload("PreToolUse", s, { tool_name: TOOL[tool] || tool, tool_input: toolInput(tool, a, await wdOf(s, exec.agent), dispatched.get(exec.callId)),
+      tool_use_id: exec.callId })
     let why = await gate("host-adapter", ["hook"], p, s.project)        // records `aloop bind`, confines writers
     if (why) return why
     if (s.child && EXECUTION.has(s.role) && !s.toolingOk) {               // SubagentStart preflight
@@ -261,8 +281,9 @@ export function apply(ctx, config = {}) {
     const s = info(exec.agent)
     if (!active(s)) return {}
     const tool = exec.name, a = argsOf(exec), wd = cwdOf(s)
-    const p = payload("PostToolUse", s, { tool_name: TOOL[tool] || tool, tool_input: toolInput(tool, a, wd),
+    const p = payload("PostToolUse", s, { tool_name: TOOL[tool] || tool, tool_input: toolInput(tool, a, wd, dispatched.get(exec.callId)),
       tool_use_id: exec.callId, tool_response: textOf(result?.content) })
+    dispatched.delete(exec.callId)
     const out = {}
     if (tool === "write" && !result?.isError) out.block = await gate("gate-validate-artifact", [], p, s.project)
     await run("transcripts", ["record"], p, s.project)
@@ -336,11 +357,12 @@ export function apply(ctx, config = {}) {
       if (!s.child) {
         const start = { hook_event_name: "SessionStart", session_id: s.id, transcript_path: transcriptOf(s), cwd: s.project, source: source || "startup" }
         const parts = [TOOLS_NOTE]
-        // the one dsh profile holds one project's role models (`aloop install dsh` records which)
+        // the one dsh profile was installed for another project (`aloop install dsh` records which): its
+        // roles run on this project's models anyway, but dsh loads the aloop skills per project
         let here = s.project
         try { here = realpathSync(s.project) } catch {}
-        if (config.project && config.project !== "(global)" && config.project !== here) {
-          const note = `aloop: the dsh profile was rendered for ${config.project}, so its role models are that project's and gate-dispatch refuses a role on a model this one did not confirm. Run \`aloop install dsh --project ${s.project}\` first.`
+        if (config.project && config.project !== "(global)" && config.project !== here && !hasSkills(s.project)) {
+          const note = `aloop: this project has no aloop skills for dsh (the dsh profile was installed for ${config.project}). Run \`aloop install dsh --project ${s.project}\` (or \`--global\`) first.`
           parts.push(note)
           process.stderr.write(`[${note}]\n`)
         }
@@ -379,9 +401,30 @@ export function apply(ctx, config = {}) {
     return extra && d?.kind === "enter" ? { ...d, messages: [...d.messages, msg(extra)] } : d
   }, { prepend: true })
 
+  // A role's every request goes to its project's model (the tool started it on the profile's); "" is the
+  // route a child inherits, its parent's latest. A new route takes its own default effort, as on a dsh switch.
+  ctx.on("agent/request", async (req, next) => {
+    const proposed = await next()
+    const s = info(req.agent)
+    if (!s.child || !GATES[s.role] || !active(s)) return proposed
+    s.model ??= await modelOf(s, s.role)          // once per child; an unresolved one is tried again
+    let route = s.model ? routeOf(s.model) : null
+    if (s.model === "") {
+      let c
+      try { c = sessions.get(s.parent)?.agent?.session?.requestHeader?.()?.config } catch {}
+      if (c?.provider && c.model) route = { provider: c.provider, model: c.model, ...(c.reasoningEffort === undefined ? {} : { reasoningEffort: c.reasoningEffort }) }
+    }
+    // never the profile's model by default: a role whose model cannot be told fails its request
+    if (!route) throw new Error(`aloop: no model for ${s.role} in ${s.project} (\`aloop models resolve ${s.role}\`)`)
+    if (route.provider === proposed.provider && route.model === proposed.model) return proposed
+    const { reasoningEffort: _effort, ...rest } = proposed
+    return { ...rest, ...route }
+  }, { prepend: true })
+
   ctx.on("tools/pre-execute", async (exec, next) => {
     let why
     try { why = await preTool(exec) } catch (e) { why = `aloop: the gate itself failed (${e?.message || e})` }
+    if (why) dispatched.delete(exec.callId)       // a denied call has no post-execute
     return why ? { kind: "deny", reason: why } : next()
   }, { prepend: true })
 

@@ -52,7 +52,6 @@ if [ -n "$want" ]; then
   if [ "$bad" = 1 ]; then
     echo "BLOCK[$GATE_NAME]: dispatch $role with model: $want (the project's confirmed model for this role: \`aloop models resolve $role\`, from docs/agents/defaults.md)${model:+; this call passes $( [ "$model" = "-" ] && echo "no model, which would fall back to the agent file's default" || echo "model: $model")}." >&2
     echo "  The model per role is a project setting (confirmed at init), not a per-dispatch choice. To change it: re-run the init skill or edit .aladdin/config.yaml and \`aloop config sync\`." >&2
-    [ "${AGENTIC_HOST:-}" = dsh ] && echo "  On dsh the roles' models come from the one dsh profile: if it serves another project, run \`aloop install dsh --project <this project>\`." >&2
     exit 2
   fi
 fi
