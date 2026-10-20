@@ -40,7 +40,7 @@ DEFAULT_CADENCE = "6h"   # ROADMAP §4.12 call: the slower of the two examples (
 
 
 def cadence_seconds(c):
-    m = CADENCE.match(c or "")
+    m = CADENCE.match(c if isinstance(c, str) else "")
     if not m:
         return None
     return int(m.group(1)) * {"m": 60, "h": 3600, "d": 86400}[m.group(2)]

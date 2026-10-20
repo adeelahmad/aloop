@@ -38,9 +38,10 @@ most severe verdict for a content wins, so a hard line is never re-reviewed away
 the token ledger. A sprint planned after a goal was derived is that goal's sprint.
 
 Budget: spend counts every ledger row since the mission was set (the whole project, so it errs
-toward stopping). Tokens are the fresh meter (uncached input + output, like a sprint envelope);
-USD prices every class per model (PRICES), a cache write at the 1-hour rate, an unknown model
-at the highest known rate.
+toward stopping). Tokens are uncached input, cache writes and output (on Claude Code nearly all
+new input is a cache write; cache reads are not counted); USD prices every class per model
+(PRICES), a cache write at the 1-hour rate, an unknown model at the highest known rate. The
+ledger has no fast-mode or server-tool charges yet (ROADMAP M9.21).
 """
 import calendar
 import glob
@@ -104,6 +105,31 @@ def ms_ts(s):
     return base + (int(m.group(1).ljust(3, "0")) if m else 0)
 
 
+def ms_end(s):
+    """Like ms_ts, but a stamp kept to the second reads as the last ms of that second: event and
+    close stamps lose their ms while ids keep them, so a tie counts as "after" (re-assess, attribute)."""
+    t = ms_ts(s)
+    return None if t is None else t + (0 if re.match(r"\.\d", str(s)[19:]) else 999)
+
+
+def num(v):
+    """A count from a file a human or host may have written: an int or float (never a bool), a
+    numeric string, else 0."""
+    if isinstance(v, bool):
+        return 0
+    if isinstance(v, (int, float)):
+        return v
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def cap(v):
+    """A budget cap as a number, or None when it is missing or mistyped (`mission check` reports it)."""
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
 def iso(ms):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ms / 1000.0))
 
@@ -122,8 +148,9 @@ def hours(ms):
 
 # ── spend ─────────────────────────────────────────────────────────────────────────────
 def _rate(model):
-    m = str(model or "").lower().split("/")[-1]
-    m = re.sub(r"^(?:[a-z]{2}\.)?anthropic\.", "", m)
+    m = str(model or "").lower().split("/")[-1]                     # anthropic/…, openrouter/anthropic/…
+    m = re.sub(r"^(?:[a-z][a-z-]*\.)?anthropic\.", "", m)          # Bedrock: us., eu., global., us-gov. …
+    m = re.sub(r"(?<=\d)\.(?=\d)", "-", m)                          # claude-opus-4.5 → claude-opus-4-5
     for k in sorted(PRICES, key=len, reverse=True):
         if m.startswith(k):
             return PRICES[k]
@@ -134,7 +161,7 @@ def price(rows):
     """(USD, unpriced models) of ledger rows; a model with no known rate is charged TOP."""
     usd, unpriced = 0.0, set()
     for r in rows:
-        n = [r.get(k) or 0 for k in ("in", "out", "cache_read", "cache_write")]
+        n = [num(r.get(k)) for k in ("in", "out", "cache_read", "cache_write")]
         if not any(n):
             continue
         rate = _rate(r.get("model"))
@@ -166,12 +193,13 @@ def ledger(cwd, since):
 def budget(cwd, mdoc, since, now):
     caps = mdoc.get("budget") if isinstance(mdoc.get("budget"), dict) else {}
     rows = ledger(cwd, since)
-    tokens = sum((r.get("in") or 0) + (r.get("out") or 0) for r in rows)
+    tokens = int(sum(num(r.get("in")) + num(r.get("cache_write")) + num(r.get("out")) for r in rows))
     usd, unpriced = price(rows)
     why = ""
-    if "tokens" in caps and tokens >= caps["tokens"]:
-        why = "spent %d tokens (fresh input + output) of the %d-token cap since the mission was set" % (tokens, caps["tokens"])
-    elif "usd" in caps and usd >= caps["usd"]:
+    if cap(caps.get("tokens")) is not None and tokens >= caps["tokens"]:
+        why = "spent %d tokens (uncached input, cache writes and output) of the %d-token cap since the mission was " \
+              "set" % (tokens, caps["tokens"])
+    elif cap(caps.get("usd")) is not None and usd >= caps["usd"]:
         why = "spent $%.2f of the $%.2f cap since the mission was set%s" % (
             usd, caps["usd"], " (%s priced at the highest known rate)" % ", ".join(unpriced) if unpriced else "")
     elif caps.get("deadline"):
@@ -221,33 +249,37 @@ def facts(cwd, now):
             ({"ref": rel(p), "id": d.get(kind + "_id"), "status": d.get("status"), "ms": ms_doc(d, kind),
               "sha": M.digest(d), "doc": d} for p, d in M.artifacts(cwd, kind)),
             key=lambda a: (a["ms"], a["ref"]))
-    evs = list(_events.read(cwd))
+    evs = [e for e in _events.read(cwd) if isinstance(e, dict)]
+    for e in evs:
+        if not isinstance(e.get("data"), dict):
+            e["data"] = {}
     f["events"] = evs
     f["approvals"], f["ethics"], f["vetoed"], f["confirmed_at"] = set(), {}, set(), {}
     planned, closed = {}, {}
     for e in evs:
-        name, d = e.get("event"), e.get("data") or {}
-        sub = (d.get("subject"), d.get("sha256"))
+        name, d = e.get("event"), e["data"]
+        sub = tuple(x if isinstance(x, str) else None for x in (d.get("subject"), d.get("sha256")))
         if name in M.APPROVAL_EVENTS:
             f["approvals"].add((name,) + sub)
             if name == "baseline.confirmed":
-                f["confirmed_at"][sub] = ms_ts(e.get("ts")) or 0
+                f["confirmed_at"][sub] = ms_end(e.get("ts")) or 0
         if name in ("ethics.reviewed", "ethics.blocked"):
             t = "hard" if name == "ethics.blocked" else (d.get("tier") if d.get("tier") in SEVERITY else "gray")
             if sub not in f["ethics"] or SEVERITY[t] > SEVERITY[f["ethics"][sub]]:
                 f["ethics"][sub] = t
-        if name == "baseline.vetoed":
-            f["vetoed"].add(d.get("subject"))
+        if name == "baseline.vetoed" and sub[0]:
+            f["vetoed"].add(sub[0])
         if name == "plan.created":
             m = re.match(r"^S(\d+)$", str(d.get("sprint") or ""))
-            t = ms_ts(e.get("ts"))
+            t = ms_end(e.get("ts"))
             if m and t is not None:
                 planned[int(m.group(1))] = min(t, planned.get(int(m.group(1)), t))
     st, _ = M.load(os.path.join(_paths.home(cwd, "state", make=False), "sprints.json"))
-    for c in (st or {}).get("closed", []) if isinstance(st, dict) else []:
+    cl = st.get("closed") if isinstance(st, dict) else None
+    for c in cl if isinstance(cl, list) else []:
         try:
-            closed[int(c.get("sprint"))] = ms_ts(c.get("at")) or 0
-        except (TypeError, ValueError):
+            closed[int(c.get("sprint"))] = ms_end(c.get("at")) or 0
+        except (AttributeError, TypeError, ValueError):
             continue
     f["planned"], f["closed"], f["lock"] = planned, closed, lock_ms(root, now)
     mpath = M.path_of(cwd, "mission")
@@ -256,7 +288,8 @@ def facts(cwd, now):
     mdoc = f["kinds"]["mission"][0]["doc"] if f["kinds"]["mission"] else {}
     f["mission"] = mdoc
     f["mission_ref"] = rel(mpath)
-    f["cadence"] = (cli().cadence_seconds(mdoc.get("cadence")) or 6 * 3600) * 1000
+    c = mdoc.get("cadence")
+    f["cadence"] = (cli().cadence_seconds(c if isinstance(c, str) else None) or 6 * 3600) * 1000
     f["since"] = ms_doc(mdoc, "mission") if mdoc else now
     f["budget"] = budget(cwd, mdoc, f["since"], now) if mdoc else None
     # what counts as progress: the artifacts (id, status, content) and the decision events
@@ -302,6 +335,10 @@ def rules(f):
     if not f["mission_exists"]:
         return act("SET_MISSION", 'no mission yet: the human sets one (aloop mission init "<mission>" --mode … '
                                   "--budget-usd N)")
+    if not f["mission"]:
+        return act("SET_MISSION", "mission.json is unreadable (%s): the human fixes it or sets the mission again "
+                                  "(aloop mission init --force)" % ("; ".join(probs) or "not a JSON object"),
+                   f["mission_ref"])
     if rc == 2 and not (probs and probs[0].startswith("mission.json says approved")):
         return act("SET_MISSION", "mission.json is invalid: %s" % "; ".join(probs), f["mission_ref"])
     if rc != 0:

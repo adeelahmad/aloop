@@ -7,6 +7,8 @@ from the core contract (status, harness ids, sha256, approval events) and Aladdi
     python3 scripts/test/mission-tick.test.py
 """
 import calendar
+import contextlib
+import io
 import json
 import os
 import stat
@@ -299,13 +301,14 @@ p.event("baseline.vetoed", 25.6, subject=p.ref("baseline", rid), by="Adeel")
 expect(p.tick(26), "ASSESS", 0)
 ok("autonomous: a replacement baseline is applied after the 24h veto window unless vetoed")
 
-# 7) budget caps from the token ledger: tokens (fresh meter), USD (priced per model), deadline
+# 7) budget caps from the token ledger: tokens (uncached input, cache writes, output), USD (priced per
+#    model), deadline. On Claude Code nearly all new input arrives as cache writes, so they count.
 p = Project(budget=("--budget-tokens", "1000")).init()
 cleared(p)
 p.ledger([(-1, "claude-opus-5-5", 5000, 0, 0, 5000)])                     # before the mission: not charged
-p.ledger([(0.5, "claude-sonnet-5-5", 400, 90000, 20000, 500)])
-expect(p.tick(1), "ASSESS", 0)                                             # 900 < 1000 (cache classes are not the meter)
-p.ledger([(0.6, "claude-sonnet-5-5", 50, 0, 0, 60)])
+p.ledger([(0.5, "claude-sonnet-5-5", 400, 90000, 0, 500)])
+expect(p.tick(1), "ASSESS", 0)                                             # 900 < 1000 (cache reads are not)
+p.ledger([(0.6, "claude-sonnet-5-5", 50, 0, 40, 20)])
 d = p.tick(1)
 expect(d, "STOP_BUDGET", 3, "1010")
 assert d["budget"]["tokens"] == 1010, d["budget"]
@@ -318,7 +321,8 @@ M.save(M.path_of(p.dir, "mission"), doc)
 assert p.run(MI, "approve", "--by", "Adeel", "--reason", "raise the cap").returncode == 0
 p.review(p.mission_ref(), p.mission_doc(), "clear", 1.2)
 expect(p.tick(1.3), "ASSESS", 0)
-ok("token cap: fresh input + output since the mission was set; one budget_exhausted event; a raised cap resumes")
+ok("token cap: uncached input + cache writes + output since the mission was set; one budget_exhausted event; "
+   "a raised cap resumes")
 
 usd, unpriced = TICK.price([{"model": "claude-opus-5-5", "in": 1_000_000, "cache_read": 1_000_000, "cache_write": 1_000_000,
                              "out": 1_000_000},
@@ -327,6 +331,14 @@ usd, unpriced = TICK.price([{"model": "claude-opus-5-5", "in": 1_000_000, "cache
                             {"model": "<synthetic>", "in": 0, "cache_read": 0, "cache_write": 0, "out": 0}])
 assert abs(usd - (4 + 0.20 + 8 + 20 + 2 + 15)) < 1e-9, usd                 # unknown: the highest known rate ($15)
 assert unpriced == ["gpt-9-turbo"], unpriced
+for model, rate in (("openrouter/anthropic/claude-opus-4.5", "claude-opus-4-5"), ("claude-opus-5.5", "claude-opus-5-5"),
+                    ("github-copilot/claude-haiku-4.5", "claude-haiku-4-5"),
+                    ("global.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4"),
+                    ("us-gov.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4"),
+                    ("apac.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4"),
+                    ("eu.anthropic.claude-opus-4-5-20251101-v1:0", "claude-opus-4-5"),
+                    ("claude-opus-4-5@20251101", "claude-opus-4-5")):
+    assert TICK._rate(model) == TICK.PRICES[rate], (model, TICK._rate(model))
 p = Project(budget=("--budget-usd", "5")).init()
 cleared(p)
 p.ledger([(0.5, "claude-opus-5-5", 1_000_000, 0, 0, 40_000)])
@@ -336,7 +348,8 @@ d = p.tick(1)
 expect(d, "STOP_BUDGET", 3, "$5.20")
 p = Project(budget=("--budget-usd", "50", "--deadline", "2000-01-01")).init()
 expect(p.tick(0), "STOP_BUDGET", 3, "deadline")
-ok("USD cap priced per model (unknown models at the highest rate); a passed deadline stops the loop")
+ok("USD cap priced per model (dotted, routed and Bedrock ids too; unknown at the highest rate); a passed deadline "
+   "stops the loop")
 
 # 8) cadence: a running sprint waits, re-assesses on the cadence; a met goal raises the bar once per cadence
 p = Project(cadence="6h").init()
@@ -429,7 +442,26 @@ p.event("plan.created", 1.5, sprint="S1")
 assert p.due(3)["rc"] == 1 and p.due(7.5)["rc"] == 0                        # waiting, then the cadence is due
 r = p.run(MI, "due", "-q", "--now", iso(p.at(3)))
 assert r.returncode == 1 and r.stdout == "" and r.stderr == ""
-ok("due: reads files only; leases a handed-out action 2h; tells the human once; WAIT is never due")
+p = Project(budget=("--budget-tokens", "100")).init()                      # at a cap no session starts:
+p.ledger([(0.5, "claude-opus-5-5", 50, 0, 0, 60)])                         # due records the stop itself, once
+r = p.run(MI, "due", "-q", "--now", iso(p.at(1)))
+assert r.returncode == 1 and "no session starts" in r.stderr and "110" in r.stderr, (r.returncode, r.stderr)
+assert [e["data"]["action"] for e in p.events() if e["event"] == "mission.tick"] == ["STOP_BUDGET"]
+assert len([e for e in p.events() if e["event"] == "mission.budget_exhausted"]) == 1
+r = p.run(MI, "due", "-q", "--now", iso(p.at(1.5)))
+assert r.returncode == 1 and r.stderr == "" and len([e for e in p.events() if e["event"] == "mission.tick"]) == 1
+DUE = __import__("due")
+real = DUE.T.decide
+DUE.T.decide = lambda *a, **k: 1 / 0                                         # any crash: exit 2 with a BLOCK line
+err = io.StringIO()
+try:
+    with contextlib.redirect_stderr(err):
+        assert DUE.main(["-q"], p.dir) == 2
+finally:
+    DUE.T.decide = real
+assert err.getvalue().startswith("BLOCK[mission-due]: ") and "ZeroDivisionError" in err.getvalue(), err.getvalue()
+ok("due: reads files only; leases a handed-out action 2h; tells the human once; WAIT and STOP_BUDGET are never "
+   "due; a crash exits 2, not 'not due'")
 
 # 12) cron: the routine and the crontab line, gated by `due`; install is idempotent, remove undoes it
 p = Project(cadence="6h").init()
@@ -437,8 +469,8 @@ r = p.run(MI, "cron")
 assert r.returncode == 0, r.stderr
 line = r.stdout.strip().splitlines()[0]
 aloop = os.path.join(BIN, "aloop")
-assert line.startswith("*/30 * * * * cd ") and ("%s mission due -q &&" % aloop) in line, line
-assert "claude -p" in line and "/aloop:mission" in line and "mission-cron.log" in line, line
+assert line.startswith("*/30 * * * * cd ") and ("{ %s mission due -q && " % aloop) in line, line
+assert "claude -p" in line and "/aloop:mission" in line and "; } >> " in line and "mission-cron.log" in line, line
 assert line.rstrip().endswith("# aloop-mission %s" % os.path.realpath(p.dir)), line
 r = p.run(MI, "cron", "--host", "codex", "--every", "1h")
 assert r.stdout.startswith("0 * * * * ") and "codex exec --full-auto" in r.stdout, r.stdout
@@ -461,9 +493,54 @@ lines = open(tab).read().splitlines()
 assert lines[0] == "0 3 * * * backup" and len(lines) == 2 and "aloop-mission" in lines[1], lines
 assert p.run(MI, "cron", "--remove", env=env).returncode == 0
 assert open(tab).read().splitlines() == ["0 3 * * * backup"]
-ok("cron: */30 crontab line gated by `aloop mission due`, per host; --install idempotent, --remove undoes it")
+ok("cron: */30 crontab line gated by `aloop mission due` (both logged), per host; --install idempotent, "
+   "--remove undoes it")
 
-# 13) discovery and help: the three areas are found by name
+# 13) files a human or a host may have mangled never crash the loop (a crash would read as "not due")
+p = Project().init()
+cleared(p)
+p.art("state", "recorded", 1)
+os.makedirs(os.path.join(p.dir, ".aladdin", "state"), exist_ok=True)
+sprints = os.path.join(p.dir, ".aladdin", "state", "sprints.json")
+for bad in ('{"closed": null}', '{"closed": [3, "x", {"sprint": "S?"}]}', "[]"):
+    open(sprints, "w").write(bad)
+    expect(p.tick(1.1), "EVALUATE", 0)
+open(sprints, "w").write('{"closed": []}')
+with open(os.path.join(p.dir, ".aladdin", "logs", "events.jsonl"), "a") as f:
+    f.write('[]\n"text"\n{"event": "mission.tick", "ts": "2026-01-01T00:00:00Z", "data": null}\n'
+            '{"event": "ethics.reviewed", "data": {"subject": ["x"], "sha256": {"a": 1}, "tier": "hard"}}\n')
+expect(p.tick(1.2), "EVALUATE", 0)
+assert p.due(1.3)["rc"] in (0, 1)
+p.ledger([(0.5, "claude-opus-5-5", "1200", None, True, 5)])               # a string count, a null, a bool
+assert p.tick(1.4)["budget"]["tokens"] == 1205
+for field, value in (("budget", {"tokens": "5000"}), ("budget", {"usd": None}), ("cadence", 6)):
+    doc = p.mission_doc()
+    doc[field] = value
+    M.save(M.path_of(p.dir, "mission"), doc)
+    d = p.tick(1.5)
+    expect(d, "SET_MISSION", 3, "invalid")
+    assert p.due(1.5)["rc"] == 1 and "already told" in p.due(1.5)["reason"]
+open(M.path_of(p.dir, "mission"), "w").write('{"mission_id": "msn_')
+expect(p.tick(1.6), "SET_MISSION", 3, "unreadable")
+ok("mangled sprints.json, events, ledger rows, caps, cadence or mission.json: SET_MISSION or the next step, never "
+   "a crash")
+
+# 14) a stamp kept to the second (events, sprint closes) ties toward "after": the sprint planned in the
+#     same second as its goal is that goal's, a state report in the second of a close is re-assessed
+p = Project().init()
+cleared(p)
+p.art("state", "recorded", 1)
+p.art("eval", "recorded", 1.1, goal_met=False)
+gid, gdoc = p.art("goal", "active", 1.2)
+p.review(p.ref("goal", gid), gdoc, "clear", 1.2)
+p.event("plan.created", 1.2, sprint="S1")                                  # same second, ms lost
+expect(p.tick(1.3), "WAIT", 4, "sprint 1")
+p.art("state", "recorded", 2.0)
+p.sprint_closed(1, 2.0)                                                    # closes later in that second
+expect(p.tick(2.1), "ASSESS", 0, "sprint 1 closed")
+ok("second-resolution stamps tie toward after: same-second sprints belong to the goal; a same-second close re-assesses")
+
+# 15) discovery and help: the three areas are found by name
 listed = p.run(MI, "--list").stdout.split()
 assert {"tick", "due", "cron"} <= set(listed), listed
 for a in ("tick", "due", "cron"):

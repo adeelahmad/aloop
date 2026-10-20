@@ -4,7 +4,8 @@
         print the crontab line that drives the loop. Every --every (default 30m, never longer
         than the mission's cadence) cron runs `aloop mission due`, which reads files only and
         spends no tokens; only when it exits 0 does a host session start and run one tick
-        (/aloop:mission). Output goes to <run data>/logs/mission-cron.log.
+        (/aloop:mission). Both write to <run data>/logs/mission-cron.log, so a `due` that cannot
+        read the facts (exit 2) or a budget stop leaves a line there.
         --json also gives a routine spec (schedule + prompt) for a host scheduler, such as a
         Claude Code routine. --install puts the line in the user's crontab, replacing an
         earlier one for this project; --remove takes it out. No other line is touched.
@@ -70,7 +71,7 @@ def render(cwd, host, every):
     log = os.path.join(T._paths.home(cwd, "logs", make=False), "mission-cron.log")
     aloop = os.path.join(T.BIN, "aloop")
     q = shlex.quote
-    cmd = "cd %s && export PATH=%s && %s mission due -q && %s >> %s 2>&1" % (
+    cmd = "cd %s && export PATH=%s && { %s mission due -q && %s; } >> %s 2>&1" % (
         q(root), q(os.environ.get("PATH", "/usr/bin:/bin")), q(aloop), " ".join(q(x) for x in host_cmd(host)), q(log))
     return {"host": host, "every": every, "schedule": sched, "project": root, "marker": "# aloop-mission %s" % root,
             "crontab": "%s %s # aloop-mission %s" % (sched, cmd, root),

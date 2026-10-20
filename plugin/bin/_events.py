@@ -152,9 +152,11 @@ def read(cwd=None):
         with open(path(cwd)) as f:
             for line in f:
                 try:
-                    yield json.loads(line)
+                    ev = json.loads(line)
                 except ValueError:
                     continue
+                if isinstance(ev, dict):       # every reader keys into it; a stray line is skipped
+                    yield ev
     except OSError:
         return
 

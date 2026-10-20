@@ -74,5 +74,6 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.12 | `/aloop:mission` skill | IMPLEMENTED_TESTED | `scripts/test/mission-skill.test.py` |
 | M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12 |
 | M9.17 | Approvals name the captured human prompt | NOT_IMPLEMENTED | §4.12 |
-| M9.18 | Mission spend counts mission sessions only | NOT_IMPLEMENTED | §4.12 |
-| M9.19 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |
+| M9.19 | Mission spend counts mission sessions only | NOT_IMPLEMENTED | §4.12 |
+| M9.20 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |
+| M9.21 | Mission USD meter prices fast mode and server tools | NOT_IMPLEMENTED | §4.12 |
