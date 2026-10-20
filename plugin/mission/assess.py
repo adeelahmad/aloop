@@ -100,7 +100,7 @@ def cmd_assess(cwd, o):
     M.seal(doc)
     path = M.save(M.path_of(cwd, KIND, sid), doc)
     M.emit(cwd, "state.assessed", role="state-assessor", refs={"state": M.rel(cwd, path)}, state_id=sid,
-           baseline_id=bdoc["baseline_id"], agreed=not diffs, commit=doc["head"]["commit"])
+           baseline_id=bdoc["baseline_id"], agreed=not diffs, commit=doc["head"]["commit"], sha256=doc["sha256"])
     if o.get("json"):
         print(json.dumps(doc, indent=1))
     else:

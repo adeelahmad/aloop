@@ -4,12 +4,17 @@
 
 Usage:
   intent new --source prompt|file|issue|image|mixed [--raw "the request"] [--raw-ref PATH]
+  intent new --source mission --goal GOAL_ID --gap GAP_ID [--raw "the gap"] [--raw-ref PATH]
         issue a canonical intent_id (never model text) and write the contract skeleton to
-        docs/agents/intents/<intent_id>.json (prints the path); emits intent.received
+        docs/agents/intents/<intent_id>.json (prints the path); emits intent.received. A
+        mission intent (ROADMAP §4.12) names its goal and gap, so lineage reaches the mission;
+        it exists only while the goal passes `mission goal check` and lists that gap
   intent check FILE [--mode reviewed|autonomous]
         validate the contract: required fields, enums, ≥1 success and ≥1 failure scenario,
-        and the clarification policy. Exit 0 ok (emits intent.normalized) · 2 invalid ·
-        3 needs the human (an `ask` question is unanswered — in BOTH modes)
+        and the clarification policy; a mission intent also passes its goal's gate, matches its
+        intent.received, and is checked in the goal's autonomy. Exit 0 ok (emits
+        intent.normalized) · 2 invalid · 3 needs the human (an `ask` question is unanswered —
+        in BOTH modes)
   intent summary FILE
         the approval summary lines: defaults picked, assumptions recorded, spikes created
 
@@ -31,7 +36,8 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import _events  # noqa: E402
 import _paths  # noqa: E402
 
-SOURCES = ("prompt", "file", "issue", "image", "mixed")
+SOURCES = ("prompt", "file", "issue", "image", "mixed", "mission")
+GOAL_ID = re.compile(r"^gol_[0-9a-f]{20}$")   # a mission goal (plugin/mission/goal.py)
 CLASSES = {"assume": "assumption", "default": "default", "ask": "answer", "spike": "spike_task"}
 ID = re.compile(r"^int_[0-9a-f]{12}[0-9a-f]{8}$")
 TEXT = ("actor", "want", "why", "done_looks_like")
@@ -47,21 +53,55 @@ def intents_dir(cwd):
     return os.path.join(_paths.docs(cwd), "intents")
 
 
-def cmd_new(cwd, source, raw="", raw_ref=""):
+def mission_gate(cwd, goal, gap, mode=None):
+    """A mission intent's goal gate (ROADMAP §4.12): the goal passes `mission goal check` and lists the
+    gap, and its intents are checked in the goal's autonomy. Exit 0 · 2 · 3, reported."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "mission"))
+    import goal as G
+    rc, blocks, asks, facts = G.check(cwd, goal)
+    if rc:
+        G.report(blocks, asks)
+        return rc
+    g, _ = G.M.load(G.M.path_of(cwd, "goal", goal))
+    if gap not in [x.get("gap_id") for x in g["gaps"]]:
+        print("BLOCK[intent]: %s is not a gap of goal %s" % (gap, goal), file=sys.stderr)
+        return 2
+    if mode and mode != facts["autonomy"]:
+        print("BLOCK[intent]: goal %s is %s: its intents are checked in that mode, not %s" % (goal, facts["autonomy"], mode),
+              file=sys.stderr)
+        return 2
+    return 0
+
+
+def cmd_new(cwd, source, raw="", raw_ref="", goal="", gap=""):
     if source not in SOURCES:
         print("intent new: --source must be one of %s" % ", ".join(SOURCES), file=sys.stderr)
         return 64
+    if (source == "mission") != bool(goal) or (goal and not GOAL_ID.match(goal)) or bool(goal) != bool(gap):
+        print("intent new: --goal gol_… --gap GAP_ID go with --source mission, and only with it (a mission intent "
+              "names its goal and the gap it closes)", file=sys.stderr)
+        return 64
+    rc = mission_gate(cwd, goal, gap) if goal else 0
+    if rc:
+        return rc
     iid = new_id()
     doc = {"intent_id": iid, "source": source, "actor": "", "want": "", "why": "", "constraints": [],
            "success_scenarios": [], "failure_scenarios": [], "connections": [], "done_looks_like": "",
            "open_questions": [], "assumptions": [],
            "provenance": {"received_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "raw_ref": raw_ref,
                           "raw_sha256": hashlib.sha256(raw.encode()).hexdigest() if raw else ""}}
+    if goal:
+        doc["provenance"].update(goal_id=goal, gap_id=gap)
     os.makedirs(intents_dir(cwd), exist_ok=True)
     path = os.path.join(intents_dir(cwd), iid + ".json")
     with open(path, "w") as f:
         json.dump(doc, f, indent=1)
-    _events.emit(cwd, "intent.received", role="intake", refs={"intent": path, "raw": raw_ref}, intent_id=iid, source=source)
+    derived = None
+    for e in _events.read(cwd) if goal else ():   # the goal this intent serves: intent.received is caused by it
+        if e.get("event") == "goal.derived" and (e.get("data") or {}).get("goal_id") == goal:
+            derived = e
+    _events.emit(cwd, "intent.received", role="intake", refs={"intent": path, "raw": raw_ref}, intent_id=iid, source=source,
+                 caused_by=derived and derived.get("event_id"), **({"goal_id": goal, "gap_id": gap} if goal else {}))
     print(path)
     return 0
 
@@ -87,6 +127,8 @@ def problems(doc, path):
     prov = doc.get("provenance") or {}
     if not prov.get("received_at"):
         p.append("provenance.received_at missing")
+    if doc.get("source") == "mission" and not GOAL_ID.match(str(prov.get("goal_id", ""))):
+        p.append("a mission intent names its goal (provenance.goal_id gol_…, from `intent new --goal`)")
     for i, q in enumerate(doc.get("open_questions") or []):
         if not isinstance(q, dict) or not str(q.get("question", "")).strip():
             p.append("open_questions[%d] needs a question" % i)
@@ -122,6 +164,18 @@ def cmd_check(cwd, path, mode="reviewed"):
         print("BLOCK[intent]: %s" % b, file=sys.stderr)
     if bad:
         return 2
+    if doc.get("source") == "mission":
+        prov = doc["provenance"]
+        rec = [e for e in _events.read(cwd) if e.get("event") == "intent.received"
+               and (e.get("data") or {}).get("intent_id") == doc["intent_id"]]
+        d = (rec[0].get("data") or {}) if rec else {}
+        if d.get("source") != "mission" or (d.get("goal_id"), d.get("gap_id")) != (prov["goal_id"], prov.get("gap_id")):
+            print("BLOCK[intent]: provenance (goal %s, gap %s) is not what its intent.received recorded (goal %s, gap %s)"
+                  % (prov["goal_id"], prov.get("gap_id"), d.get("goal_id"), d.get("gap_id")), file=sys.stderr)
+            return 2
+        rc = mission_gate(cwd, prov["goal_id"], prov.get("gap_id"), mode)
+        if rc:
+            return rc
     asks = unanswered(doc)
     if asks:
         for q in asks:
@@ -169,7 +223,8 @@ def main(argv):
             pos.append(a)
     cwd = os.getcwd()
     if argv[0] == "new":
-        return cmd_new(cwd, opts.get("source", ""), opts.get("raw", ""), opts.get("raw_ref", ""))
+        return cmd_new(cwd, opts.get("source", ""), opts.get("raw", ""), opts.get("raw_ref", ""), opts.get("goal", ""),
+                       opts.get("gap", ""))
     if argv[0] == "check" and pos:
         return cmd_check(cwd, pos[0], opts.get("mode", "reviewed"))
     if argv[0] == "summary" and pos:

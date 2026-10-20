@@ -131,7 +131,7 @@ def cmd_evaluate(cwd, sid, o):
     path = M.save(M.path_of(cwd, KIND, eid), doc)
     M.emit(cwd, "eval.completed", role="evaluator", refs={"eval": M.rel(cwd, path), "state": M.rel(cwd, spath)},
            eval_id=eid, state_id=state["state_id"], goal_id=doc["goal_id"], goal_met=res["goal_met"],
-           gaps=len(res["gaps"]), regressions=res["regressions"])
+           gaps=len(res["gaps"]), regressions=res["regressions"], sha256=doc["sha256"])
     if o.get("json"):
         print(json.dumps(doc, indent=1))
     else:

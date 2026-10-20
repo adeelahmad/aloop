@@ -93,7 +93,8 @@ A gate checks structure and evidence, never whether a judgment is right.
   `docs/agents/mission/ledger.jsonl` (only the CLI appends to it).
 - **M9.11 goals.** Add `mission` to the `intent` SOURCES. `gate-intake` checks the newest
   `int_*.json` by mtime and `ids freeze` links a plan to the last `intent.normalized` anywhere, so
-  queued mission intents need an explicit link. `record_authority` also approves the latest plan:
+  queued mission intents need an explicit link (built: `goal next` makes the intent it hands off the
+  newest file before normalizing it). `record_authority` also approves the latest plan:
   record a goal's authority only after its sprint's `ids freeze`. `aladdin "<intent>"` refuses a
   bare intent containing `/`; use `aladdin run`.
 - **M9.17 approvals.** Any session can run `mission approve --by anyone` or `events authority`, or
