@@ -99,8 +99,8 @@ A gate checks structure and evidence, never whether a judgment is right.
 - **M9.8 loop.** `budget.usd` cannot come from the token ledger, which holds tokens only; USD
   exists only in `claude -p` result lines, so the cron runner records each run's cost (or a price
   table converts tokens). In-host schedulers (CronCreate, `/loop`, cloud scheduled tasks) spend
-  tokens on every fire; a zero-token tick needs a system cron line that runs `aloop mission cron run`
-  in the persistent checkout.
+  tokens on every fire; a zero-token tick needs a system cron line that runs `aloop mission cron --fire`
+  in the persistent checkout (built: `tick` prices tokens per model, `PRICES`).
 - **M9.9 roles.** A role name lives in about 12 lists: `hooks.json` (its SubagentStop gate and the
   `budget hook stop` matcher), `gate-dispatch` (the aloop-role allowlist and the no-TASK_ID
   exemption: mission roles are not sprint tasks), `_routes.GROUPS`, `install.PLANNING`, `budget`
@@ -134,3 +134,21 @@ A gate checks structure and evidence, never whether a judgment is right.
   `analytics.readonly` (not `analytics.edit`). The Measurement Protocol answers 2xx to bad payloads
   and the debug endpoint skips the secret, so prove a setup with `runRealtimeReport` (last 30 min);
   standard reports lag 2–48 h and threshold small user counts (`metadata.subjectToThresholding`).
+
+## What the loop reads (`mission tick`, M9.8)
+
+`tick` decides from the contract fields above and these facts only, so an area that wants the
+loop to move on records them:
+
+| Fact | Recorded as |
+|---|---|
+| a human approval | a ledger row from `approve(...)` (role human, `--by`) with the subject's project-relative path (`rel`) and `digest` of its content: `mission.approved`, `goal.approved` (spoon-fed pick), `ethics.consent` (gray; mission or goal; it names the review: `review`, `review_sha256`). The subject's newest approval decides |
+| an ethics verdict | `ethics.reviewed` {subject, sha256, tier: clear · gray · hard, ethics_id, review_sha256}; `ethics.blocked` {subject, sha256} is a hard line. The most severe verdict for a content wins; a goal stays hard |
+| the baseline | as `baseline.py` decides it: `current` (the newest `baseline.confirmed` row), `measured_ok`, `vetoed`, `evaluate`; a replacement applies after the mission's `veto_window_h` from its `baseline.measured` row |
+| journeys defined | a journey that `journeys.lifecycle` does not call retired |
+| a state report or eval | its `baseline_id` (another than the current one: re-assess, re-evaluate) and the eval's boolean `goal_met` |
+| a goal's progress | status `derived` → `approved` → `active` (intents handed to Aladdin) → `met` · `retired` · `blocked` |
+| a goal's sprints | `intent.received` {goal_id, intent_id} → `plan.created` {sprint: "S<N>", intent_id}; with no linked intent, the sprints planned since the loop handed out its `SPRINT`. Closes: `.aladdin/state/sprints.json`; `plan.approved` (spoon-fed) |
+
+Time is the ms in each harness id, so artifacts order exactly; an event stamp kept to the second
+reads as the end of that second (a tie counts as after).
