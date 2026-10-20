@@ -559,7 +559,8 @@ try:
     od = json.load(open(op))
     od["retirement"] = {"replaced_by": new, "replaced_by_sha256": M.digest(json.load(open(M.path_of(T, "journey", new))))}
     M.save(op, od)
-    M.record(T, "journey.retired", M.rel(T, op), "human", sha256=M.digest(od))
+    M.record(T, "journey.retired", M.rel(T, op), "mission", sha256=M.digest(od), journey_id=old, replaced_by=new,
+             replaced_by_sha256=od["retirement"]["replaced_by_sha256"])
     assert J.lifecycle(T, op, od) == "retired"
     titles = [j for j, _, _ in TM.journeys(T)]
     assert "checkout v2" in titles and "checkout v1" not in titles, titles      # the replacement binds
