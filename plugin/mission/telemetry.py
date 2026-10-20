@@ -86,7 +86,7 @@ SETTLED = {"startDate": "30daysAgo", "endDate": "3daysAgo"}   # 28 days; the new
 # Aggregate dimensions only: agents never see a user or client id
 AGGREGATE_DIMENSIONS = {"eventName", "date", "newVsReturning", "deviceCategory"}
 REPORTS = {
-    "users": {"api": "runReport", "body": {"dateRanges": [SETTLED], "metrics": [
+    "users": {"api": "runReport", "no_probe": True, "body": {"dateRanges": [SETTLED], "metrics": [
         {"name": "totalUsers"}, {"name": "newUsers"}, {"name": "activeUsers"}]}},
     "journeys": {"api": "runReport", "events": True, "body": {"dateRanges": [SETTLED], "dimensions": [
         {"name": "eventName"}], "metrics": [{"name": "eventCount"}, {"name": "totalUsers"}]}},
@@ -110,9 +110,9 @@ RESERVED = {"ad_activeview", "ad_click", "ad_exposure", "ad_impression", "ad_que
             "session_start_with_rollout", "user_engagement"} | set(J.GA4_RESERVED_NAMES)
 RESERVED_PREFIXES = tuple(sorted({"_", "firebase_", "ga_", "google_"} | set(J.GA4_RESERVED)))
 MP_BATCH = 25                     # events per Measurement Protocol request (the validator does not enforce it)
-DEBUG_CLIENT_ID = "aloop.debug"   # the debug hit's client id: no user's
+DEBUG_CLIENT_ID = "1000000001.1000000001"   # the debug hit's and probe's client id (GA's random.timestamp form): no user's
 PROBE_EVENT = "aloop_probe"       # the debug hit's event while no journey has events; verify's live probe
-VERIFY_WAIT, VERIFY_EVERY = 180, 15   # seconds: realtime data usually shows within a minute
+VERIFY_WAIT, VERIFY_EVERY, VERIFY_MAX = 180, 15, 900   # seconds: realtime data usually shows within a minute
 SECRET_NAME = "aloop"
 
 # the emit check reads this checkout's code, not docs, data or tests
@@ -171,14 +171,18 @@ def current(cwd):
 
 
 def consent_state(cwd, path, doc):
-    """none | revoked | stale (the newest consent covers other terms) | ok: the record's newest
-    human consent or revoke in the committed ledger decides, so a fresh checkout keeps it. A row
-    any other role wrote is not a decision (approval provenance itself is M9.17)."""
-    ref, last = M.rel(cwd, path), None
-    for r in M.ledger_rows(cwd)[0]:
-        if r["event"] in ("telemetry.consent", "telemetry.revoked") and r.get("role") == "human" \
-                and r["data"].get("subject") == ref:
-            last = r
+    """none | broken | revoked | stale (the newest consent covers other terms) | ok: the record's
+    newest human consent or revoke in the committed ledger decides, so a fresh checkout keeps it.
+    Newest is by time, not file order (a union merge appends a branch's older rows after newer
+    ones). A row any other role wrote is not a decision (approval provenance itself is M9.17), and
+    while the ledger fails its own check (an edited or lost row may be a revoke) nothing is decided."""
+    if M.ledger_problems(cwd):
+        return "broken", None
+    ref = M.rel(cwd, path)
+    mine = [(r["ts"], i, r) for i, r in enumerate(M.ledger_rows(cwd)[0])
+            if r["event"] in ("telemetry.consent", "telemetry.revoked") and r.get("role") == "human"
+            and r["data"].get("subject") == ref]
+    last = max(mine, key=lambda x: x[:2])[2] if mine else None
     if last is None:
         return "none", None
     if last["event"] == "telemetry.revoked":
@@ -196,7 +200,7 @@ def derive_status(cwd, path, doc):
     if state == "revoked":
         return "revoked"
     if state != "ok":
-        return "off"
+        return "off"            # none, stale or broken
     return "configured" if bound(doc) else "consented"
 
 
@@ -277,23 +281,29 @@ def local_time_zone():
 
 # ── journeys (M9.3's records) and the emit check ─────────────────────────────────────
 def journeys(cwd):
-    """Active journeys as [(title, [step event, …])], oldest first. Active is what the records say
-    (a confirmed baseline froze it and it is not retired), never the hand-editable status field."""
-    frozen, out = J.pins(cwd)[0], []
+    """[(title, [step event, …], drifted)] of every journey the records bind, oldest first: one a
+    confirmed baseline froze, or a frozen one's recorded replacement, and not retired; never the
+    hand-editable status field. drifted: its content is not what the records pinned."""
+    frozen, pinned = J.pins(cwd)
+    out = []
     for p, d in M.artifacts(cwd, "journey"):
-        if J.lifecycle(cwd, p, d, frozen) == "active":
-            evs = [s.get("event") for s in d.get("steps") or [] if isinstance(s, dict) and isinstance(s.get("event"), str)]
-            out.append((d.get("title") or d.get("journey_id"), evs))
+        jid = d.get("journey_id")
+        if not isinstance(jid, str) or jid not in pinned or J.lifecycle(cwd, p, d, frozen) == "retired":
+            continue
+        steps = d.get("steps") if isinstance(d.get("steps"), list) else []
+        evs = [s["event"] for s in steps if isinstance(s, dict) and isinstance(s.get("event"), str)]
+        out.append((d["title"] if isinstance(d.get("title"), str) else jid, evs,
+                    M.digest(J.unretired(d)) != pinned[jid]))
     return out
 
 
 def journey_events(cwd):
-    return sorted({e for _, evs in journeys(cwd) for e in evs})
+    return sorted({e for _, evs, _ in journeys(cwd) for e in evs})
 
 
 def key_events(cwd):
     """The key event of each active journey: its last step's event."""
-    return sorted({evs[-1] for _, evs in journeys(cwd) if evs and not name_problem(evs[-1])})
+    return sorted({evs[-1] for _, evs, _ in journeys(cwd) if evs and not name_problem(evs[-1])})
 
 
 def events_sha(evs):
@@ -301,10 +311,12 @@ def events_sha(evs):
 
 
 def name_problem(name):
-    if not EVENT_NAME.match(name):
+    if not EVENT_NAME.fullmatch(name):
         return "must start with a letter and use only letters, digits and _ (at most 40)"
-    if name in RESERVED or name.startswith(RESERVED_PREFIXES):
+    if name in RESERVED or name.lower().startswith(RESERVED_PREFIXES):
         return "is reserved by Google Analytics"
+    if name == PROBE_EVENT:
+        return "is aloop's own probe event (a journey step that sent it would make verify prove nothing)"
     return None
 
 
@@ -650,7 +662,9 @@ def cmd_setup(cwd, o):
             raise GAError(0, "NO_SECRET", "Google returned no Measurement Protocol secret value")
         write_secret(cwd, tid, {"telemetry_id": tid, "stream": s["name"], "name": sec["name"],
                                 "api_secret": sec["secretValue"]})
-        doc["secret"] = {"name": sec["name"], "display_name": sec.get("displayName") or SECRET_NAME}
+        secret = {"name": sec["name"], "display_name": sec.get("displayName") or SECRET_NAME}
+        if secret != doc.get("secret"):
+            doc.update(secret=secret, verified=None)     # a new secret never round-tripped
         want = key_events(cwd)
         have = {k.get("eventName") for k in listall("/v1beta/%s/keyEvents" % prop, "keyEvents", tok)}
         for ev in sorted(set(want) - have):
@@ -763,9 +777,19 @@ def probes(doc, tok):
 
 def verify_wait():
     try:
-        return max(0.0, float(_paths.env("GA_VERIFY_WAIT") or VERIFY_WAIT))
+        wait = float(_paths.env("GA_VERIFY_WAIT") or VERIFY_WAIT)
     except ValueError:
-        raise Usage("ALADDIN_GA_VERIFY_WAIT must be a number of seconds")
+        wait = -1
+    if not 0 <= wait <= VERIFY_MAX:
+        raise Usage("ALADDIN_GA_VERIFY_WAIT must be 0 to %d seconds" % VERIFY_MAX)
+    return wait
+
+
+def still(cwd, doc):
+    """The consent and setup verify started from still hold (a revoke or a new setup may land meanwhile)."""
+    path, now = current(cwd)
+    return now is not None and now.get("telemetry_id") == doc["telemetry_id"] and now.get("stream") == doc["stream"] \
+        and consent_state(cwd, path, now)[0] == "ok"
 
 
 def cmd_verify(cwd, o):
@@ -785,23 +809,34 @@ def cmd_verify(cwd, o):
     if not tok:
         return 3
     mid = doc["stream"]["measurement_id"]
+    changed = ("the consent or setup changed while verify ran (a revoke, new terms or a new stream): nothing "
+               "recorded; rerun `aloop mission telemetry verify` once it is consented and set up")
     try:
         if not secret_live(doc, sec, tok):
             say("BLOCK", not_live(doc))
             return 2
         before = probes(doc, tok)
+        # Realtime shows a Measurement Protocol event only with a session id and engagement time
         call("POST", "mp", "/mp/collect", {"client_id": DEBUG_CLIENT_ID, "events": [
-            {"name": PROBE_EVENT, "params": {"engagement_time_msec": 1}}]},
+            {"name": PROBE_EVENT, "params": {"session_id": str(int(time.time())), "engagement_time_msec": 1}}]},
              query={"measurement_id": mid, "api_secret": sec["api_secret"]})
         deadline = time.time() + wait
         while True:
+            if not still(cwd, doc):
+                say("ASK", changed)
+                return 3
             after = probes(doc, tok)
             left = deadline - time.time()
             if after > before or left <= 0:
                 break
+            before = min(before, after)      # older probes left the 30-minute window: count from here
             time.sleep(min(VERIFY_EVERY, left))
     except GAError as e:
         return ga_failed(e)
+    if not still(cwd, doc):
+        say("ASK", changed)
+        return 3
+    path, doc = current(cwd)
     ok = after > before
     doc["verified"] = {"at": M.now(), "ok": ok, "measurement_id": mid, "before": before, "after": after}
     store(path, doc)
@@ -822,10 +857,13 @@ def stream_id(doc):
 
 
 def request(name, events, stream):
-    """The exact body sent for a fixed report: its definition, scoped to the consented stream and,
-    for event reports, to the journey events."""
+    """The exact body sent for a fixed report: its definition, scoped to the consented stream,
+    without the probe's client for user counts and, for event reports, to the journey events."""
     body = json.loads(json.dumps(REPORTS[name]["body"]))
     exprs = [{"filter": {"fieldName": "streamId", "stringFilter": {"matchType": "EXACT", "value": stream}}}]
+    if REPORTS[name].get("no_probe"):        # verify's probe client is no user
+        exprs.append({"notExpression": {"filter": {"fieldName": "eventName", "stringFilter": {
+            "matchType": "EXACT", "value": PROBE_EVENT}}}})
     if REPORTS[name].get("events"):
         exprs.append({"filter": {"fieldName": "eventName", "inListFilter": {"values": sorted(events)}}})
     body["dimensionFilter"] = exprs[0] if len(exprs) == 1 else {"andGroup": {"expressions": exprs}}
@@ -899,7 +937,8 @@ def latest_share(cwd):
     path, doc = current(cwd)
     none = {"usage": 0, "research": 1, "report": None}
     if doc is None or consent_state(cwd, path, doc)[0] != "ok":
-        return dict(none, reason="telemetry is off, revoked or not consented: research only")
+        return dict(none, reason="telemetry is off, revoked, not consented, or its ledger fails its check: "
+                                 "research only")
     stream = (doc.get("stream") or {}).get("name") if bound(doc) else None
     for p in sorted(glob.glob(M.mdir(cwd, "telemetry", "reports", "*.json")), reverse=True):
         rep, _ = M.load(p)
@@ -944,12 +983,16 @@ def evaluate(cwd):
         return 3, ["the consent does not cover the current terms: a human runs "
                    "`aloop mission telemetry consent --by NAME`"], facts
     js, problems = journeys(cwd), []
-    evs = sorted({e for _, x in js for e in x})
+    for j, _, drifted in js:
+        if drifted:
+            problems.append("journey %r changed after the records pinned it: `aloop mission journeys check` names "
+                            "the fix" % j)
+    evs = sorted({e for _, x, _ in js for e in x})
     for e in evs:
         if name_problem(e):
             problems.append("journey event %r %s" % (e, name_problem(e)))
     found = emitted(cwd, evs)
-    missing = [{"journey": j, "event": e} for j, x in js for e in x if e not in found]
+    missing = [{"journey": j, "event": e} for j, x, _ in js for e in x if e not in found]
     for m in missing:
         problems.append("journey %r step event %r is not emitted by any non-test source file (instrumentation is "
                         "part of done)" % (m["journey"], m["event"]))

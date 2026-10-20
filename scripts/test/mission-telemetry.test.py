@@ -17,6 +17,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
@@ -280,6 +281,9 @@ try:
     assert r.returncode == 2 and "'session_start' is reserved" in r.stderr and "2fast" in r.stderr, r.stderr
     assert "'google_x' is reserved" in r.stderr and "'app_background' is reserved" in r.stderr
     assert set(J.GA4_RESERVED_NAMES) <= TM.RESERVED and set(J.GA4_RESERVED) <= set(TM.RESERVED_PREFIXES)
+    assert TM.name_problem("Firebase_x") and TM.name_problem("GA_x")           # prefixes in any case, as journeys
+    assert TM.name_problem("todo_added\n") and TM.name_problem(TM.PROBE_EVENT)  # whole names; the probe is ours
+    assert TM.name_problem("todo_added") is None
     os.remove(M.path_of(T, "journey", jid))
     ok("emit check: frozen journeys only, quoted literals in non-test code; reserved names match journeys'")
 
@@ -345,7 +349,10 @@ try:
     want = [TM.request("users", [], sid), TM.request("journeys", TM.journey_events(T), sid)]
     assert sorted(json.dumps(b, sort_keys=True) for b in sent) == sorted(json.dumps(b, sort_keys=True) for b in want), sent
     assert all(b["dateRanges"] == [{"startDate": "30daysAgo", "endDate": "3daysAgo"}] for b in sent), sent
-    assert want[0]["dimensionFilter"]["filter"] == {"fieldName": "streamId", "stringFilter": {"matchType": "EXACT", "value": sid}}
+    assert want[0]["dimensionFilter"]["andGroup"]["expressions"] == [
+        {"filter": {"fieldName": "streamId", "stringFilter": {"matchType": "EXACT", "value": sid}}},
+        {"notExpression": {"filter": {"fieldName": "eventName", "stringFilter": {"matchType": "EXACT",
+                                                                                 "value": TM.PROBE_EVENT}}}}]
     assert rep["kind"] == "settled" and rep["sample"] == {"users": 12, "min_users": 50, "days": 28, "thresholded": False, "met": False}
     assert rep["share"]["usage"] == 0 and rep["share"]["research"] == 1, rep["share"]
     assert "page_view" not in json.dumps(rep["results"]["journeys"]), rep                     # only journey events
@@ -396,6 +403,13 @@ try:
     assert r.returncode == 0 and "keeps sending" in r.stderr, r.stderr
     assert record()[1]["status"] == "revoked" and len(events("telemetry.revoked")) == 1 and not os.path.exists(sfile)
     assert [r["data"]["by"] for r in M.records(T, "telemetry.revoked", M.rel(T, path), role="human")] == ["Adeel"]
+    led = M.ledger(T)
+    good = open(led).read()
+    open(led, "w").write("".join(x for x in good.splitlines(True) if '"telemetry.revoked"' not in x))  # lost
+    sh = json.loads(run("share", "--json").stdout)
+    assert sh["usage"] == 0 and "ledger" in sh["reason"], sh                    # not the consent before it
+    assert json.loads(run("show", "--json").stdout)["consent"] == "broken"
+    open(led, "w").write(good)
     sh = json.loads(run("share", "--json").stdout)
     assert sh["usage"] == 0 and sh["report"] is None, sh
     n = len(calls())
@@ -475,18 +489,96 @@ try:
     assert all(c["user_project"] == "aloop-ga-1" for c in log if c["path"].startswith(("/admin", "/data"))), log
     v = record(T2)[1]["verified"]
     assert v["ok"] and v["after"] == v["before"] + 1 and v["measurement_id"] == record(T2)[1]["stream"]["measurement_id"], v
+    assert set(hit[0]["body"]["events"][0]["params"]) == {"session_id", "engagement_time_msec"}   # realtime needs both
+    sfile2 = TM.secret_file(T2, record(T2)[1]["telemetry_id"])
+    json.dump(dict(sec2, api_secret="wrong"), open(sfile2, "w"))
+    n = len(calls())
+    r = run("verify", env=env3, cwd=T2)
+    assert r.returncode == 2 and "not live" in r.stderr and not mp_calls(calls()[n:], "/mp/mp/collect"), r.stderr
+    assert record(T2)[1]["verified"] == v                                     # nothing recorded
+    json.dump(sec2, open(sfile2, "w"))
+    path2, doc2 = record(T2)
+    assert TM.still(T2, doc2) and not TM.still(T2, dict(doc2, stream=None))   # a new setup mid-verify stops it
+    moved = dict(doc2, stream=dict(doc2["stream"], name=doc2["stream"]["name"] + "9"))
+    M.seal(moved)
+    M.save(path2, moved)
+    assert run("setup", env=env, cwd=T2).returncode == 0 and record(T2)[1]["verified"] is None    # new stream
+    assert run("debug-hit", env=env, cwd=T2).returncode == 0
+    assert run("verify", env=env3, cwd=T2).returncode == 0 and record(T2)[1]["verified"]["ok"]
+    path2, doc2 = record(T2)
+    swapped = dict(doc2, secret=dict(doc2["secret"], display_name="an older secret"))
+    M.seal(swapped)
+    M.save(path2, swapped)
+    assert run("setup", env=env, cwd=T2).returncode == 0 and record(T2)[1]["verified"] is None    # new secret
+    assert run("verify", env=env3, cwd=T2).returncode == 0
+    fake("/_control", {"mp_drop": True})                    # a revoke while verify waits: it stops calling GA
+    n = len(calls())
+    slow = subprocess.Popen([MI, "telemetry", "verify"], cwd=T2, env=dict(env3, ALADDIN_GA_VERIFY_WAIT="3"),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    time.sleep(1.5)
+    revoked_at = len(calls())
+    assert run("revoke", "--by", "Adeel", env=env, cwd=T2).returncode == 0
+    out, err = slow.communicate(timeout=60)
+    assert slow.returncode == 3 and "changed while verify ran" in err, err
+    assert not [c for c in calls()[revoked_at:] if c["path"].endswith(":runRealtimeReport")], calls()[n:]
+    assert record(T2)[1]["verified"]["ok"] and record(T2)[1]["status"] == "revoked"     # nothing written back
+    assert run("consent", "--by", "Adeel", env=env, cwd=T2).returncode == 0 and run("setup", env=env, cwd=T2).returncode == 0
+    fake("/_control", {"mp_drop": False})
     fake("/_control", {"mp_drop": True})                    # MP answers 2xx and drops the hit: only verify sees it
     r = run("verify", env=env3, cwd=T2)
     assert r.returncode == 2 and "did not reach" in r.stderr and record(T2)[1]["verified"]["ok"] is False, r.stderr
     rc = json.loads(run("check", "--json", env=env, cwd=T2).stdout)
     assert rc["exit"] == 0 and rc["verified"] is False, rc                      # verify informs; it never gates
     fake("/_control", {"mp_drop": False})
-    assert run("verify", env=dict(env3, ALADDIN_GA_VERIFY_WAIT="soon"), cwd=T2).returncode == 64
+    for bad in ("soon", "inf", "nan", "-1", "1e9"):
+        assert run("verify", env=dict(env3, ALADDIN_GA_VERIFY_WAIT=bad), cwd=T2).returncode == 64, bad
+    led2 = M.ledger(T2)
+    good2 = open(led2).read()
+    last = json.loads(good2.splitlines()[-1])
+    ref2 = M.rel(T2, record(T2)[0])
+    rows = []
+    for ts, ev, extra in (("2099-01-01T00:00:03Z", "telemetry.revoked", {}),                 # main: revoked
+                          ("2099-01-01T00:00:02Z", "telemetry.consent", {"sha256": TM.terms_sha(record(T2)[1])})):
+        row = {"event_id": ev + ts, "ts": ts, "event": ev, "role": "human", "prev": last["hash"],   # a branch's
+               "data": dict(extra, subject=ref2, by="Adeel", reason="")}                          # older consent
+        row["hash"] = M._row_hash(row)
+        rows.append(json.dumps(row, sort_keys=True) + "\n")
+    open(led2, "a").write("".join(rows))                     # a union merge puts the older consent last
+    assert M.ledger_problems(T2) == [] and json.loads(run("check", "--json", env=env, cwd=T2).stdout)["consent"] == "revoked"
+    open(led2, "w").write(good2)
     assert run("revoke", "--by", "Adeel", env=env, cwd=T2).returncode == 0
     n = len(calls())
     assert run("verify", env=env3, cwd=T2).returncode == 3 and calls()[n:] == []
     shutil.rmtree(T3, ignore_errors=True)
-    ok("ledger: a fresh checkout keeps consent, an edited row blocks; verify proves the live round-trip, never gates")
+    ok("ledger: fresh checkouts and merges keep the newest decision, edits block; verify is the live round-trip")
+
+    # 15) the journeys telemetry binds: frozen or a frozen one's replacement, not retired, unchanged since
+    old = journey("checkout v1", ["cart_opened", "paid_v1"])
+    new = journey("checkout v2", ["cart_opened", "paid_v2"], frozen=False)
+    op = M.path_of(T, "journey", old)
+    od = json.load(open(op))
+    od["retirement"] = {"replaced_by": new, "replaced_by_sha256": M.digest(json.load(open(M.path_of(T, "journey", new))))}
+    M.save(op, od)
+    M.record(T, "journey.retired", M.rel(T, op), "human", sha256=M.digest(od))
+    assert J.lifecycle(T, op, od) == "retired"
+    titles = [j for j, _, _ in TM.journeys(T)]
+    assert "checkout v2" in titles and "checkout v1" not in titles, titles      # the replacement binds
+    rep = json.loads(run("check", "--json").stdout)
+    assert {"journey": "checkout v2", "event": "paid_v2"} in rep["missing"] and "paid_v1" not in rep["events"], rep
+    np_ = M.path_of(T, "journey", new)
+    nd = json.load(open(np_))
+    nd["steps"] = nd["steps"][:1]                                                # weakened after it was pinned
+    M.save(np_, nd)
+    rep = json.loads(run("check", "--json").stdout)
+    assert any("'checkout v2' changed after the records pinned it" in x for x in rep["problems"]), rep["problems"]
+    bad = journey("broken", [])
+    bp = M.path_of(T, "journey", bad)
+    M.save(bp, dict(json.load(open(bp)), steps="not a list", title=["x"]))
+    r = run("check", "--json")
+    assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr          # malformed: no crash
+    for jid in (old, new, bad):
+        os.remove(M.path_of(T, "journey", jid))
+    ok("journeys: a recorded replacement binds, a retired one does not, drift blocks, malformed ones never crash")
 finally:
     FAKE.terminate()
     FAKE.wait(timeout=10)
