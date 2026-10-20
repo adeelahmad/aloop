@@ -107,7 +107,8 @@ A gate checks structure and evidence, never whether a judgment is right.
   gaps, earned, metrics}`; each gap is `{gap_id: "<journey_id>#<criterion_id>", journey_id,
   criterion_id, kind: regression|open|unscored, now, baseline, target, distance}`, regressions first,
   then by distance. `eval.completed` is a ledger record carrying `eval_id` and `sha256`: a gap list
-  counts (for `evaluate check`, `goal` and `tick`) only with the record of its content. Every input is the content its
+  counts (for `evaluate check`, `goal` and `tick`) only with the record of its content and a seal that
+  matches it, and the newest is the newest by the ledger's order. Every input is the content its
   record covers: the state a `state.assessed` ledger record (only `mission assess` measures), the
   baseline a confirmation, each journey the content the baseline froze, and the goal a `goal.derived`
   or `goal.approved` record (the newest such goal with no later `goal.met` record is the active one; a

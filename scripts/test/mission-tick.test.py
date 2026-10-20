@@ -101,10 +101,14 @@ class Project:
             with self.clock(hours):
                 M.record(self.dir, "goal.derived", self.ref(kind, aid), "mission-planner", goal_id=aid,
                          sha256=M.digest(doc))
-        if kind == "eval" and record:                   # as `mission evaluate` records it
+        if kind == "eval" and record:                   # well-formed and sealed, as `mission evaluate` records it
+            doc = dict({"state_id": "sta_" + "0" * 20, "baseline_id": TICK.B.current_id(self.dir) or "bln_" + "0" * 20,
+                        "goal_id": None, "gaps": [], "earned": [], "regressions": 0, "metrics": [], "rival_refs": []},
+                       **doc)
+            M.seal(doc)
             with self.clock(hours):
                 M.record(self.dir, "eval.completed", self.ref(kind, aid), "evaluator", eval_id=aid,
-                         sha256=M.digest(doc), goal_met=fields.get("goal_met"))
+                         sha256=doc["sha256"], goal_met=fields.get("goal_met"))
         M.save(M.path_of(self.dir, kind, aid), doc)
         return aid, doc
 
@@ -1199,10 +1203,11 @@ d = p.tick(1.4)
 assert d["action"] != "STOP_BUDGET", d                                     # the raised cap resumes the loop
 ok("a hit cap is a ledger row for the mission's content: a fresh checkout stays stopped until the cap is raised")
 
-# 31) a gap list counts only with the eval.completed ledger record of its content (M9.27), as `evaluate check`
-#     and `goal derive` read it: an eval file nobody computed, or one edited after it was recorded, says nothing
-#     (not even "goal met"), and a fresh checkout keeps the gap lists `mission evaluate` wrote, so the loop and
-#     the goal commands decide the same there
+# 31) a gap list counts only intact, as `evaluate check` and `goal` read it (M9.27): the eval.completed ledger
+#     record of its content, its shape and its seal. An eval file nobody computed, or one edited after it was
+#     recorded, says nothing (not even "goal met"); every reader takes the newest intact one by the ledger's
+#     order (not a machine's clock); and a fresh checkout keeps the gap lists `mission evaluate` wrote, so the
+#     loop and the goal commands decide the same there
 p = Project().init()
 cleared(p)
 sid = json.load(open(p.mi("assess").stdout.strip()))["state_id"]
@@ -1220,6 +1225,19 @@ assert r.returncode == 0, r.stderr
 eid = json.load(open(r.stdout.strip()))["eval_id"]
 assert [x["data"]["eval_id"] for x in M.ledger_rows(p.dir)[0] if x["event"] == "eval.completed"] == [eid]
 expect(p.tick(later(p), "--peek"), "DERIVE_GOAL", 0, eid)
+r = p.mi("evaluate")                                                       # a second gap list of the same state
+eb = json.load(open(r.stdout.strip()))["eval_id"]
+expect(p.tick(later(p), "--peek"), "DERIVE_GOAL", 0, eb)
+newer = p.load("eval", eb)
+for bad in (dict(newer, gaps=[], goal_met=True), dict(newer, status="bogus"), dict(newer, sha256="0" * 64)):
+    M.save(M.path_of(p.dir, "eval", eb), bad)                              # edited, or only its unhashed fields
+    d = p.tick(later(p), "--peek")
+    expect(d, "DERIVE_GOAL", 0, eid)                                       # the newest intact one, for every reader
+    assert eb not in d["reason"], d["reason"]
+    assert json.loads(p.mi("evaluate", "check", "--json").stdout)["eval_id"] == eid
+    r = p.mi("goal", "options")
+    assert r.returncode == 0, r.stderr                                     # not "eb is not the content recorded"
+os.remove(M.path_of(p.dir, "eval", eb))
 real = p.load("eval", eid)
 M.save(M.path_of(p.dir, "eval", eid), dict(real, gaps=[], goal_met=True))  # edited after it was recorded
 expect(p.tick(later(p), "--peek"), "EVALUATE", 0, "no eval yet")
@@ -1241,7 +1259,29 @@ shutil.rmtree(os.path.join(p.dir, ".aladdin"))
 expect(p.tick(later(p)), "EVALUATE", 0, "aloop mission goal close %s --eval %s" % (gid, e2))
 r = p.mi("goal", "close", gid, "--eval", e2)
 assert r.returncode == 0, r.stderr                                         # ordered by the ledger, not the run log
-ok("a gap list counts only with its eval.completed ledger record: a file nobody computed or an edited one says "
-   "nothing, and on a fresh checkout the loop, `evaluate check`, `goal derive` and `goal close` read the same records")
+k = Project().init()                                                       # two machines, one clock behind
+cleared(k)
+ks = json.load(open(k.mi("assess").stdout.strip()))
+time.sleep(2.1)
+ka = json.load(open(k.mi("evaluate").stdout.strip()))["eval_id"]
+real_time, real_now, here = time.time, M.now, os.getcwd()
+skew = real_time() - (TICK.ms_doc(ks, "state") / 1000.0 + 0.6)             # its clock: just after the state
+time.time = lambda: real_time() - skew                                     # so its id and stamp sort before ka's
+M.now = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time()))
+os.chdir(k.dir)
+try:
+    with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()):
+        assert TICK.cli().main(["evaluate"]) == 0
+finally:
+    os.chdir(here)
+    time.time, M.now = real_time, real_now
+kb = json.load(open(out.getvalue().strip().splitlines()[-1]))["eval_id"]
+assert TICK.ms_doc(k.load("eval", kb), "eval") < TICK.ms_doc(k.load("eval", ka), "eval")
+assert k.load("eval", kb)["created_at"] < k.load("eval", ka)["created_at"]
+expect(k.tick(later(k), "--peek"), "DERIVE_GOAL", 0, kb)                     # the ledger's newest, not the clock's
+assert json.loads(k.mi("evaluate", "check", "--json").stdout)["eval_id"] == kb
+ok("a gap list counts only intact (its eval.completed ledger record, its shape and seal): a file nobody computed "
+   "or an edited one says nothing, and the loop, `evaluate check` and `goal` take the newest intact one by the "
+   "ledger's order; on a fresh checkout they, `goal derive` and `goal close` read the same records")
 
 print("mission-tick: %d checks passed" % PASS[0])

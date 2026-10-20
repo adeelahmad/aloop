@@ -85,6 +85,7 @@ import _mission as M  # noqa: E402
 import _paths  # noqa: E402
 import baseline as B  # noqa: E402
 import ethics as E  # noqa: E402
+import evaluate as EV  # noqa: E402
 import journeys as J  # noqa: E402
 
 NO_ARGS = True            # `mission tick` with no arguments runs (plugin/bin/mission run_area)
@@ -291,14 +292,12 @@ def facts(cwd, now):
     # decides, so restoring content an older approval covered is a rollback, not approved
     raw, _ = M.ledger_rows(cwd)
     rows = sorted(raw, key=lambda r: r["ts"])            # the core's order: a union merge interleaves branches
-    assessed, evaluated, born, met = {}, set(), {}, {}
+    assessed, born, met = {}, {}, {}
     f["lifted"], f["lifts"], f["stops"] = {}, {}, {}
     for r in rows:
         name, d = r["event"], r["data"]
         if name == "state.assessed":
             assessed[d.get("subject")] = d.get("sha256")
-        if name == "eval.completed":
-            evaluated.add((d.get("subject"), d.get("sha256")))
         if name in ("goal.derived", "goal.approved"):
             born.setdefault((d.get("subject"), d.get("sha256")), []).append(r["ts"])
         if name == "goal.met":
@@ -320,9 +319,11 @@ def facts(cwd, now):
     f["ledger_head"] = raw[-1]["hash"] if raw else ""
     # a state report counts only with the state.assessed record of its content (mission assess)
     f["kinds"]["state"] = [a for a in f["kinds"]["state"] if assessed.get(a["ref"]) == a["sha"]]
-    # and a gap list only with the eval.completed record of its content (mission evaluate), as `evaluate
-    # check` and `goal derive` read it: a file nobody computed, or an edited one, says nothing (M9.27)
-    f["kinds"]["eval"] = [a for a in f["kinds"]["eval"] if (a["ref"], a["sha"]) in evaluated]
+    # and a gap list only intact (the eval.completed record of its content, its shape and seal), in the
+    # ledger's order, as `evaluate check` and `goal` read it: an uncomputed or edited one says nothing (M9.27)
+    order = [M.rel(cwd, path) for path, _ in EV.evaluated(cwd)]
+    evals = {a["ref"]: a for a in f["kinds"]["eval"]}
+    f["kinds"]["eval"] = [evals[r] for r in order if r in evals]
     # a goal is one `mission goal derive` recorded (goal.derived, or the human's goal.approved, for
     # its content) and it is closed by its goal.met record, as `mission evaluate` reads them
     f["kinds"]["goal"] = [dict(a, met=any(t >= max(born[(a["ref"], a["sha"])]) for t in met.get(a["ref"], [])))

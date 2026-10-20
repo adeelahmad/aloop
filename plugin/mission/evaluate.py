@@ -192,28 +192,49 @@ def recorded(cwd, path, doc):
     return rec if rec and rec["data"].get("sha256") == M.digest(doc) else None
 
 
-def latest(cwd):
-    """The newest gap list `mission evaluate` recorded (a file with no record is not one)."""
-    rows = [(p, d) for p, d in M.artifacts(cwd, KIND) if recorded(cwd, p, d)]
-    return max(rows, key=lambda pd: (pd[1].get("created_at", ""), pd[0])) if rows else (None, None)
-
-
-def problems(cwd, path, doc):
+def intact(cwd, path, doc):
+    """Why a gap list is not what `mission evaluate` wrote: its shape, its seal (`status` and `sha256`
+    are outside the digest, so the seal must match it) and the eval.completed record of its content.
+    `mission tick` reads exactly these (ROADMAP M9.27); `problems` adds the recomputation."""
     out = M.problems(doc, KIND, path)
     if out:
         return out
-    out = follows(cwd, doc)
+    if doc.get("sha256") != M.digest(doc):
+        out.append("a gap list is sealed when it is written (its sha256 is not its content's)")
     if not recorded(cwd, path, doc):
         out.append("eval %s has no eval.completed record for this content: only `mission evaluate` evaluates"
                    % doc["eval_id"])
     return out
 
 
+def evaluated(cwd):
+    """(path, doc) of every intact gap list in the ledger's order (oldest first): the order the
+    evaluations were made, whatever a machine's clock said. `mission tick`, `goal` and `evaluate
+    check` read the latest from here."""
+    at = {}
+    for i, r in enumerate(M.records(cwd, "eval.completed")):
+        at[r["data"].get("subject")] = i                 # its newest record (`recorded` reads that one)
+    rows = [(at.get(M.rel(cwd, path)), path, doc) for path, doc in M.artifacts(cwd, KIND)]
+    return [(p, d) for i, p, d in sorted((x for x in rows if x[0] is not None), key=lambda x: x[0])
+            if not intact(cwd, p, d)]
+
+
+def latest(cwd):
+    """The newest intact gap list (a file with no record, or edited since, is not one)."""
+    rows = evaluated(cwd)
+    return rows[-1] if rows else (None, None)
+
+
+def problems(cwd, path, doc):
+    out = intact(cwd, path, doc)
+    if M.malformed(out):
+        return out
+    return follows(cwd, doc) + out
+
+
 def follows(cwd, doc):
-    """A well-formed gap list's problems against its inputs: sealed, and recomputed from them."""
+    """A well-formed gap list's problems against its inputs: it is recomputed from them."""
     out = []
-    if "sha256" not in doc:
-        out.append("a gap list is sealed when it is written")
     spath = M.path_of(cwd, "state", doc["state_id"])
     state, _ = M.load(spath)
     if not isinstance(state, dict):

@@ -93,12 +93,8 @@ def eval_record(cwd, eid):
 
 
 def latest_eval(cwd):
-    """The id of the latest recorded eval (ledger order), or None."""
-    ids = [r["data"].get("eval_id") for r in M.records(cwd, "eval.completed")]
-    for eid in reversed(ids):
-        if eid and os.path.exists(M.path_of(cwd, "eval", eid)):
-            return eid
-    return None
+    """The id of the newest intact eval (ledger order, as `mission tick` and `evaluate check` read it), or None."""
+    return (EV.latest(cwd)[1] or {}).get("eval_id")
 
 
 def gap_of(cwd, g):
