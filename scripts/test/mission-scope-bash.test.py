@@ -284,6 +284,77 @@ ROWS = [
     (SUP, P, "claude plugin validate ./plugin --strict", 0),
     (SUP, P, "claude --version && codex --help", 0),
     (G, T1, "opencode models", 0),
+    # ── round 3: the reader (an adversarial review of the shell reader: coverage gaps and false blocks) ──
+    # `]]` glued to ; && || : the test ends there, and the rest of the command is judged (and vice versa)
+    (E, P, "if [[ -f src/app.py ]]; then echo x > src/app.py; fi", 2),
+    (E, P, "if [[ -f src/app.py ]]; then\n  echo x > src/app.py\nfi", 2),
+    (S, P, "if [[ -n $(git status --porcelain) ]]; then git add -A && git commit -m 'state: assess'; fi", 2),
+    (MP, P, "if [[ -z \"$GOAL\" ]]; then echo none; fi\naloop mission goal new --eval e1 && aloop mission goal approve gol_1 --by h", 2),
+    (G, T1, "if [[ -d docs/agents/mission/eval ]]; then echo '{}' > docs/agents/mission/eval/x.json; fi", 2),
+    (SUP, P, "[[ -f /tmp/l ]]; echo '{}' >> docs/agents/mission/ledger.jsonl", 2),
+    (E, P, "while [[ $i -lt 3 ]]; do echo $i >> src/app.py; i=$((i+1)); done", 2),
+    (E, P, "[[ -f x ]]&& git commit -am x", 2),
+    (E, P, "[[ -f x ]]||echo y > src/app.py", 2),
+    (E, P, "if [[ -f /tmp/a ]]; then echo ok > /tmp/b; fi", 0),
+    (PT, P, "if [[ ! -d /tmp/rival ]]; then\n  mkdir -p /tmp/rival && cd /tmp/rival && git clone -q https://github.com/rival/app .\nfi", 0),
+    (S, P, "if [[ -f /tmp/run1.json ]]; then\n  rm -f /tmp/run1.json 2>/dev/null\nfi\naloop mission assess --runs 2", 0),
+    (E, P, "if [[ -n \"$X\" ]]; then\ncat > /tmp/run.sh <<'EOF'\nrm -rf build && make\nEOF\nfi", 0),
+    (SUP, P, "if [[ -d /tmp/review ]]; then\n  rm -rf /tmp/review && cp -r docs/agents/mission/eval /tmp/review\nfi", 0),
+    # a `for`/`select` loop variable is bound to the first item of its list ("$f" is a source write)
+    (E, P, "for f in src/app.py src/b.py; do sed -i 's/a/b/' \"$f\"; done", 2),
+    (E, P, "for d in src tests; do touch \"$d/__init__.py\"; done", 2),
+    (G, T1, "for f in docs/agents/mission/eval/*.json; do jq '.status=\"recorded\"' \"$f\" > /tmp/t && mv /tmp/t \"$f\"; done", 2),
+    (SUP, P, "for f in docs/agents/mission/eval/*.json; do echo '{}' > \"$f\"; done", 2),
+    (E, P, "select f in src/app.py; do echo x > \"$f\"; break; done", 2),
+    (E, P, "for f in src/*.py; do echo x >> \"$f\"; done", 2),
+    (E, P, "for f in docs/agents/mission/eval/*.json; do sed -i 's/a/b/' \"$f\"; done", 0),
+    # export/declare/local/readonly/typeset NAME=… records NAME, like a bare assignment
+    (G, T1, "export OUT=docs/agents/mission/eval/x.json; echo '{}' > \"$OUT\"", 2),
+    (E, P, "export TARGET=src/app.py && sed -i 's/a/b/' \"$TARGET\"", 2),
+    (E, P, "f() { local out=src/app.py; echo x > \"$out\"; }; f", 2),
+    (E, P, "declare F=src/app.py; echo x > \"$F\"", 2),
+    (E, P, "readonly F=src/app.py; echo x > \"$F\"", 2),
+    (E, P, "typeset F=src/app.py; echo x > \"$F\"", 2),
+    (E, P, "export ROOT=$(git rev-parse --show-toplevel); cd \"$ROOT\" && git commit -am x", 2),
+    (S, P, "export OUT=/tmp/s.json; echo x > \"$OUT\"", 0),
+    # a `$` right before a closing double quote is a literal $ (an end-anchored regex), not a nested string
+    (PT, P, "grep -q \"^v1.2.3$\" /tmp/rival/VERSION && cd /tmp/rival && echo \"pinned\" > run.log", 0),
+    (E, P, "grep -q \"^ok$\" /tmp/run.log && jq -e '.gaps[] | select(.kind == \"regression\") | .delta > 0' docs/agents/mission/eval/evl_x.json", 0),
+    (E, P, "grep -c \"x$\" /tmp/a; echo hi > src/app.py; echo \"done\"", 2),
+    # a script fed to a shell on stdin (heredoc, here-string) is the shell's program, read again
+    (E, P, "bash <<'EOF'\ngit commit -am x\nEOF", 2),
+    (MP, P, "bash -s <<'EOF'\naloop mission approve --by h\nEOF", 2),
+    (E, P, "bash <<< 'git commit -am x'", 2),
+    (MP, P, "sh <<EOF\naloop mission approve --by h\nEOF", 2),
+    (S, P, "bash <<'EOF'\naloop mission baseline measure --json\nEOF", 0),
+    # the redirect of a { } group is judged where the shell opens it, before a `cd` inside the group
+    (E, P, "{ cd docs/agents/mission/state && jq -c . *.json; } > .aladdin/scratch/state.jsonl", 0),
+    (E, P, "{ cd /tmp; echo; } > src/app.py", 2),
+    # xargs -I{} replaces only the placeholder inside the sh -c string, so the inner command is read
+    (E, P, "ls /tmp/fix/*.py | xargs -I{} sh -c 'cp {} src/'", 2),
+    (E, P, "find /tmp/fix -name '*.py' | xargs -I % bash -c 'cp % src/'", 2),
+    (S, P, "ls /tmp/r/*.json | xargs -I{} sh -c 'jq . {} > /dev/null'", 0),
+    # perl -0pi / -lpi: -0 and -l take only an octal value, so a clustered -i is still found
+    (E, P, "perl -0pi -e 's/a/b/' src/app.py", 2),
+    (E, P, "perl -lpi -e 's/a/b/' src/app.py", 2),
+    (E, P, "perl -0777 -i -pe 's/a/b/' src/app.py", 2),
+    # a simple {a,b} brace at the start of a word expands to its alternatives
+    (E, P, "touch {src,tests}/__init__.py", 2),
+    (E, P, "mkdir -p {src,tests}/pkg", 2),
+    (E, P, "cp /tmp/a.py {src,tests}/", 2),
+    (E, P, "touch docs/agents/mission/eval/{a,b}.json", 0),
+    # `cd` is not followed where bash would not run it: a function body, an untaken branch, a pipeline
+    (E, P, "cleanup() { cd /; rm -rf \"$WORK\"; }; trap cleanup EXIT; echo x > src/app.py", 2),
+    (E, P, "f() { cd /tmp; }; echo x > src/app.py", 2),
+    (E, P, "if [ -d /tmp/rival ]; then cd /tmp/rival; fi; touch src/a.py", 2),
+    (E, P, "case $1 in a) cd /tmp;; esac; touch src/a.py", 2),
+    (E, P, "cd /tmp | true; touch src/a.py", 2),
+    # wrappers: setsid / runuser are looked through, and `su USER -c` finds its -c after the user
+    (E, P, "setsid git commit -am x", 2),
+    (E, P, "su root -c 'git commit -am x'", 2),
+    (E, P, "su - postgres -c 'git commit -am x'", 2),
+    (E, P, "runuser -u root -- git commit -am x", 2),
+    (E, P, "su -c 'git commit -am x' root", 2),
 ]
 
 
