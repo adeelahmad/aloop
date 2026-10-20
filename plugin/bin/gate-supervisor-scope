@@ -235,6 +235,9 @@ esac
 # prefix-strip against $root: on macOS `git rev-parse --show-toplevel` resolves /private
 # symlinks and would not match the payload's /var path, silently disarming the guard.
 case "$file" in
+  # The mission layer's (gate-mission-scope judges it): a mission.json write is no sprint, so it
+  # never arms the lock (ROADMAP §4.12, M9.9).
+  docs/agents/mission/*|*/docs/agents/mission/*) is_docs=0; is_ctl=1 ;;
   docs/agents/*|*/docs/agents/*)                 is_docs=1; is_ctl=0 ;;
   .agentic/*|*/.agentic/*|.aladdin/*|*/.aladdin/*|.transcripts/*|*/.transcripts/*) is_docs=0; is_ctl=1 ;;
   # VCS hygiene the supervisor legitimately writes for the initial commit — never

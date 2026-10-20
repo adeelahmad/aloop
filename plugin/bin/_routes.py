@@ -10,8 +10,12 @@ import os
 import _paths
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-GROUPS = {"planning": ("intake", "standards", "planner", "archivist"),
-          "worker": ("red-worker", "scaffolder", "green-worker", "structural-reviewer", "final-gate")}
+# The mission roles (ROADMAP §4.12, plugin/mission/roles.json `group`): the four that judge plan on the
+# planning route; the two that only measure with pinned scripts run on the worker route.
+GROUPS = {"planning": ("intake", "standards", "planner", "archivist",
+                       "market-researcher", "evaluator", "mission-planner", "ethics-reviewer"),
+          "worker": ("red-worker", "scaffolder", "green-worker", "structural-reviewer", "final-gate",
+                     "product-tester", "state-assessor")}
 # Claude Code's short aliases, for the hosts that need a full id
 ALIAS = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5", "haiku": "claude-haiku-4-5", "fable": "claude-fable-5-1"}
 

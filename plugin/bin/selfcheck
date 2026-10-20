@@ -33,6 +33,8 @@ case "$role" in
   planner)             gate=gate-stage2-complete ;;
   intake)              gate=gate-intake ;;
   archivist)           gate=gate-memory ;;
+  market-researcher|product-tester|state-assessor|evaluator|mission-planner|ethics-reviewer)
+                       gate=gate-mission-artifact ;;   # the mission roles (ROADMAP §4.12)
   tooling|preflight)   gate=gate-tooling ;;
   *) echo "selfcheck: unknown role '${role:-<empty>}' (set AGENT_ROLE or pass a role)" >&2; exit 64 ;;
 esac

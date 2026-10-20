@@ -1,0 +1,709 @@
+#!/usr/bin/env python3
+"""gate-mission-scope — PreToolUse(Write|Edit|MultiEdit|NotebookEdit|Bash; Codex apply_patch): the
+mission layer's role path guards (ROADMAP §4.12, "Role separation"; M9.9).
+
+A builder never grades its own work, and a grader never builds:
+  - a MISSION ROLE (market-researcher, product-tester, state-assessor, evaluator, mission-planner,
+    ethics-reviewer) writes only its own paths (plugin/mission/roles.json `writes`) in the main tree,
+    plus run data (.aladdin/, but not its logs/ or state/) and anything outside the project: never
+    source, mission.json, another role's dir or a task worktree. It never commits, never runs the loop (`mission tick|cron|init`)
+    and never runs a human's step (`mission approve`, `mission <area> approve|confirm|consent|veto|restore…`,
+    `events authority`, `events emit` of a human event);
+  - ANY OTHER DISPATCHED AGENT (a builder, an Aladdin planner) never writes docs/agents/mission/ in any
+    tree, runs only the read-only `mission` commands (status, show, check, list, diff, --help) and
+    never emits a human event;
+  - the SUPERVISOR (no agent_type) never hand-writes a role's artifact: everything under
+    docs/agents/mission/ but mission.json (the human's, sealed by `mission approve`) is dispatched;
+  - NO ONE hand-writes docs/agents/mission/ledger.jsonl (only the mission CLI appends to it) or the captured
+    prompts (<run data>/transcripts/, the UserPromptSubmit hook's), runs a hook's `transcripts prompt|record|…`,
+    or, where a mission is set, starts a host session from a tool call (`claude -p`, `codex exec`,
+    `opencode run`: its prompt would be captured as the human's words, which a grant reads, M9.17).
+
+Write/Edit/patch paths are exact. A Bash command is read as the shell would read it (_shellread.py:
+quotes, escapes, line continuations, comments, heredoc bodies as data, reserved words, subshells,
+$(…) and `…` read as commands too), then judged per simple command: redirect targets; cp/mv/ln/
+install/rsync destinations; rm/touch/truncate/mkdir/tee files; sed -i, perl -i and awk -i inplace
+files; dd of=, curl -o, wget -O, find -delete and -exec, tar -x, unzip, patch; `cd`, `pushd` and
+`popd` followed; git writes in the project; the `mission` and `events` CLIs. Wrappers (timeout, env, nice, sudo,
+xargs, stdbuf…) are looked through, and a shell string (`bash -c`, `eval`, `env -S`) or a script run
+by an interpreter (`python3 …/bin/mission approve`) is read again. Variables set earlier in the
+command resolve, and so do $PWD, $HOME, the environment, $(pwd) and $(mktemp …) (a scratch dir
+outside the project). What only running it would tell (a computed path) is judged by its known
+directory, or not at all. A write made inside a program (`python3 -c …`) is invisible here:
+gate-mission-artifact checks what changed in docs/agents/mission/ when the role stops.
+
+Exit: 0 allow · 2 block (stderr, handed back to the model). Honors SKIP_HOOKS=1. Not an aloop project
+(no docs/agents/) → allow. A crash once the call is ours to judge blocks (fail closed).
+"""
+import json
+import os
+import re
+import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _shellread as SR  # noqa: E402
+
+GATE = "mission-scope"
+EDIT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "write", "edit")
+SHELL_TOOLS = ("Bash", "bash", "shell")
+PATCH_PATHS = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
+GIT_WRITES = {"commit", "push", "pull", "merge", "rebase", "cherry-pick", "am", "apply", "reset", "restore",
+              "checkout", "switch", "stash", "rm", "mv", "add", "revert", "clean", "tag", "worktree", "notes",
+              "update-ref", "branch", "config", "submodule", "sparse-checkout", "filter-branch", "replace"}
+CLI = {"aloop", "aladdin", "agentic"}
+LOOP = {"init", "approve", "tick", "cron"}             # the human's and the supervisor's, never a dispatched agent's
+SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "mksh", "ash"}
+PYTHON = re.compile(r"^(python|pypy)[0-9.]*$")
+MKTEMP = os.path.join(tempfile.gettempdir(), "aloop-mktemp.XXXXXXXX")   # outside every project
+DEPTH = 8                                             # nested shell strings read before giving up
+TRANSCRIPT_HOOKS = {"prompt", "record", "snapshot", "stop", "stage-in"}
+# the hosts, and their subcommands that start no session (any other word is a prompt or a session)
+HOSTS = {"claude": {"plugin", "plugins", "mcp", "config", "doctor", "update", "install", "migrate-installer",
+                    "setup-token"},
+         "codex": {"login", "logout", "mcp", "completion", "debug", "apply", "a", "help", "features"},
+         "opencode": {"auth", "models", "upgrade", "mcp", "agent", "github", "stats", "export", "import",
+                      "uninstall", "debug", "help"}}
+
+
+class Block(Exception):
+    pass
+
+
+# ── values: a word resolved as far as the gate can, a list of str and None (unknown) ─────
+def text(v):
+    return "".join(v) if v is not None and None not in v else None
+
+
+def prefix(v):
+    out = []
+    for p in v or []:
+        if p is None:
+            break
+        out.append(p)
+    return "".join(out)
+
+
+def basename(v):
+    """The command name even when its directory is unknown ("$(aloop --root)/bin/mission")."""
+    t = text(v)
+    if t is not None:
+        return os.path.basename(t)
+    last = v[-1] if v else None
+    return os.path.basename(last) if last and "/" in last else None
+
+
+def opts(args, value="", long_value=(), flags_end=True):
+    """(index of the first operand, {option: value}) for GNU-style options. `value` names the
+    short options that take a value (attached or the next word); `long_value` the long ones."""
+    found, i = {}, 0
+    while i < len(args):
+        a = text(args[i])
+        if a is None or a == "-" or not a.startswith("-"):
+            break
+        if a == "--":
+            i += 1
+            break
+        if a.startswith("--"):
+            k, eq, v = a.partition("=")
+            if not eq and k in long_value and i + 1 < len(args):
+                i += 1
+                v = text(args[i])
+            found[k] = v if eq or k in long_value else True
+            i += 1
+            continue
+        j = 1
+        while j < len(a):
+            ch = a[j]
+            if ch in value:
+                v = a[j + 1:]
+                if not v and i + 1 < len(args):
+                    i += 1
+                    v = text(args[i])
+                found["-" + ch] = v
+                break
+            found["-" + ch] = True
+            j += 1
+        i += 1
+    return i, found
+
+
+def operands(args, value="", long_value=()):
+    """(the non-option words, {option: value}), options anywhere (GNU order)."""
+    out, found, i = [], {}, 0
+    while i < len(args):
+        a = text(args[i])
+        if a is not None and a.startswith("-") and a != "-":
+            if a == "--":
+                out += args[i + 1:]
+                break
+            j, f = opts(args[i:], value, long_value)
+            found.update(f)
+            i += max(j, 1)
+            continue
+        out.append(args[i])
+        i += 1
+    return out, found
+
+
+# ── the rules ──────────────────────────────────────────────────────────────────────
+class Scope:
+    def __init__(self, R, payload, project):
+        self.R = R
+        self.agent_type = payload.get("agent_type") or ""
+        self.role = R.role_of(self.agent_type)
+        self.main = os.path.realpath(project)
+        self.roots = R.roots(project)
+        self.who = self.role or self.agent_type
+
+    def path(self, target, base, what):
+        """Raise Block when writing `target` is not this caller's to do."""
+        R = self.R
+        if not target or target == "-" or (base is None and not target.startswith(("/", "~"))):
+            return                                        # stdout, or a dir the gate cannot know
+        root, rel = R.locate(target, base or "/", self.roots)
+        if rel is None:
+            return                                        # outside the project: a scratch dir
+        in_mission = R.under(rel, R.MISSION)
+        if R.is_prompt_log(rel):
+            raise Block("%s holds the human's captured prompts: only the UserPromptSubmit hook writes it, and a mission"
+                        " grant is read from the human's own words there (M9.17). Never a %s by %s."
+                        % (rel, what, self.who or "the supervisor"))
+        if rel == R.LEDGER:
+            raise Block("%s is the mission's ledger: only `aloop mission …` commands append to it (each row is chained to"
+                        " the one before), never a %s by %s.\n  The supervisor recovers a bad edit with `git checkout -- %s`."
+                        % (rel, what, self.who or "the supervisor", rel))
+        if self.role in R.ROLES:
+            if R.is_run_data(rel) and not R.is_harness_state(rel):
+                return
+            if root == self.main and any(R.under(rel, p) for p in R.writes(self.role)):
+                return
+            own = R.owners(rel)
+            where = ("the event log or the gates' state (the harness's)" if R.is_run_data(rel) else
+                     "a task worktree" if root != self.main else
+                     "another role's artifacts (%s)" % ", ".join(own) if own else
+                     "the mission itself (the human's, sealed by `mission approve`)" if in_mission else
+                     "Aladdin's planning docs" if R.under(rel, "docs/agents/") else "source")
+            raise Block("%s writes only %s (plus run data, or a scratch dir outside the project); this %s is %s:\n"
+                        "    %s\n  A grader never builds: the mission roles never write source, and each writes only its own"
+                        " artifacts.\n  If the work needs a change there, say so in your artifact: its owner is dispatched for it."
+                        % (self.role, ", ".join("`%s`" % p for p in R.writes(self.role)), what, where, rel))
+        if self.agent_type:
+            if in_mission:
+                raise Block("%s may not write the mission layer's artifacts (%s):\n    %s\n  A builder never grades its own"
+                            " work: docs/agents/mission/ is written only by the six mission roles (ROADMAP §4.12)."
+                            % (self.who, what, rel))
+            return
+        if in_mission and rel not in (R.MISSION + "mission.json", R.MISSION.rstrip("/")):   # the supervisor
+            own = R.owners(rel)
+            raise Block("the supervisor never hand-writes a mission role's artifact (%s):\n    %s\n  Dispatch %s: it writes"
+                        " it, and its stop gate checks it. You run `aloop mission tick` and dispatch (ROADMAP §4.12).\n"
+                        "  (Deliberate out-of-band edit outside the loop? Re-run with SKIP_HOOKS=1.)"
+                        % (what, rel, " or ".join("`%s`" % o for o in own) if own else "the role that owns it"))
+
+    def write(self, v, base, what):
+        """Judge a written word: all of it when known, else the directory its known start names."""
+        t = text(v)
+        if t is None:
+            pre = prefix(v)
+            t = pre[:pre.rfind("/") + 1] if "/" in pre else ""
+        if t:
+            self.path(os.path.expanduser(t), base, what)
+
+    def mission_cli(self, args):
+        R = self.R
+        if args is None or not self.agent_type:
+            return                                        # the supervisor relays the human (M9.17 binds approvals)
+        ts = [text(a) for a in args]
+        cmd = ts[0] if ts else ""
+        verbs = [a for a in ts[1:] if a is not None and not a.startswith("-")]
+        sub = verbs[0] if verbs and cmd not in LOOP else ""
+        if cmd in LOOP or sub in R.HUMAN_VERBS:
+            raise Block("`mission %s` is not a dispatched agent's to run: approvals, confirmations, consents and vetoes are"
+                        " the human's, and the loop (init, tick, cron) is the supervisor's.\n  If the loop needs the"
+                        " human, say so in your artifact: the supervisor asks them." % " ".join(t or "…" for t in ts[:2]))
+        if self.role in R.ROLES:
+            return
+        if not ts or cmd in R.READ_ONLY or sub in R.READ_ONLY or (cmd and not sub and set(ts[1:]) <= {"--help", "-h"}):
+            return
+        raise Block("%s may run only the read-only mission commands (status, show, check, list, diff, --help), not:\n"
+                    "    mission %s\n  The mission layer's artifacts are written only by the six mission roles."
+                    % (self.who, " ".join(t or "…" for t in ts)))
+
+    def events_cli(self, args):
+        """`events authority` is the human's authority record, and an event or decision with role `human` (or
+        a human decision's type) is the human's word: none is a dispatched agent's to record."""
+        if not self.agent_type:
+            return
+        ts = [text(a) for a in args]
+        opt, pos, k = {}, [], None
+        for t in ts[1:]:                                  # as bin/events parses: `--key value`
+            if k:
+                opt[k], k = t, None
+            elif t is not None and t.startswith("--"):
+                k = t[2:].replace("-", "_")
+            else:
+                pos.append(t)
+        cmd, event, role = (ts[0] if ts else ""), (pos[0] if pos else ""), opt.get("role", "")
+        as_human = role is None or role.strip().lower() == "human"
+        if cmd == "emit" and event and event.split(".")[0] in self.R.MISSION_EVENTS:
+            raise Block("`events emit %s` is not a dispatched agent's to run: the mission layer's events (%s.*) are"
+                        " written only by its own commands (`aloop mission …`) and its gates, so a hand-written one"
+                        " would pass for theirs." % (event, event.split(".")[0]))
+        human = (cmd == "authority" or cmd == "decide" and as_human or
+                 cmd == "emit" and (as_human or event is None or event in self.R.M.HUMAN_EVENTS or event.startswith("human.")))
+        if human:
+            raise Block("`events %s` is not a dispatched agent's to run: the authority record, an event with role `human`"
+                        " and a human decision (%s) are the human's word.\n  If the run needs the human, say so in your"
+                        " final message: the supervisor asks them."
+                        % (" ".join(t or "…" for t in ts[:2]), ", ".join(sorted(self.R.M.HUMAN_EVENTS))))
+
+    def transcripts_cli(self, args):
+        """`transcripts prompt|record|…` are the hooks' own commands (they read the hook payload on stdin)."""
+        sub = text(args[0]) if args else ""
+        if sub is None or sub in TRANSCRIPT_HOOKS:
+            raise Block("`transcripts %s` is a hook's own command (UserPromptSubmit, PostToolUse, Stop), never a tool"
+                        " call's: the prompts it captures are the human's own words, which a mission grant reads (M9.17)."
+                        % (sub or "…"))
+
+    def host(self, name, args):
+        """A host session started from a tool call (`claude -p`, `codex exec`, `opencode run`) fires its own
+        UserPromptSubmit hook, so its prompt would be captured as the human's words (M9.17)."""
+        if self.role not in self.R.ROLES and not os.path.isdir(os.path.join(self.main, self.R.MISSION)):
+            return                                        # no mission here: no grant to forge
+        ts = [text(a) for a in args]
+        if ts and all(t in ("--version", "-v", "-V", "--help", "-h") for t in ts):
+            return
+        pos = [t for t in ts if t is None or not t.startswith("-")]
+        if pos and pos[0] in HOSTS[name]:
+            return                                        # a tool of the host (plugin validate, mcp list), no session
+        raise Block("%s starts a %s session from a tool call: its prompt fires the UserPromptSubmit hook and would be"
+                    " captured as the human's own words, which a mission grant reads (M9.17).\n  A role never starts"
+                    " another agent; a session the human wants runs from their own terminal or the mission's cron line."
+                    % (self.who or "the supervisor", name))
+
+    def git(self, args, base):
+        """Judge a git command: a mission role never writes the project's repo."""
+        d, i, wt = base, 0, None
+        while i < len(args):
+            a = text(args[i])
+            if a is None or not a.startswith("-"):
+                break
+            if a in ("-C", "--git-dir", "--work-tree") and i + 1 < len(args):
+                v = text(args[i + 1])
+                if a == "-C":
+                    d = os.path.join(d, os.path.expanduser(v)) if v is not None and (d or v.startswith("/")) else None
+                else:
+                    wt = os.path.join(d or "/", v) if v is not None else None
+                i += 2
+            elif a.startswith(("--git-dir=", "--work-tree=")):
+                v = a.split("=", 1)[1]
+                wt = os.path.join(d or "/", v)
+                i += 1
+            elif a in ("-c", "--namespace", "--exec-path", "--config-env", "--super-prefix") and i + 1 < len(args):
+                i += 2
+            else:
+                i += 1
+        sub = text(args[i]) if i < len(args) else ""
+        rest = args[i + 1:]
+        if sub == "clone":
+            ops, _ = operands(rest, "bocju", ("--branch", "--origin", "--upload-pack", "--depth", "--reference",
+                                               "--separate-git-dir", "--config", "--template", "--jobs", "--filter",
+                                               "--shallow-since", "--shallow-exclude", "--server-option"))
+            if len(ops) >= 2:
+                self.write(ops[1], d, "git clone")
+            elif ops and text(ops[0]):
+                self.write([re.sub(r"\.git$", "", os.path.basename(text(ops[0]).rstrip("/")))], d, "git clone")
+            return
+        if self.role not in self.R.ROLES or not git_write(sub, [text(a) for a in rest]):
+            return
+        where = wt or d
+        if where is None:
+            return
+        root, rel = self.R.locate(where, "/", self.roots)
+        if root is None or self.R.is_run_data(rel):
+            return                                        # a scratch repo (a rival's clone), not the project's
+        raise Block("%s never runs `git %s` in the project: a mission role writes only its own artifacts, and"
+                    " committing them is the supervisor's call outside the loop." % (self.role, sub))
+
+    def subst(self, src, st):
+        """The value of $(…) when the gate can know it: pwd, mktemp, git rev-parse --show-toplevel."""
+        cmds = [c for c in SR.read(src) if isinstance(c, SR.Cmd) and c.words]
+        if len(cmds) != 1:
+            return None
+        ws = [self.resolve(w.parts, st) for w in cmds[0].words]
+        name, args = basename(ws[0]), ws[1:]
+        if name == "pwd":
+            return st["base"]
+        if name == "mktemp":
+            ops, f = operands(args, "p", ("--tmpdir", "--suffix"))
+            d = f.get("-p") or (f.get("--tmpdir") if isinstance(f.get("--tmpdir"), str) else None)
+            if d:
+                return os.path.join(d, "tmp.XXXXXXXX")
+            if not ops or f.get("-t") or f.get("--tmpdir"):
+                return MKTEMP
+            t = text(ops[0])
+            return os.path.join(st["base"], t) if t and st["base"] else None
+        if name == "git" and [text(a) for a in args] == ["rev-parse", "--show-toplevel"] and st["base"]:
+            return self.R.locate(st["base"], "/", self.roots)[0]
+        return None
+
+    def resolve(self, parts, st):
+        out = []
+        for p in parts:
+            if isinstance(p, str):
+                out.append(p)
+            elif p[0] == "var":
+                v = st["vars"].get(p[1])
+                if v is None and p[1] not in st["vars"]:
+                    env = {"PWD": st["base"], "OLDPWD": st["old"], "HOME": os.path.expanduser("~")}
+                    e = env[p[1]] if p[1] in env else os.environ.get(p[1])
+                    v = [e] if e is not None else (self.resolve(p[2], st) if p[2] is not None else None)
+                out += v if v is not None else [None]
+            elif p[0] == "cmd":
+                out.append(self.subst(p[1], st))
+            else:
+                out.append(None)
+        return out
+
+    def shell(self, cmd, base, st=None, depth=0):
+        st = st or {"base": base, "old": None, "vars": {}, "stack": [], "dirs": []}
+        if depth > DEPTH:
+            return
+        for c in SR.read(cmd):
+            if c == "(":
+                st["stack"].append((st["base"], st["old"], dict(st["vars"])))
+                continue
+            if c == ")":
+                if st["stack"]:
+                    st["base"], st["old"], st["vars"] = st["stack"].pop()
+                continue
+            for sub in c.subs:                            # $(…), `…`, <(…): a subshell of their own
+                self.shell(sub, None, {"base": st["base"], "old": st["old"], "vars": dict(st["vars"]),
+                                       "stack": [], "dirs": []}, depth + 1)
+            for name, parts in c.assigns:
+                st["vars"][name] = self.resolve(parts, st)
+            ws = [self.resolve(w.parts, st) for w in c.words]
+            for op, fd, w in c.redirs:
+                if op in (">", ">>", ">|", "&>", "&>>", "<>") or (op == ">&" and not re.fullmatch(r"\d+|-", w.text() or "0")):
+                    self.write(self.resolve(w.parts, st), st["base"], "Bash write")
+            if ws:
+                self.run(ws, st, depth)
+
+    def run(self, ws, st, depth, base=None):
+        """Judge one command (after its wrappers) at the current dir."""
+        base = st["base"] if base is None else base
+        while ws:
+            name, args = basename(ws[0]), ws[1:]
+            if name is None:
+                return
+            if name in ("sudo", "doas"):
+                i, _ = opts(args, "ugCDhprtTU")
+                while i < len(args) and re.match(r"^[A-Za-z_]\w*=", text(args[i]) or ""):
+                    i += 1
+                ws = args[i:]
+            elif name == "env":
+                i, f = opts(args, "uCS", ("--unset", "--chdir", "--split-string"))
+                d = f.get("-C") or f.get("--chdir")
+                if isinstance(d, str):
+                    base = os.path.join(base, d) if base else (d if d.startswith("/") else None)
+                while i < len(args) and re.match(r"^[A-Za-z_]\w*=", text(args[i]) or ""):
+                    i += 1
+                split = f.get("-S") or f.get("--split-string")
+                if isinstance(split, str):
+                    rest = [text(a) for a in args[i:]]
+                    if None not in rest:
+                        self.shell(" ".join([split] + [shq(r) for r in rest]), None, dict(st, base=base), depth + 1)
+                    return
+                ws = args[i:]
+            elif name in ("nice", "nohup", "command", "builtin", "exec", "time", "stdbuf", "ionice", "chronic",
+                          "unbuffer", "timeout", "taskset", "caffeinate"):
+                if name == "command" and any(text(a) in ("-v", "-V") for a in args[:2]):
+                    return
+                i, f = opts(args, {"nice": "n", "exec": "a", "time": "fo", "stdbuf": "ioe", "ionice": "cnpPu",
+                                   "timeout": "sk", "caffeinate": "tw"}.get(name, ""),
+                            ("--adjustment", "--format", "--output", "--input", "--error", "--signal", "--kill-after"))
+                if name == "time" and isinstance(f.get("-o") or f.get("--output"), str):
+                    self.path(f.get("-o") or f.get("--output"), base, "Bash write")
+                if name in ("timeout", "taskset") and i < len(args):
+                    i += 1                                # the duration, the cpu mask
+                ws = args[i:]
+            elif name == "xargs":
+                i, f = opts(args, "adEeIiLlnPs", ("--arg-file", "--delimiter", "--eof", "--replace", "--max-lines",
+                                                  "--max-args", "--max-procs", "--max-chars", "--process-slot-var"))
+                rep = f.get("-I") or f.get("-i") or f.get("--replace")
+                rest = [([None] if isinstance(rep, str) and text(a) and rep in text(a) else a) for a in args[i:]]
+                ws = (rest or [["echo"]]) + ([] if rep else [[None]])
+            elif name == "flock":
+                i, f = opts(args, "wEc", ("--timeout", "--conflict-exit-code", "--command"))
+                c = f.get("-c") or f.get("--command")
+                if not isinstance(c, str):
+                    k = [text(a) for a in args[i + 1:]]
+                    if "-c" in k and k.index("-c") + 1 < len(k):
+                        c = k[k.index("-c") + 1]
+                if isinstance(c, str):
+                    self.shell(c, None, dict(st, base=base), depth + 1)
+                    return
+                ws = args[i + 1:]
+            elif name == "watch":
+                i, f = opts(args, "ndq", ("--interval", "--differences", "--equexit"))
+                rest = [text(a) for a in args[i:]]
+                if f.get("-x") or f.get("--exec"):
+                    ws = args[i:]
+                elif None not in rest:
+                    self.shell(" ".join(rest), None, dict(st, base=base), depth + 1)
+                    return
+                else:
+                    return
+            elif name == "su":
+                i, f = opts(args, "csgG", ("--command", "--shell", "--group"))
+                c = f.get("-c") or f.get("--command")
+                if isinstance(c, str):
+                    self.shell(c, None, dict(st, base=base), depth + 1)
+                return
+            elif name in SHELLS:
+                i, f = opts(args, "oO", ("--rcfile", "--init-file"))
+                if any(k.startswith("-") and len(k) == 2 and k[1] == "c" for k in f) or "-c" in f:
+                    c = text(args[i]) if i < len(args) else None
+                    if c is not None:
+                        self.shell(c, None, dict(st, base=base), depth + 1)
+                    return
+                ws = args[i:]                             # a script: judged by its name below
+                if not ws:
+                    return
+            elif PYTHON.match(name):
+                i, f = opts(args, "WXQ")
+                if "-c" in f or "-m" in f or i >= len(args):
+                    return                                # code the gate cannot read
+                ws = args[i:]
+            elif name == "eval":
+                t = [text(a) for a in args]
+                if None not in t:
+                    self.shell(" ".join(t), None, dict(st, base=base), depth + 1)
+                return
+            else:
+                return self.command(name, args, st, base, depth)
+
+    def command(self, name, args, st, base, depth):
+        if name in ("cd", "pushd", "popd"):
+            if name == "popd":
+                st["base"] = st["dirs"].pop() if st["dirs"] else None
+                return
+            ops, _ = operands(args, "")
+            t = text(ops[0]) if ops else os.path.expanduser("~")
+            new = (st["old"] if t == "-" else
+                   None if t is None or re.match(r"^[+-]\d+$", t) else
+                   os.path.join(base, os.path.expanduser(t)) if base else
+                   (os.path.expanduser(t) if t.startswith(("/", "~")) else None))
+            if name == "pushd":
+                st["dirs"].append(st["base"])
+            st["old"], st["base"] = st["base"], new
+            return
+        for v in write_targets(name, args):
+            self.write(v, base, "Bash write")
+        if name == "find":
+            self.find(args, st, base, depth)
+        if name in CLI and args and text(args[0]) in ("mission", "events"):
+            (self.mission_cli if text(args[0]) == "mission" else self.events_cli)(args[1:])
+        elif name == "mission":
+            self.mission_cli(args)
+        elif name == "events":
+            self.events_cli(args)
+        elif name == "git":
+            self.git(args, base)
+        elif name == "transcripts" or (name in CLI and args and text(args[0]) == "transcripts"):
+            self.transcripts_cli(args[1:] if name in CLI else args)
+        elif name in HOSTS:
+            self.host(name, args)
+
+    def find(self, args, st, base, depth):
+        """find … -exec CMD {} ; and -execdir / -ok: CMD is a command too."""
+        i = 0
+        while i < len(args):
+            if text(args[i]) in ("-exec", "-execdir", "-ok", "-okdir"):
+                j = i + 1
+                while j < len(args) and text(args[j]) not in (";", "+"):
+                    j += 1
+                sub = [[None] if text(a) == "{}" else a for a in args[i + 1:j]]
+                if sub:
+                    self.run(sub, st, depth + 1, base=base)
+                i = j
+            i += 1
+
+
+def shq(s):
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def git_write(sub, rest):
+    """Is `git <sub> <rest…>` a write? The list and read forms of branch, tag, stash, config… are not."""
+    if sub not in GIT_WRITES:
+        return False
+    args = [a for a in rest if a is not None]
+    flags = {a.split("=", 1)[0] for a in args if a.startswith("--")}
+    short = "".join(a[1:] for a in args if a.startswith("-") and not a.startswith("--"))
+    pos = [a for a in args if not a.startswith("-")]
+    if "--dry-run" in flags or (sub in ("add", "rm", "clean", "push", "mv") and "n" in short):
+        return False
+    if sub == "stash":
+        return not (pos and pos[0] in ("list", "show"))
+    if sub == "worktree":
+        return not (pos and pos[0] == "list")
+    if sub == "notes":
+        return bool(pos) and pos[0] not in ("list", "show")
+    if sub == "submodule":
+        return bool(pos) and pos[0] not in ("status", "summary", "foreach")
+    if sub == "apply":
+        return not ({"--check", "--stat", "--numstat", "--summary"} & flags) or "--apply" in flags
+    if sub == "config":
+        if {"--global", "--system"} & flags or {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list",
+                                                  "--show-origin", "--show-scope", "--get-color"} & flags or "l" in short:
+            return False
+        return len(pos) >= 2 or bool({"--unset", "--unset-all", "--add", "--replace-all", "--rename-section",
+                                      "--remove-section", "--edit"} & flags) or "e" in short
+    if sub == "branch":
+        if set(short) & set("dDmMcCfut") or {"--delete", "--move", "--copy", "--force", "--set-upstream-to",
+                                              "--unset-upstream", "--edit-description", "--track", "--no-track",
+                                              "--create-reflog"} & flags:
+            return True
+        return bool(pos) and not (set(short) & set("arlv") or flags - {"--quiet"})
+    if sub == "tag":
+        if set(short) & set("dasufmFe") or {"--delete", "--annotate", "--sign", "--local-user", "--force", "--message",
+                                             "--file", "--edit", "--cleanup", "--trailer"} & flags:
+            return True
+        return bool(pos) and not (set(short) & set("lnvi") or flags)
+    return True
+
+
+def write_targets(name, args):
+    """The files a simple command writes (values), from its options and operands."""
+    if name in ("cp", "mv", "ln", "install"):
+        ops, f = operands(args, {"install": "tmogS"}.get(name, "tS"),
+                          ("--target-directory", "--suffix", "--mode", "--owner", "--group"))
+        t = f.get("-t") or f.get("--target-directory")
+        if isinstance(t, str):
+            return [[t]]
+        if name == "install" and (f.get("-d") or f.get("--directory")):
+            return ops
+        if name == "ln" and len(ops) == 1 and text(ops[0]):
+            return [[os.path.basename(text(ops[0]))]]
+        return ops[-1:] if len(ops) >= 2 else []
+    if name == "rsync":
+        ops, _ = operands(args, "eBfT", ("--exclude", "--include", "--filter", "--exclude-from", "--include-from",
+                                         "--files-from", "--rsh", "--rsync-path", "--log-file", "--partial-dir",
+                                         "--temp-dir", "--compare-dest", "--copy-dest", "--link-dest", "--backup-dir",
+                                         "--suffix", "--chmod", "--password-file", "--timeout", "--bwlimit"))
+        dest = ops[-1:] if len(ops) >= 2 else []
+        return [] if dest and ":" in prefix(dest[0]).split("/")[0] else dest
+    if name in ("rm", "rmdir", "unlink", "shred", "tee", "mkdir", "touch", "truncate"):
+        ops, _ = operands(args, {"shred": "ns", "mkdir": "mZ", "touch": "drt", "truncate": "sr"}.get(name, ""),
+                          ("--mode", "--date", "--reference", "--size", "--iterations", "--random-source", "--context"))
+        return ops
+    if name == "sed":
+        ops, f = operands(args, "efl", ("--expression", "--file", "--line-length"))
+        if not any(k == "-i" or k.startswith("--in-place") for k in f):
+            return []
+        return ops if any(k in f for k in ("-e", "-f", "--expression", "--file")) else ops[1:]
+    if name == "perl":
+        ops, f = operands(args, "eEMmIxl0")
+        if "-i" not in f and not any(k.startswith("-i") for k in f):
+            return []
+        return ops if ("-e" in f or "-E" in f) else ops[1:]
+    if name in ("awk", "gawk"):
+        ops, f = operands(args, "fvFie", ("--file", "--assign", "--field-separator", "--include", "--source"))
+        if "inplace" not in (f.get("-i"), f.get("--include")):
+            return []
+        ops = [o for o in ops if not re.match(r"^[A-Za-z_]\w*=", text(o) or "")]
+        return ops if any(k in f for k in ("-f", "--file", "-e", "--source")) else ops[1:]
+    if name == "dd":
+        return [[text(a)[3:]] for a in args if (text(a) or "").startswith("of=")]
+    if name == "curl":
+        _, f = operands(args, "dDeEFHKmoPQrTuUwxXyYzAbcCt", ("--output", "--data", "--header", "--request", "--user",
+                                                              "--url", "--config", "--write-out", "--max-time"))
+        out = f.get("-o") or f.get("--output")
+        return [[out]] if isinstance(out, str) else []
+    if name == "wget":
+        _, f = operands(args, "OPoaieUtTwQBD", ("--output-document", "--directory-prefix"))
+        out = [f.get(k) for k in ("-O", "--output-document", "-P", "--directory-prefix")]
+        return [[o] for o in out if isinstance(o, str)]
+    if name == "find":
+        paths = []
+        for a in args:
+            t = text(a)
+            if t is not None and (t.startswith(("-", "(", "!")) or t in (")",)):
+                break
+            paths.append(a)
+        return (paths or [["."]]) if any(text(a) == "-delete" for a in args) else []
+    if name == "tar":
+        first = text(args[0]) if args else ""
+        _, f = operands(args, "CfbFgKLNTVX", ("--directory", "--file"))
+        mode = (first or "").lstrip("-") if first and not first.startswith("--") else ""
+        if "x" in mode.split("f")[0] or "-x" in f or "--extract" in f or "--get" in f:
+            d = f.get("-C") or f.get("--directory")
+            return [[d if isinstance(d, str) else "."]]
+        return []
+    if name == "unzip":
+        ops, f = operands(args, "dxP")
+        if any(k in f for k in ("-l", "-t", "-v", "-Z", "-p", "-c", "-z")):
+            return []
+        d = f.get("-d")
+        return [[d if isinstance(d, str) else "."]]
+    if name == "patch":
+        ops, f = operands(args, "pdiorBDFgVYz", ("--directory", "--input", "--output", "--strip"))
+        if "--dry-run" in f:
+            return []
+        out = f.get("-o") or f.get("--output")
+        if isinstance(out, str):
+            return [[out]]
+        if ops:
+            return ops[:1]
+        d = f.get("-d") or f.get("--directory")
+        return [[d if isinstance(d, str) else "."]]
+    return []
+
+
+def main(state):
+    if os.environ.get("SKIP_HOOKS") == "1":
+        return 0
+    raw = "" if sys.stdin.isatty() else sys.stdin.read()
+    try:
+        p = json.loads(raw or "{}")
+    except ValueError:
+        return 0
+    tool = p.get("tool_name") or ""
+    if tool not in EDIT_TOOLS + SHELL_TOOLS + ("apply_patch",):
+        return 0
+    cwd = p.get("cwd") or os.getcwd()
+    import _paths
+    if not os.path.isdir(_paths.docs(cwd)):
+        return 0                                          # not an aloop project
+    state["ours"] = True
+    import _mission_roles as R
+    s = Scope(R, p, _paths.project(cwd))
+    ti = p.get("tool_input") or {}
+    if tool in EDIT_TOOLS:
+        target = ti.get("file_path") or ti.get("filePath") or ti.get("notebook_path") or ""
+        if target:
+            s.path(target, cwd, tool)
+    elif tool == "apply_patch":
+        for a, b in PATCH_PATHS.findall(ti.get("command") or ti.get("patchText") or ""):
+            s.path((a or b).strip(), cwd, "apply_patch")
+    else:
+        s.shell(ti.get("command") or "", ti.get("workdir") or cwd)
+    return 0
+
+
+if __name__ == "__main__":
+    st = {"ours": False}
+    try:
+        rc = main(st)
+    except Block as e:
+        print("BLOCK[%s]: %s" % (GATE, e), file=sys.stderr)
+        rc = 2
+    except Exception as e:                                # noqa: BLE001 — a crashed gate blocks, once the call is ours
+        if not st["ours"]:
+            sys.exit(0)
+        print("BLOCK[%s]: the gate itself failed (%s: %s), failing closed. This is a gate bug, not your work:"
+              " report it with this line. (Deliberate bypass? SKIP_HOOKS=1.)" % (GATE, type(e).__name__, e), file=sys.stderr)
+        rc = 2
+    sys.exit(rc)

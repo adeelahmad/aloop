@@ -8,6 +8,8 @@
     "PreToolUse": [
       { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|ScheduleWakeup", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-supervisor-scope\"" } ] },
+      { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash", "hooks": [
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-mission-scope\"", "timeout": 15 } ] },
       { "matcher": "Bash", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-commit-author\"", "timeout": 15 } ] },
       { "matcher": "Agent|Task", "hooks": [
@@ -25,6 +27,8 @@
       { "matcher": "red-worker|aloop:red-worker|scaffolder|aloop:scaffolder|green-worker|aloop:green-worker|structural-reviewer|aloop:structural-reviewer|final-gate|aloop:final-gate", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-tooling\"" },
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/worktree-hygiene\"" } ] },
+      { "matcher": "market-researcher|aloop:market-researcher|product-tester|aloop:product-tester|state-assessor|aloop:state-assessor|evaluator|aloop:evaluator|mission-planner|aloop:mission-planner|ethics-reviewer|aloop:ethics-reviewer", "hooks": [
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-mission-artifact\" start", "timeout": 30 } ] },
       { "matcher": "*", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/host-adapter\" hook", "timeout": 15 },
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" stage-in" } ] }
@@ -60,7 +64,9 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-structural-integrity\"" } ] },
       { "matcher": "final-gate|aloop:final-gate", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-final\"" } ] },
-      { "matcher": "red-worker|aloop:red-worker|scaffolder|aloop:scaffolder|green-worker|aloop:green-worker|intake|aloop:intake|standards|aloop:standards|planner|aloop:planner|archivist|aloop:archivist|structural-reviewer|aloop:structural-reviewer|final-gate|aloop:final-gate", "hooks": [
+      { "matcher": "market-researcher|aloop:market-researcher|product-tester|aloop:product-tester|state-assessor|aloop:state-assessor|evaluator|aloop:evaluator|mission-planner|aloop:mission-planner|ethics-reviewer|aloop:ethics-reviewer", "hooks": [
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-mission-artifact\"", "timeout": 600 } ] },
+      { "matcher": "red-worker|aloop:red-worker|scaffolder|aloop:scaffolder|green-worker|aloop:green-worker|intake|aloop:intake|standards|aloop:standards|planner|aloop:planner|archivist|aloop:archivist|structural-reviewer|aloop:structural-reviewer|final-gate|aloop:final-gate|market-researcher|aloop:market-researcher|product-tester|aloop:product-tester|state-assessor|aloop:state-assessor|evaluator|aloop:evaluator|mission-planner|aloop:mission-planner|ethics-reviewer|aloop:ethics-reviewer", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook stop", "timeout": 15 } ] },
       { "matcher": "*", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/host-adapter\" hook", "timeout": 15 },
