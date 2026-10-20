@@ -6,17 +6,22 @@
 //
 //   Claude Code hook   OpenCode equivalent used here
 //   SessionStart       event session.created (root session) → ensure-tools, session-start;
-//                      the context is added to that session's system prompt
+//                      the context is added to that session's system prompt (a resumed root,
+//                      which has none, still gets the core principles)
 //   UserPromptSubmit   chat.message on a root session → transcripts prompt, intent-trigger
 //                      (its context goes into the next turn's system prompt)
 //   PreToolUse         tool.execute.before → host-adapter, gate-supervisor-scope,
-//                      gate-commit-author, budget pre; a deny THROWS (the tool call fails
-//                      with the reason). Bound workers' commands/edits are REWRITTEN into
-//                      their worktree (bash workdir, file paths, patch headers).
+//                      gate-mission-scope, gate-commit-author, budget pre, then mission doors
+//                      hook LAST (it records door.crossed, so only once every other gate admitted
+//                      the call; not for read-only tools; a hang, crash or odd exit denies); a
+//                      deny THROWS (the tool call fails with the reason). Bound workers'
+//                      commands/edits are REWRITTEN into their worktree (bash workdir, file
+//                      paths, patch headers); the gates read bash's workdir as tool_input.workdir.
 //   PostToolUse        tool.execute.after → transcripts record, budget post; context is
 //                      appended to the tool output; `continue: false` aborts the session
 //   SubagentStart      event session.created (child session) → host-adapter, transcripts
-//                      stage-in; gate-tooling on the worker's first tool call (role known);
+//                      stage-in; the core principles go into its system prompt; gate-tooling
+//                      on the worker's first tool call (role known);
 //                      a mission role's gate-mission-artifact start on its first chat.message
 //   SubagentStop       tool.execute.after of the `task` tool → the role's gate; a block is
 //                      sent back to the sub-agent (it keeps working) up to 3 rounds, then
@@ -42,9 +47,14 @@ const GATES = {
   "state-assessor": "gate-mission-artifact", "evaluator": "gate-mission-artifact",
   "mission-planner": "gate-mission-artifact", "ethics-reviewer": "gate-mission-artifact",
 }
-const TOOL = { bash: "Bash", write: "Write", edit: "Edit", apply_patch: "apply_patch", read: "Read", task: "Agent" }
+// OpenCode's `question` is the door gate's question tool (AskUserQuestion)
+const TOOL = { bash: "Bash", write: "Write", edit: "Edit", apply_patch: "apply_patch", read: "Read", task: "Agent", question: "AskUserQuestion" }
 const EDITS = new Set(["write", "edit", "apply_patch"])
+// read-only built-ins (the door gate's QUIET set): they cross no door, so no spawn
+const QUIET = new Set(["read", "grep", "glob", "list", "todowrite", "todoread", "webfetch", "websearch"])
 const GATE_ROUNDS = 3
+// the door gate's timeout: hooks.json's 15 s; ALOOP_DOORS_TIMEOUT_MS only shortens it (tests)
+const DOORS_MS = ((t) => (t > 0 && t < 15000 ? t : 15000))(Number(process.env.ALOOP_DOORS_TIMEOUT_MS))
 
 export const AgenticAgile = async ({ client, directory, worktree }) => {
   const project = worktree || directory
@@ -66,18 +76,36 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
   const hostDir = join(homeDir, "host", "opencode")
   const safe = (s) => String(s || "").replace(/[^A-Za-z0-9_.-]/g, "_")
 
-  const run = (script, args, payload, cwd = project) => {
-    const r = spawnSync(join(BIN, script), args, { input: JSON.stringify(payload || {}), cwd, env, encoding: "utf8", timeout: 600000 })
+  const run = (script, args, payload, cwd = project, timeout = 600000) => {
+    const r = spawnSync(join(BIN, script), args, { input: JSON.stringify(payload || {}), cwd, env, encoding: "utf8", timeout })
     let json = null
     const last = (r.stdout || "").trim().split("\n").filter((l) => l.startsWith("{")).pop()
     try { if (last) json = JSON.parse(last) } catch {}
-    return { code: r.status ?? 1, stdout: r.stdout || "", stderr: (r.stderr || "").trim(), json }
+    return { code: r.status ?? 1, stdout: r.stdout || "", stderr: (r.stderr || "").trim(), json, error: r.error, signal: r.signal }
   }
   const denyOf = (res) => {
     const h = res.json?.hookSpecificOutput
     if (h?.permissionDecision === "deny") return h.permissionDecisionReason || "denied"
     if (res.code === 2) return res.stderr || "blocked"
     return null
+  }
+  // The door gate fails closed: a gate that cannot start, hangs, is killed or exits other than 0/2 has not
+  // admitted the call (a host that read that as "no objection" would let a one-way door through)
+  const doorsDenyOf = (res) => {
+    const how = res.error?.code === "ETIMEDOUT" ? `timed out after ${DOORS_MS / 1000} s`
+      : res.error ? `could not start (${res.error.code || res.error.message})`
+        : res.signal ? `was killed (${res.signal})` : res.code !== 0 && res.code !== 2 ? `exited ${res.code}` : ""
+    if (how) return `BLOCK[doors]: the door gate (aloop mission doors hook) ${how}, so the call is denied (it fails closed)${res.stderr ? `: ${res.stderr}` : ""}`
+    return denyOf(res)
+  }
+  let core = null                  // the core principles block (mission principles show --core), read once
+  const coreBlock = () => {
+    if (core === null) {
+      const r = run("mission", ["principles", "show", "--core"], {}, project, 15000)
+      if (r.code !== 0 || !r.stdout.trim()) return ""        // retried next turn
+      core = r.stdout.trim()
+    }
+    return core
   }
 
   async function info(id) {
@@ -145,6 +173,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
     "shell.env": async (_input, output) => {
       output.env.PATH = `${BIN}:${output.env.PATH || process.env.PATH || ""}`
       output.env.AGENTIC_HOST = "opencode"
+      output.env.ALOOP_AGENT_SHELL = "1"     // an agent's shell: `mission doors authorize|revoke` refuses it
     },
 
     "chat.message": async (input, output) => {
@@ -175,6 +204,10 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       const s = await info(input.sessionID)
       const ctx = startCtx.get(s.root)
       if (ctx && !s.parentID) output.system.push(ctx)
+      // the core principles reach every agent: a sub-agent, and a resumed root (no SessionStart context
+      // in this process); a root's SessionStart context already carries them, so never twice
+      const cb = active() ? coreBlock() : ""
+      if (cb && !output.system.some((x) => x.includes(cb.split("\n")[0]))) output.system.push(cb)
       const trig = promptCtx.get(s.root)
       if (trig && !s.parentID) { output.system.push(trig); promptCtx.delete(s.root) }
     },
@@ -209,8 +242,13 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       if (EDITS.has(input.tool) || input.tool === "bash") checks.push(["gate-mission-scope", []])   // role path guards
       if (input.tool === "bash") checks.push(["gate-commit-author", []])
       checks.push(["budget", ["hook", "pre"]])
+      // the door rule, LAST: it records door.crossed (a once-grant is used up), so only for a call every
+      // other gate admitted. Payload cwd stays the project; a bound worker's directory is tool_input.workdir
+      if (!QUIET.has(input.tool)) checks.push(["mission", ["doors", "hook"]])
       for (const [script, a] of checks) {
-        const why = denyOf(run(script, a, p))
+        const doors = script === "mission"
+        const res = run(script, a, p, project, doors ? DOORS_MS : undefined)
+        const why = doors ? doorsDenyOf(res) : denyOf(res)
         if (why) throw new Error(why)
       }
     },
