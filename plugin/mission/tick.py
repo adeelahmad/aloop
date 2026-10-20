@@ -6,9 +6,10 @@
         Each call records a mission.tick event (--peek records nothing). The same action is
         handed out at most 3 times in a row without a result, then BLOCKED.
   mission tick --force --by NAME
-        the human lifts a block the loop set (that repeat guard, or 3 failed goals in a row):
-        recorded as a grant, so the next tick, from any session, goes on. A hard line or a
-        stalled sprint is not lifted this way.
+        the human lifts a block the loop set (that repeat guard, or 3 failed goals in a row). It
+        is their own words (M9.17): it asks (exit 3) for the line they reply, `lift <mission>
+        <code>`, then records the lift in the ledger (mission.lifted), so the next tick, from any
+        session or a fresh checkout, goes on. A hard line or a stalled sprint is not lifted this way.
 
 The loop is IBM's autonomic MAPE-K over docs/agents/mission/: monitor (ASSESS), analyze
 (EVALUATE), plan (DERIVE_GOAL, PLAN_INTENTS), execute (SPRINT). Actions, first match wins:
@@ -17,9 +18,10 @@ The loop is IBM's autonomic MAPE-K over docs/agents/mission/: monitor (ASSESS), 
   CONFIRM_MISSION   human               the mission's current content has no human approval
   STOP_BUDGET       human               spend since the mission was set reached a cap, or the deadline passed
   ETHICS_REVIEW     ethics-reviewer     the mission, or the goal in flight, has no review for its content
-  BLOCKED           human               a hard line on the mission, or on a goal whose sprint runs; 3 failed
-                                        goals in a row; a stalled sprint; an action handed out 3 times; the
-                                        ledger or the confirmed baseline fails its check
+  BLOCKED           human               a hard line on the mission, or on a goal whose sprint runs; every open
+                                        gap held by a hard line; 3 failed goals in a row; a stalled sprint; an
+                                        action handed out 3 times; the ledger or the confirmed baseline fails
+                                        its check (a hard-lined goal with no sprint is retired: evaluate again)
   ASK_CONSENT       human               a gray review with no consent for that exact content (and review)
   RESEARCH          market-researcher   no research yet; or the goal is met: raise the bar
   DEFINE_JOURNEYS   market-researcher   no user journey yet; or a baseline has nothing to earn: raise the bar
@@ -52,8 +54,8 @@ as their records say (a retirement is a record); `mission ethics`'s verdict on t
 each goal (none → ETHICS_REVIEW, pending → ASK_CONSENT, hard or broken → BLOCKED, or a goal
 re-derived; one rule with the gate: a hard line follows its words to any goal, a review edited
 after it was recorded is broken), and a committed review of tier hard, so a checkout without the
-run log fails closed; the eval's
-`goal_met`; a goal only with its goal.derived (or goal.approved) record, closed by goal.met, and an
+run log fails closed; a gap list
+only with its eval.completed record (its `goal_met` and gaps); a goal only with its goal.derived (or goal.approved) record, closed by goal.met, and an
 eval narrowed to it (goal_id) decides its close (`aloop mission goal close`); Aladdin's intent,
 plan and sprint events and .aladdin/state/sprints.json; the
 sprint lock; and the token ledger (<run data>/ledger/). A goal's sprints are planned from its intents (intent.received
@@ -84,6 +86,7 @@ import _mission as M  # noqa: E402
 import _paths  # noqa: E402
 import baseline as B  # noqa: E402
 import ethics as E  # noqa: E402
+import evaluate as EV  # noqa: E402
 import journeys as J  # noqa: E402
 
 NO_ARGS = True            # `mission tick` with no arguments runs (plugin/bin/mission run_area)
@@ -281,6 +284,7 @@ def facts(cwd, now):
             e["data"] = {}
     f["events"], f["cwd"] = evs, cwd
     f["ticks"] = [e for e in evs if e.get("event") == "mission.tick"]
+    f["loop_log"] = [e for e in evs if e.get("event") in ("mission.tick", "mission.lifted")]
     f["ethics"], f["hard_refs"], f["verdicts"] = {}, set(), {}
     f["intents"], f["plans"], f["approved_plans"], f["activity"] = {}, [], set(), {}
     planned, closed, resets, newest = {}, {}, [0], {}
@@ -290,6 +294,7 @@ def facts(cwd, now):
     raw, _ = M.ledger_rows(cwd)
     rows = sorted(raw, key=lambda r: r["ts"])            # the core's order: a union merge interleaves branches
     assessed, born, met = {}, {}, {}
+    f["lifted"], f["lifts"], f["stops"] = {}, {}, {}
     for r in rows:
         name, d = r["event"], r["data"]
         if name == "state.assessed":
@@ -298,6 +303,14 @@ def facts(cwd, now):
             born.setdefault((d.get("subject"), d.get("sha256")), []).append(r["ts"])
         if name == "goal.met":
             met.setdefault(d.get("subject"), []).append(r["ts"])
+        if name == "mission.budget_exhausted":            # the loop stopped at a cap for this content
+            f["stops"].setdefault(d.get("sha256"), d)
+        if name == "mission.lifted" and r.get("role") == "human" and str(d.get("by") or "").strip() \
+                and d.get("sha256") == M.digest(lifted(d)):      # the human's typed line granted exactly this
+            f["lifted"][r["event_id"]] = d.get("block")
+            f["lifts"][d.get("block")] = f["lifts"].get(d.get("block"), 0) + 1
+            if d.get("grant") == "GOALS" and isinstance(d.get("occurrence"), int):
+                resets.append(d["occurrence"])          # only lifting that block clears the count, up to its goals
         sub = tuple(x if isinstance(x, str) else None for x in (d.get("subject"), d.get("sha256")))
         if name in M.APPROVAL_EVENTS and r.get("role") == "human" and str(d.get("by") or "").strip():
             newest[(name, sub[0])] = sub[1]
@@ -307,6 +320,11 @@ def facts(cwd, now):
     f["ledger_head"] = raw[-1]["hash"] if raw else ""
     # a state report counts only with the state.assessed record of its content (mission assess)
     f["kinds"]["state"] = [a for a in f["kinds"]["state"] if assessed.get(a["ref"]) == a["sha"]]
+    # and a gap list only intact (the eval.completed record of its content, its shape and seal), in the
+    # ledger's order, as `evaluate check` and `goal` read it: an uncomputed or edited one says nothing (M9.27)
+    order = [M.rel(cwd, path) for path, _ in EV.evaluated(cwd)]
+    evals = {a["ref"]: a for a in f["kinds"]["eval"]}
+    f["kinds"]["eval"] = [evals[r] for r in order if r in evals]
     # a goal is one `mission goal derive` recorded (goal.derived, or the human's goal.approved, for
     # its content) and it is closed by its goal.met record, as `mission evaluate` reads them
     f["kinds"]["goal"] = [dict(a, met=any(t >= max(born[(a["ref"], a["sha"])]) for t in met.get(a["ref"], [])))
@@ -325,8 +343,6 @@ def facts(cwd, now):
         ts = ms_end(e.get("ts"))
         if name == "intent.received" and isinstance(d.get("goal_id"), str) and isinstance(d.get("intent_id"), str):
             f["intents"].setdefault(d["goal_id"], []).append(d["intent_id"])
-        if name == "mission.tick" and d.get("grant") == "GOALS":    # only lifting that block clears the count
-            resets.append(ms_ts(d.get("at")) or ts or 0)
         m = re.match(r"^S(\d+)$", str(d.get("sprint") or (e.get("ids") or {}).get("sprint") or ""))
         if m and ts:
             n = int(m.group(1))
@@ -388,18 +404,22 @@ def ethics_of(f, kind, a):
     return f["verdicts"][key]
 
 
+def reply(verb, name, sha, cmd):
+    """The line the human types to grant exactly this content (M9.17), and the command that then records
+    it: the same code the grant's provenance checks, so relaying the hand-off is enough."""
+    return "the human replies `%s %s %s`, then `aloop mission %s`" % (verb, name, M.code(sha), cmd)
+
+
+def confirm_line(b):
+    return reply("confirm", b["id"], b["sha"], "baseline confirm %s --by NAME" % b["id"])
+
+
 def has(f, event, a):
     return (event, a["ref"], a["sha"]) in f["approvals"]
 
 
 def goal_met(f, e):
-    if "goal_met" in e["doc"]:
-        return e["doc"]["goal_met"] is True
-    for ev in f["events"]:
-        d = ev["data"]
-        if ev.get("event") == "eval.completed" and d.get("eval_id") == e["id"]:
-            return d.get("goal_met") is True
-    return False
+    return e["doc"].get("goal_met") is True              # its record covers this content
 
 
 def latest(f, kind):
@@ -477,9 +497,11 @@ def rules(f):
         return act("SET_MISSION", "mission.json is invalid: %s" % "; ".join(probs), f["mission_ref"])
     if rc != 0:
         return act("CONFIRM_MISSION", probs[0] if probs else "the mission needs the human's approval", f["mission_ref"])
-    if f["budget"]["exhausted"]:
+    stop = f["stops"].get(f["check"][2].get("sha256"))
+    why = f["budget"]["exhausted"] or (stop and "%s (the ledger's stop for this content)" % stop.get("why"))
+    if why:
         return act("STOP_BUDGET", "%s: the loop stops; the human raises the cap (edit mission.json, "
-                                  "`aloop mission approve`)" % f["budget"]["exhausted"], f["mission_ref"])
+                                  "`aloop mission approve`)" % why, f["mission_ref"])
     m = {"ref": f["mission_ref"], "sha": f["check"][2].get("sha256")}
     t, why = ethics_of(f, "mission", m)
     if t == "none":
@@ -489,8 +511,9 @@ def rules(f):
                               "it; the human changes the mission", m["ref"])
     if t == "pending":
         return act("ASK_CONSENT", "the mission is in an ethical gray area: the human consents to this content and "
-                                  "each of its gray reviews, with a reason (aloop mission ethics consent --subject "
-                                  "mission --by NAME --reason TEXT), or changes it", m["ref"])
+                                  "each of its gray reviews, with a reason (%s), or changes it"
+                   % reply("consent", f["mission"].get("mission_id"), m["sha"],
+                           "ethics consent --subject mission --by NAME --reason TEXT"), m["ref"])
     if t != "ok":
         return act("BLOCKED", "the mission's ethics review fails its check (%s): the human restores it (git), or "
                               "changes the mission" % (why[0] if why else t), m["ref"])
@@ -616,7 +639,8 @@ def baseline_rule(f, mode, now):
         if r != "measured":
             return r
         return act("CONFIRM_BASELINE", "baseline %s is measured: the human confirms it as the starting point and "
-                                       "the definition of best" % newer[-1]["id"], newer[-1]["ref"])
+                                       "the definition of best: %s" % (newer[-1]["id"], confirm_line(newer[-1])),
+                   newer[-1]["ref"])
     rc, probs, _ = B.evaluate(cwd)
     if rc == 2:
         return act("BLOCKED", "the confirmed baseline %s fails its check (%s): the human restores it (git), or "
@@ -631,7 +655,7 @@ def baseline_rule(f, mode, now):
             why = ("a spoon-fed mission confirms every version" if mode != "autonomous" else
                    "it tolerates more drift than %s: a looser gate is the human's" % f["baseline_id"])
             return act("CONFIRM_BASELINE", "a replacement baseline %s is measured; %s (the confirmed %s stays until "
-                                           "then)" % (b["id"], why, f["baseline_id"]), b["ref"])
+                                           "then): %s" % (b["id"], why, f["baseline_id"], confirm_line(b)), b["ref"])
         w = veto_window(f)
         since = ms_end(rec["ts"])
         if w is not None and since is not None and now >= since + w:
@@ -664,9 +688,10 @@ def goal_rule(f, g, mode, now, cad):
                                   "sprint; no new goal starts until it closes" % (g["id"], running[-1]), g["ref"])
         return None                              # the cycle re-derives (and counts it)
     if t == "pending":
-        return act("ASK_CONSENT", "goal %s is in an ethical gray area: the human consents for this goal only (aloop "
-                                  "mission ethics consent --subject %s --by NAME --reason TEXT), or the planner "
-                                  "derives another" % (g["id"], g["id"]), g["ref"])
+        return act("ASK_CONSENT", "goal %s is in an ethical gray area: the human consents for this goal only (%s), "
+                                  "or the planner derives another"
+                   % (g["id"], reply("consent", g["id"], g["sha"],
+                                     "ethics consent --subject %s --by NAME --reason TEXT" % g["id"])), g["ref"])
     if t != "ok":
         return act("BLOCKED", "goal %s's ethics review fails its check (%s): the human restores it (git), or the "
                               "planner derives another goal" % (g["id"], why[0] if why else t), g["ref"])
@@ -762,9 +787,9 @@ def cycle(f, now, cad):
     if gid:      # narrowed to a goal's targets while it was open: it says nothing about the whole mission
         g = next((x for x in f["kinds"]["goal"] if x["id"] == gid), None)
         if g and not g["met"] and ethics_of(f, "goal", g)[0] == "hard":
-            return act("BLOCKED", "goal %s crossed a hard line, and `mission evaluate` still narrows to it (ROADMAP "
-                                  "M9.29): no new goal can be derived until it is set aside; the human looks"
-                       % gid, g["ref"])
+            return act("EVALUATE", "goal %s crossed a hard line, so it is retired and eval %s, narrowed to it, says "
+                                   "nothing: evaluate the whole mission (aloop mission evaluate)" % (gid, e["id"]),
+                       e["ref"])
         if not g or g["met"]:
             return act("EVALUATE", "eval %s was narrowed to goal %s, which is closed: evaluate the whole mission "
                                    "(aloop mission evaluate)" % (e["id"], gid), e["ref"])
@@ -777,6 +802,12 @@ def cycle(f, now, cad):
         nxt = min(s["ms"] + cad, last_activity(f, n) + STALL)
         return act("WAIT", "sprint %d is running; the next goal is derived after it closes" % n, "", iso(nxt))
     if not goal_met(f, e):
+        import goal as G      # noqa: E402 — here: goal imports most of the mission layer
+        opened, held = G.split_held(f["cwd"], G.eval_gaps(f["cwd"], e["doc"]))
+        if held and not opened:
+            return act("BLOCKED", "every gap of eval %s is held by a hard line (%d): no goal may take one, so only a "
+                                  "human-approved change of the mission moves on (aloop mission ethics check)"
+                       % (e["id"], len(held)), e["ref"])
         why = "goal %s %s: derive another from" % (fails[0][0]["id"], fails[0][1]) if fails else "eval %s shows " \
             "gaps: derive the next goal from" % e["id"]
         if f["mission"].get("mode") == "spoon-fed":
@@ -795,13 +826,19 @@ def cycle(f, now, cad):
 
 def handouts(f, key):
     """How many times in a row `key` went to a role or the supervisor: another handout ends the
-    run, a human's --force grant for it starts the count again, and human or WAIT ticks between
-    do not count (a retry after a lapsed lease is still a retry)."""
-    n = 0
-    for e in reversed(f["ticks"]):
-        d = e["data"]
-        if d.get("grant") == key:
-            break
+    run, the human's lift of it starts the count again (the run-log event of its ledger row, the first
+    copy only, so a replayed line or a run-log tick lifts nothing), and human or WAIT ticks between do
+    not count (a retry after a lapsed lease is still a retry)."""
+    n, log = 0, f["loop_log"]
+    first = {}
+    for i, e in enumerate(log):
+        first.setdefault(e.get("event_id"), i)
+    for i in range(len(log) - 1, -1, -1):
+        e, d = log[i], log[i]["data"]
+        if e.get("event") == "mission.lifted":
+            if f["lifted"].get(e.get("event_id")) == "BLOCKED " + key and first[e.get("event_id")] == i:
+                break
+            continue
         if d.get("who") not in ("role", "supervisor"):
             continue
         if d.get("key") != key:
@@ -841,16 +878,32 @@ def record(cwd, d):
            mission_id=d["mission_id"], at=iso(f["now"]), loop=os.environ.get("ALOOP_MISSION_LOOP") or None)
     if d["action"] == "STOP_BUDGET":
         sha = f["check"][2].get("sha256")
-        if not any(e.get("event") == "mission.budget_exhausted" and e["data"].get("sha256") == sha
-                   for e in f["events"]):
-            M.emit(cwd, "mission.budget_exhausted", role="mission-loop", refs={"mission": f["mission_ref"]},
-                   mission_id=d["mission_id"], sha256=sha, why=f["budget"]["exhausted"], tokens=f["budget"]["tokens"],
-                   usd=f["budget"]["usd"])
+        if sha not in f["stops"]:                         # once per content, in the ledger (a clone stays stopped)
+            M.record(cwd, "mission.budget_exhausted", f["mission_ref"], "mission-loop", mission_id=d["mission_id"],
+                     sha256=sha, why=f["budget"]["exhausted"], tokens=f["budget"]["tokens"], usd=f["budget"]["usd"])
+
+
+def lifted(data):
+    """What a `lift` line grants (its digest is the code): this occurrence of one block of one mission."""
+    return {k: data.get(k) for k in ("mission_id", "block", "lift", "occurrence")}
+
+
+def lift_of(f, d):
+    """This block's lift: its key, how many lifts of that key the ledger has, and the occurrence: for
+    3 failed goals the newest one's time (the reset reaches that far, whatever the clock says), for
+    a repeat the handout that tripped it. So a line typed for one block never lifts another."""
+    if d["grant"] == "GOALS":
+        at = max([g["ms"] for g in f["kinds"]["goal"] if g["ref"] == d["subject"]] or [0])
+    else:
+        at = next((e.get("event_id") for e in reversed(f["ticks"]) if e["data"].get("key") == d["grant"]
+                   and e["data"].get("who") in ("role", "supervisor")), "")
+    return {"mission_id": d["mission_id"], "block": d["key"], "lift": f["lifts"].get(d["key"], 0), "occurrence": at}
 
 
 def force(cwd, now, by):
-    """The human lifts a block the loop set (the repeat guard, or 3 failed goals in a row): a grant
-    tick, so the next tick, from any session, hands the action out again. A hard line or a stalled
+    """The human lifts a block the loop set (the repeat guard, or 3 failed goals in a row): their typed
+    `lift` line (M9.17; M.NeedsHuman asks for it), recorded in the ledger, and a grant tick, so the next
+    tick, from any session or a fresh checkout, hands the action out again. A hard line or a stalled
     sprint is not lifted this way."""
     d = decide(cwd, now)
     if d["action"] != "BLOCKED":
@@ -859,9 +912,13 @@ def force(cwd, now, by):
     if not d.get("grant"):
         print("mission tick --force: this block is not lifted by --force: %s" % d["reason"], file=sys.stderr)
         return 2
+    f = d["_facts"]
+    lift = lift_of(f, d)
+    sha = M.digest(lift)
+    M.approve(cwd, "mission.lifted", f["mission_ref"], sha, by, grant=d["grant"], at=iso(f["now"]), **lift)
     M.emit(cwd, "mission.tick", role="human", refs={"subject": d["subject"]}, action="FORCE", key="FORCE " + d["grant"],
-           grant=d["grant"], by=by, who="human", roles=[], handout=0, facts=d["facts"], mission_id=d["mission_id"],
-           reason="%s lifted the block: %s" % (by, d["reason"]), at=iso(d["_facts"]["now"]))
+           grant=d["grant"], lift=sha, by=by, who="human", roles=[], handout=0, facts=d["facts"],
+           mission_id=d["mission_id"], reason="%s lifted the block: %s" % (by, d["reason"]), at=iso(f["now"]))
     print("FORCE            %s lifted the block; the next tick goes on (%s)" % (by, d["grant"]))
     return 0
 

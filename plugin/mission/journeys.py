@@ -92,15 +92,26 @@ EVIDENCE = re.compile(r"^(evl|sta|rsr)_[0-9a-f]{20}$")
 EVIDENCE_KIND = {"evl": "eval", "sta": "state", "rsr": "research"}
 
 
+# an eval or a state is evidence only as its command recorded it (a file nobody computed is not)
+EVIDENCE_RECORD = {"eval": "eval.completed", "state": "state.assessed"}
+
+
 def evidence_problems(cwd, refs, where):
     """Evidence is a research claim (<research_id>#<claim_id>) or an eval, state or research id
-    that exists: a placeholder string is not evidence."""
+    that exists (an eval or state with the ledger record of its content): a placeholder string is
+    not evidence."""
     out = []
     for r in refs or []:
         m = EVIDENCE.match(str(r))
         if m:
-            if not isinstance(M.load(M.path_of(cwd, EVIDENCE_KIND[m.group(1)], r))[0], dict):
+            kind = EVIDENCE_KIND[m.group(1)]
+            path = M.path_of(cwd, kind, r)
+            doc = M.load(path)[0]
+            rec = M.newest(cwd, EVIDENCE_RECORD[kind], M.rel(cwd, path)) if kind in EVIDENCE_RECORD else None
+            if not isinstance(doc, dict):
                 out.append("%s %s does not exist" % (where, r))
+            elif kind in EVIDENCE_RECORD and (rec or {}).get("data", {}).get("sha256") != M.digest(doc):
+                out.append("%s %s has no %s record for this content" % (where, r, EVIDENCE_RECORD[kind]))
         elif REF.match(str(r)):
             out += ref_problems(cwd, [r], where, "evidence")
         else:

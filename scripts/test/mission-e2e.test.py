@@ -11,6 +11,7 @@ raised budget keeps the baseline (M9.25); a fresh clone decides the same.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -67,6 +68,15 @@ def tick(want, rc=0, cwd=None):
     return d
 
 
+def granted(d, *args):
+    """The human types the line tick's hand-off names (M9.17); the command it names then records the grant."""
+    m = re.search(r"repl(?:ies|ying) `([^`]+)`, then `aloop mission ([^`]+)`", d["reason"])
+    assert m and " ".join(args).startswith(m.group(2).split(" --by")[0]), (d["reason"], args)
+    p.say(m.group(1))
+    r = p.raw(*args)
+    assert r.returncode == 0, (m.group(1), r.stderr[-600:])
+
+
 def review_clear(subject="mission"):
     path = must("ethics", "new", "--subject", subject).stdout.strip()
     doc = json.load(open(path))
@@ -105,8 +115,7 @@ tick("BASELINE")
 bid = json.load(open(must("baseline", "new", "--definition", "a first task in under 5 seconds").stdout.strip()))["baseline_id"]
 tick("BASELINE")
 must("baseline", "measure", bid)
-tick("CONFIRM_BASELINE", 3)
-must("baseline", "confirm", bid, "--by", "Adeel")
+granted(tick("CONFIRM_BASELINE", 3), "baseline", "confirm", bid, "--by", "Adeel")
 tick("ASSESS")
 ok("ethics, research, journeys and a baseline measured twice; the human confirms it")
 
@@ -114,8 +123,7 @@ ok("ethics, research, journeys and a baseline measured twice; the human confirms
 md = p.load("mission")
 md["budget"]["usd"], md["status"] = 80.0, "draft"
 p.save("mission", "", md)
-tick("CONFIRM_MISSION", 3)
-must("approve", "--by", "Adeel", "--reason", "a bigger budget")
+granted(tick("CONFIRM_MISSION", 3), "approve", "--by", "Adeel", "--reason", "a bigger budget")
 tick("ETHICS_REVIEW")
 review_clear()
 tick("ASSESS")

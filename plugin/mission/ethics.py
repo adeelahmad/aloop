@@ -172,16 +172,22 @@ def word_keys(kind, doc, only=None):
     return sorted({k for k in map(word_key, xs) if k})
 
 
+def rows(cwd):
+    """M.history (the ledger's rows, then the run log's other events) without a malformed run-log line: an
+    event whose data is not an object is skipped, never a traceback."""
+    return [e for e in M.history(cwd) if isinstance(e.get("data"), dict)]
+
+
 def hard_words(cwd):
     """Every word key a hard line has fixed (the goal module skips gaps that repeat one)."""
-    return {w for e in M.history(cwd) if e.get("event") == "ethics.blocked"
-            for w in ((e.get("data") or {}).get("words") or []) if isinstance(w, str)}
+    return {w for e in rows(cwd) if e.get("event") == "ethics.blocked" and isinstance(e["data"].get("words"), list)
+            for w in e["data"]["words"] if isinstance(w, str)}
 
 
 def held_gaps(cwd):
     """Every gap id a hard line has fixed: the gap is held by its id as well as by its words."""
-    return {g for e in M.history(cwd) if e.get("event") == "ethics.blocked"
-            for g in ((e.get("data") or {}).get("gaps") or []) if isinstance(g, str)}
+    return {g for e in rows(cwd) if e.get("event") == "ethics.blocked" and isinstance(e["data"].get("gaps"), list)
+            for g in e["data"]["gaps"] if isinstance(g, str)}
 
 
 def screen(text):
@@ -321,7 +327,7 @@ def verdict(cwd, kind, sid):
         facts["state"] = "broken"
         return 2, ["%s (restore it: git checkout -- %s)" % (b, M.rel(cwd, M.ledger(cwd))) for b in broken], facts
     every, recs, hard, consents = [], {}, [], []
-    for e in M.history(cwd):
+    for e in rows(cwd):
         d = e.get("data") or {}
         if not str(e.get("event", "")).startswith("ethics."):
             continue
@@ -330,7 +336,8 @@ def verdict(cwd, kind, sid):
         # its statement or one of its gaps (derived again with a new id, refs or eval)
         if is_hard(e) and (d.get("subject") == ref and (d.get("sha256") == sha or kind == "goal")
                            or d.get("text_sha256") == words
-                           or (kind == "goal" and d.get("kind") == "goal" and mine & set(d.get("words") or []))):
+                           or (kind == "goal" and d.get("kind") == "goal" and isinstance(d.get("words"), list)
+                               and mine & set(w for w in d["words"] if isinstance(w, str)))):
             hard.append(e)
         if d.get("subject") != ref or d.get("sha256") != sha:
             continue
@@ -461,7 +468,7 @@ def cmd_record(cwd, path):
         return 2
     M.save(path, rev)
     kind, sid = parsed
-    mine = [e for e in M.history(cwd) if e.get("event") == "ethics.reviewed"
+    mine = [e for e in rows(cwd) if e.get("event") == "ethics.reviewed"
             and (e.get("data") or {}).get("ethics_id") == eid]
     if not mine or mine[-1]["data"].get("review_sha256") != rev["sha256"]:   # re-recording the same file is a no-op
         if M.ledger_block(cwd, "ethics"):

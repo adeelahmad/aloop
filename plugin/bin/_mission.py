@@ -60,12 +60,13 @@ STATUSES = {
 # human approvals: the event type, and the subject kind it approves
 APPROVAL_EVENTS = {"mission.approved": "mission", "baseline.confirmed": "baseline",
                    "journey.approved": "journey", "goal.approved": "goal", "ethics.consent": "goal",
-                   "telemetry.consent": "telemetry"}
+                   "telemetry.consent": "telemetry", "mission.lifted": "mission"}
 # a human grant counts only with the human's own words (M9.17): a line of a prompt the
 # UserPromptSubmit hook captured (`transcripts prompt`) that says the grant's verb and the code of
 # the content it grants (the first 8 hex of its sha256). A veto needs none: refusing is always safe.
 GRANT_VERBS = {"mission.approved": "approve", "baseline.confirmed": "confirm", "journey.approved": "approve",
-               "goal.approved": "approve", "ethics.consent": "consent", "telemetry.consent": "consent"}
+               "goal.approved": "approve", "ethics.consent": "consent", "telemetry.consent": "consent",
+               "mission.lifted": "lift"}
 ACTION_VERBS = ("restore", "retire")    # a grant whose data.action is one of these says that verb
 SUPERSEDE_ACROSS = ("baseline.confirmed",)     # the newest confirmation of any version is the current one
 NEGATION = re.compile(r"\b(?:not|no|never|don'?t|veto\w*|reject\w*|cancel\w*|stop|wait|undo)\b")
@@ -234,16 +235,19 @@ def problems(doc, kind, path=""):
 
 
 # ── events and approvals ─────────────────────────────────────────────────────────────
-def emit(cwd, event, role="", refs=None, **data):
-    return _events.emit(cwd, event, role=role, refs=refs, **data)
+def emit(cwd, event, role="", refs=None, event_id=None, **data):
+    return _events.emit(cwd, event, role=role, refs=refs, event_id=event_id, **data)
 
 
-# a human decision that is not an approval: a veto, an opt-out
-HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed", "telemetry.revoked")
+# a human decision that is not an approval: a veto, an opt-out, a door opened or closed (M9.30)
+HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed", "telemetry.revoked", "door.authorized", "door.revoked")
 # every record a mission gate decides from: the human decisions, plus what the harness measured,
-# assessed, retired, reviewed (a hard ethics line stays blocked on a fresh checkout) and derived
-LEDGER_EVENTS = HUMAN_EVENTS + ("baseline.measured", "state.assessed", "journey.retired", "ethics.reviewed",
-                                "ethics.blocked", "goal.derived", "goal.met")
+# assessed, evaluated (a clone trusts the same gap lists), retired, reviewed (a hard ethics line stays
+# blocked on a fresh checkout), derived, the loop's own stop at a spend cap (a clone stays stopped)
+# and the one-way doors crossed under a once-authorization (M9.30)
+LEDGER_EVENTS = HUMAN_EVENTS + ("baseline.measured", "state.assessed", "eval.completed", "journey.retired",
+                                "ethics.reviewed", "ethics.blocked", "goal.derived", "goal.met",
+                                "mission.budget_exhausted", "door.crossed")
 
 
 def ledger(cwd=None):
@@ -310,10 +314,11 @@ def ledger_problems(cwd):
     """The ledger's own problems, plus every ledger event the run log recorded on this branch that
     the ledger lost (the run log is shared by every branch of the checkout; another branch's
     ledger never had this branch's rows)."""
+    events = _events.read(cwd)      # the stream first: its writer appends the ledger row before the event
     rows, bad = ledger_rows(cwd)
     have = set(r.get("event_id") for r in rows)
     here = None
-    for e in _events.read(cwd):
+    for e in events:
         d = e.get("data")
         if not isinstance(d, dict) or d.get("ledger") is not True or e.get("event_id") in have:
             continue
@@ -332,7 +337,9 @@ def ledger_block(cwd, area):
 
 
 def record(cwd, event, subject_ref, role, **data):
-    """Append one record a gate decides from to the ledger (and the event stream); returns the row."""
+    """Append one record a gate decides from to the ledger, then to the event stream under the same
+    event_id (so a reader, which reads the stream first, never sees a half-written record as a lost
+    row); returns the row. It is dated no earlier than any row: the newest decision is the latest."""
     if event not in LEDGER_EVENTS:
         raise ValueError("not a ledger event: %r" % event)
     bad = ledger_problems(cwd)
@@ -341,16 +348,16 @@ def record(cwd, event, subject_ref, role, **data):
     body = dict(data, subject=subject_ref)
     if event in HUMAN_EVENTS:      # a decision (or the veto window's) dates every prompt captured before it
         body["prompt_log"] = prompt_clock(prompts(cwd))
-    eid = emit(cwd, event, role=role, refs={"subject": subject_ref}, ledger=True, branch=branch(cwd), **body) \
-        or uuid.uuid4().hex
+    eid, here = uuid.uuid4().hex, branch(cwd)
     rows, _ = ledger_rows(cwd)
-    ts = max([now()] + [r["ts"] for r in rows[-1:]])
+    ts = max([now()] + [r["ts"] for r in rows])
     row = {"event_id": eid, "ts": ts, "event": event, "role": role, "data": body,
            "prev": rows[-1]["hash"] if rows else ""}
     row["hash"] = _row_hash(row)
     os.makedirs(os.path.dirname(ledger(cwd)), exist_ok=True)
     with open(ledger(cwd), "a", encoding="utf-8") as f:
         f.write(json.dumps(row, sort_keys=True) + "\n")
+    emit(cwd, event, role=role, refs={"subject": subject_ref}, event_id=eid, ledger=True, branch=here, **body)
     return row
 
 

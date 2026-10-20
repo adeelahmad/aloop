@@ -64,6 +64,7 @@ class Project:
         self.dir = tempfile.mkdtemp(prefix="aloop-mission-")
         self.env = dict(os.environ, HOME=os.path.join(self.dir, "home"))
         self.env.pop("AGENTIC_HOST", None)
+        self.env.pop("CLAUDECODE", None)      # the human's own terminal (an agent's shell may not authorize a door)
         subprocess.run(["git", "init", "-q"], cwd=self.dir, check=True)
         os.makedirs(os.path.join(self.dir, "tools"))
         with open(os.path.join(self.dir, "tools", "journey.py"), "w") as f:

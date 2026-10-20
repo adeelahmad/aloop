@@ -21,6 +21,7 @@ from mission_fixture import ASKED, Project, M, BIN  # noqa: E402
 sys.path.insert(0, M.AREAS_DIR)
 import _events  # noqa: E402
 import ethics as E  # noqa: E402
+import evaluate as EV  # noqa: E402
 import goal as G  # noqa: E402
 import principles as P  # noqa: E402
 
@@ -354,22 +355,30 @@ h, (h1, _, hb), eh = setup("autonomous", extra=[BAD])
 assert review(h, "mission").returncode == 0
 assert eh["gaps"][0]["gap_id"] == hb + "#quick", eh["gaps"]              # closest to target: first
 gh1 = made(h.run("goal", "derive", "--eval", eh["eval_id"], "--top", "1"))["goal_id"]
+en = evaluate(h)                                                         # an eval of the active goal
+assert en["goal_id"] == gh1, en
 assert review(h, gh1, [{"category": "other", "tier": "hard", "reason": "paid fake praise deceives buyers"}],
               "hard").returncode == 2
 r = h.run("goal", "check", gh1)
 assert r.returncode == 2 and "hard line" in r.stderr, r.stderr
 r = h.run("goal", "options", "--eval", eh["eval_id"], "--json")
 o2 = json.loads(r.stdout)
+assert r.returncode == 0, r.stderr
 assert [x["gap_id"] for x in o2["options"]] == [h1 + "#fast", h1 + "#all"], o2
 assert [x["gap_id"] for x in o2["held"]] == [hb + "#quick"], o2
 assert h.events("ethics.blocked")[-1]["data"]["gaps"] == [hb + "#quick"]
 quick = o2["held"][0]
 assert G.split_held(h.dir, [dict(quick, summary="Other words for the same gap")])[1]   # held by its id as well
-r = h.run("goal", "close", gh1, "--eval", eh["eval_id"])
+r = h.run("goal", "close", gh1, "--eval", en["eval_id"])
 assert r.returncode == 2 and "blocked" in r.stderr, r.stderr                        # a hard-lined goal never closes
-g2 = made(h.run("goal", "derive", "--eval", eh["eval_id"], "--top", "1"))
+r = h.run("goal", "derive", "--eval", en["eval_id"], "--top", "1")          # M9.29: retired, so evaluate again
+assert r.returncode == 2 and "an ethics hard line has retired" in r.stderr and "mission evaluate" in r.stderr, r.stderr
+assert EV.active_goal(h.dir) is None                                      # a hard-lined goal is never active
+e2 = evaluate(h)
+assert e2["goal_id"] is None and [g["gap_id"] for g in e2["gaps"]] == [g["gap_id"] for g in eh["gaps"]], e2
+g2 = made(h.run("goal", "derive", "--eval", e2["eval_id"], "--top", "1"))   # the loop moves on
 assert [x["gap_id"] for x in g2["gaps"]] == [h1 + "#fast"], g2["gaps"]
-r = h.run("goal", "close", g2["goal_id"], "--eval", eh["eval_id"])
+r = h.run("goal", "close", g2["goal_id"], "--eval", e2["eval_id"])
 assert r.returncode == 2 and "only an active goal closes" in r.stderr, r.stderr   # derived, never handed off
 newer = os.path.join(h.dir, "principles-next.md")                 # the standing block changes after derive
 with open(P.SOURCE, encoding="utf-8") as fh:
@@ -391,7 +400,8 @@ M.save(g2p, old)
 r = h.run("goal", "check", g2["goal_id"])
 assert r.returncode == 2 and "not the content goal.derived recorded" in r.stderr, r.stderr
 assert E.word_key("Pay strangers to praise us under made-up names (quick): secs <= 8") in E.hard_words(h.dir)
-ok("a hard line holds its gaps out of options and derive; an older principles stamp is stale, not invalid")
+ok("a hard line holds its gaps out of options and derive and retires its goal (the next eval covers the whole "
+   "mission, M9.29); an older principles stamp is stale, not invalid")
 
 # 12) the intent tool: `mission` is a source, and a mission intent must name its goal
 r = tool(p, INTENT, "new", "--source", "mission", "--raw", "x")

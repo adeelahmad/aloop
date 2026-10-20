@@ -372,10 +372,11 @@ path_matches_any() {
 # Suppression patterns that must never appear in source. exit 2 if found.
 assert_no_suppression() {
   local root; root="$(repo_dir)"
-  if grep -rEn '#\[ignore\]|\.skip\(|(^|[^A-Za-z])xit\(|#\[cfg\(not\(test\)\)\]' \
+  # Rust's are attributes: `.skip(n)` on an iterator is not one (live runs 46-48)
+  if grep -rEn '#\[ignore *(\]|=)|#\[cfg\(not\(test\)\)\]' \
       --include='*.rs' "$root" 2>/dev/null \
       | grep -v '/target/' >/dev/null 2>&1; then
-    fail "test-suppression pattern present (no #[ignore]/.skip/xit/cfg(not(test)))"
+    fail "test-suppression pattern present (no #[ignore]/cfg(not(test)))"
   fi
   # Python, Go, JS/TS: the same rule in each test framework's own words
   if grep -rEn '@pytest\.mark\.(skip|skipif|xfail)|pytest\.(skip|xfail)\(|@unittest\.(skip|expectedFailure)|(^|[^A-Za-z_])t\.Skip(Now|f)?\(|\.skip\(|(^|[^A-Za-z])x(it|describe|test)\(' \

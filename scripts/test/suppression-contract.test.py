@@ -10,6 +10,8 @@ and cost a second GREEN attempt and a final-gate retry.
 import json
 import os
 import re
+import subprocess
+import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 P = os.path.join(ROOT, "plugin")
@@ -26,7 +28,7 @@ fn = lib[lib.index("assert_no_suppression() {"):]
 fn = fn[:fn.index("\n}\n")]
 listed = re.findall(r'fail "test-suppression pattern present \(no (.*)\)"', fn)
 patterns = [[p.strip() for p in one.split("/")] for one in listed]
-assert patterns == [["#[ignore]", ".skip", "xit", "cfg(not(test))"],
+assert patterns == [["#[ignore]", "cfg(not(test))"],
                     ["@pytest.mark.skip", "@pytest.mark.xfail", "pytest.skip", "@unittest.skip", "t.Skip", ".skip", "xit", "xdescribe"]], patterns
 
 persona = open(os.path.join(P, "agents", "final-gate.md")).read()
@@ -45,5 +47,26 @@ ev = json.load(open(os.path.join(P, "evals", "agents", "final-gate.json")))
 case = [e for e in ev["evals"] if "allow(dead_code)" in e["prompt"] + e["context"]]
 assert case and case[0]["kind"] == "edge" and any("certif" in a.lower() for a in case[0]["assertions"]), case
 ok("final-gate eval suite covers the run-21 case (allow(dead_code) in tests/common/ with a green matrix)")
+
+
+# Rust's suppressions are attributes; `.skip(` and `xit(` are JS. An iterator's `.skip(1)` in
+# Rust source is not a suppression (live runs 46-48: every GREEN worker's `args().skip(1)` was
+# refused once), and `#[ignore = "reason"]` is one.
+def suppressed(rel, text):
+    d = tempfile.mkdtemp(prefix="agentic-suppr-")
+    os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
+    open(os.path.join(d, rel), "w").write(text)
+    r = subprocess.run(["bash", "-c", 'GATE_NAME=t; . "$1"; assert_no_suppression', "_",
+                        os.path.join(P, "bin", "_gatelib.sh")], cwd=d, env=dict(os.environ, REPO_DIR=d),
+                       capture_output=True, text=True)
+    return r.returncode == 2 and "test-suppression" in r.stderr
+
+
+assert not suppressed("src/main.rs", "fn main() { for a in std::env::args().skip(1) { let _ = a; } }\n")
+assert suppressed("tests/cli.rs", "#[test]\n#[ignore]\nfn t() {}\n")
+assert suppressed("tests/cli.rs", "#[test]\n#[ignore = \"slow\"]\nfn t() {}\n")
+assert suppressed("src/lib.rs", "#[cfg(not(test))]\nfn f() {}\n")
+assert suppressed("web/a.test.js", "it.skip('a', () => {});\n")
+ok("an iterator's .skip(n) in Rust is not a suppression; #[ignore], #[ignore = ..] and cfg(not(test)) are")
 
 print("\n%d checks passed" % PASS[0])
