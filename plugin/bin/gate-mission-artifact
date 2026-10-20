@@ -249,16 +249,23 @@ def judge(R, M, project, role, run):
         for args in calls:
             cmd = " ".join(["aloop mission", area, "check"] + [a for a in args if a != "--json"])
             rc, out, stdout = run_check([os.path.join(BIN, "mission"), area, "check"] + args, project, deadline)
-            state = None
+            facts = {}
             if "--json" in args:
                 try:
-                    state = (json.loads(stdout) or {}).get("state")
-                except (ValueError, AttributeError):
-                    state = None
+                    facts = json.loads(stdout)
+                except ValueError:
+                    facts = {}
+                facts = facts if isinstance(facts, dict) else {}
+            items = facts.get("blocks") or facts.get("problems") or []
+            items = [b for b in items if isinstance(b, str)]
+            foreign = tuple(spec.get("foreign", ()))
             if rc == 3:
                 notes.append("`%s` needs the human (exit 3); that is the supervisor's next step, not yours" % cmd)
-            elif rc == 2 and state in spec.get("verdicts", ()):
-                notes.append("`%s` holds a %s verdict: your finding, recorded; what follows is the supervisor's" % (cmd, state))
+            elif rc == 2 and facts.get("state") in spec.get("verdicts", ()):
+                notes.append("`%s` holds a %s verdict: your finding, recorded; what follows is the supervisor's"
+                             % (cmd, facts.get("state")))
+            elif rc == 2 and foreign and items and all(b.startswith(foreign) for b in items):
+                notes.append("`%s` waits on another role's step, not yours:\n      %s" % (cmd, "\n      ".join(items)))
             elif rc != 0:
                 problems.append("`%s` %s (exit %d):\n      %s"
                                 % (cmd, "blocks" if rc == 2 else "failed", rc, out.replace("\n", "\n      ")))

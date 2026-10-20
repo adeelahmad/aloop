@@ -641,6 +641,8 @@ def review(subject, findings, tier):
 
 r, rec = role_run("aloop:ethics-reviewer", "er1", review("mission", [], "clear"))
 assert rec.returncode == 0 and r.returncode == 0, (rec.stderr, r.stderr)        # its check needs --subject
+r, gl = role_run("aloop:mission-planner", "mpd", lambda: made(X.run("goal", "derive")))
+assert r.returncode == 0 and "waits on another role's step" in r.stderr, r.stderr   # the goal's own review is pending
 gid = M.new_id("goal")
 g = {"goal_id": gid, "statement": "post fake reviews of our rivals", "status": "derived", "created_at": M.now()}
 M.seal(g)

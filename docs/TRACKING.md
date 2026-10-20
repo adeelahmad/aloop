@@ -70,7 +70,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.8 | Mission loop: `tick` from facts, zero-token `due`, cron, budget caps | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.9 | Six fixed mission roles, wired; role path guards; artifact check at stop | IMPLEMENTED_TESTED | `scripts/test/mission-roles.test.py`, `scripts/test/mission-scope-bash.test.py` |
 | M9.10 | State Assessor report and Evaluator gap list | IMPLEMENTED_TESTED | `scripts/test/mission-evaluate.test.py` |
-| M9.11 | Goals become Aladdin intents; lineage reaches the mission | NOT_IMPLEMENTED | §4.12 |
+| M9.11 | Goals become Aladdin intents; lineage reaches the mission | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py` |
 | M9.12 | `/aloop:mission` skill | IMPLEMENTED_TESTED | `scripts/test/mission-skill.test.py` |
 | M9.13 | Mission end to end (offline in CI, one live cycle measured) | NOT_IMPLEMENTED | §4.12 |
 | M9.17 | Approvals name the captured human prompt | NOT_IMPLEMENTED | §4.12 |
@@ -78,5 +78,9 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.21 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |
 | M9.22 | Mission USD meter prices fast mode and server tools | NOT_IMPLEMENTED | §4.12 |
 | M9.23 | Mission loop takes its ethics facts from the ethics verdict | NOT_IMPLEMENTED | §4.12 |
-| M9.24 | `--force` grants and ethics reviews are ledger rows | NOT_IMPLEMENTED | §4.12 |
+| M9.24 | `--force` grants, ethics reviews and the budget stop are ledger rows | NOT_IMPLEMENTED | §4.12 |
 | M9.25 | A baseline binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
+| M9.26 | A goal's sprint history is read from committed records | NOT_IMPLEMENTED | §4.12 |
+| M9.27 | The mission loop trusts an eval only when `evaluate check` would | NOT_IMPLEMENTED | §4.12 |
+| M9.30 | Artifact provenance in the mission loop | NOT_IMPLEMENTED | §4.12 |
+| M9.31 | Concurrent mission role runs are serialized | NOT_IMPLEMENTED | §4.12 |

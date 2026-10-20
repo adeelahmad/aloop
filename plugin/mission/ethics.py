@@ -179,6 +179,12 @@ def hard_words(cwd):
             for w in ((e.get("data") or {}).get("words") or []) if isinstance(w, str)}
 
 
+def held_gaps(cwd):
+    """Every gap id a hard line has fixed: the gap is held by its id as well as by its words."""
+    return {g for e in _events.read(cwd) if e.get("event") == "ethics.blocked"
+            for g in ((e.get("data") or {}).get("gaps") or []) if isinstance(g, str)}
+
+
 def screen(text):
     """[(category, matched phrase)] in CATEGORIES order, one per matched category."""
     out = []
@@ -273,6 +279,14 @@ def hard_keys(kind, doc, rev):
     and the statement)."""
     named = {g for f in rev.get("findings", []) if f.get("tier") == "hard" for g in (f.get("gaps") or [])}
     return word_keys(kind, doc, only=named or None)
+
+
+def hard_gaps(kind, doc, rev):
+    """The gap ids a hard review fixes: the gaps its hard findings name (a goal of one gap: that gap)."""
+    if kind != "goal":
+        return []
+    named = {g for f in rev.get("findings", []) if f.get("tier") == "hard" for g in (f.get("gaps") or [])}
+    return sorted(g for g in goal_gaps(doc) if not named or g in named)
 
 
 def review_problems(cwd, rev, path, matched, subject=None):
@@ -455,7 +469,8 @@ def cmd_record(cwd, path):
             cats = [c for c in list(CATEGORIES) + ["other"]
                     if any(f["category"] == c and f["tier"] == "hard" for f in rev["findings"])]
             M.emit(cwd, "ethics.blocked", role="ethics-reviewer", refs=refs, ethics_id=eid, subject=cur["ref"],
-                   sha256=cur["sha256"], text_sha256=words, categories=cats, kind=kind, words=hard_keys(kind, doc, rev))
+                   sha256=cur["sha256"], text_sha256=words, categories=cats, kind=kind, words=hard_keys(kind, doc, rev),
+                   gaps=hard_gaps(kind, doc, rev))
     print("[ethics] %s recorded: tier %s for %s" % (eid, rev["tier"], cur["ref"]), file=sys.stderr)
     rc, bad, facts = verdict(cwd, kind, sid)
     if facts.get("state") == "hard" and kind == "goal" and doc.get("status") != "blocked":
