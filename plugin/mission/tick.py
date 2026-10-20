@@ -21,8 +21,10 @@ The loop is IBM's autonomic MAPE-K over docs/agents/mission/: monitor (ASSESS), 
   STOP_BUDGET       human               spend since the mission was set reached a cap, or the deadline passed
   ETHICS_REVIEW     ethics-reviewer     the mission, or the goal in flight, has no review for its content
   BLOCKED           human               a hard line on the mission, or on a goal whose sprint runs; every open
-                                        gap held (a hard line, or a retired goal's gaps on this baseline); 3 failed goals in a row; a stalled sprint; an
-                                        action handed out 3 times; the ledger or the confirmed baseline fails
+                                        gap held (a hard line, or a retired goal's gaps on this baseline); 3
+                                        failed goals in a row; a stalled sprint; an action handed out 3 times;
+                                        a goal command its gate refuses (`goal check`, `goal close`, `goal
+                                        retire`: their reason); the ledger or the confirmed baseline fails
                                         its check (a hard-lined goal with no sprint is retired: evaluate again)
   ASK_CONSENT       human               a gray review with no consent for that exact content (and review)
   RESEARCH          market-researcher   no research yet; or the goal is met: raise the bar
@@ -724,14 +726,20 @@ def goal_rule(f, g, mode, now, cad):
                                     "goal.approved (aloop mission goal approve %s --by NAME)" % (g["id"], g["id"]),
                    g["ref"])
     if g["status"] in ("derived", "approved"):
-        return act("PLAN_INTENTS", "goal %s is cleared: turn its gaps into Aladdin intents (aloop mission goal "
-                                   "intents %s)" % (g["id"], g["id"]), g["ref"])
+        return goal_refused(f, g, "intents") or act("PLAN_INTENTS", "goal %s is cleared: turn its gaps into "
+                                                    "Aladdin intents (aloop mission goal intents %s)"
+                                                    % (g["id"], g["id"]), g["ref"])
     if running:
         return sprint_rule(f, g, running[-1], mode, now, cad)
     done = goal_sprints(f, g)
     e = latest(f, "eval")
     mine = e if e and e["doc"].get("goal_id") == g["id"] and e["ms"] > g["ms"] else None
     if mine and goal_met(f, mine):
+        import goal as G      # noqa: E402 — the close's own rule (ROADMAP M9.53)
+        _, _, why = G.close_problems(f["cwd"], g["doc"], mine["id"])
+        if why:
+            return act("BLOCKED", "goal %s is met in eval %s, but `mission goal close` refuses (%s): the human looks"
+                       % (g["id"], mine["id"], why[0]), g["ref"], pin=mine["id"])
         return act("EVALUATE", "goal %s is met in eval %s: close it (aloop mission goal close %s --eval %s)"
                    % (g["id"], mine["id"], g["id"], mine["id"]), g["ref"])
     sprinted = {iid for _, _, iid in f["plans"]}
@@ -759,8 +767,22 @@ def goal_rule(f, g, mode, now, cad):
         return act("WAIT", "a sprint is being planned (the sprint lock is fresh)", g["ref"],
                    iso(f["lock"] + 15 * 60 * 1000))
     what = "intent %s is not sprinted yet" % left[0] if left else "no sprint was planned for it"
-    return act("SPRINT", "goal %s is active and %s: `aloop mission goal next %s` makes it the next intent, then "
-                         "/aladdin on it" % (g["id"], what, g["id"]), g["ref"])
+    return goal_refused(f, g, "next") or act("SPRINT", "goal %s is active and %s: `aloop mission goal next %s` "
+                                             "makes it the next intent, then /aladdin on it" % (g["id"], what, g["id"]),
+                                             g["ref"])
+
+
+def goal_refused(f, g, cmd):
+    """BLOCKED naming why `aloop mission goal CMD` refuses goal g (its `goal check`), or None (ROADMAP M9.53):
+    the loop hands out a goal's command only when the gate takes it, so a handout never repeats into a
+    BLOCKED that names no cause."""
+    import goal as G          # noqa: E402 — the gate's own check
+    rc, blocks, asks, _ = G.check(f["cwd"], g["id"])
+    if not rc:
+        return None
+    return act("BLOCKED", "goal %s fails `aloop mission goal check %s` (%s), so `mission goal %s` refuses it: the "
+                          "human looks" % (g["id"], g["id"], "; ".join((blocks + asks)[:2]), cmd), g["ref"],
+               pin=hashlib.sha256("\n".join(blocks + asks).encode()).hexdigest()[:12])
 
 
 def sprint_rule(f, g, n, mode, now, cad):

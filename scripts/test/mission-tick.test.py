@@ -7,6 +7,7 @@ the baseline come from the committed ledger, the way `mission baseline` decides 
 baselines here are real: proposed, measured twice and confirmed through `aloop mission`.
     python3 scripts/test/mission-tick.test.py
 """
+import argparse
 import contextlib
 import fcntl
 import glob
@@ -160,6 +161,52 @@ class Project:
         finally:
             M.now = real
 
+    def at_clock(self, hours, *args, human=True):
+        """`aloop mission ARGS` in-process on this project's clock at `hours` (with `human`, they type every
+        grant it asks for): a real artifact at a chosen time. Returns (exit, stdout, stderr)."""
+        real_time, real_gmtime, real_now, env, here = time.time, time.gmtime, M.now, dict(os.environ), os.getcwd()
+        t = self.at(hours) / 1000.0
+        time.time = lambda: t                            # still, as a synthetic artifact's stamp is
+        time.gmtime = lambda s=None: real_gmtime(time.time() if s is None else s)
+        M.now = lambda: time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        os.environ.clear()
+        os.environ.update(self.env)
+        os.chdir(self.dir)
+        try:
+            def go():
+                with contextlib.redirect_stdout(io.StringIO()) as out, \
+                        contextlib.redirect_stderr(io.StringIO()) as err:
+                    rc = TICK.cli().main(list(args))
+                return argparse.Namespace(returncode=rc, stdout=out.getvalue(), stderr=err.getvalue())
+            r = F.as_human(go, self.dir, self.env) if human else go()
+        finally:
+            os.chdir(here)
+            os.environ.clear()
+            os.environ.update(env)
+            time.time, time.gmtime, M.now = real_time, real_gmtime, real_now
+        return r.returncode, r.stdout, r.stderr
+
+    def goal(self, hours, status="derived", picked=True, at=None):
+        """A real goal: `mission assess`, `evaluate` and `goal derive` on this project's clock just before
+        `hours`, so it passes `goal check` as the loop's goal commands need (M9.53); `at` names the hours of
+        the state report and the eval. Spoon-fed, it picks the first gap, and with `picked` the human types
+        the approval line. Returns (goal_id, doc)."""
+        for h, cmd in zip(at or (hours - 0.003, hours - 0.002), (["assess"], ["evaluate"])):
+            rc, out, err = self.at_clock(h, *cmd)
+            assert rc == 0, (cmd, err)
+        eid = json.load(open(out.strip().splitlines()[-1]))["eval_id"]
+        cmd = ["goal", "derive"]
+        if self.mode == "spoon-fed":
+            cmd += ["--pick", self.load("eval", eid)["gaps"][0]["gap_id"], "--by", "Adeel"]
+        rc, out, err = self.at_clock(hours, *cmd, human=picked)
+        assert rc == (0 if picked or self.mode != "spoon-fed" else 3), err
+        gid = json.load(open(out.strip().splitlines()[-1]))["goal_id"]
+        doc = self.load("goal", gid)
+        if status != doc["status"]:
+            doc["status"] = status                       # a status is outside its digest
+            M.save(M.path_of(self.dir, "goal", gid), doc)
+        return gid, doc
+
     def approve(self, event, subject, doc, hours, **data):
         """A human approval as `mission … --by` records it: the human's typed line (M9.17), then a ledger
         row (role human), at that time."""
@@ -274,8 +321,9 @@ def cleared(p, hours=0.1):
     return p.confirmed()
 
 
-def active_goal(p, hours, status="active"):
-    gid, gdoc = p.art("goal", status, hours)
+def active_goal(p, hours, status="active", at=None):
+    """A real goal its ethics review cleared (spoon-fed: derived, the human has not picked it yet)."""
+    gid, gdoc = p.goal(hours, status, picked=False, at=at)
     p.review(p.ref("goal", gid), gdoc, "clear", hours)
     return gid, gdoc
 
@@ -326,7 +374,7 @@ assert p.mi("evaluate").returncode == 0
 d = p.tick(0.13)
 expect(d, "DERIVE_GOAL", 0, "gaps")
 assert d["roles"] == ["mission-planner"]
-gid, gdoc = p.art("goal", "derived", 0.18)
+gid, gdoc = p.goal(0.18)                                                  # real: the loop asks `goal check`
 d = p.tick(0.19)
 expect(d, "ETHICS_REVIEW", 0)
 assert d["subject"] == p.ref("goal", gid), d["subject"]
@@ -406,9 +454,7 @@ ok("mission ethics: a hard line is never unlocked; gray waits for a consent nami
 # 5) ethics on goals: gray consent does not carry over; hard lines re-derive, 3 failed goals then BLOCKED
 p = Project().init()
 cleared(p)
-p.art("state", "recorded", 1)
-p.art("eval", "recorded", 1.1, goal_met=False)
-gid, gdoc = p.art("goal", "derived", 1.2)
+gid, gdoc = p.goal(1.2, at=(1, 1.1))
 p.review(p.ref("goal", gid), gdoc, "gray", 1.3)
 d = p.tick(1.4)
 expect(d, "ASK_CONSENT", 3)
@@ -439,9 +485,8 @@ ok("goal ethics: consent is bound to one goal's content; a hard line re-derives;
 # 6) spoon-fed: the goal's options and the sprint plan wait for the human; so does every baseline version
 p = Project(mode="spoon-fed").init()
 bid = cleared(p)
-p.art("state", "recorded", 1)
-p.art("eval", "recorded", 1.1, goal_met=False)
-gid, gdoc = active_goal(p, 1.2, "derived")
+gid, gdoc = p.goal(1.2, picked=False, at=(1, 1.1))                        # derived; the human never typed the pick
+p.review(p.ref("goal", gid), gdoc, "clear", 1.2)
 d = p.tick(1.4)
 expect(d, "OFFER_OPTIONS", 3)
 assert d["roles"] == ["mission-planner"] and d["who"] == "human", d
@@ -604,9 +649,7 @@ ok("USD cap priced per model (dotted, routed and Bedrock ids too; unknown at the
 # 12) cadence: a running sprint waits, re-assesses on the cadence; a met goal raises the bar once per cadence
 p = Project(cadence="6h").init()
 cleared(p)
-p.art("state", "recorded", 1)
-p.art("eval", "recorded", 1.1, goal_met=False)
-gid, gdoc = active_goal(p, 1.2)
+gid, gdoc = active_goal(p, 1.2, at=(1, 1.1))
 expect(p.tick(1.3), "SPRINT", 0)
 p.event("plan.created", 1.5, sprint="S1")
 d = p.tick(3)
@@ -639,9 +682,7 @@ ok("cadence: re-assess mid-sprint, act at the close; a met goal raises the bar a
 #     plan.created intent_id); a fresh sprint lock is planning under way; a silent sprint has stalled
 p = Project().init()
 cleared(p)
-p.art("state", "recorded", 1)
-p.art("eval", "recorded", 1.1, goal_met=False)
-gid, gdoc = active_goal(p, 1.2)
+gid, gdoc = active_goal(p, 1.2, at=(1, 1.1))
 p.event("plan.created", 0.5, sprint="S1")                                  # an older sprint is not this goal's
 expect(p.tick(1.3), "SPRINT", 0, "no sprint was planned")
 lock = os.path.join(p.dir, ".aladdin", "state", "sprint.lock")
@@ -716,9 +757,7 @@ d = p.due(0.2)
 assert d["rc"] == 1 and "already told" in d["reason"], d
 p = Project().init()
 cleared(p)
-p.art("state", "recorded", 1)
-p.art("eval", "recorded", 1.1, goal_met=False)
-active_goal(p, 1.2)
+active_goal(p, 1.2, at=(1, 1.1))
 p.tick(1.3)
 p.event("plan.created", 1.5, sprint="S1")
 assert p.due(3)["rc"] == 1 and p.due(7.5)["rc"] == 0                        # waiting, then the cadence is due
@@ -839,9 +878,7 @@ ok("mangled sprints.json, events, ledger rows, caps, cadence or mission.json: SE
 #     second the loop handed out SPRINT is that goal's, a state report in the second of a close is re-assessed
 p = Project().init()
 cleared(p)
-p.art("state", "recorded", 1)
-p.art("eval", "recorded", 1.1, goal_met=False)
-active_goal(p, 1.2)
+active_goal(p, 1.2, at=(1, 1.1))
 expect(p.tick(1.2), "SPRINT", 0)
 p.event("plan.created", 1.2, sprint="S1")                                  # same second, ms lost
 expect(p.tick(1.3), "WAIT", 4, "sprint 1")
@@ -957,12 +994,11 @@ ok("a recorded hard review in the repo blocks even when the run log has only a c
 #     decides, whichever branch's row comes first in the file
 p = Project(mode="spoon-fed").init()
 cleared(p)
-p.art("state", "recorded", 1)
-p.art("eval", "recorded", 1.1, goal_met=False)
-gid, gx = active_goal(p, 1.2, "derived")
+gid, gx = active_goal(p, 1.2, "derived", at=(1, 1.1))
 lp = M.ledger(p.dir)
 head = json.loads(open(lp).read().splitlines()[-1])["hash"]
-gy = dict(gx, title="refined")
+gy = dict(gx, statement="refined")
+M.seal(gy)                                                                 # an edit, resealed: not what derive made
 
 
 def pick(doc, hours, eid):
@@ -980,7 +1016,7 @@ with open(lp, "a") as f:                                                   # mer
 assert not M.ledger_problems(p.dir), M.ledger_problems(p.dir)
 M.save(M.path_of(p.dir, "goal", gid), gy)
 p.review(p.ref("goal", gid), gy, "clear", 2.1)
-expect(p.tick(2.2), "PLAN_INTENTS", 0)
+expect(p.tick(2.2), "BLOCKED", 2, "not the content goal.derived recorded")    # picked, so `goal check` says why
 M.save(M.path_of(p.dir, "goal", gid), gx)
 expect(p.tick(2.3), "OFFER_OPTIONS", 3)                                    # the older pick is superseded
 ok("after a union merge the newest human pick by time decides, as the core reads it")
@@ -1390,5 +1426,51 @@ ok("a goal sprinted with gaps still open is the planner's to retire, on the newe
    "its sprints (else ASSESS or EVALUATE first): a goal.retired ledger record, then the whole mission is evaluated "
    "and its gaps are held until the human lifts the hold or approves the mission again (a fresh checkout keeps it, "
    "whatever the status field says); 3 retired in a row are the human's")
+
+# 33) the loop hands out a goal's commands only when the gate takes them (M9.53): PLAN_INTENTS and SPRINT
+#     when `goal check` passes, the close when `goal close` would; else BLOCKED naming the gate's reason,
+#     never the same handout 3 times into a BLOCKED that names no cause
+p = Project().init()
+cleared(p)
+gid, gdoc = p.goal(1.2)
+p.review(p.ref("goal", gid), gdoc, "clear", 1.2)
+expect(p.tick(1.3, "--peek"), "PLAN_INTENTS", 0, "aloop mission goal intents %s" % gid)
+doc = p.mission_doc()
+doc["budget"] = dict(doc.get("budget") or {}, usd=99.0)                    # a raised cap is a new mission content
+doc["status"] = "draft"
+M.save(M.path_of(p.dir, "mission"), doc)
+assert p.mi("approve", "--by", "Adeel").returncode == 0
+p.review(p.mission_ref(), p.mission_doc(), "clear", 1.4)
+r = p.mi("goal", "intents", gid)
+assert r.returncode == 2 and "the mission changed since %s was derived" % gid in r.stderr, r.stderr
+d = p.tick(1.5, "--peek")
+expect(d, "BLOCKED", 2, "the mission changed since %s was derived" % gid)  # the gate's own reason
+assert "`mission goal intents` refuses it" in d["reason"], d["reason"]
+json.dump(dict(p.load("goal", gid), status="active"), open(M.path_of(p.dir, "goal", gid), "w"))
+assert p.mi("goal", "next", gid).returncode == 2
+expect(p.tick(1.6, "--peek"), "BLOCKED", 2, "`mission goal next` refuses it")
+q = Project().init()                                                       # the close: `goal close`'s own rule
+cleared(q)
+gid, gdoc = q.goal(1.2, "active")
+q.review(q.ref("goal", gid), gdoc, "clear", 1.2)
+q.app(**PASSING)
+for i, cmd in enumerate(("assess", "evaluate")):
+    rc, out, err = q.at_clock(1.5 + i * 0.01, cmd)
+    assert rc == 0, err
+eid = json.load(open(out.strip().splitlines()[-1]))["eval_id"]
+assert q.load("eval", eid)["goal_id"] == gid and q.load("eval", eid)["goal_met"] is True
+gp = M.path_of(q.dir, "goal", gid)
+json.dump(dict(q.load("goal", gid), status="retired"), open(gp, "w"))      # a stray status: the close refuses it
+d = q.tick(1.6, "--peek")
+expect(d, "BLOCKED", 2, "`mission goal close` refuses (goal %s is retired: only an active goal closes" % gid)
+json.dump(dict(q.load("goal", gid), status="met"), open(gp, "w"))          # met, with no goal.met record
+expect(q.tick(1.7, "--peek"), "EVALUATE", 0, "aloop mission goal close %s --eval %s" % (gid, eid))
+r = q.mi("goal", "close", gid, "--eval", eid)                              # the record repairs it
+assert r.returncode == 0, r.stderr
+assert [x["data"]["eval_id"] for x in M.ledger_rows(q.dir)[0] if x["event"] == "goal.met"] == [eid]
+expect(q.tick(1.8, "--peek"), "EVALUATE", 0, "which is closed")            # met: the whole mission next
+ok("the loop hands out a goal's commands only when the gate takes them: PLAN_INTENTS and SPRINT when `goal "
+   "check` passes, the close when `goal close` would (a bare met status is repaired by it), else BLOCKED with "
+   "the gate's reason")
 
 print("mission-tick: %d checks passed" % PASS[0])

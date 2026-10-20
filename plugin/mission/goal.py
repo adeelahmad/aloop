@@ -557,52 +557,62 @@ def cmd_next(cwd, gid):
     return 1
 
 
-def cmd_close(cwd, gid, eid):
-    gpath = M.path_of(cwd, "goal", gid)
-    g, _ = M.load(gpath)
-    if not isinstance(g, dict):
-        report(["no goal %s" % gid], [])
-        return 2
+def close_problems(cwd, g, eid):
+    """(eval doc, eval.completed record, why goal g does not close on eval eid yet) (ROADMAP M9.53): the
+    whole rule `mission tick` asks before it hands out the close. The goal is the content `derive`
+    recorded, not retired, active (or set met with no record, which the close repairs), and eid is a
+    recorded eval of it, recorded after the goal was derived, that finds it met."""
+    gid = g.get("goal_id")
+    gpath = M.path_of(cwd, "goal", str(gid))
     try:
         bad = list(M.problems(g, "goal", gpath))
     except ValueError as e:
         bad = ["goal %s cannot be hashed (%s)" % (gid, e)]
     bad = bad or derived_problems(cwd, g)
     if bad:
-        report(bad, [])
+        return None, None, bad
+    if EV.retirement(cwd, g):
+        return None, None, ["goal %s was retired: a retired goal never closes (derive another)" % gid]
+    if g["status"] not in ("active", "met"):
+        return None, None, ["goal %s is %s: only an active goal closes (handed off with `mission goal intents`)"
+                            % (gid, g["status"])]
+    doc, ev, bad = eval_record(cwd, eid)
+    if bad:
+        return doc, ev, bad
+    if doc.get("goal_id") != gid:
+        return doc, ev, ["eval %s is not an evaluation of goal %s (it evaluates %s): evaluate while the goal is "
+                         "active" % (eid, gid, doc.get("goal_id") or "the whole mission")]
+    born, seen = ledger_index(cwd, derived(cwd, gid)["event_id"]), ledger_index(cwd, ev.get("event_id"))
+    if born < 0 or seen <= born:
+        return doc, ev, ["eval %s was recorded before goal %s was derived: it says nothing about the goal's work"
+                         % (eid, gid)]
+    if not doc["goal_met"]:
+        still = [x.get("gap_id") for x in doc["gaps"] if isinstance(x, dict)]
+        return doc, ev, ["goal %s is not met in eval %s; still open: %s" % (gid, eid, ", ".join(map(str, still)))]
+    return doc, ev, []
+
+
+def cmd_close(cwd, gid, eid):
+    gpath = M.path_of(cwd, "goal", gid)
+    g, _ = M.load(gpath)
+    if not isinstance(g, dict) or g.get("goal_id") != gid:
+        report(["no goal %s" % gid], [])
         return 2
     if M.ledger_block(cwd, "goal"):
         return 2
     if M.records(cwd, "goal.met", M.rel(cwd, gpath)):     # the record decides, never the status field
         print("[goal] %s is already met" % gid, file=sys.stderr)
         return 0
-    if EV.retirement(cwd, g):
-        report(["goal %s was retired: a retired goal never closes (derive another)" % gid], [])
-        return 2
-    if g["status"] != "active":
-        report(["goal %s is %s: only an active goal closes (handed off with `mission goal intents`)"
-                % (gid, g["status"])], [])
-        return 2
-    doc, ev, bad = eval_record(cwd, eid)
+    _, ev, bad = close_problems(cwd, g, eid)
     if bad:
         report(bad, [])
         return 2
-    if doc.get("goal_id") != gid:
-        report(["eval %s is not an evaluation of goal %s (it evaluates %s): evaluate while the goal is active"
-                % (eid, gid, doc.get("goal_id") or "the whole mission")], [])
-        return 2
-    born, seen = ledger_index(cwd, derived(cwd, gid)["event_id"]), ledger_index(cwd, ev.get("event_id"))
-    if born < 0 or seen <= born:
-        report(["eval %s was recorded before goal %s was derived: it says nothing about the goal's work" % (eid, gid)], [])
-        return 2
-    if not doc["goal_met"]:
-        still = [x.get("gap_id") for x in doc["gaps"] if isinstance(x, dict)]
-        report(["goal %s is not met in eval %s; still open: %s" % (gid, eid, ", ".join(map(str, still)))], [])
-        return 2
-    g["status"] = "met"
-    M.save(gpath, g)
+    # the record first (its digest leaves the status out), then the status: a stop between them leaves a
+    # goal every reader already takes as met, and a bare `met` status is repaired, never trusted
     M.record(cwd, "goal.met", M.rel(cwd, gpath), "evaluator", goal_id=gid, eval_id=eid, eval_event=ev.get("event_id"),
              sha256=M.digest(g))
+    g["status"] = "met"
+    M.save(gpath, g)
     print("[goal] %s met (eval %s)" % (gid, eid), file=sys.stderr)
     return 0
 
