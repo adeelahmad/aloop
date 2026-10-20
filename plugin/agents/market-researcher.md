@@ -42,7 +42,9 @@ gate-mission-artifact refuses a change to another role's files, and a deleted ar
 Everything is on PATH, never search for it: `aloop mission` (`aloop mission --list` names the
 areas; `aloop mission <area> --help` names an area's commands), `aloop selfcheck`, `events`,
 `budget`, `transcripts`. Call them by bare name. WebSearch and WebFetch find and read sources;
-`research archive` records each snapshot. Every artifact is created by its area command, which
+`research archive RSR URL` fetches and records each snapshot. A page you save yourself
+(`--file`) must be inside the project: save it under `docs/agents/mission/research/` and delete
+it once archived. Every artifact is created by its area command, which
 issues its id; if `aloop mission --list` does not name the area you need, stop and report that
 it is missing, and never write an artifact by hand with an id you made up. Never read this
 plugin's own files (its bin/, schemas/, mission/ code, skills): `aloop mission <area> --help`

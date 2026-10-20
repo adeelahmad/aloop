@@ -583,17 +583,26 @@ def role_run(agent_type, aid, work):
     return sh(REAL, cwd=X.dir, inp=json.dumps(dict(p, hook_event_name="SubagentStop")), env=XENV), out
 
 
-def made(r):
+def made_path(r):
     assert r.returncode == 0, r.stderr
-    return json.load(open(r.stdout.strip().splitlines()[-1]))
+    return r.stdout.strip().splitlines()[-1]
+
+
+def made(r):
+    return json.load(open(made_path(r)))
 
 
 def researched():
-    rid = researched.rid = M.new_id("research")
-    d = {"research_id": rid, "status": "recorded", "created_at": M.now(),
-         "claims": [{"claim_id": "c1", "text": "rivals show a first task in 3s", "kind": "other"}]}
-    M.seal(d)
-    M.save(M.path_of(X.dir, "research", rid), d)
+    """The Scout's real report: `research new`, a page it saved in its own dir archived, a quoted claim."""
+    rid = researched.rid = os.path.basename(made_path(X.run("research", "new", "Rivals", "--question",
+                                                           "How fast do rivals show a first task?")))[:-5]
+    page = os.path.join(X.dir, "docs", "agents", "mission", "research", "rival.html")   # --file reads only inside the project
+    with open(page, "w") as f:
+        f.write("<html><body><p>Rival A shows your first task in 3 seconds.</p></body></html>")
+    assert X.run("research", "archive", rid, "https://rival.example/a", "--file", os.path.relpath(page, X.dir)).returncode == 0
+    os.unlink(page)
+    r = X.run("research", "claim", rid, "rivals show a first task in 3s", "--source", "s1", "--quote", "first task in 3 seconds")
+    assert r.returncode == 0, r.stderr
     return X.journey(X.draft(rid))
 
 
@@ -607,6 +616,19 @@ assert X.run("baseline", "confirm", b["baseline_id"], "--by", "Adeel").returncod
 r, s1 = role_run("aloop:state-assessor", "sa3", lambda: made(X.run("assess")))
 assert r.returncode == 0, r.stderr
 r, e1 = role_run("aloop:evaluator", "ev1", lambda: made(X.run("evaluate")))
+assert r.returncode == 0, r.stderr
+PINNED = re.search(r"^model:\s*(\S+)", open(os.path.join(REPO, "plugin", "agents", "evaluator.md")).read(), re.M).group(1)
+
+
+def rubric():
+    rub = os.path.basename(made_path(X.run(
+        "judge", "new", "Clarity", "--question", "Is adding a task clear?", "--criterion", "clear", "--scale", "1-5",
+        "--pass", "4", "--model", PINNED, "--source", researched.rid + "#c1")))[:-5]
+    assert X.run("judge", "activate", rub).returncode == 0
+    return rub
+
+
+r, rub = role_run("aloop:evaluator", "ev3", rubric)             # its check gets the rubric's id
 assert r.returncode == 0, r.stderr
 made_by = {(e["role"], e["data"]["kind"]) for e in X.events("artifact.created")}
 assert {("market-researcher", "journey"), ("state-assessor", "baseline"), ("state-assessor", "state"),

@@ -51,6 +51,8 @@
     "telemetry": "telemetry"
   },
   "area_checks": {
+    "research": {"args": ["{id}"]},
+    "judge": {"args": ["{id}"]},
     "evaluate": {"args": ["{id}"]},
     "assess": {"args": ["{id}"]},
     "journeys": {"args": ["{id}"]},
