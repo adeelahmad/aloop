@@ -8,9 +8,11 @@ Artifacts live in docs/agents/mission/ (see plugin/mission/README.md).
 
 Usage:
   mission init "<mission>" --mode autonomous|spoon-fed --budget-usd N | --budget-tokens N
-               [--deadline YYYY-MM-DD] [--cadence 6h] [--constraint TEXT]… [--by NAME]
+               [--deadline YYYY-MM-DD] [--cadence 6h] [--constraint TEXT]… [--veto-window-h 24] [--by NAME]
         write docs/agents/mission/mission.json (draft, sealed); emits mission.set.
-        At least one budget cap is required: the loop is capped outside the model.
+        At least one budget cap is required: the loop is capped outside the model. The veto
+        window is how long an autonomous mission waits for a human veto before a researched
+        baseline replacement applies itself (0 = at once).
   mission check [--json]
         the mission's deterministic check: schema, harness-issued id, and its content is the
         content a human approved. Exit 0 ok · 2 invalid or changed · 3 needs the human
@@ -26,6 +28,7 @@ The fixed point: the mission, its mode, budget caps and constraints change only 
 human approval; goals change every cycle.
 """
 import json
+import math
 import os
 import re
 import sys
@@ -37,10 +40,11 @@ import _mission as M  # noqa: E402
 MODES = ("autonomous", "spoon-fed")
 CADENCE = re.compile(r"^([1-9][0-9]*)([mhd])$")
 DEFAULT_CADENCE = "6h"   # ROADMAP §4.12 call: the slower of the two examples (3h/6h) — fewer tokens per day
+DEFAULT_VETO_H = 24      # ROADMAP §4.12 call: a replacement baseline waits a day for a veto
 
 
 def cadence_seconds(c):
-    m = CADENCE.match(c if isinstance(c, str) else "")
+    m = CADENCE.match(c) if isinstance(c, str) else None
     if not m:
         return None
     return int(m.group(1)) * {"m": 60, "h": 3600, "d": 86400}[m.group(2)]
@@ -95,9 +99,17 @@ def cmd_init(cwd, statement, o):
             try:
                 budget[key] = float(o[flag]) if key == "usd" else int(o[flag])
             except ValueError:
-                bad.append("--%s must be a number" % flag.replace("_", "-"))
+                budget[key] = float("nan")
+            if not math.isfinite(budget[key]) or budget[key] <= 0:
+                bad.append("--%s must be a number above 0" % flag.replace("_", "-"))
     if o.get("deadline"):
         budget["deadline"] = o["deadline"]
+    try:
+        veto = float(o.get("veto_window_h") or DEFAULT_VETO_H)
+    except ValueError:
+        veto = -1
+    if not math.isfinite(veto) or veto < 0:
+        bad.append("--veto-window-h must be a number of hours >= 0")
     if not any(k in budget for k in ("usd", "tokens")):
         bad.append("a budget cap is required: --budget-usd N and/or --budget-tokens N "
                    "(the loop is capped outside the model)")
@@ -106,10 +118,15 @@ def cmd_init(cwd, statement, o):
     if bad:
         return 64
     doc = {"mission_id": M.new_id("mission"), "statement": statement.strip(), "mode": mode, "cadence": cad,
-           "budget": budget, "constraints": o.get("constraint", []), "status": "draft", "created_at": M.now(),
+           "budget": budget, "constraints": o.get("constraint", []), "veto_window_h": veto,
+           "status": "draft", "created_at": M.now(),
            "provenance": {"set_by": o.get("by", ""), "set_at": M.now()}}
     M.seal(doc)
     M.save(path, doc)
+    attrs = M.mdir(cwd, ".gitattributes")
+    if not os.path.exists(attrs):      # branches append to the ledger; a union merge keeps both sides
+        with open(attrs, "w") as f:
+            f.write("ledger.jsonl merge=union\n")
     M.emit(cwd, "mission.set", role="human", refs={"mission": M.rel(cwd, path)}, mission_id=doc["mission_id"],
            mode=mode, sha256=doc["sha256"])
     print(path)
@@ -120,11 +137,12 @@ def evaluate(cwd):
     """(exit code, problems, facts) for the mission's deterministic check."""
     path = M.path_of(cwd, "mission")
     doc, err = M.load(path)
-    if doc is None:
+    if not os.path.exists(path):
         return 3, ["no mission yet: mission init \"<mission>\" --mode … --budget-usd N"], {}
     if not isinstance(doc, dict):
-        return 2, ["mission.json is not an object"], {}
+        return 2, ["mission.json is not a JSON object (%s)" % (err or type(doc).__name__)], {}
     bad = [p for p in M.problems(doc, "mission", path) if not p.startswith("sha256 does not match")]
+    bad += M.ledger_problems(cwd)
     if cadence_seconds(doc.get("cadence")) is None:
         bad.append("cadence %r must look like 30m, 6h or 1d" % doc.get("cadence"))
     budget = doc.get("budget") if isinstance(doc.get("budget"), dict) else {}
@@ -139,6 +157,10 @@ def evaluate(cwd):
     if bad:
         return 2, bad, facts
     if doc.get("status") == "approved" and not ev:
+        old = [e for e in M.approvals(cwd, "mission.approved", ref) if e["data"].get("sha256") == sha]
+        if old:
+            return 2, ["mission.json is content a human approved at %s, but their newest approval covers other "
+                       "content: the mission was rolled back" % old[-1]["ts"]], facts
         return 2, ["mission.json says approved but its content has no human approval "
                    "(changed since it was approved): a human runs `aloop mission approve --by NAME`"], facts
     if doc.get("status") != "approved" or not ev:
@@ -165,7 +187,7 @@ def cmd_approve(cwd, o):
         print("mission approve: no mission (%s)" % err, file=sys.stderr)
         return 2
     rc, bad, _ = evaluate(cwd)
-    if rc == 2 and not bad[0].startswith("mission.json says approved"):
+    if rc == 2 and not bad[0].startswith(("mission.json says approved", "mission.json is content a human approved")):
         for b in bad:
             print("BLOCK[mission]: %s" % b, file=sys.stderr)
         return 2
@@ -219,11 +241,10 @@ def run_area(name, argv, cwd):
     mod = importlib.util.module_from_spec(spec)
     sys.path.insert(0, M.AREAS_DIR)
     spec.loader.exec_module(mod)
-    # a bare `mission <area>` prints its docstring, unless the area runs bare (BARE = True: tick, due, cron)
-    if argv[:1] in (["-h"], ["--help"]) or not argv and not getattr(mod, "BARE", False):
+    if (not argv and not getattr(mod, "NO_ARGS", False)) or (argv and argv[0] in ("-h", "--help")):
         print((mod.__doc__ or name).strip())
         return 0
-    return mod.main(argv, cwd)
+    return mod.main(argv, cwd)     # an area with NO_ARGS = True runs bare (`aloop mission due`)
 
 
 def main(argv):

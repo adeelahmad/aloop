@@ -19,7 +19,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import tick as T  # noqa: E402
 
-BARE = True               # `mission due` with no arguments runs (plugin/bin/mission run_area)
+NO_ARGS = True            # `mission due` with no arguments runs (plugin/bin/mission run_area)
 LEASE = 2 * 3600 * 1000   # a role's action may take a while; after this it is handed out again
 
 

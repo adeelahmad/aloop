@@ -547,7 +547,7 @@ for a in ("tick", "due", "cron"):
     r = p.run(MI, a, "--help")
     assert r.returncode == 0 and "ROADMAP §4.12" in r.stdout, (a, r.stdout)
 assert p.run(MI, "tick", "--bogus").returncode == 64
-r = p.run(MI, "tick")                                                      # bare: it runs (BARE), not --help
+r = p.run(MI, "tick")                                                      # bare: it runs (NO_ARGS), not --help
 assert r.stdout.split()[0] in TICK.ROLES, r.stdout
 assert p.run(MI, "due").stdout.startswith(("due:", "not due:"))
 assert p.run(os.path.join(BIN, "aloop"), "mission", "tick", "--peek").stdout.split()[0] in TICK.ROLES

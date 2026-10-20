@@ -59,7 +59,7 @@ import _events  # noqa: E402
 import _mission as M  # noqa: E402
 import _paths  # noqa: E402
 
-BARE = True               # `mission tick` with no arguments runs (plugin/bin/mission run_area)
+NO_ARGS = True            # `mission tick` with no arguments runs (plugin/bin/mission run_area)
 ROLES = {
     "SET_MISSION": ("human", []), "CONFIRM_MISSION": ("human", []), "STOP_BUDGET": ("human", []),
     "ETHICS_REVIEW": ("role", ["ethics-reviewer"]), "BLOCKED": ("human", []), "ASK_CONSENT": ("human", []),

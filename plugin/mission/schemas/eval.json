@@ -1,0 +1,22 @@
+{
+ "title": "eval — the Evaluator's gap list: the state against the baseline (ROADMAP §4.12, M9.10): docs/agents/mission/eval/<eval_id>.json",
+ "type": "object",
+ "required": ["eval_id", "state_id", "baseline_id", "goal_id", "gaps", "earned", "regressions", "metrics", "goal_met", "status", "created_at"],
+ "additionalProperties": false,
+ "properties": {
+  "eval_id": {"type": "string", "pattern": "^evl_"},
+  "state_id": {"type": "string", "pattern": "^sta_"},
+  "baseline_id": {"type": "string", "pattern": "^bln_"},
+  "goal_id": {"type": ["string", "null"], "pattern": "^gol_"},
+  "gaps": {"type": "array", "items": {"type": "object", "required": ["gap_id", "journey_id", "criterion_id", "kind", "now", "target"],
+   "properties": {"kind": {"enum": ["regression", "open", "unscored"]}}}},
+  "earned": {"type": "array", "items": {"type": "object"}},
+  "regressions": {"type": "integer", "minimum": 0},
+  "metrics": {"type": "array", "items": {"type": "object"}},
+  "goal_met": {"type": "boolean"},
+  "rival_refs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+  "status": {"enum": ["recorded"]},
+  "created_at": {"type": "string", "minLength": 1},
+  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+ }
+}
