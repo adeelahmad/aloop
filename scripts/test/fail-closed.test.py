@@ -63,7 +63,16 @@ for ev in ("SubagentStart", "SubagentStop"):
             m = re.search(r"bin/(gate-[a-z0-9-]+)", h["command"])
             if m:
                 wired.add(m.group(1))
-missing = [g for g in sorted(wired) if not re.search(r"_gatelib\.sh|_failclosed\.sh", open(os.path.join(BIN, g)).read())]
+
+
+def fail_closed(g):
+    src = open(os.path.join(BIN, g)).read()
+    if src.startswith("#!/usr/bin/env python3"):   # its own top-level handler (mission-roles.test.py crashes it)
+        return "failing closed" in src and "rc = 2" in src
+    return re.search(r"_gatelib\.sh|_failclosed\.sh", src)
+
+
+missing = [g for g in sorted(wired) if not fail_closed(g)]
 assert wired and not missing, missing
 ok("all %d sub-agent gates load the fail-closed trap (%s)" % (len(wired), ", ".join(sorted(wired))))
 

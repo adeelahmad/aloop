@@ -77,6 +77,10 @@ ROLE_PROFILES = {
     "intake": (300000, 600000, 30, 60), "standards": (300000, 600000, 30, 60),
     "planner": (300000, 600000, 30, 60), "archivist": (300000, 600000, 30, 60),
     "structural-reviewer": (150000, 250000, 20, 30), "final-gate": (150000, 250000, 20, 30),
+    # the mission roles (ROADMAP §4.12): research and rival runs are long; the rest read and score
+    "market-researcher": (300000, 600000, 30, 60), "product-tester": (300000, 600000, 30, 60),
+    "evaluator": (300000, 600000, 30, 60), "mission-planner": (300000, 600000, 30, 60),
+    "state-assessor": (150000, 250000, 20, 30), "ethics-reviewer": (150000, 250000, 20, 30),
 }
 GRACE_DENIALS = 3          # at the hard limit: denied calls before one is let through to be stopped
 TASK_BUDGET = re.compile(r"^\s*budget:\s*(.+)$", re.I)

@@ -26,7 +26,9 @@ m = re.match(r"\s*TASK_ID:\s*([A-Za-z0-9._-]+)", ti.get("prompt") or "")
 model = re.sub(r"\s+", "", str(ti.get("model") or "")) or "-"
 print(role or "-", m.group(1) if m else "-", model)' 2>/dev/null) || exit 0
 
-case "$role" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate|planner|intake|standards|archivist) ;; *) exit 0 ;; esac
+case "$role" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate|planner|intake|standards|archivist) ;;
+  market-researcher|product-tester|state-assessor|evaluator|mission-planner|ethics-reviewer) ;;   # mission roles (§4.12)
+  *) exit 0 ;; esac
 # shellcheck source=/dev/null
 . "$HERE/_paths.sh"
 [ -d "$AGENTIC_HOME" ] || exit 0
@@ -53,7 +55,8 @@ if [ -n "$want" ]; then
     exit 2
   fi
 fi
-case "$role" in planner|intake|standards|archivist) exit 0 ;; esac
+# Planning and mission roles have no task contract: the model check is all.
+case "$role" in planner|intake|standards|archivist|market-researcher|product-tester|state-assessor|evaluator|mission-planner|ethics-reviewer) exit 0 ;; esac
 
 if [ "$tid" = "-" ]; then
   echo "BLOCK[$GATE_NAME]: start the $role dispatch prompt with the line \`TASK_ID: <id>\` — its gates find the task contract through it." >&2
