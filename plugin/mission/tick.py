@@ -45,8 +45,11 @@ same): the newest human approval of a subject (mission.approved, goal.approved, 
 recorded with role human and `--by`, for exactly that content; the baseline as `mission
 baseline` decides it (the current version is the newest baseline.confirmed record, a version
 needs a baseline.measured record for its content, a veto binds the content, a replacement
-applies after the mission's veto_window_h from its measurement); journeys as their records
-say (a retirement is a record); ethics.reviewed / ethics.blocked events {subject, sha256, tier}
+applies after the mission's veto_window_h from its measurement, a version once confirmed is
+archived and only the human's restore brings it back, and a proposal is measurable only when
+`baseline measure` would accept it); a state report only with its state.assessed record; journeys
+as their records say (a retirement is a record); ethics.reviewed / ethics.blocked events {subject,
+sha256, tier}, and a committed review of tier hard, so a checkout without the run log fails closed
 (the most severe verdict for a content wins, and a goal stays hard for good, so a hard line is
 never re-reviewed or edited away; a consent names every gray review it answers); the eval's
 `goal_met`; Aladdin's intent, plan and sprint events and .aladdin/state/sprints.json; the
@@ -282,9 +285,13 @@ def facts(cwd, now):
     # human decisions come from the committed ledger (a fresh checkout keeps them), and count only as
     # a human's: role human and a name (`--by`), as M.approve records them; the newest one per subject
     # decides, so restoring content an older approval covered is a rollback, not approved
-    rows, _ = M.ledger_rows(cwd)
+    raw, _ = M.ledger_rows(cwd)
+    rows = sorted(raw, key=lambda r: r["ts"])            # the core's order: a union merge interleaves branches
+    assessed = {}
     for r in rows:
         name, d = r["event"], r["data"]
+        if name == "state.assessed":
+            assessed[d.get("subject")] = d.get("sha256")
         sub = tuple(x if isinstance(x, str) else None for x in (d.get("subject"), d.get("sha256")))
         if name in M.APPROVAL_EVENTS and r.get("role") == "human" and str(d.get("by") or "").strip():
             newest[(name, sub[0])] = sub[1]
@@ -293,7 +300,17 @@ def facts(cwd, now):
             if name == "mission.approved":
                 resets.append(ms_end(r["ts"]) or 0)
     f["approvals"] = {(name, ref, sha) for (name, ref), sha in newest.items()}
-    f["ledger_head"] = rows[-1]["hash"] if rows else ""
+    f["ledger_head"] = raw[-1]["hash"] if raw else ""
+    # a state report counts only with the state.assessed record of its content (mission assess)
+    f["kinds"]["state"] = [a for a in f["kinds"]["state"] if assessed.get(a["ref"]) == a["sha"]]
+    # fail closed: a committed hard review holds on a checkout without the run log (ROADMAP M9.24)
+    for a in f["kinds"].get("ethics", []):
+        s = a["doc"].get("subject")
+        if a["doc"].get("tier") == "hard" and a["status"] == "recorded" and isinstance(s, dict) \
+                and isinstance(s.get("ref"), str):
+            f["hard_refs"].add(s["ref"])
+            if isinstance(s.get("sha256"), str):
+                f["ethics"][(s["ref"], s["sha256"])] = "hard"
     for e in evs:
         name, d = e.get("event"), e["data"]
         sub = tuple(x if isinstance(x, str) else None for x in (d.get("subject"), d.get("sha256")))
@@ -308,7 +325,7 @@ def facts(cwd, now):
                 f["ethics"][sub] = t
         if name == "intent.received" and isinstance(d.get("goal_id"), str) and isinstance(d.get("intent_id"), str):
             f["intents"].setdefault(d["goal_id"], []).append(d["intent_id"])
-        if name == "mission.tick" and d.get("grant"):
+        if name == "mission.tick" and d.get("grant") == "GOALS":    # only lifting that block clears the count
             resets.append(ms_ts(d.get("at")) or ts or 0)
         m = re.match(r"^S(\d+)$", str(d.get("sprint") or (e.get("ids") or {}).get("sprint") or ""))
         if m and ts:
@@ -344,6 +361,11 @@ def facts(cwd, now):
     progress["planned"], progress["closed"] = sorted(planned), sorted(closed)
     progress["decisions"] = sorted(map(str, f["approvals"] | set(f["ethics"].items())))
     progress["ledger"] = f["ledger_head"]
+    progress["reviews"] = sorted(str((k, r.get("ethics_id"), r.get("review_sha256"), r["tier"]))
+                                 for k, v in f["reviews"].items() for r in v)
+    progress["intents"] = sorted(map(str, f["intents"].items()))
+    progress["approved_plans"], progress["lock"] = sorted(f["approved_plans"]), f["lock"]
+    progress["reset_at"], progress["budget"] = f["reset_at"], f["budget"]
     f["fingerprint"] = hashlib.sha256(json.dumps(progress, sort_keys=True).encode()).hexdigest()[:16]
     return f
 
@@ -432,11 +454,12 @@ def failed_goals(f):
 
 
 # ── the decision ──────────────────────────────────────────────────────────────────────
-def act(action, reason, subject="", next_check=None, grant=None, pin=None):
+def act(action, reason, subject="", next_check=None, grant=None, pin=None, bind=None):
     """pin: the content the action's key is bound to, when it is not the subject's whole digest (a
-    failed measurement rewrites the file, and the repeat guard must still see the same work)."""
+    failed measurement rewrites the file, and the repeat guard must still see the same work); bind:
+    the key names this instead of the subject (the same content under any id is the same work)."""
     return {"action": action, "reason": reason, "subject": subject, "next_check": next_check, "grant": grant,
-            "pin": pin}
+            "pin": pin, "bind": bind}
 
 
 def rules(f):
@@ -450,9 +473,11 @@ def rules(f):
                                   "(aloop mission init --force)" % ("; ".join(probs) or "not a JSON object"),
                    f["mission_ref"])
     if f["ledger_problems"]:
+        lref = M.rel(f["cwd"], M.ledger(f["cwd"]))
         return act("BLOCKED", "the mission ledger fails its check (%s): every gate decides from it, so the loop "
                               "stops until the human restores it (git checkout %s)"
-                   % ("; ".join(f["ledger_problems"][:3]), M.rel(f["cwd"], M.ledger(f["cwd"]))), "")
+                   % ("; ".join(f["ledger_problems"][:3]), lref), lref,
+                   pin=hashlib.sha256("\n".join(f["ledger_problems"]).encode()).hexdigest()[:12])
     if rc == 2 and not (probs and probs[0].startswith(("mission.json says approved",
                                                         "mission.json is content a human approved"))):
         return act("SET_MISSION", "mission.json is invalid: %s" % "; ".join(probs), f["mission_ref"])
@@ -496,6 +521,30 @@ def veto_window(f):
     return int(w * H)
 
 
+def listed_now(f):
+    """{journey_id: sha256} of the journeys `baseline new` would list now (every one not retired)."""
+    frozen = J.pins(f["cwd"])[0]
+    return {j["doc"].get("journey_id"): j["sha"] for j in f["kinds"]["journey"]
+            if J.lifecycle(f["cwd"], os.path.join(f["root"], j["ref"]), j["doc"], frozen) != "retired"}
+
+
+def unmeasurable(f, a):
+    """(journey problems, version problems): why `baseline measure` would refuse this proposed
+    version now. A listed journey that no longer runs as pinned (its file or its runner's files
+    changed) needs a journey that supersedes it; anything else, a new version."""
+    cwd, doc = f["cwd"], a["doc"]
+    bad = M.problems(doc, B.KIND, os.path.join(f["root"], a["ref"]))
+    if M.malformed(bad):
+        return [], bad
+    pin, jbad = J.pins(cwd), []
+    for j in doc["journeys"]:
+        jp = J.jpath(cwd, j["journey_id"])
+        jd, _ = M.load(jp)
+        if isinstance(jd, dict):
+            jbad += [(M.rel(cwd, jp), "journey %s: %s" % (j["journey_id"], x)) for x in J.problems(cwd, jp, jd, pin)]
+    return jbad, bad + B.standing_problems(cwd, doc)
+
+
 def version_rule(f, a, conf):
     """What a baseline version newer than the current one needs, as baseline.py decides it."""
     cwd, bid, stays = f["cwd"], a["id"], " (the confirmed %s stays until then)" % conf["id"] if conf else ""
@@ -510,10 +559,22 @@ def version_rule(f, a, conf):
         return act("BASELINE", "baseline %s says %s, but no record covers its content (a status proves nothing): "
                                "propose a version and measure it%s" % (bid, a["status"], stays), a["ref"]), None
     pin = B.content_sha(doc)[:12]
+    jbad, vbad = unmeasurable(f, a)
+    if jbad:
+        return act("DEFINE_JOURNEYS", "%s, which baseline %s lists, can no longer be measured: propose a journey "
+                                      "that supersedes it, then a new baseline version%s" % (jbad[0][1], bid, stays),
+                   jbad[0][0]), None
+    if vbad:     # its own key: "measure it" was other work
+        return act("BASELINE", "baseline %s can no longer be measured (%s): propose a new version%s"
+                   % (bid, vbad[0], stays), a["ref"], pin=pin + "/stale"), None
     if isinstance(m, dict) and m.get("agreed") is False:
         return act("BASELINE", "baseline %s's runs disagreed (not reproducible): make the runner deterministic, then "
                                "measure it again%s" % (bid, stays), a["ref"], pin=pin), None
     if isinstance(m, dict) and m.get("agreed") and not m.get("not_passing"):
+        if listed_now(f) != {j["journey_id"]: j["sha256"] for j in doc["journeys"]}:
+            return act("BASELINE", "baseline %s had nothing to earn, and the journeys changed since it was measured: "
+                                   "propose a new version (it lists them)%s" % (bid, stays), a["ref"],
+                       pin=pin + "/stale"), None
         return act("DEFINE_JOURNEYS", "baseline %s has nothing to earn: every journey %s at baseline; raise the bar "
                                       "(new or stricter journeys), then propose a new version%s"
                    % (bid, "already passes" if not m.get("pending_judge") else "passes or waits for a judge", stays),
@@ -522,9 +583,19 @@ def version_rule(f, a, conf):
                a["ref"], pin=pin), None
 
 
+def refused(f, v):
+    """The human vetoed this content: say so, keyed on the content, so a re-proposal of it is the same work."""
+    r = v["veto"]["data"]
+    return act("BASELINE", "baseline %s is content the human vetoed (%s at %s: %s): propose different journeys, "
+                           "a different definition or tolerance; only the human can still confirm it"
+               % (v["id"], r.get("by"), v["veto"]["ts"], r.get("reason")), v["ref"],
+               bind="vetoed@" + B.content_sha(v["doc"])[:12])
+
+
 def baseline_rule(f, mode, now):
     """The current version is the one the newest baseline.confirmed record names (a human's, or an
-    autonomous mission's veto-window application); a newer, unvetoed version is a replacement."""
+    autonomous mission's veto-window application); a newer, unvetoed version never confirmed is a
+    replacement (one confirmed before is archived: only the human's `baseline restore` brings it back)."""
     cwd = f["cwd"]
     rows = M.records(cwd, B.CONFIRM)
     cur_path, cur = B.current(cwd)
@@ -532,12 +603,17 @@ def baseline_rule(f, mode, now):
     f["baseline_at"] = ms_end(rows[-1]["ts"]) if rows else None
     f["baseline_id"] = B.current_id(cwd)
     conf = next((a for a in f["kinds"]["baseline"] if a["ref"] == cur_ref), None) if cur_ref else None
-    newer = [a for a in f["kinds"]["baseline"] if a["ref"] != cur_ref and (not conf or a["ms"] > conf["ms"])
-             and not B.vetoed(cwd, os.path.join(f["root"], a["ref"]), a["doc"])]
+    once = {r["data"].get("subject") for r in rows}
+    cands = [dict(a, veto=B.vetoed(cwd, os.path.join(f["root"], a["ref"]), a["doc"]))
+             for a in f["kinds"]["baseline"]
+             if a["ref"] not in once and (not conf or a["ms"] > conf["ms"])]
+    newer = [a for a in cands if not a["veto"]]
+    vetoed = cands[-1] if cands and cands[-1]["veto"] else None     # the newest proposal was refused
     if not cur_path:
         if not newer:
-            return act("BASELINE", "no baseline yet: propose one (the journeys, pinned scripts, the rivals') and "
-                                   "measure it twice")
+            return refused(f, vetoed) if vetoed else \
+                act("BASELINE", "no baseline yet: propose one (the journeys, pinned scripts, the rivals') and "
+                                "measure it twice")
         r, _ = version_rule(f, newer[-1], None)
         if r != "measured":
             return r
@@ -569,6 +645,11 @@ def baseline_rule(f, mode, now):
                                                                                          iso(since + w)),
                        b["ref"], iso(since + w))
     if rc == 3:
+        if vetoed and not newer:
+            d = refused(f, vetoed)
+            d["reason"] = "the confirmed baseline %s needs a new version (%s), and %s" % (
+                f["baseline_id"], probs[0], d["reason"])
+            return d
         return act("BASELINE", "the confirmed baseline %s needs a new version (%s): propose one with its evidence"
                    % (f["baseline_id"], probs[0]), cur_ref)
     return None
@@ -618,7 +699,8 @@ def sprint_rule(f, g, n, mode, now, cad):
                    % (n, g["id"]), g["ref"])
     if stalled(f, n):
         return act("BLOCKED", "sprint %d for goal %s shows no activity since %s: the human resumes it (/aladdin) or "
-                              "closes it (`stats sprint-close`)" % (n, g["id"], iso(last_activity(f, n))), g["ref"])
+                              "closes it (`stats sprint-close`)" % (n, g["id"], iso(last_activity(f, n))), g["ref"],
+                   pin="S%d" % n)
     s, e = latest(f, "state"), latest(f, "eval")
     if not s or now - s["ms"] >= cad:
         return act("ASSESS", "the cadence (%s) is due while sprint %d runs: measure the product" % (hours(cad), n))
@@ -666,7 +748,7 @@ def cycle(f, now, cad):
         n = running[-1]
         if stalled(f, n):
             return act("BLOCKED", "sprint %d shows no activity since %s: the human resumes it (/aladdin) or closes it "
-                                  "(`stats sprint-close`)" % (n, iso(last_activity(f, n))))
+                                  "(`stats sprint-close`)" % (n, iso(last_activity(f, n))), pin="S%d" % n)
         nxt = min(s["ms"] + cad, last_activity(f, n) + STALL)
         return act("WAIT", "sprint %d is running; the next goal is derived after it closes" % n, "", iso(nxt))
     if not goal_met(f, e):
@@ -706,11 +788,12 @@ def decide(cwd, now=None):
     f = facts(cwd, now)
     d = rules(f)
     who, roles = ROLES[d["action"]]
-    sha = d.pop("pin", None) or ""
+    sha, bind = d.pop("pin", None) or "", d.pop("bind", None)
     for a in [x for v in f["kinds"].values() for x in v] if not sha else []:
         if a["ref"] == d["subject"]:
             sha = a["sha"][:12]
-    d["key"] = " ".join(x for x in (d["action"], d["subject"] + ("@" + sha if sha else "")) if x)
+    d["key"] = " ".join(x for x in (d["action"], bind or (d["subject"] + "@" + sha if d["subject"] and sha else
+                                                          d["subject"] or sha)) if x)
     d.update(who=who, roles=roles, facts=f["fingerprint"], budget=f["budget"], mission_id=f["mission"].get("mission_id"))
     d["handout"] = handouts(f, d["key"]) + 1 if who in ("role", "supervisor") else 0
     if d["handout"] > MAX_HANDOUTS:
