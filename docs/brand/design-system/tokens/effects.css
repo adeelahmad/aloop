@@ -1,0 +1,14 @@
+:root{
+/* Elevation — soft, neutral, low. Never colored glows. */
+--shadow-0:none;
+--shadow-1:0 1px 2px rgba(60,64,67,.12),0 1px 3px 1px rgba(60,64,67,.08);
+--shadow-2:0 1px 3px rgba(60,64,67,.14),0 4px 8px 3px rgba(60,64,67,.08);
+--shadow-3:0 4px 8px rgba(60,64,67,.12),0 12px 28px 6px rgba(60,64,67,.10);
+--ring-focus:0 0 0 3px var(--graph-edge);
+/* Glass-light: only for overlays over busy content */
+--glass-bg:rgba(255,255,255,.72);--glass-blur:saturate(160%) blur(12px)/* @kind other */;
+/* Motion — calm, deterministic */
+--ease-standard:cubic-bezier(.2,0,0,1)/* @kind other */;--ease-exit:cubic-bezier(.3,0,1,1)/* @kind other */;
+--dur-fast:120ms/* @kind other */;--dur-base:200ms/* @kind other */;--dur-slow:320ms/* @kind other */;
+--border-hair:1px solid var(--border)/* @kind other */;
+}
