@@ -28,7 +28,12 @@ _home = os.path.expanduser("~")
 ENV = dict(os.environ, RUSTUP_HOME=os.environ.get("RUSTUP_HOME", os.path.join(_home, ".rustup")),
            CARGO_HOME=os.environ.get("CARGO_HOME", os.path.join(_home, ".cargo")), HOME=os.path.join(T, "home"), CLAUDE_PLUGIN_ROOT=ROOT, PYTHONDONTWRITEBYTECODE="1",
            CARGO_TARGET_DIR=os.path.join(T, "target"), CARGO_TERM_COLOR="never")
-for k in ("AGENTIC_HOST", "SKIP_HOOKS", "STORY_DIR", "AGENT_ROLE", "REPO_DIR", "BASE_REF", "SCOPE_GLOBS"):
+# The caller's tools dir goes too (CLAUDE_PLUGIN_DATA, XDG_DATA_HOME): ensure-tools looks there before
+# PATH, so an installed ctx-symbols stood in for the scripted one a case puts on PATH, and for the grep
+# fallback CI runs (a passing one there failed 10 checks, the HELD_BY lsp-adapter run among them).
+DROP = ("AGENTIC_HOST", "SKIP_HOOKS", "STORY_DIR", "AGENT_ROLE", "REPO_DIR", "BASE_REF", "SCOPE_GLOBS",
+        "CLAUDE_PLUGIN_DATA", "XDG_DATA_HOME")
+for k in DROP:
     ENV.pop(k, None)
 MAIN = os.path.join(T, "repo")
 STORY = os.path.join(MAIN, "docs", "agents", "sprint1", "s1-01-calc")
@@ -171,9 +176,11 @@ case(3, "a formatted RED passes the same format check", "gate-red-verify", red_o
 # (live e2e run 7: "green (T1, unchanged)" rows blocked T2's RED 22 times). Only a NEW test may not PASS.
 report("red-worker", [("tests/add.rs::add_works", "PASS"), ("tests/sub.rs::sub_works", "FAIL")])
 case(3, "RED that reports a test already on the base as PASS is accepted", "gate-red-verify", red_ok_wt, 0)
-# The Result table and regressed= are read whole (see the §6.6 long-report case): a FAIL row or a
-# regressed=1 matched early cut off the `printf` still writing the rest, so under pipefail a long
-# report of FAILing tests read as "no FAILing test row", and a regressed RED passed.
+# The Result table and regressed= are read whole (see the §6.6 long-report case). Put back alone in its
+# old `printf | grep -q` form, the FAIL-row check reads the long report below as "no FAILing test row"
+# and the regressed check passes the regressed RED. The old gates blocked both earlier, at the role
+# line's `printf | head -1` ("not from 'red-worker'"); a regressed RED got through only now and then,
+# on a report short enough to fit in a pipe (a few runs in a thousand under load).
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")] + [("tests/sub.rs::later_%04d" % i, "FAIL") for i in range(MANY)])
 case(3, "RED whose long report lists many FAILing tests is accepted", "gate-red-verify", red_ok_wt, 0)
 report("red-worker", [("tests/sub.rs::sub_works", "FAIL")], regressed=1, notes="".join("note %d: what the next role should know\n" % i for i in range(MANY)))
@@ -280,9 +287,11 @@ case(6, "a stale report from another role is blocked", "gate-green-verify", wt, 
 # A report is read whole. `printf "$block" | grep -q` under pipefail failed whenever grep matched and
 # exited before printf had written the rest (printf: SIGPIPE, exit 141), so a well-formed report was
 # blocked as "missing '### Next'" (the `exit 0` tamper case below flaked so: 5 of 1200 runs of its
-# gate under CPU load). A report longer than a pipe holds makes that race certain.
+# gate under CPU load). Long rows after `### Result` and long notes after `### Next` leave more than a
+# pipe holds after every section header, so the race is certain for each check, the last one included.
 wt = green()
-report("green-worker", [("tests/sub.rs::sub_works", "PASS")] + [("tests/sub.rs::later_%04d" % i, "PASS") for i in range(MANY)])
+report("green-worker", [("tests/sub.rs::sub_works", "PASS")] + [("tests/sub.rs::later_%04d" % i, "PASS") for i in range(MANY)],
+       notes="".join("note %d: what the next role should know\n" % i for i in range(MANY)))
 case(6, "a well-formed report longer than a pipe holds is accepted", "gate-green-verify", wt, 0)
 
 # Work must be committed on the worktree's branch, so the supervisor MERGES it (live e2e run:
@@ -602,7 +611,7 @@ HELD_BY = {
     20: ("semantic capability gaps are explicit (Unsupported, LSP exit 4, capability matrix)", ["host-adapter.test.py", "lsp-adapter.test.py", "context-boundary.test.py"]),
 }
 TESTS = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "test")
-_env = {k: v for k, v in os.environ.items() if k not in ("AGENTIC_HOST", "SKIP_HOOKS", "STORY_DIR", "AGENT_ROLE", "REPO_DIR", "BASE_REF", "SCOPE_GLOBS")}
+_env = {k: v for k, v in os.environ.items() if k not in DROP}
 for item, (title, files) in sorted(HELD_BY.items()):
     bad = []
     for f in files:

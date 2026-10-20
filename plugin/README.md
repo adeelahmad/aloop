@@ -171,9 +171,9 @@ dsh --profile aloop "Use the aloop skill. Intent: <one line>"
   The profile disables dsh's session-log upload (`session-log-deepseek`); set
   `DSH_TELEMETRY_DISABLED=1` to stop its telemetry too.
 
-Covered in CI by `make test-hosts`: `dsh-plugin.test.mjs` (the plugin against an emulated
-dsh context) and `dsh-runtime.test.mjs` (the real dsh runtime, pinned, driven by a scripted
-model: no network, no tokens).
+Covered in CI by `make test-hosts` on Linux and macOS: `dsh-plugin.test.mjs` (the plugin
+against an emulated dsh context) and `dsh-runtime.test.mjs` (the real dsh runtime, pinned,
+driven by a scripted model: no network, no tokens).
 
 ## Invoking it
 

@@ -3,7 +3,8 @@
     python3 scripts/test/readme.test.py
 Checks the section order, that every `aladdin` / `aloop <tool>` command it names exists in
 plugin/bin, that the install lines name the real marketplace and plugin, that every relative
-link resolves, and that every demo time/cost figure is one ROADMAP §0 records.
+link resolves, that every demo time/cost figure is one ROADMAP §0 records, and that every CI job
+running the host tests installs the pinned dsh and requires it (so its runtime test cannot skip).
 """
 import json
 import os
@@ -81,5 +82,22 @@ assert m and int(m.group(1)) == n, "README says %s suites, the Makefile runs %d"
 for g in sorted(set(t for t in re.findall(r"scripts/test/(\S+\.test\.py)", make) if "*" in t)):
     assert "`%s`" % g in readme, "README does not name the Makefile's glob of suites %r" % g
 ok("the README's offline suite count is the Makefile's (%d, plus its globbed suites)" % n)
+
+# 7) every CI job that runs the host tests (the README: macos runs "the same host tests") runs the dsh
+# runtime test for real: without DSH_BIN and ALOOP_REQUIRE_DSH=1 it prints "skip" and exits 0, so the
+# macos job went green with none of its checks run. One install step, the pin the test names, in each job.
+ci = open(os.path.join(ROOT, ".github", "workflows", "ci.yml")).read()
+pin = re.search(r"npm install (@deepseek-ai/dsh@[\w.-]*\w)", open(os.path.join(ROOT, "scripts", "test", "dsh-runtime.test.mjs")).read()).group(1)
+jobs = {j.split(":", 1)[0]: j for j in re.split(r"^  (?=[\w-]+:\s*$)", ci.split("\njobs:\n", 1)[1], flags=re.M) if j.strip()}
+host_jobs = sorted(k for k, j in jobs.items() if "make test-hosts" in j)
+assert {"hosts", "macos"} <= set(host_jobs), "CI jobs running the host tests: %r" % host_jobs
+steps = {}
+for k in host_jobs:
+    m = re.search(r"^      - name: Install the pinned DeepSeek Harness \(dsh\) runtime\n(?:(?!      - ).*\n)*", jobs[k], re.M)
+    assert m and m.start() < jobs[k].index("make test-hosts"), "CI job %r runs the host tests without installing dsh first" % k
+    steps[k] = m.group(0)
+    assert pin in steps[k] and "DSH_BIN=" in steps[k] and 'echo "ALOOP_REQUIRE_DSH=1" >> "$GITHUB_ENV"' in steps[k], (k, pin, steps[k])
+assert len(set(steps.values())) == 1, "the dsh install step differs between CI jobs: %r" % steps
+ok("every CI job running the host tests installs dsh (%s) and requires it (%s)" % (pin, ", ".join(host_jobs)))
 
 print("\n%d checks passed" % PASS[0])
