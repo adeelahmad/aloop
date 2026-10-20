@@ -100,7 +100,7 @@ def cmd_assess(cwd, o):
     diffs, _ = B.disagreements(cwd, bdoc, runs)
     sid = M.new_id(KIND)
     doc = {"state_id": sid, "baseline_id": bdoc["baseline_id"], "baseline_version": bdoc["version"],
-           "mission_sha256": bdoc["mission_sha256"], "head": head(cwd), "runs": runs, "agreed": not diffs,
+           "direction_sha256": bdoc["direction_sha256"], "head": head(cwd), "runs": runs, "agreed": not diffs,
            "disagreements": diffs, "judged": scores, "status": "recorded", "created_at": M.now()}
     M.seal(doc)
     path = M.save(M.path_of(cwd, KIND, sid), doc)
