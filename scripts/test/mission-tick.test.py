@@ -1226,6 +1226,7 @@ doc = p.mission_doc()
 doc["budget"]["tokens"] = 5000
 doc["status"] = "draft"
 M.save(M.path_of(p.dir, "mission"), doc)
+later(p)        # the clone's new prompt log: a line from the second of the first approval reads as older than it
 assert p.mi("approve", "--by", "Adeel", "--reason", "raise the cap").returncode == 0
 p.review(p.mission_ref(), p.mission_doc(), "clear", 1.3)
 d = p.tick(1.4)
