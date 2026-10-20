@@ -129,10 +129,12 @@ only the first message (the mission's answers) and each grant line a session sho
 (mission approve, baseline confirm), as `scripted-human (e2e)`: a row proves the relay and the
 loop, not a human's review. `make e2e-mission YES=1 DRY=1` seeds the repo and prints the plan
 without spending anything. The run leaves `summary.json`, `summary.md` and a ready-to-paste row
-(`scripts/smoke/mission_summary.py`); add the row here. No run is recorded yet.
+(`scripts/smoke/mission_summary.py`); add the row here.
 
 | run | fixture | plugin | checks | sessions / grants | sprints | wall | cost | tick estimate | outcome | reproduce |
 |---|---|---|---|---|---|---|---|---|---|---|
+| mission 1 | todo (claude) | v0.12.0 (378d019) | 11/24 | 2 / 1 | 0 | 4m24s | $0.33 | $0.38 | stopped: the baseline's pre-grant check (a stray journey draft; fixed, M9.68) | `make e2e-mission YES=1` |
+| mission 2 | todo (claude) | v0.12.0 (17d307f) | 22/24 | 4 / 2 | 1 | 15m32s | ≥$0.97 | $1.80 | GOAL MET (misses: the seed-test check, fixed; a GREEN stuck release, M9.70) | `make e2e-mission YES=1` |
 
 Columns: *checks* are the run's own post-run checks (N/M); *sessions / grants* count the host
 sessions it started and the mission ledger's human grant rows that verify (an edited or uncited row is

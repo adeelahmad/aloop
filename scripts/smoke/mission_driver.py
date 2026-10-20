@@ -1322,6 +1322,26 @@ def check_no_crash(c):
         n, CRASH, len(paths), c.gates["stuck_releases"])
 
 
+KEPT_ADDS = (ast.Import, ast.ImportFrom, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+
+def seed_test_kept(seed_src, now_src):
+    """True when the test file only gained tests: every top-level statement of the seed's is still there, unchanged and
+    in order, and each one added is an import, a def or a class (a module-level statement could patch what the seed's
+    test reads). A RED worker appends its tests to the existing file."""
+    try:
+        old, new = ast.parse(seed_src), ast.parse(now_src)
+    except (SyntaxError, ValueError):
+        return False
+    want, i, added = [ast.dump(n) for n in old.body], 0, []
+    for n in new.body:
+        if i < len(want) and ast.dump(n) == want[i]:
+            i += 1
+        else:
+            added.append(n)
+    return i == len(want) and all(isinstance(n, KEPT_ADDS) for n in added)
+
+
 def check_product(c):
     head = git(c.repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     extras = runner_extras(c.repo)
@@ -1331,11 +1351,13 @@ def check_product(c):
     except (ValueError, AttributeError):
         steps = {}
     calls = [p for p in glob.glob(os.path.join(c.repo, "tests", "**", "*.py"), recursive=True) if "add(" in read(p)]
-    seed_test = git(c.repo, "diff", "--quiet", c.seed(), "--", "tests/test_todo.py").returncode == 0 if c.seed() else False
+    seed_src = git(c.repo, "show", "%s:tests/test_todo.py" % c.seed()) if c.seed() else None
+    seed_test = bool(seed_src) and seed_src.returncode == 0 and \
+        seed_test_kept(seed_src.stdout, read(os.path.join(c.repo, "tests", "test_todo.py")))
     ok = head == "main" and steps.get("see") is True and bool(calls) and seed_test and not extras
-    return ok, "on %s: the runner (exit %s, run as a session) sees %r; tests calling add(: %d; the seed's test " \
-        "unchanged: %s; other files beside the runner: %s" % (head, rc, steps.get("see"), len(calls), seed_test,
-                                                               extras or "none")
+    return ok, "on %s: the runner (exit %s, run as a session) sees %r; tests calling add(: %d; the seed's test kept " \
+        "(only tests added): %s; other files beside the runner: %s" % (head, rc, steps.get("see"), len(calls), seed_test,
+                                                                       extras or "none")
 
 
 def check_pytest(c):
@@ -1402,7 +1424,7 @@ CHECKS = [
     ("every commit after the seed is by the run's author (defaults.md's, the seed's own), committer too",
      check_authors),
     ("no hook crashed and no gate was stuck-released", check_no_crash),
-    ("on main the runner sees the task, a test calls add(, the seed's test is unchanged", check_product),
+    ("on main the runner sees the task, a test calls add(, the seed's test is kept (only tests added)", check_product),
     ("pytest passes on main: every test ran and passed (none skipped, xfailed, xpassed or deselected)", check_pytest),
     ("crontab -l is unchanged", check_crontab),
     ("the cost stayed within the outer cap", check_cost),

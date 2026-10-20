@@ -1351,6 +1351,23 @@ block("pytest's output passes only when every test ran and passed: none skipped,
       "each test's PASSED line present (a class or a parameter id counts)", t_pytest_output)
 
 
+def t_seed_test_kept():
+    """The seed's test file may gain tests, as a RED worker appends them (the second live run did), but never lose,
+    edit or reorder what the seed had, or gain a module-level statement that could patch what its test reads."""
+    seed = open(os.path.join(FIX, "tests", "test_todo.py")).read()
+    added = "\n\ndef test_an_added_task_is_in_the_list():\n    t = TodoList()\n    t.add('x')\n    assert 'x' in t.tasks()\n"
+    assert D.seed_test_kept(seed, seed) and D.seed_test_kept(seed, seed + added)
+    assert D.seed_test_kept(seed, "import pytest\n" + seed + added + "\n\nclass TestMore:\n    def test_y(self):\n        pass\n")
+    for bad in (seed.replace("== []", "is not None"), seed + "\nTodoList.tasks = lambda self: []\n",
+                seed + added.replace("def test_an", "x = 1\n\n\ndef test_an"), added, seed + "def broken(:\n",
+                seed.split("\n", 1)[1] + "\n" + seed.split("\n", 1)[0] + "\n"):      # the last one: reordered
+        assert not D.seed_test_kept(seed, bad), bad
+
+
+block("the seed's test file only gains tests: an edit, a reorder, a removal or a module-level statement is a change",
+      t_seed_test_kept)
+
+
 def t_pytest_wiring():
     """check_pytest itself, whatever pytest is installed: a fake pytest first on PYTHONPATH records its argv and prints
     what it is told (the PASSED lines only with -rA, as pytest's short test summary does)."""
