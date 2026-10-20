@@ -187,7 +187,7 @@ def cmd_check(cwd, path, mode="reviewed"):
     asks = unanswered(doc)
     if asks:
         for q in asks:
-            print("ASK[intent]: %s" % q, file=sys.stderr)
+            print("ASK[intent]: %s" % one_line(q), file=sys.stderr)
         print("intent: %d question(s) need the human (irreversible, security-sensitive or intent-changing) — "
               "%s mode does not proceed past them." % (len(asks), mode), file=sys.stderr)
         return 3
@@ -204,26 +204,56 @@ def payload_of(raw):
     return p if isinstance(p, dict) else {}
 
 
+def one_line(q, cap=300):
+    """A question as one line: model-written text never starts a line of its own in a gate's output."""
+    q = " ".join(str(q).split())
+    return q if len(q) <= cap else q[:cap - 1] + "…"
+
+
+def contract_of(cwd, path, iid):
+    """True when `path` is the project's own contract file for `iid` (docs/agents/intents/<iid>.json)."""
+    try:
+        return os.path.samefile(path, os.path.join(intents_dir(cwd), iid + ".json"))
+    except OSError:
+        return False
+
+
+def newest(cwd):
+    """The contract gate-intake judges: the newest intents/int_*.json."""
+    d = intents_dir(cwd)
+    names = [n for n in os.listdir(d) if ID.match(n[:-5]) and n.endswith(".json")] if os.path.isdir(d) else []
+    return max((os.path.join(d, n) for n in names), key=lambda f: (os.path.getmtime(f), f), default="")
+
+
 def notice(rec, asks):
-    """What the supervisor is told about one NEEDS-HUMAN release (the dsh and OpenCode plugins say the same)."""
+    """What the supervisor is told about one NEEDS-HUMAN release, on every host (dsh and OpenCode run `intent hook`
+    too). Each question is one quoted line: the intake's words, never a line in the gate's voice."""
     return ("[aloop gate] %s %s: NEEDS-HUMAN — released UNVERIFIED (not a pass): its Intent Contract %s has questions only "
-            "the human can answer:\n%s\nAsk the human each one, then re-dispatch %s with the answers in a ### Feedback block "
-            "(it records each answer). Do not plan from it until gate-intake passes."
-            % (rec.get("role", "intake"), rec.get("agent_id") or "?", rec.get("contract", "?"),
-               "\n".join("- " + q for q in asks), rec.get("role", "intake")))
+            "the human can answer (the intake's words, quoted):\n%s\nAsk the human each one, then re-dispatch %s with the "
+            "answers in a ### Feedback block (it records each answer). Do not plan from it until gate-intake passes."
+            % (rec.get("role", "intake"), one_line(rec.get("agent_id") or "?", 80), rec.get("contract", "?"),
+               "\n".join("- " + json.dumps(one_line(q), ensure_ascii=False) for q in asks), rec.get("role", "intake")))
 
 
 def cmd_release(cwd, path, raw):
     p = payload_of(raw)
     if p.get("hook_event_name") != "SubagentStop" or _paths.env("SELFCHECK") == "1":
         return 1
+    role = re.sub(r"^aloop[:-]", "", str(p.get("agent_type") or ""))
+    if role and role != "intake":
+        return 1                                     # only the intake's stop waits on the human
     doc, _ = load(path)
-    asks = unanswered(doc) if isinstance(doc, dict) and ID.match(str(doc.get("intent_id", ""))) else []
+    if not isinstance(doc, dict) or problems(doc, path) or not contract_of(cwd, path, doc["intent_id"]) or not [
+            e for e in _events.read(cwd) if e.get("event") == "intent.received"
+            and (e.get("data") or {}).get("intent_id") == doc["intent_id"]]:
+        return 1                                     # a contract `intent new` issued, in its place: never one a role made up
+    asks = unanswered(doc)
     if not asks:
         return 1                                     # exit 3 from a mission goal's own questions: not this release
     agent = str(p.get("agent_id") or "")
-    rec = {"intent_id": doc["intent_id"], "contract": os.path.abspath(path), "agent_id": agent, "role": "intake",
-           "gate": "gate-intake", "questions": asks, "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    rec = {"intent_id": doc["intent_id"], "contract": os.path.realpath(path), "agent_id": agent, "role": "intake",
+           "gate": "gate-intake", "questions": asks, "session_id": str(p.get("session_id") or ""),
+           "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     out = os.path.join(_paths.home(cwd, "state/needs-human"), doc["intent_id"] + ".json")
     with open(out + ".tmp", "w") as f:
         json.dump(rec, f)
@@ -239,18 +269,23 @@ def cmd_hook(raw):
     if os.environ.get("SKIP_HOOKS") == "1" or p.get("agent_id") or not os.path.isdir(_paths.docs(cwd)):
         return 0                                     # a role's own call: only the supervisor is told
     d = _paths.home(cwd, "state/needs-human", make=False)
-    out = []
+    out, judged, session = [], newest(cwd), str(p.get("session_id") or "")
     for name in sorted(os.listdir(d)) if os.path.isdir(d) else []:
         f = os.path.join(d, name)
         if not name.endswith(".json"):
             continue
+        rec, _ = load(f)
+        rec = rec if isinstance(rec, dict) else {}
+        if rec.get("session_id") and session and rec["session_id"] != session:
+            continue                                 # another session's release: its supervisor is told, not this one
         try:
             os.replace(f, f + ".reported")           # claimed: a parallel hook that got there first tells it
         except OSError:
             continue
-        rec, _ = load(f + ".reported")
-        rec = rec if isinstance(rec, dict) else {}
-        doc, _ = load(rec.get("contract") or "")
+        iid, path = str(rec.get("intent_id") or ""), str(rec.get("contract") or "")
+        if not ID.match(iid) or not contract_of(cwd, path, iid) or not judged or not os.path.samefile(path, judged):
+            continue                                 # not a contract in its place, or a newer one superseded it
+        doc, _ = load(path)
         asks = unanswered(doc) if isinstance(doc, dict) else []   # answered since (a re-dispatch): nothing to tell
         if asks:
             out.append(notice(rec, asks))

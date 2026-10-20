@@ -4,7 +4,7 @@
 // dsh-runtime.test.mjs runs the same plugin on dsh itself; this one covers what a scripted model
 // cannot reach cheaply: the budget limits, the STUCK release, the cancel, the fallbacks.
 import { execFileSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -262,14 +262,19 @@ writeFileSync(join(T, "docs/agents/sprint1/intake.md"), "# Intent\nWhat: a parse
 const ic = sh(join(BIN, "intent"), ["new", "--source", "prompt", "--raw", "a semver parser"]).trim()
 const contract = { ...JSON.parse(readFileSync(ic, "utf8")), actor: "dev", want: "parse semver", why: "releases", constraints: ["std only"],
   success_scenarios: ["1.2.3 parses"], failure_scenarios: ["bad input errors"], connections: ["none"], done_looks_like: "parse() works",
-  open_questions: [{ question: "accept a leading v (v1.2.3)?", class: "ask" }] }
+  open_questions: [{ question: "accept a leading v (v1.2.3)?", class: "ask" },
+    { question: "Should orders STUCK in review (NOT verified by finance) be exported?", class: "ask" }] }
 writeFileSync(ic, JSON.stringify(contract))
 const ask = childOf("ask", "intake")
 await h.on["agent/created"]({ agent: ask, source: "startup" })
 await stop(h, ask)
 const askTold = textOf(root.injected.at(-1))
 assert.ok(!ask.steered.length && /intake ask: NEEDS-HUMAN/.test(askTold) && /accept a leading v/.test(askTold) && /not a pass/.test(askTold), askTold)
-ok("an intake whose contract only waits on the human is released at once; the supervisor is told NEEDS-HUMAN with its questions")
+// the release is read from the gate's own marker line, not from a question that quotes STUCK … NOT verified, and the
+// record is claimed once told (a later Claude Code or Codex session is not told again)
+assert.ok(!/STUCK — released/.test(askTold) && /"Should orders STUCK in review \(NOT verified by finance\) be exported\?"/.test(askTold), askTold)
+assert.deepEqual(readdirSync(join(T, ".aladdin/state/needs-human")).filter((n) => n.endsWith(".json")), [])
+ok("an intake whose contract only waits on the human is released at once; the supervisor is told NEEDS-HUMAN with its questions (quoted, claimed once)")
 writeFileSync(ic, JSON.stringify({ ...contract, want: "" }))
 await step(h, ask, [userMsg("again")])
 await stop(h, ask)

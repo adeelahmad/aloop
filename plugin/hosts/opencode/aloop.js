@@ -46,7 +46,14 @@ const TOOL = { bash: "Bash", write: "Write", edit: "Edit", apply_patch: "apply_p
 const EDITS = new Set(["write", "edit", "apply_patch"])
 const GATE_ROUNDS = 3
 // a gate's release (exit 0, NOT a pass): the same block N times (STUCK), or questions only the human can answer
-const RELEASE = /\b(STUCK|NEEDS-HUMAN)\b.*NOT verified/
+// questions only the intake can raise. Read from the gate's own marker line (`[<gate>] STUCK …` at a line start, the
+// last one), never from model text it quotes (an intake's question, a test's output); NEEDS-HUMAN only at the intake's stop.
+const RELEASE = /^\[[\w-]+\] (STUCK|NEEDS-HUMAN)\b[^\n]*NOT verified/gm
+const releaseOf = (stderr, role) => {
+  const kind = [...String(stderr || "").matchAll(RELEASE)].at(-1)?.[1]
+  return kind === "NEEDS-HUMAN" && role !== "intake" ? null : kind || null
+}
+const HUMAN_FALLBACK = (role) => `[aloop gate] ${role}: NEEDS-HUMAN — released UNVERIFIED (not a pass): its Intent Contract has questions only the human can answer (\`aloop intent check\` on the newest docs/agents/intents/int_*.json lists them). Ask the human each one, then re-dispatch ${role} with the answers in a ### Feedback block. Do not plan from it until gate-intake passes.`
 
 export const AgenticAgile = async ({ client, directory, worktree }) => {
   const project = worktree || directory
@@ -141,8 +148,13 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
       const res = run(gate, [], p, bound(childID) || project)
       // A release (stuck on one block, or waiting on the human's answers) exits 0 but is NOT a pass:
       // hand the supervisor the reason as a release, never as a silent success.
-      const rel = res.code === 0 && RELEASE.exec(res.stderr || "")
-      if (rel) { verdict = rel[1] === "STUCK" ? { stuck: res.stderr } : { human: res.stderr, role }; break }
+      const rel = res.code === 0 && releaseOf(res.stderr, role)
+      if (rel === "STUCK") { verdict = { stuck: res.stderr }; break }
+      if (rel) {   // the notice `intent hook` builds from the record `intent release` wrote (and claims it: told once)
+        const told = run("intent", ["hook"], { hook_event_name: "PostToolUse", session_id: p.session_id, cwd: project })
+        verdict = { human: told.json?.hookSpecificOutput?.additionalContext || HUMAN_FALLBACK(role) }
+        break
+      }
       if (res.code !== 2) { verdict = null; break }
       verdict = { blocked: res.stderr }
       if (round === GATE_ROUNDS) break
@@ -252,7 +264,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
         if (child) {
           const v = await subagentStop(child, input.sessionID)
           if (v?.stuck) output.output = `${output.output || ""}\n\n[aloop gate] STUCK — released UNVERIFIED (not a pass): the sub-agent hit the same block repeatedly:\n${v.stuck}\nDo not merge. Discard its worktree and re-dispatch the task with a Feedback block that addresses the reason, or re-plan.`
-          else if (v?.human) output.output = `${output.output || ""}\n\n[aloop gate] NEEDS-HUMAN — released UNVERIFIED (not a pass): its Intent Contract has questions only the human can answer:\n${v.human}\nAsk the human each one, then re-dispatch ${v.role} with the answers in a ### Feedback block (it records each answer). Do not plan from it until gate-intake passes.`
+          else if (v?.human) output.output = `${output.output || ""}\n\n${v.human}`
           else if (v?.blocked) output.output = `${output.output || ""}\n\n[aloop gate] BLOCKED after ${GATE_ROUNDS} fix rounds — the sub-agent did not pass its gate:\n${v.blocked}\nApply the playbook's retry/escalate rule (re-dispatch with this feedback, or escalate).`
         }
       }

@@ -2,7 +2,7 @@
 // Runs the REAL generated plugin (aloop install opencode) and the REAL bin/ scripts in a
 // throw-away git repo. No OpenCode, no network, no tokens.   node scripts/test/opencode-plugin.test.mjs
 import { execFileSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -197,7 +197,8 @@ writeFileSync(join(T, "docs/agents/sprint1/intake.md"), "# Intent\nWhat: a parse
 const ic = sh(join(BIN, "intent"), ["new", "--source", "prompt", "--raw", "a semver parser"]).trim()
 const contract = { ...JSON.parse(readFileSync(ic, "utf8")), actor: "dev", want: "parse semver", why: "releases", constraints: ["std only"],
   success_scenarios: ["1.2.3 parses"], failure_scenarios: ["bad input errors"], connections: ["none"], done_looks_like: "parse() works",
-  open_questions: [{ question: "accept a leading v (v1.2.3)?", class: "ask" }] }
+  open_questions: [{ question: "accept a leading v (v1.2.3)?", class: "ask" },
+    { question: "Should orders STUCK in review (NOT verified by finance) be exported?", class: "ask" }] }
 writeFileSync(ic, JSON.stringify(contract))
 parents.itk = "root"
 await hooks.event({ event: { type: "session.created", properties: { info: { id: "itk", parentID: "root" } } } })
@@ -206,7 +207,11 @@ const askOut = { title: "", output: "one question needs the human", metadata: { 
 before = calls.prompt.length
 await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "i1", args: {} }, askOut)
 assert.ok(/NEEDS-HUMAN — released UNVERIFIED/.test(askOut.output) && /accept a leading v/.test(askOut.output) && calls.prompt.length === before, askOut.output)
-ok("an intake whose contract only waits on the human is released at once; the task result says NEEDS-HUMAN with its questions")
+// the release is read from the gate's own marker line, not from a question that quotes STUCK … NOT verified, and the
+// record is claimed once told (a later Claude Code or Codex session is not told again)
+assert.ok(!/STUCK — released/.test(askOut.output) && /"Should orders STUCK in review \(NOT verified by finance\) be exported\?"/.test(askOut.output), askOut.output)
+assert.deepEqual(readdirSync(join(T, ".aladdin/state/needs-human")).filter((n) => n.endsWith(".json")), [])
+ok("an intake whose contract only waits on the human is released at once; the task result says NEEDS-HUMAN with its questions (quoted, claimed once)")
 writeFileSync(ic, JSON.stringify({ ...contract, want: "" }))
 const badOut = { title: "", output: "done", metadata: { sessionId: "itk" } }
 await hooks["tool.execute.after"]({ tool: "task", sessionID: "root", callID: "i2", args: {} }, badOut)
