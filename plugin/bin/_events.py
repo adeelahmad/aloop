@@ -152,9 +152,11 @@ def read(cwd=None):
         with open(path(cwd)) as f:
             for line in f:
                 try:
-                    yield json.loads(line)
+                    ev = json.loads(line)
                 except ValueError:
                     continue
+                if isinstance(ev, dict):      # a torn append can leave a bare value
+                    yield ev
     except OSError:
         return
 

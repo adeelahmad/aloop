@@ -96,8 +96,15 @@ def locate(path, base, rts):
 
 
 def is_harness_state(rel):
-    """The event log and the gates' state under run data: written by the harness's own commands."""
-    return any(under(rel, h + d) for h in (".aladdin/", ".agentic/") for d in ("logs/", "state/"))
+    """The event log, the gates' state and the captured prompts under run data: written by the
+    harness's own commands and hooks."""
+    return any(under(rel, h + d) for h in (".aladdin/", ".agentic/") for d in ("logs/", "state/", "transcripts/"))
+
+
+def is_prompt_log(rel):
+    """The prompts the UserPromptSubmit hook captured (`transcripts prompt`): a mission grant is read from
+    the human's own words there (M9.17), so no tool call writes it."""
+    return any(under(rel, h + "transcripts/") for h in (".aladdin/", ".agentic/"))
 
 
 def is_run_data(rel):

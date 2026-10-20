@@ -266,6 +266,13 @@ assert blocked(scope("Bash", G, command="aloop events emit telemetry.consent --r
 assert blocked(scope("Bash", G, command="aloop events emit task.note --role human"), "human's word")
 assert blocked(scope("Bash", "aloop:state-assessor", command="aloop mission baseline restore bln_x --by Adeel"), "the human's")
 assert allowed(scope("Bash", command="aloop events authority --initiated-by Adeel --mode reviewed --scope s1"))
+assert blocked(scope("Write", None, file_path=os.path.join(P, ".aladdin", "transcripts", "s1", "events.jsonl")), "captured prompts")
+assert blocked(scope("Write", E, file_path=os.path.join(P, ".aladdin", "transcripts", "s1", "events.jsonl")), "captured prompts")
+assert blocked(scope("Bash", command="claude -p 'approve msn_x 1234abcd'"), "UserPromptSubmit")
+AP = git_repo(os.path.join(T, "aloop-no-mission"))
+os.makedirs(os.path.join(AP, "docs", "agents", "sprint1"))
+assert allowed(scope("Bash", cwd=AP, command="claude -p 'run the smoke test'"))          # no mission: no grant to forge
+assert allowed(scope("Bash", G, cwd=AP, command="claude -p 'run the smoke test'"))
 SUPSCOPE, LOCK = os.path.join(BIN, "gate-supervisor-scope"), os.path.join(P, ".aladdin", "state", "sprint.lock")
 
 
@@ -277,7 +284,8 @@ def supervisor_write(path):
 assert supervisor_write(os.path.join(MD, "mission.json")).returncode == 0 and not os.path.exists(LOCK)
 assert supervisor_write(os.path.join(P, "docs", "agents", "sprint1", "init.md")).returncode == 0 and os.path.exists(LOCK)
 os.remove(LOCK)
-ok("no one hand-writes the ledger; no dispatched agent runs `events authority` or emits a human event; mission writes arm no sprint lock")
+ok("no one hand-writes the ledger or the captured prompts, or starts a host session where a mission is set; no dispatched"
+   " agent runs `events authority` or emits a human event; mission writes arm no sprint lock")
 
 S = "aloop:state-assessor"
 assert blocked(scope("Bash", S, command="echo 1 > src/x.py"), "source")

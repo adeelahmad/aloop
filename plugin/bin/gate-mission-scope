@@ -14,7 +14,10 @@ A builder never grades its own work, and a grader never builds:
     never emits a human event;
   - the SUPERVISOR (no agent_type) never hand-writes a role's artifact: everything under
     docs/agents/mission/ but mission.json (the human's, sealed by `mission approve`) is dispatched;
-  - NO ONE hand-writes docs/agents/mission/ledger.jsonl: only the mission CLI appends to it.
+  - NO ONE hand-writes docs/agents/mission/ledger.jsonl (only the mission CLI appends to it) or the captured
+    prompts (<run data>/transcripts/, the UserPromptSubmit hook's), runs a hook's `transcripts prompt|record|…`,
+    or, where a mission is set, starts a host session from a tool call (`claude -p`, `codex exec`,
+    `opencode run`: its prompt would be captured as the human's words, which a grant reads, M9.17).
 
 Write/Edit/patch paths are exact. A Bash command is read as the shell would read it (_shellread.py:
 quotes, escapes, line continuations, comments, heredoc bodies as data, reserved words, subshells,
@@ -54,6 +57,13 @@ SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "mksh", "ash"}
 PYTHON = re.compile(r"^(python|pypy)[0-9.]*$")
 MKTEMP = os.path.join(tempfile.gettempdir(), "aloop-mktemp.XXXXXXXX")   # outside every project
 DEPTH = 8                                             # nested shell strings read before giving up
+TRANSCRIPT_HOOKS = {"prompt", "record", "snapshot", "stop", "stage-in"}
+# the hosts, and their subcommands that start no session (any other word is a prompt or a session)
+HOSTS = {"claude": {"plugin", "plugins", "mcp", "config", "doctor", "update", "install", "migrate-installer",
+                    "setup-token"},
+         "codex": {"login", "logout", "mcp", "completion", "debug", "apply", "a", "help", "features"},
+         "opencode": {"auth", "models", "upgrade", "mcp", "agent", "github", "stats", "export", "import",
+                      "uninstall", "debug", "help"}}
 
 
 class Block(Exception):
@@ -155,6 +165,10 @@ class Scope:
         if rel is None:
             return                                        # outside the project: a scratch dir
         in_mission = R.under(rel, R.MISSION)
+        if R.is_prompt_log(rel):
+            raise Block("%s holds the human's captured prompts: only the UserPromptSubmit hook writes it, and a mission"
+                        " grant is read from the human's own words there (M9.17). Never a %s by %s."
+                        % (rel, what, self.who or "the supervisor"))
         if rel == R.LEDGER:
             raise Block("%s is the mission's ledger: only `aloop mission …` commands append to it (each row is chained to"
                         " the one before), never a %s by %s.\n  The supervisor recovers a bad edit with `git checkout -- %s`."
@@ -243,6 +257,30 @@ class Scope:
                         " and a human decision (%s) are the human's word.\n  If the run needs the human, say so in your"
                         " final message: the supervisor asks them."
                         % (" ".join(t or "…" for t in ts[:2]), ", ".join(sorted(self.R.M.HUMAN_EVENTS))))
+
+    def transcripts_cli(self, args):
+        """`transcripts prompt|record|…` are the hooks' own commands (they read the hook payload on stdin)."""
+        sub = text(args[0]) if args else ""
+        if sub is None or sub in TRANSCRIPT_HOOKS:
+            raise Block("`transcripts %s` is a hook's own command (UserPromptSubmit, PostToolUse, Stop), never a tool"
+                        " call's: the prompts it captures are the human's own words, which a mission grant reads (M9.17)."
+                        % (sub or "…"))
+
+    def host(self, name, args):
+        """A host session started from a tool call (`claude -p`, `codex exec`, `opencode run`) fires its own
+        UserPromptSubmit hook, so its prompt would be captured as the human's words (M9.17)."""
+        if self.role not in self.R.ROLES and not os.path.isdir(os.path.join(self.main, self.R.MISSION)):
+            return                                        # no mission here: no grant to forge
+        ts = [text(a) for a in args]
+        if ts and all(t in ("--version", "-v", "-V", "--help", "-h") for t in ts):
+            return
+        pos = [t for t in ts if t is None or not t.startswith("-")]
+        if pos and pos[0] in HOSTS[name]:
+            return                                        # a tool of the host (plugin validate, mcp list), no session
+        raise Block("%s starts a %s session from a tool call: its prompt fires the UserPromptSubmit hook and would be"
+                    " captured as the human's own words, which a mission grant reads (M9.17).\n  A role never starts"
+                    " another agent; a session the human wants runs from their own terminal or the mission's cron line."
+                    % (self.who or "the supervisor", name))
 
     def git(self, args, base):
         """Judge a git command: a mission role never writes the project's repo."""
@@ -473,6 +511,10 @@ class Scope:
             self.events_cli(args)
         elif name == "git":
             self.git(args, base)
+        elif name == "transcripts" or (name in CLI and args and text(args[0]) == "transcripts"):
+            self.transcripts_cli(args[1:] if name in CLI else args)
+        elif name in HOSTS:
+            self.host(name, args)
 
     def find(self, args, st, base, depth):
         """find … -exec CMD {} ; and -execdir / -ok: CMD is a command too."""
