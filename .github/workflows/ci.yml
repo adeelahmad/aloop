@@ -3,7 +3,8 @@
 #   rust       — ctx-symbols + md-db: fmt-check, clippy -D warnings, tests; §6 conformance fixtures
 #   shellcheck — lints every gate script (errors fail the build)
 #   plugin     — JSON sanity + eval-suite validation + `claude plugin validate --strict`
-#   hosts      — Codex hooks emulation + OpenCode plugin end-to-end (no network, no tokens)
+#   hosts      — Codex hooks emulation + OpenCode plugin end-to-end + the dsh plugin on the real,
+#                pinned DeepSeek Harness runtime against a scripted model (no network, no tokens)
 #   macos      — the host tests and the conformance fixtures on macOS (symlinked /var temp dirs,
 #                BSD userland): the v0.12.0 release run found two bugs Linux CI never saw
 name: CI
@@ -57,7 +58,7 @@ jobs:
         run: make shellcheck
 
   hosts:
-    name: hosts (codex hooks · opencode plugin)
+    name: hosts (codex hooks · opencode plugin · dsh plugin)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +70,13 @@ jobs:
           node-version: "22"
       - name: Byte-compile the Python hook scripts
         run: make pycheck
-      - name: Codex hooks emulation + OpenCode plugin end-to-end
+      - name: Install the pinned DeepSeek Harness (dsh) runtime
+        # dsh is a preview: pinned, and re-verified on each release (ROADMAP §4.9)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/dsh" --no-audit --no-fund @deepseek-ai/dsh@0.2.1-rc.2
+          echo "DSH_BIN=$RUNNER_TEMP/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js" >> "$GITHUB_ENV"
+          echo "ALOOP_REQUIRE_DSH=1" >> "$GITHUB_ENV"
+      - name: Codex hooks emulation + OpenCode plugin + dsh plugin end-to-end
         run: make test-hosts
 
   macos:

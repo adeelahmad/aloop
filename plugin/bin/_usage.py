@@ -9,6 +9,7 @@
                 reasoning). One row per increase of the running total.
   OpenCode      the aloop OpenCode plugin writes Claude-shaped usage records
                 (.agentic/host/opencode/…), so they read as Claude.
+  dsh           the aloop DeepSeek Harness plugin does the same (.aladdin/host/dsh/…).
 
 Row: {ts, id, model, in, cache_read, cache_write, out}  (in = uncached input).
 """
@@ -139,13 +140,16 @@ def find_codex_rollout(thread_id):
 
 
 def host_of(payload):
-    """claude | codex | opencode — from the hook payload (or AGENTIC_HOST)."""
+    """claude | codex | opencode | dsh — from the hook payload (or AGENTIC_HOST)."""
     h = os.environ.get("AGENTIC_HOST")
     if h:
         return h
     tp = (payload or {}).get("transcript_path") or ""
-    if "/.agentic/host/opencode/" in tp or "/.aladdin/host/opencode/" in tp:
-        return "opencode"
+    for host in ("opencode", "dsh"):
+        if "/.agentic/host/%s/" % host in tp or "/.aladdin/host/%s/" % host in tp:
+            return host
+    if os.environ.get("DSH_SHELL") == "1":
+        return "dsh"                       # a model's shell under dsh (DSH_SHELL=1 on every call)
     if os.path.basename(tp).startswith("rollout-"):
         return "codex"                     # Codex session logs are rollout-*.jsonl[.zst]
     if not tp and (payload or {}).get("turn_id"):

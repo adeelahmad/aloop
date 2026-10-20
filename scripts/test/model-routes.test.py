@@ -58,6 +58,7 @@ assert resolve("worker", "opencode")["model"] == "anthropic/claude-sonnet-5"
 c = resolve("worker", "codex")
 assert c["route"] == "strong" and c["model"] == "", c       # Codex: the session's own model
 assert resolve("worker", as_json=False, ) == "sonnet"
+assert [resolve(g, "dsh")["model"] for g in ("planner", "worker")] == ["deepseek-v4-pro", "deepseek-v4-pro"]
 ok("defaults are routes (planning=strongest, worker=strong); each host resolves them itself")
 
 # 2) a different route, a pinned id, and a host-specific pin
@@ -67,9 +68,13 @@ p = resolve("planning")
 assert p["route"] == "pinned" and p["model"] == "claude-opus-5", p
 assert resolve("planning", "opencode")["model"] == "anthropic/claude-opus-5"
 assert resolve("planning", "codex")["model"] == ""           # a Claude id does not exist on Codex
+assert resolve("worker", "dsh")["model"] == "deepseek-flash" and resolve("planning", "dsh")["model"] == ""   # nor on dsh
 open(DEF, "a").write("AGENTIC_MODEL_WORKER_CODEX=gpt-5.5\n")
 c = resolve("worker", "codex")
 assert c == {"group": "worker", "host": "codex", "route": "pinned", "model": "gpt-5.5", "source": "AGENTIC_MODEL_WORKER_CODEX"}, c
+open(DEF, "a").write("AGENTIC_MODEL_PLANNING_DSH=deepseek-flash\n")
+d = resolve("planner", "dsh")
+assert d == {"group": "planning", "host": "dsh", "route": "pinned", "model": "deepseek-flash", "source": "AGENTIC_MODEL_PLANNING_DSH"}, d
 ok("a route change, a pinned id (passes through, mapped per host) and a host-specific pin that wins there")
 
 # 3) the route table is printed; unknown host/role are errors, never a guess
@@ -83,6 +88,7 @@ ins = load("aloop_install_routes", os.path.join(BIN, "install"))
 st = dict(ins._paths.settings(T))
 assert ins.model_for("opencode", False, st) == "anthropic/claude-haiku-4-5"
 assert ins.model_for("codex", False, st) == "gpt-5.5" and ins.model_for("codex", True, st) == ""
+assert ins.model_for("dsh", False, st) == "deepseek-flash" and ins.model_for("dsh", True, st) == "deepseek-flash"
 ok("aloop install renders the resolved id per host from the same table")
 
 print("\n%d checks passed" % PASS[0])
