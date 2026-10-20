@@ -21,18 +21,22 @@ first message and the grant lines. No host binary runs here.
   and, each a block of its own: every pre-grant check alone; the runner's import isolation; the gate contract,
   git identity and host settings scrubbed; each post-run check broken alone (a forged or uncited ledger row, a
   second confirmation, a grant of other content than was checked, a mission.set of other content, a restore, a
-  skip or a pytest config, in the repo or above it …); gate passes that are a self-check or a budget release; the
-  loop's WAIT, the grant, total-time and cut session caps; host failures; the driver's refusals and the live
-  preflight; children and SIGKILL; the loop lock; a planted test that records goal.met; SIGTERM, SIGINT and
-  SIGHUP to the driver or the script; a failure of the driver itself during a session; nan and inf caps
+  skip, a hook, a conftest.py with code, a swapped or shadowed module or a pytest config, in the repo or above it …);
+  the pytest check's own argv and verdict; a planted bytecode cache; gate passes that are a self-check or a budget
+  release; the loop's WAIT, the grant, total-time and cut session caps; host failures; the driver's refusals and the
+  live preflight; children and SIGKILL, a session's and the checks' own; the loop lock; a planted test that records
+  goal.met or cites a grant line again; SIGTERM, SIGINT and SIGHUP to the driver or the script; a failure of the
+  driver itself during a session; nan and inf caps
     python3 scripts/test/mission-e2e-live.test.py
     MISSION_E2E_LIVE_KEEP_GOING=1 python3 scripts/test/mission-e2e-live.test.py    (every block, then the failures)
 """
 import contextlib
 import fcntl
 import hashlib
+import importlib.util
 import io
 import json
+import marshal
 import os
 import re
 import shutil
@@ -138,6 +142,29 @@ def doctored(path, fn=None, text=None):
             with open(path, "a") as f:
                 f.write(text or "")
         yield path
+
+
+@contextlib.contextmanager
+def planted(root, files):
+    """files ({path under root: text or bytes}) there for the block, then put back as they were: a file that was
+    there is restored byte for byte, one that was not is removed, with every dir the block made."""
+    paths = [os.path.join(root, rel) for rel in files]
+    made = []
+    for p in paths:
+        d = os.path.dirname(p)
+        while not os.path.isdir(d):
+            made.append(d)
+            d = os.path.dirname(d)
+    try:
+        with kept(*paths):
+            for p, body in zip(paths, files.values()):
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                with open(p, "wb" if isinstance(body, bytes) else "w") as f:
+                    f.write(body)
+            yield
+    finally:
+        for d in sorted(set(made), key=len, reverse=True):
+            shutil.rmtree(d, ignore_errors=True)
 
 
 @contextlib.contextmanager
@@ -874,7 +901,8 @@ with open(os.path.join(HOSTDIR, "claude"), "w") as f:
 os.chmod(os.path.join(HOSTDIR, "claude"), 0o755)
 HAVE_PYTEST = subprocess.run([os.path.join(TOOLS, "python3"), "-m", "pytest", "--version"], capture_output=True).returncode == 0
 HENV = dict(ENV, PATH=":".join([HOSTDIR, TOOLS, "/usr/bin", "/bin"]), E2E_POLL_S="0.3")
-if not HAVE_PYTEST:     # a stand-in that really runs tests/test_*.py's test functions (the preflight and checks need one)
+if not HAVE_PYTEST:     # a stand-in that really runs tests/test_*.py's test functions (the preflight and checks need one);
+    # like pytest, it prints a PASSED line per test only with -rA (the short test summary)
     PYT = os.path.join(T, "pytest-stand-in", "pytest")
     os.makedirs(PYT)
     open(os.path.join(PYT, "__init__.py"), "w").close()
@@ -887,7 +915,7 @@ if not HAVE_PYTEST:     # a stand-in that really runs tests/test_*.py's test fun
                 "    m = importlib.util.module_from_spec(spec)\n    spec.loader.exec_module(m)\n"
                 "    for k in sorted(dir(m)):\n        if k.startswith('test_') and callable(getattr(m, k)):\n"
                 "            n += 1\n            try:\n                getattr(m, k)()\n"
-                "                print('PASSED %s::%s' % (p, k))\n"     # pytest -rA's summary line
+                "                if '-rA' in sys.argv:\n                    print('PASSED %s::%s' % (p, k))\n"
                 "            except Exception as e:\n                fails += 1\n"
                 "                print('FAILED %s::%s - %s' % (p, k, e))\n"
                 "print('%d passed, %d failed' % (n - fails, fails))\nsys.exit(1 if fails or not n else 0)\n")
@@ -975,6 +1003,18 @@ def alive(pid):
         return True
     st = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
     return bool(st) and not st.startswith("Z")
+
+
+def read_pid(path, secs=60):
+    """The pid in path, once it is there: a session under load is slow to start the child it leaves behind."""
+    end = time.time() + secs
+    while True:
+        try:
+            return int(open(path).read())
+        except (OSError, ValueError):
+            if time.time() >= end:
+                raise AssertionError("no pid in %s after %ss" % (path, secs))
+            time.sleep(0.1)
 
 
 HEX8 = re.compile(r"\b[0-9a-f]{8}\b")
@@ -1219,6 +1259,43 @@ def doctored_checks():
         with doctored(path, text=text):
             ok_, why = D.check_no_suppressed(hctx())
         assert not ok_ and "%s (above the repo)" % os.path.realpath(path) in why, (path, why)
+    # (5) what neutralises a test with no mark, list or config: a hook no pattern names, a hook imported from a dir
+    # pytest never collects, a swapped or shadowed product module, a module no scan can read, pytest 9's own config
+    hook = ("import pytest\n\n\n@pytest.hookimpl(hookwrapper=True)\ndef pytest_runtest_makereport(item, call):\n"
+            "    out = yield\n    out.get_result().outcome = 'passed'\n")
+    fake = ("class TodoList:\n    def __init__(self):\n        self.t = []\n\n    def add(self, x):\n"
+            "        self.t.append(x)\n\n    def tasks(self):\n        return list(self.t)\n")
+    for files, want in (({"conftest.py": "def pytest_pyfunc_call(pyfuncitem):\n    return True\n"}, ["conftest.py"]),
+                        ({"conftest.py": "from build.h import *  # noqa\n", "build/__init__.py": "", "build/h.py": hook},
+                         ["conftest.py", "build/h.py"]),
+                        ({"conftest.py": "import sys\nimport types\nm = types.ModuleType('todo')\nexec(%r, m.__dict__)\n"
+                                         "sys.modules['todo'] = m\n" % fake}, ["conftest.py"]),
+                        ({"tests/conftest.py": "import todo\ntodo.TodoList.tasks = lambda self: ['buy milk']\n"},
+                         ["tests/conftest.py"]),
+                        ({"tests/test_more.py": "import sys\nimport types\nsys.modules['todo'] = types.ModuleType('t')\n"},
+                         ["tests/test_more.py"]),
+                        ({"tests/test_more.py": "pytest_plugins = ['x']\n"}, ["tests/test_more.py"]),
+                        ({"tests/test_more.py": "from pytest import (\n    fixture,\n    skip,\n)\n"}, ["tests/test_more.py"]),
+                        ({"tests/todo.py": fake}, ["tests/todo.py"]),        # pytest puts tests/ first on sys.path
+                        ({"lib/todo/__init__.py": fake}, ["lib/todo/__init__.py"]),
+                        ({"h.pyc": b"\0" * 16}, ["h.pyc"]),
+                        ({"pytest.toml": "[pytest]\naddopts = [\"-k\", \"not add\"]\n"}, ["pytest.toml"]),
+                        ({".venv/lib/plug.py": hook}, [".venv/lib/plug.py"]),
+                        ({"dist/plug.py": "import _pytest.runner\n"}, ["dist/plug.py"]),
+                        ({"build/plug.py": "def pytest_pyfunc_call(pyfuncitem):\n    return True\n"}, ["build/plug.py"])):
+        with planted(H.repo, files):
+            ok_, why = D.check_no_suppressed(hctx())
+        assert not ok_ and all(w in why for w in want), (files, why)
+    for files in ({"conftest.py": '"""The project root, on sys.path for the tests."""\n# nothing else\n'},
+                  {"conftest.py": "import os\nimport sys\n\nsys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\n"},
+                  {"tests/conftest.py": "import sys\nfrom pathlib import Path\n\n"
+                                        "sys.path.insert(0, str(Path(__file__).resolve().parent.parent))\n"},
+                  {"tests/test_more.py": "import pytest\n\n\n@pytest.mark.parametrize('x', [0])\ndef test_more(x):\n"
+                                         "    with pytest.raises(ZeroDivisionError):\n        1 / x\n"},
+                  {".aladdin/worktrees/wt-1/conftest.py": hook}):       # a task's worktree is not main
+        with planted(H.repo, files):
+            ok_, why = D.check_no_suppressed(hctx())
+        assert ok_, (files, why)
     with doctored(os.path.join(H.repo, os.path.dirname(RUNNER), "json.py"), text="x = 1\n"):
         c_ = hctx()
         assert not D.check_runner(c_)[0] and not D.check_product(c_)[0], (D.check_runner(c_), D.check_product(c_))
@@ -1241,10 +1318,73 @@ def t_pytest_output():
 block("each post-run check fails on a context that breaks only it: a forged or uncited human row (the ledger check; "
       "the summary's grants are the rows that verify), a second confirmation of other content citing the relayed "
       "line, a mission.set of other content, a restore or a consent, the crontab, a foreign tick or ledger row, the "
-      "cost, an untraced commit by another author, a skip, a collection hook or a pytest config, a file beside the "
-      "runner; and every check holds again once the context is put back", t_doctored)
+      "cost, an untraced commit by another author, a skip, a pytest hook in any file but .git and the worktrees, a "
+      "conftest.py with code, a swapped or shadowed product module, a module no scan can read or a pytest config, a "
+      "file beside the runner; and every check holds again once the context is put back", t_doctored)
 block("pytest's output passes only when every test ran and passed: none skipped, xfailed, xpassed or deselected, "
       "each test's PASSED line present (a class or a parameter id counts)", t_pytest_output)
+
+
+def t_pytest_wiring():
+    """check_pytest itself, whatever pytest is installed: a fake pytest first on PYTHONPATH records its argv and prints
+    what it is told (the PASSED lines only with -rA, as pytest's short test summary does)."""
+    fake, spec, argv_out = os.path.join(T, "fake-pytest"), os.path.join(T, "fake-pytest.json"), os.path.join(T, "fake.argv")
+    os.makedirs(os.path.join(fake, "pytest"))
+    open(os.path.join(fake, "pytest", "__init__.py"), "w").close()
+    with open(os.path.join(fake, "pytest", "__main__.py"), "w") as f:
+        f.write("import json, sys\nspec = json.load(open(%r))\nwith open(spec['argv_out'], 'w') as f:\n"
+                "    json.dump(sys.argv[1:], f)\nif '-rA' in sys.argv:\n    print(spec['summary'])\n"
+                "print(spec['counts'])\nsys.exit(spec['rc'])\n" % spec)
+    tests = D.tests_of(H.repo, plan_h["seed"]["sha"])
+    every, n = ["PASSED %s::%s" % t for t in tests], len(tests)
+    assert n >= 2, tests
+
+    def check(summary=None, counts=None, rc=0):
+        with open(spec, "w") as f:
+            json.dump({"argv_out": argv_out, "summary": "\n".join(every if summary is None else summary),
+                       "counts": counts or "%d passed in 0.01s" % n, "rc": rc}, f)
+        with environ(dict(HENV, MISSION_STUB_DIR=H.stub, PYTHONPATH=fake)):
+            return D.check_pytest(hctx())
+    ok_, why = check()
+    argv = json.load(open(argv_out))
+    assert ok_, why
+    assert "-rA" in argv and argv[argv.index("-p") + 1] == "no:cacheprovider", argv
+    assert argv[argv.index("--rootdir") + 1] == H.repo == argv[argv.index("--confcutdir") + 1], argv
+    for kw, want in ((dict(counts="%d passed, 1 skipped in 0.01s" % n), "1 skipped"),
+                     (dict(counts="%d passed, 1 xfailed in 0.01s" % n), "1 xfailed"),
+                     (dict(counts="%d passed, 1 xpassed in 0.01s" % n), "1 xpassed"),
+                     (dict(counts="%d passed, 1 deselected in 0.01s" % n), "1 deselected"),
+                     (dict(summary=every[1:], counts="%d passed in 0.01s" % (n - 1)), "no PASSED line"),
+                     (dict(rc=1), "exit 1")):
+        ok_, why = check(**kw)
+        assert not ok_ and want in why, (kw, why)
+
+
+block("the post-run pytest check runs pytest with -rA, no cache, the repo as rootdir and confcutdir, and passes only "
+      "on exit 0 with every test's PASSED line and no skipped, xfailed, xpassed or deselected count", t_pytest_wiring)
+
+
+def t_pycache():
+    """A bytecode cache planted in the repo is never what the checks run: todo/__pycache__ holding other code under
+    the source's own mtime and size fakes the product for a plain python3, not for the runner or pytest the checks run."""
+    src = os.path.join(H.repo, "todo", "__init__.py")
+    real = open(src).read()
+    other = real.replace("self._items.append(text)", "pass")
+    assert other != real
+    st = os.stat(src)
+    pyc = importlib.util.MAGIC_NUMBER + (0).to_bytes(4, "little") + (int(st.st_mtime) & 0xFFFFFFFF).to_bytes(4, "little") \
+        + (st.st_size & 0xFFFFFFFF).to_bytes(4, "little") + marshal.dumps(compile(other, src, "exec"))
+    plain_env = {k: v for k, v in ENV.items() if k != "PYTHONPYCACHEPREFIX"}
+    with planted(H.repo, {"todo/__pycache__/__init__.%s.pyc" % sys.implementation.cache_tag: pyc}):
+        r_ = subprocess.run(["python3", RUNNER], cwd=H.repo, env=plain_env, capture_output=True, text=True)
+        assert json.loads(r_.stdout.strip().splitlines()[-1])["steps"]["see"] is False, r_.stdout     # it does fake it
+        with environ(dict(HENV, MISSION_STUB_DIR=H.stub)):
+            c_ = hctx()
+            assert D.check_product(c_)[0] and D.check_pytest(c_)[0], (D.check_product(c_), D.check_pytest(c_))
+
+
+block("a bytecode cache planted in the repo (other code under the source's own mtime and size) is never read by the "
+      "post-run runner or pytest", t_pycache)
 
 # 6b) the first session idles; the stream has no result line and a hook crash's text: the run stops, every
 #     check is printed, exit 1, no traceback; the driver wrote no mission.tick and no ledger row
@@ -1295,7 +1435,7 @@ assert [c["max_budget_usd"] for c in U.calls] == ["10.00", "4.00"], [c["max_budg
 assert U.stop["code"] == "usd_cap" and "$9.50" in U.stop["reason"] and "$6.50" in U.stop["reason"], U.stop
 assert len(U.calls) == 2 and U.drv["tick_usd"] == 9.5 and U.drv["cost_usd"] == 6.5, U.drv
 W = live("timeout", env={"E2E_SESSION_TIMEOUT": "2", **POLLUTE_RUN}, default={"mode": "hang"})
-child = int(open(os.path.join(W.stub, "child-1.pid")).read())
+child = read_pid(os.path.join(W.stub, "child-1.pid"))
 assert W.stop["code"] == "session_timeout" and W.sessions[0]["timed_out"] is True and W.sessions[0]["secs"] < 30, (W.stop, W.sessions)
 assert not alive(child) and not alive(W.calls[0]["pid"]), (child, W.calls[0]["pid"])
 assert W.calls[0]["leaked"] == [] and W.calls[0]["loop"] == str(W.drv["driver_pid"])          # the driver scrubs itself too
@@ -1473,6 +1613,16 @@ def group_alive(pgid):
     return any(ln.split()[0] == str(pgid) and not ln.split()[1].startswith("Z") for ln in out.splitlines() if ln.split())
 
 
+def kill_group_of(pgid):
+    """SIGKILL what is left of a group a session or a check ran in, never this test's own (a broken driver that ran
+    one in our group must fail its check, not kill the suite and whatever started it)."""
+    if pgid and pgid != os.getpgid(0):
+        try:
+            os.killpg(pgid, signal.SIGKILL)
+        except OSError:
+            pass
+
+
 def gone_soon(check, secs=5.0):
     end = time.time() + secs
     while time.time() < end and check():
@@ -1484,18 +1634,45 @@ def t_children():
     for name, cfg, env in (("child", {"mode": "idle", "child": "stubborn"}, None),
                            ("timeout-stubborn", {"mode": "hang", "child": "stubborn"}, {"E2E_SESSION_TIMEOUT": "2"})):
         L_ = live(name, default=cfg, env=env)
-        child = int(open(os.path.join(L_.stub, "child-1.pid")).read())
+        child = read_pid(os.path.join(L_.stub, "child-1.pid"))
         try:
             assert gone_soon(lambda: alive(child)) and gone_soon(lambda: group_alive(L_.calls[0]["pgid"])), (name, child)
         finally:
-            try:
-                os.killpg(L_.calls[0]["pgid"], signal.SIGKILL)
-            except OSError:
-                pass
+            kill_group_of(L_.calls[0]["pgid"])
 
 
 block("a child the session left behind is killed when the session ends normally, and on a timeout; one that ignores "
       "SIGTERM gets SIGKILL (the whole process group is gone)", t_children)
+
+
+def t_contained():
+    """The checks' own runs of the repo's code (the runner, pytest: D.contained) take their whole process group with
+    them: the code that exits leaving a child behind, or times out (124), and a child that ignores SIGTERM."""
+    for name, stubborn, hang in (("exit", False, False), ("exit-stubborn", True, False), ("timeout", False, True)):
+        pidf = os.path.join(T, "contained-%s.pid" % name)
+        child = ["sh", "-c", "trap '' TERM; sleep 600; :"] if stubborn else ["sleep", "600"]
+        code = ("import os, subprocess, time\n"
+                "c = subprocess.Popen(%r, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+                "time.sleep(%s)\n"                                   # a trap is set before anyone signals it
+                "with open(%r, 'w') as f:\n    f.write('%%d %%d' %% (c.pid, os.getpgid(0)))\n"
+                "os.replace(%r, %r)\n%s" % (child, 0.3 if stubborn else 0, pidf + ".tmp", pidf + ".tmp", pidf,
+                                              "time.sleep(600)\n" if hang else ""))
+        with environ(dict(HENV, MISSION_STUB_DIR=H.stub)):
+            rc, out, err = D.contained(hctx(), ["python3", "-c", code], 5 if hang else 60)
+        try:
+            pid, pgid = [int(x) for x in open(pidf).read().split()]
+        except (OSError, ValueError):
+            raise AssertionError("%s: the code left no child (exit %s): %s" % (name, rc, err[-800:]))
+        try:
+            assert rc == (124 if hang else 0), (name, rc, err[-800:])
+            assert pgid != os.getpgid(0), (name, pgid)                     # its own group, not the driver's
+            assert gone_soon(lambda: alive(pid), 1.0) and gone_soon(lambda: group_alive(pgid), 1.0), (name, pid, pgid)
+        finally:
+            kill_group_of(pgid)
+
+
+block("the post-run checks' runs of the repo's code take their whole process group with them: a child the code "
+      "left behind when it exits, or when it times out (124), and one that ignores SIGTERM (SIGKILL)", t_contained)
 
 
 def t_lock():
@@ -1522,18 +1699,24 @@ def t_plant():
     assert probe["path0"] == os.path.join(L_.dir, "bin") and probe["pgid"] != os.getpgid(0), probe
     assert probe["crontab"][0] not in (0, None) and "disabled" in probe["crontab"][1], probe
     assert check_named(L_.checks(), "the driver wrote no")["ok"]
+    # the grants too: a planted test that cites the relayed confirm line again, from another session, while the
+    # post-run pytest runs it, leaves driver.json's grants as the run left them (each cited from its reply session)
+    C_ = live("plant-cite", sessions={"3": {"plant": "cite"}, "4": {"after_goal_met": "raise"}})
+    assert os.path.isfile(os.path.join(C_.stub, "probe.json")), "the planted test never ran"
+    forged = [x for x in C_.ledger() if x["role"] == "human"
+              and (x["data"].get("prompt") or {}).get("session") == "forged-by-post-run-code"]
+    assert len(forged) == 1 and forged[0]["event"] == "baseline.confirmed", forged      # it wrote its row, after the run
+    g = C_.drv["grants"]
+    assert C_.drv["outcome"] == "GOAL MET" and [x["action"] for x in g] == ["CONFIRM_MISSION", "CONFIRM_BASELINE"], g
+    for x in g:
+        assert x["cited_session"] == x["session_id"] and x["event"] == {"CONFIRM_MISSION": "mission.approved",
+                                                                       "CONFIRM_BASELINE": "baseline.confirmed"}[
+            x["action"]], x
 
 
 block("the post-run pytest runs the repo's code as a session would (the crontab shim first on PATH, its own process "
-      "group), and the outcome is decided before it: a test that records goal.met does not turn the run into GOAL MET",
-      t_plant)
-
-
-def wait_file(path, secs=60):
-    end = time.time() + secs
-    while time.time() < end and not os.path.exists(path):
-        time.sleep(0.1)
-    return os.path.exists(path)
+      "group), and the outcome and the grants are read before it: a test that records goal.met does not turn the run "
+      "into GOAL MET, one that cites a relayed line again does not change driver.json's grants", t_plant)
 
 
 def t_signals():
@@ -1542,7 +1725,7 @@ def t_signals():
         pr = subprocess.Popen([sys.executable, "-B", DRIVER, "--plan", os.path.join(R, "plan.json")], cwd=T, env=e,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
         try:
-            assert wait_file(os.path.join(stub, "child-1.pid")), "the session never started"
+            child = read_pid(os.path.join(stub, "child-1.pid"))      # the session started and left its child
             pr.send_signal(sig)
             out, err = pr.communicate(timeout=120)
         finally:
@@ -1550,7 +1733,6 @@ def t_signals():
                 pr.kill()
             calls = jsonl_of(os.path.join(stub, "calls.jsonl"))
         L_ = Live(subprocess.CompletedProcess([], pr.returncode, out, err), R, stub)
-        child = int(open(os.path.join(stub, "child-1.pid")).read())
         try:
             assert "Traceback" not in out + err, (out[-2000:], err[-2000:])
             assert gone_soon(lambda: alive(calls[0]["pid"])) and gone_soon(lambda: alive(child)), (sig, calls[0]["pid"], child)
@@ -1558,17 +1740,14 @@ def t_signals():
             assert "interrupted" in (L_.sessions[0]["killed"] or "") and L_.sessions[0]["cost_complete"] is False, L_.sessions
         finally:
             for pid in [calls[0]["pgid"]] if calls else []:
-                try:
-                    os.killpg(pid, signal.SIGKILL)
-                except OSError:
-                    pass
+                kill_group_of(pid)
     for sig, how in ((signal.SIGINT, "group"), (signal.SIGTERM, "shell")):     # Ctrl-C at the terminal; a CI cancel
         stub = stub_dir("sh-sig-%s" % how, default={"mode": "hang"})
         d_ = tempfile.mkdtemp(prefix="run-", dir=T)
         pr = subprocess.Popen([SH, "--yes", "--model", "stub-sup"], cwd=T, env=dict(HENV, MISSION_STUB_DIR=stub, E2E_DIR=d_),
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
         try:
-            assert wait_file(os.path.join(stub, "child-1.pid")), "the session never started"
+            child = read_pid(os.path.join(stub, "child-1.pid"), secs=180)     # after the seed and its self-checks
             time.sleep(0.3)
             if how == "group":
                 os.killpg(pr.pid, sig)
@@ -1579,7 +1758,6 @@ def t_signals():
             if pr.poll() is None:
                 os.killpg(pr.pid, signal.SIGKILL)
             calls = jsonl_of(os.path.join(stub, "calls.jsonl"))
-        child = int(open(os.path.join(stub, "child-1.pid")).read())
         try:
             assert gone_soon(lambda: alive(calls[0]["pid"])) and gone_soon(lambda: alive(child)), (how, out[-2000:], err[-2000:])
             drv = json.load(open(os.path.join(d_, "driver.json")))
@@ -1587,10 +1765,7 @@ def t_signals():
             assert "run dir: %s" % d_ in out, out[-1500:]
         finally:
             for pid in [calls[0]["pgid"]] if calls else []:
-                try:
-                    os.killpg(pid, signal.SIGKILL)
-                except OSError:
-                    pass
+                kill_group_of(pid)
 
 
 block("SIGTERM, SIGINT or SIGHUP to the driver during a session, Ctrl-C at e2e-mission.sh's terminal or SIGTERM to "
@@ -1601,10 +1776,12 @@ block("SIGTERM, SIGINT or SIGHUP to the driver during a session, Ctrl-C at e2e-m
 def t_driver_bug():
     """A bug in the driver while a session runs (here kill_reason raises): the session's group is killed and its
     record written before the run stops (driver_error), so its spend is accounted for; driver.json still follows."""
-    R, stub, e = mkplan("driver-bug", default={"mode": "hang"})
+    R, stub, e = mkplan("driver-bug", default={"mode": "hang", "child_delay": 1.0})   # slow to start, as under load
     saved_kr, saved_sig = D.Run.kill_reason, {s: signal.getsignal(s) for s in D.SIGNALS}
+    pidf = os.path.join(stub, "child-1.pid")
 
-    def broken(self):
+    def broken(self):           # at a poll once the session has left its child: the kill must take that child too
+        read_pid(pidf)
         raise ValueError("an injected driver bug")
     D.Run.kill_reason = broken
     try:
@@ -1615,7 +1792,7 @@ def t_driver_bug():
         for s, h in saved_sig.items():
             signal.signal(s, h)
     calls = jsonl_of(os.path.join(stub, "calls.jsonl"))
-    child = int(open(os.path.join(stub, "child-1.pid")).read())
+    child = read_pid(pidf, secs=1)
     try:
         assert len(calls) == 1 and gone_soon(lambda: alive(calls[0]["pid"])) and gone_soon(lambda: alive(child)), calls
         assert gone_soon(lambda: group_alive(calls[0]["pgid"])), calls[0]["pgid"]
@@ -1624,10 +1801,8 @@ def t_driver_bug():
         assert len(L_.sessions) == 1 and "driver failed" in (L_.sessions[0]["killed"] or ""), L_.sessions
         assert L_.sessions[0]["cost_complete"] is False and L_.drv["sessions"] == 1, (L_.sessions, L_.drv.get("sessions"))
     finally:
-        try:
-            os.killpg(calls[0]["pgid"], signal.SIGKILL)
-        except (OSError, IndexError):
-            pass
+        if calls:
+            kill_group_of(calls[0]["pgid"])
 
 
 block("a driver bug while a session runs kills the session's whole group and writes its record (killed: the driver "

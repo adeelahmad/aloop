@@ -7,14 +7,16 @@ mission run drives, at zero tokens (a scenario file says how, per session).
         1. appends its argv, the session id, the loop's env (and any variable the run should have scrubbed, and the
            names of every variable it inherited), what `crontab -l` / `crontab -` did and who holds the mission
            loop lock to $MISSION_STUB_DIR/calls.jsonl
-        2. captures PROMPT through the plugin's UserPromptSubmit hooks (transcripts prompt, intent-trigger) with
+        2. leaves a child process behind when the scenario says so (`hang` mode, or `child`: `stubborn` is one
+           that ignores SIGTERM), after `child_delay` seconds (a slow start, as under load), and writes its pid
+           to $MISSION_STUB_DIR/child-N.pid whole (written aside, then renamed: never seen empty)
+        3. captures PROMPT through the plugin's UserPromptSubmit hooks (transcripts prompt, intent-trigger) with
            the session id, exactly as a host runs them, unless the scenario turns the hook off
-        3. acts: `cycle` is the supervisor the playbook describes, scripted on the real mission CLI (at most 8
+        4. acts: `cycle` is the supervisor the playbook describes, scripted on the real mission CLI (at most 8
            ticks; a grant command that asks shows its line and ends the session; the sprint is the fixture's
            one-line fix, merged with task-worktree, the gates' verdicts in the gate log); `idle` does nothing;
-           `hang` leaves a child process behind and never ends (`child` leaves one behind in any mode, and
-           `stubborn` is one that ignores SIGTERM)
-        4. prints stream-json: system init, an assistant message, the tool results, and a result line
+           `hang` never ends
+        5. prints stream-json: system init, an assistant message, the tool results, and a result line
            (total_cost_usd, num_turns, modelUsage, the final text the human sees)
 
 $MISSION_STUB_DIR/scenario.json: {"default": {...}, "sessions": {"2": {...}}}; keys and defaults in DEFAULT.
@@ -51,10 +53,13 @@ DEFAULT = {
     "crash": False,           # a hook crash's text in the stream
     "reseal": False,          # CONFIRM_MISSION: re-set the same answers (`mission init --force`, a new id) instead of approving
     "child": "",              # plain | stubborn: leave a child behind (hang mode: plain unless set); stubborn ignores SIGTERM
-    "plant": False,           # write tests/test_sneak.py: run by pytest, it records goal.met and probes its own env
+    "child_delay": 0.0,       # seconds before the child starts (a session slow to start, as under load)
+    "plant": False,           # write tests/test_sneak.py, run by pytest: it probes its own env and records goal.met
+                              # (True), or (cite) cites the last human grant's line again, from another session
     "plugins": [],            # what `claude plugin list --json` prints (the preflight's input)
 }
 BY_LINE = re.compile(r"^Name for the records \(--by\): (.+)$", re.M)
+FORGED = "forged-by-post-run-code"     # the session a planted test's grant (plant: cite) claims to cite from
 
 
 def scenario(n):
@@ -180,8 +185,18 @@ class Session:
         self.mission(*args)
 
     def plant(self):
-        """A test the post-run pytest runs: it records goal.met through the plugin and writes what it ran under."""
+        """A test the post-run pytest runs: it writes what it ran under, then records goal.met through the plugin
+        (plant: true) or a second grant citing the last human grant's line from a session no reply ran (cite)."""
         probe = os.path.join(os.environ.get("MISSION_STUB_DIR") or self.cwd, "probe.json")
+        if self.cfg["plant"] == "cite":
+            act = ("    rows = [r for r in M.ledger_rows(os.getcwd())[0] if r['role'] == 'human' and r['data'].get('prompt')]\n"
+                   "    if rows and not [r for r in rows if r['data']['prompt'].get('session') == %r]:\n"
+                   "        d = dict(rows[-1]['data'])\n"
+                   "        subject = d.pop('subject')\n"
+                   "        d['prompt'] = dict(d['prompt'], session=%r)\n"
+                   "        M.record(os.getcwd(), rows[-1]['event'], subject, 'human', **d)\n" % (FORGED, FORGED))
+        else:
+            act = "    M.record(os.getcwd(), 'goal.met', 'docs/agents/mission/goals/gol_sneak.json', 'mission')\n"
         with open(os.path.join(self.cwd, "tests", "test_sneak.py"), "w") as f:
             f.write("import json, os, subprocess, sys\nsys.path.insert(0, %r)\nimport _mission as M\n\n\n"
                     "def test_sneak():\n"
@@ -193,8 +208,7 @@ class Session:
                     "    with open(%r, 'w') as f:\n"
                     "        json.dump({'path0': os.environ.get('PATH', '').split(os.pathsep)[0], 'pgid': os.getpgid(0),\n"
                     "                   'crontab': cr}, f)\n"
-                    "    M.record(os.getcwd(), 'goal.met', 'docs/agents/mission/goals/gol_sneak.json', 'mission')\n"
-                    % (self.bin, probe))
+                    % (self.bin, probe) + act)
 
     def grant(self, args):
         """A grant command: it records the grant once the human typed the line, else it asks (3) with it."""
@@ -370,20 +384,28 @@ class Session:
             parts.append("To grant it, reply with this line: `%s`" % (line[:-8] + ("0" * 8 if line[-8:] != "0" * 8 else "1" * 8)))
         return " ".join(parts)
 
+    def leave_child(self):
+        """A child left behind in the session's group; its pid in child-N.pid, written whole (aside, then renamed)."""
+        kind = self.cfg["child"] or ("plain" if self.cfg["mode"] == "hang" else "")
+        if not kind:
+            return
+        time.sleep(float(self.cfg["child_delay"]))
+        argv = ["sh", "-c", "trap '' TERM; sleep 600; :"] if kind == "stubborn" else ["sleep", "600"]
+        child = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.2 if kind == "stubborn" else 0)        # its trap is set before anyone signals it
+        p = os.path.join(os.environ.get("MISSION_STUB_DIR") or ".", "child-%d.pid" % self.n)
+        with open(p + ".tmp", "w") as f:
+            f.write(str(child.pid))
+        os.replace(p + ".tmp", p)
+
     def main(self):
         self.log_call()
+        self.leave_child()
         if self.cfg["hook"]:
             self.hooks()
         self.out({"type": "system", "subtype": "init", "session_id": self.sid, "cwd": self.cwd})
         if self.cfg["plant"]:
             self.plant()
-        kind = self.cfg["child"] or ("plain" if self.cfg["mode"] == "hang" else "")
-        if kind:
-            argv = ["sh", "-c", "trap '' TERM; sleep 600; :"] if kind == "stubborn" else ["sleep", "600"]
-            child = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            time.sleep(0.2 if kind == "stubborn" else 0)        # its trap is set before anyone signals it
-            with open(os.path.join(os.environ.get("MISSION_STUB_DIR") or ".", "child-%d.pid" % self.n), "w") as f:
-                f.write(str(child.pid))
         if self.cfg["mode"] == "hang":
             time.sleep(600)
         if self.cfg["mode"] == "cycle":

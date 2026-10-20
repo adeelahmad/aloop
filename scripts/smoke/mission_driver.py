@@ -38,14 +38,17 @@ RUN/driver.json (the checks, the stop, the grants, the path), which mission_summ
 it next) folds into RUN/summary.json (kind mission) and summary.md. Prints every post-run check (each one
 runs, whatever the others say). The outcome, the grants and the run's ledger, events and gate log are read
 before any check runs the repo's own code (the runner, pytest), which runs as a session would: the scrubbed
-env, the crontab shim first on PATH, its own process group.
+env, the crontab shim first on PATH, its own process group (killed whole when it ends), and no bytecode cache
+read from the repo.
 Exit 0 every check passed · 1 a check failed · 2 the plan or the run dir was refused.
 """
+import ast
 import glob
 import hashlib
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -76,16 +79,28 @@ REPLY = re.compile(r"repl(?:ies|ying) `([^`]+)`, then `aloop mission ([^`]+)`")
 GRANTISH = re.compile(r"^\W*(?:(?:yes|ok|okay|sure)\W+)?(approve|confirm|consent|restore|retire|veto|revoke)\b"
                       r".*\b[0-9a-f]{8,64}\b", re.I)
 TRACE = re.compile(r"mission\s+msn_\S+\s+approved by scripted-human \(e2e\)")
-# what drops or fakes a test: a skip or xfail mark, and the hooks and settings that deselect, ignore, re-mark
-# or re-report one (in a conftest.py or a test file)
-SUPPRESS = re.compile(r"pytest\.mark\.(?:skip|skipif|xfail)|pytest\.(?:skip|xfail|importorskip)\(|unittest\.skip"
-                      r"|@skip\b|expectedFailure|\bpytest_(?:collection_modifyitems|ignore_collect|deselected"
-                      r"|pycollect_makeitem|collect_file|runtest_setup|runtest_call|runtest_protocol|runtest_makereport"
-                      r"|report_teststatus|plugins)\b|\bcollect_ignore(?:_glob)?\b|\badd_marker\(")
-# pytest's own norecursedirs (and a virtualenv): what it never collects, so neither tests_of nor the scan reads
+# what drops or fakes a test: a skip or xfail mark (or a skip raised), any pytest hook or plugin (a hook that no list
+# names can still re-mark, re-report or not run a test: pytest_pyfunc_call returning True), pytest's internals, and
+# what swaps a module a test imports (sys.modules)
+SUPPRESS = re.compile(r"pytest\.mark\.(?:skip|skipif|xfail)|pytest\.(?:skip|xfail|importorskip|exit)\b|unittest\.skip"
+                      r"|@skip\b|expectedFailure|\bSkipTest\b|\bskipTest\b|\bpytest_\w+|\bcollect_ignore(?:_glob)?\b"
+                      r"|\badd_marker\(|\b_pytest\b|\bpluggy\b|\bhookimpl\b|\bhookwrapper\b|\bsys\.modules\b"
+                      r"|\bimport\s+pytest\s+as\b|\bfrom\s+pytest\s+import\s*\(?[\w\s,]*\b(?:skip|skipif|xfail|importorskip"
+                      r"|mark|exit)\b")
+# pytest's own norecursedirs (and a virtualenv): what it never collects, so tests_of never reads it
 SKIP_DIRS = re.compile(r"^(?:\..*|__pycache__|node_modules|site-packages|build|dist|venv|CVS|_darcs|\{arch\}|.*\.egg)$")
+# what the suppression scan leaves out: git's own dir and the worktrees the sessions worked in (not main's tree)
+NOT_SCANNED = (".git",)
+WORKTREE_HOMES = (".aladdin", ".agentic", ".claude")
+# a module python imports that no scan can read (sourceless bytecode, an extension module)
+OPAQUE = re.compile(r"\.(?:pyc|pyo|so|pyd)$")
+IMPORTABLE = re.compile(r"^([A-Za-z_]\w*)(?:\.py|\.pyc|\.pyo|(?:\.[\w-]+)?\.so|(?:\.[\w-]+)?\.pyd)$")
+# what a conftest.py may hold beside a docstring: imports of these, and sys.path.insert/append of a path built from
+# names, strings, attributes and these calls (anything else runs before every test and can change what runs)
+CONFTEST_IMPORTS = ("os", "os.path", "sys", "pathlib")
+PATH_CALLS = ("dirname", "abspath", "realpath", "join", "normpath", "resolve", "absolute", "Path", "str", "getcwd", "cwd")
 # a pytest config: the first of these from the repo up is pytest's inifile; a key below drops tests
-PYTEST_CONFIGS = ("pytest.ini", ".pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg")
+PYTEST_CONFIGS = ("pytest.toml", ".pytest.toml", "pytest.ini", ".pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg")
 PYTEST_SECTIONS = ("pytest", "tool:pytest", "tool.pytest.ini_options", "tool.pytest")
 PYTEST_DROPS = re.compile(r"^\s*(?:addopts|testpaths|norecursedirs|python_files|python_classes|python_functions"
                           r"|collect_ignore\w*|required_plugins|confcutdir)\b")
@@ -414,11 +429,20 @@ def kill_group(proc):
 
 def contained(c, argv, timeout):
     """The repo's own code, run as a session runs it: the scrubbed env with the loop's pid and the crontab shim
-    first on PATH, no bytecode, its own process group (killed whole when it ends or times out, 124).
-    (rc, stdout, stderr)."""
+    first on PATH, no bytecode written and none read from the repo, its own process group (killed whole when it
+    ends or times out, 124). (rc, stdout, stderr)."""
     first = c.plan.get("session_path_first")
     env = MP.session_env(os.environ, c.run.get("driver_pid") or os.getpid(), first) if first else clean_env()
     env.update(PYTHONDONTWRITEBYTECODE="1", PYTEST_DISABLE_PLUGIN_AUTOLOAD="1")     # no plugin a session installed
+    cache = tempfile.mkdtemp(prefix="aloop-e2e-pycache-")
+    env["PYTHONPYCACHEPREFIX"] = cache      # bytecode is read from (and written to) an empty dir: never a __pycache__
+    try:                                    # entry a session planted, the source's mtime and size in its header
+        return _contained(c, argv, timeout, env)
+    finally:
+        shutil.rmtree(cache, ignore_errors=True)
+
+
+def _contained(c, argv, timeout, env):
     with tempfile.TemporaryFile() as so, tempfile.TemporaryFile() as se:
         proc = None
         try:
@@ -440,11 +464,22 @@ def contained(c, argv, timeout):
 
 
 def walk(top):
-    """Every file under top that pytest would look at (its norecursedirs and virtualenvs left out), sorted."""
+    """Every file under top that pytest would collect from (its norecursedirs and virtualenvs left out), sorted."""
     out = []
     for d, dirs, files in os.walk(top):
         dirs[:] = sorted(x for x in dirs if not SKIP_DIRS.match(x)
                          and not os.path.isfile(os.path.join(d, x, "pyvenv.cfg")))
+        out += [os.path.join(d, f) for f in sorted(files)]
+    return out
+
+
+def scanned(top):
+    """Every file under top but git's own and the sessions' worktrees (.aladdin/worktrees …), sorted: a dir pytest
+    never collects (a dot dir, build/, a virtualenv) can still hold what a conftest.py or a test imports."""
+    out = []
+    for d, dirs, files in os.walk(top):
+        rel = os.path.relpath(d, top)
+        dirs[:] = sorted(x for x in dirs if x not in NOT_SCANNED and not (rel in WORKTREE_HOMES and x == "worktrees"))
         out += [os.path.join(d, f) for f in sorted(files)]
     return out
 
@@ -515,10 +550,91 @@ def config_drops(path):
 
 
 def has_pytest_section(path):
-    if os.path.basename(path) in ("pytest.ini", ".pytest.ini"):
+    if os.path.basename(path) in ("pytest.toml", ".pytest.toml", "pytest.ini", ".pytest.ini"):
         return True      # pytest takes it as the inifile whatever it holds
     return any(re.match(r"^\s*\[(%s)\]\s*$" % "|".join(re.escape(x) for x in PYTEST_SECTIONS), ln)
                for ln in read(path).splitlines())
+
+
+def path_expr(node):
+    """A path built from names, strings, attributes and os.path/pathlib/str calls (no other call runs)."""
+    if isinstance(node, (ast.Constant, ast.Name)):
+        return isinstance(node, ast.Name) or isinstance(node.value, (str, int))
+    if isinstance(node, ast.Attribute):
+        return path_expr(node.value)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Div)):
+        return path_expr(node.left) and path_expr(node.right)
+    if isinstance(node, ast.Call) and not node.keywords:
+        f = node.func
+        name = f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else None
+        return name in PATH_CALLS and (not isinstance(f, ast.Attribute) or path_expr(f.value)) \
+            and all(path_expr(a) for a in node.args)
+    return False
+
+
+def conftest_code(path):
+    """Why a conftest.py could change what a test runs, or None. pytest runs it before any test, so it may hold only a
+    docstring, imports of os, sys and pathlib, and sys.path.insert/append of a path (path_expr): a hook, a swapped
+    module or an import of anything else can re-mark, re-report or replace a test in ways no pattern lists."""
+    try:
+        tree = ast.parse(read(path))
+    except (SyntaxError, ValueError):
+        return "it does not parse"
+    for i, n in enumerate(tree.body):
+        if i == 0 and isinstance(n, ast.Expr) and isinstance(n.value, ast.Constant) and isinstance(n.value.value, str):
+            continue
+        if isinstance(n, ast.Import) and all(a.name in CONFTEST_IMPORTS and not a.asname for a in n.names):
+            continue
+        if isinstance(n, ast.ImportFrom) and not n.level and (n.module, tuple(a.name for a in n.names)) in (
+                ("os", ("path",)), ("pathlib", ("Path",))) and not n.names[0].asname:
+            continue
+        f = n.value.func if isinstance(n, ast.Expr) and isinstance(n.value, ast.Call) else None
+        if isinstance(f, ast.Attribute) and f.attr in ("insert", "append") and isinstance(f.value, ast.Attribute) \
+                and f.value.attr == "path" and isinstance(f.value.value, ast.Name) and f.value.value.id == "sys" \
+                and not n.value.keywords and all(path_expr(a) for a in n.value.args):
+            continue
+        return "code that runs before every test, line %d: %s" % (n.lineno, type(n).__name__)
+    return None
+
+
+def product_modules(repo, seed):
+    """{name: package|module} of the seed's top-level packages and modules (the product the tests import: todo)."""
+    out = {}
+    for p in git(repo, "ls-tree", "-r", "--name-only", seed).stdout.splitlines() if seed else []:
+        parts = p.split("/")
+        if len(parts) == 2 and parts[1] == "__init__.py":
+            out[parts[0]] = "package"
+        elif len(parts) == 1 and p.endswith(".py") and p not in ("conftest.py", "setup.py"):
+            out.setdefault(p[:-3], "module")
+    return out
+
+
+def suppressions(repo, seed):
+    """(file, why) for each file in the repo that can drop, skip, re-mark or fake a test: a mark or hook in any .py
+    file (outside git's own dir and the worktrees), a conftest.py with code, a module that shadows the product (pytest
+    puts a test's dir first on sys.path), a module no scan can read, a pytest config at the root that drops a test."""
+    hits, products = [], product_modules(repo, seed)
+    for p in scanned(repo):
+        rp, b = os.path.relpath(p, repo), os.path.basename(p)
+        parts = rp.split(os.sep)
+        if "__pycache__" in parts:
+            continue        # read from nowhere: the checks run python with an empty pycache prefix
+        m = SUPPRESS.search(read(p)) if b.endswith(".py") else None
+        if m:
+            hits.append((rp, m.group(0)))
+        why = conftest_code(p) if b == "conftest.py" else None
+        if why:
+            hits.append((rp, why))
+        mod = IMPORTABLE.match(b)
+        name = (parts[-2] if len(parts) > 1 else None) if b == "__init__.py" else mod.group(1) if mod else None
+        own = (len(parts) > 1 and parts[0] in products) or (rp == "%s.py" % name and products.get(name) == "module")
+        if name in products and not own:      # the product's own package, or its module at the root, is not a shadow
+            hits.append((rp, "shadows the product module %s" % name))
+        if OPAQUE.search(b):
+            hits.append((rp, "a module no scan can read"))
+        if len(parts) == 1 and b in PYTEST_CONFIGS and config_drops(p):
+            hits.append((rp, ", ".join(config_drops(p))))
+    return hits
 
 
 # ── the run ───────────────────────────────────────────────────────────────────────────────────────
@@ -1136,16 +1252,9 @@ def check_goal_met(c):
 
 
 def check_no_suppressed(c):
-    """Nothing in the repo (or above it) that drops, skips or re-reports a test: a mark or a hook in any .py file
-    pytest would read, a pytest config at the root whose pytest section changes what is collected or how, and
-    any pytest config or conftest.py in a dir above the repo (pytest would take it)."""
-    hits = []
-    for p in walk(c.repo):
-        rp = os.path.relpath(p, c.repo)
-        if p.endswith(".py") and SUPPRESS.search(read(p)):
-            hits.append(rp)
-        elif os.path.dirname(rp) == "" and os.path.basename(p) in PYTEST_CONFIGS and config_drops(p):
-            hits.append("%s (%s)" % (rp, ", ".join(config_drops(p))))
+    """Nothing in the repo (or above it) that drops, skips, re-marks or fakes a test (suppressions), and no pytest
+    config or conftest.py in a dir above the repo (pytest would take it)."""
+    hits = ["%s (%s)" % h for h in suppressions(c.repo, c.seed())]
     d = os.path.dirname(os.path.realpath(c.repo))
     while True:
         for n in PYTEST_CONFIGS + ("conftest.py",):
@@ -1282,8 +1391,9 @@ CHECKS = [
     ("the host's SubagentStop gates ran (selfcheck false in the gate log)", check_host_gates),
     ("the final gate passed (the host's run, exit 0, not a self-check, stuck or budget release)", check_final_gate),
     ("goal.met is recorded and mission evaluate check passes", check_goal_met),
-    ("no suppressed tests (no skip or xfail mark, collection or report hook, or pytest config that drops a test, "
-     "in the repo or above it)", check_no_suppressed),
+    ("no suppressed tests (no skip or xfail mark, pytest hook or plugin, conftest.py with code, swapped or shadowed "
+     "product module, unreadable module, or pytest config that drops a test, in the repo or above it)",
+     check_no_suppressed),
     ("every commit after the seed traces; the product commit to the mission %s approved" % BY, check_trace),
     ("every commit after the seed is by the run's author (defaults.md's, the seed's own), committer too",
      check_authors),
