@@ -328,6 +328,14 @@ def active_goal(p, hours, status="active", at=None):
     return gid, gdoc
 
 
+def handed_off(p, gid, hours):
+    """`goal intents` on the project's clock at `hours`: the goal's intents, handed off as the planner does
+    (`goal next` checks each one, so a goal with none gets no SPRINT, M9.53). Returns their ids in order."""
+    rc, out, err = p.at_clock(hours, "goal", "intents", gid)
+    assert rc == 0, err
+    return [json.load(open(x))["intent_id"] for x in out.split()]
+
+
 # 1) the lifecycle, autonomous, through the real areas: mission → ethics → research → journeys →
 #    baseline (proposed, measured twice, confirmed) → assess → evaluate → goal → ethics → intents →
 #    sprint → wait → sprint closed → assess again
@@ -380,15 +388,18 @@ expect(d, "ETHICS_REVIEW", 0)
 assert d["subject"] == p.ref("goal", gid), d["subject"]
 p.review(p.ref("goal", gid), gdoc, "clear", 0.20)
 expect(p.tick(0.21), "PLAN_INTENTS", 0)
-gdoc["status"] = "active"
-M.save(M.path_of(p.dir, "goal", gid), gdoc)
+ids = handed_off(p, gid, 0.215)                                             # the planner's handoff, for real
 d = p.tick(0.22)
-expect(d, "SPRINT", 0)
+expect(d, "SPRINT", 0, "intent %s" % ids[0])
 assert d["who"] == "supervisor", d
-p.event("plan.created", 0.5, sprint="S1")
+p.event("plan.created", 0.5, sprint="S1", intent_id=ids[0])
 expect(p.tick(0.6), "WAIT", 4, "sprint 1")
 p.sprint_closed(1, 2)
-expect(p.tick(2.1), "ASSESS", 0, "sprint 1 closed")
+for n, iid in enumerate(ids[1:], 2):                                       # one sprint per intent
+    expect(p.tick(2 + n * 0.01), "SPRINT", 0, "intent %s" % iid)
+    p.event("plan.created", 2.002 + n * 0.01, sprint="S%d" % n, intent_id=iid)
+    p.sprint_closed(n, 2.005 + n * 0.01)
+expect(p.tick(2.1), "ASSESS", 0, "sprint %d closed" % len(ids))
 p.art("state", "recorded", 2.2, baseline_id=bid)
 expect(p.tick(2.3), "EVALUATE", 0, "state report")
 p.art("eval", "recorded", 2.4, goal_met=False, baseline_id=bid)
@@ -398,7 +409,7 @@ ok("lifecycle through the real areas: mission → ethics → research → journe
 
 # 2) the tick records every decision (mission.tick) and --peek records nothing
 ticks = p.ticks()
-assert len(ticks) == 19 and {"action", "key", "facts", "reason", "at"} <= set(ticks[-1]["data"]), len(ticks)
+assert len(ticks) == 18 + len(ids) and {"action", "key", "facts", "reason", "at"} <= set(ticks[-1]["data"]), len(ticks)
 assert ticks[-1]["data"]["action"] == "DERIVE_GOAL"
 r = p.run(MI, "tick", "--peek", "--now", iso(p.at(2.5)))
 assert r.returncode == 0 and r.stdout.startswith("DERIVE_GOAL"), r.stdout
@@ -497,10 +508,9 @@ p.event("goal.approved", 1.55, role="human", subject=p.ref("goal", gid), sha256=
 expect(p.tick(1.56), "OFFER_OPTIONS", 3)                                   # nor is a run-log event
 p.approve("goal.approved", p.ref("goal", gid), gdoc, 1.6)
 expect(p.tick(1.7), "PLAN_INTENTS", 0)
-gdoc["status"] = "active"
-M.save(M.path_of(p.dir, "goal", gid), gdoc)
-expect(p.tick(1.8), "SPRINT", 0)
-p.event("plan.created", 1.9, sprint="S1")
+ids = handed_off(p, gid, 1.75)
+expect(p.tick(1.8), "SPRINT", 0, "intent %s" % ids[0])
+p.event("plan.created", 1.9, sprint="S1", intent_id=ids[0])
 expect(p.tick(2.0), "APPROVE_PLAN", 3, "sprint 1")
 p.event("plan.approved", 2.1, sprint="S1")
 expect(p.tick(2.2), "WAIT", 4)
@@ -650,8 +660,14 @@ ok("USD cap priced per model (dotted, routed and Bedrock ids too; unknown at the
 p = Project(cadence="6h").init()
 cleared(p)
 gid, gdoc = active_goal(p, 1.2, at=(1, 1.1))
-expect(p.tick(1.3), "SPRINT", 0)
-p.event("plan.created", 1.5, sprint="S1")
+ids = handed_off(p, gid, 1.25)
+for n, iid in enumerate(ids[:-1], 1):                                      # the goal's earlier intents, sprinted
+    expect(p.tick(1.25 + n * 0.01), "SPRINT", 0, "intent %s" % iid)
+    p.event("plan.created", 1.252 + n * 0.01, sprint="S%d" % n, intent_id=iid)
+    p.sprint_closed(n, 1.255 + n * 0.01)
+last = len(ids)                                                            # the last one's sprint runs the cadence
+expect(p.tick(1.3), "SPRINT", 0, "intent %s" % ids[-1])
+p.event("plan.created", 1.5, sprint="S%d" % last, intent_id=ids[-1])
 d = p.tick(3)
 expect(d, "WAIT", 4)
 assert d["next_check"] == iso(p.at(7)), d
@@ -660,7 +676,7 @@ p.art("state", "recorded", 7.2)
 expect(p.tick(7.3), "EVALUATE", 0)
 p.art("eval", "recorded", 7.4, goal_met=True)
 expect(p.tick(7.5), "WAIT", 4)                                             # mid-sprint: the sprint finishes first
-p.sprint_closed(1, 8)
+p.sprint_closed(last, 8)
 expect(p.tick(8.1), "ASSESS", 0)
 p.art("state", "recorded", 8.2)
 expect(p.tick(8.3), "EVALUATE", 0)
@@ -683,9 +699,7 @@ ok("cadence: re-assess mid-sprint, act at the close; a met goal raises the bar a
 p = Project().init()
 cleared(p)
 gid, gdoc = active_goal(p, 1.2, at=(1, 1.1))
-rc, out, err = p.at_clock(1.25, "goal", "intents", gid)                     # real intents: `goal next` checks them
-assert rc == 0, err
-i1, i2 = [json.load(open(f))["intent_id"] for f in out.split()]
+i1, i2 = handed_off(p, gid, 1.25)
 p.event("plan.created", 0.5, sprint="S1")                                  # an older sprint is not this goal's
 expect(p.tick(1.3), "SPRINT", 0, "intent %s is not sprinted yet" % i1)
 lock = os.path.join(p.dir, ".aladdin", "state", "sprint.lock")
@@ -879,13 +893,18 @@ ok("mangled sprints.json, events, ledger rows, caps, cadence or mission.json: SE
 #     second the loop handed out SPRINT is that goal's, a state report in the second of a close is re-assessed
 p = Project().init()
 cleared(p)
-active_goal(p, 1.2, at=(1, 1.1))
+gid, _ = active_goal(p, 1.2, at=(1, 1.1))
+ids = handed_off(p, gid, 1.2)
 expect(p.tick(1.2), "SPRINT", 0)
-p.event("plan.created", 1.2, sprint="S1")                                  # same second, ms lost
+p.event("plan.created", 1.2, sprint="S1", intent_id=ids[0])                # same second, ms lost
 expect(p.tick(1.3), "WAIT", 4, "sprint 1")
+for n, iid in enumerate(ids[1:], 2):                                       # the goal's other intents, sprinted
+    p.sprint_closed(n - 1, 1.3 + n * 0.01)
+    expect(p.tick(1.302 + n * 0.01), "SPRINT", 0, "intent %s" % iid)
+    p.event("plan.created", 1.305 + n * 0.01, sprint="S%d" % n, intent_id=iid)
 p.art("state", "recorded", 2.0)
-p.sprint_closed(1, 2.0)                                                    # closes later in that second
-expect(p.tick(2.1), "ASSESS", 0, "sprint 1 closed")
+p.sprint_closed(len(ids), 2.0)                                             # closes later in that second
+expect(p.tick(2.1), "ASSESS", 0, "sprint %d closed" % len(ids))
 ok("second-resolution stamps tie toward after: a sprint planned in the second of its handout is the goal's; a "
    "same-second close re-assesses")
 
