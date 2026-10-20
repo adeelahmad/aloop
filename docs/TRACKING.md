@@ -92,3 +92,8 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.43 | A goal binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
 | M9.50 | A goal sprinted with gaps still open gets a next step | NOT_IMPLEMENTED | §4.12 |
 | M9.51 | Lifting a mission block is the human's typed line, kept in the ledger | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
+| M10.1 | Plan approval is a gate (`gate-dispatch` refuses execution before `plan.approved`) | NOT_IMPLEMENTED | §4.13 |
+| M10.2 | Workers run with the network off and writes confined to their worktree, via the host sandbox | NOT_IMPLEMENTED | §4.13 |
+| M10.3 | Secret scan and dependency audit in acceptance; no unplanned dependency | NOT_IMPLEMENTED | §4.13 |
+| M10.4 | Fetched web content is data (no shell for fetching roles, injection eval case) | NOT_IMPLEMENTED | §4.13 |
+| M10.5 | `aloop stop` halts a whole project, honoured by `mission tick` | NOT_IMPLEMENTED | §4.13 |
