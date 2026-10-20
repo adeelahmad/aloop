@@ -868,17 +868,21 @@ def hook_in(payload, seconds=1):
     return rc, out.getvalue(), err.getvalue(), time.time() - t0
 
 
+t0 = time.time()
+D.classify(p.dir, "Bash", {"command": "terraform apply"}, CAT)          # what runs before the lock, warmed and timed
+before = time.time() - t0
 held = os.open(os.path.join(D._paths.home(p.dir, "state"), "doors.lock"), os.O_RDWR | os.O_CREAT, 0o644)
 fcntl.flock(held, fcntl.LOCK_EX)                     # another gate holds the lock (and never lets go)
 watchdog = threading.Timer(10, fcntl.flock, (held, fcntl.LOCK_UN))     # so a gate that blocks fails here, not hangs
 watchdog.start()
 n = len(p.events("door.denied"))
+wait = max(2, 4 * before)                            # the lock, not a slow runner's classify, runs the clock out
 try:
-    rc, out, err, took = hook_in(stopping)
+    rc, out, err, took = hook_in(stopping, wait)
 finally:
     watchdog.cancel()
     os.close(held)
-assert rc == 2 and out == "" and "BLOCK[doors]" in err and "doors.lock" in err and took < 3, (rc, out, err, took)
+assert rc == 2 and out == "" and "BLOCK[doors]" in err and "doors.lock" in err and took < wait + 2, (rc, out, err, took, before)
 assert len(p.events("door.denied")) == n                                    # nothing decided, nothing recorded
 rc, out, err, took = hook_in(stopping)
 assert rc == 0 and "ASK[door] production-deploy" in out, (rc, out, err)
