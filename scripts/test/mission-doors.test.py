@@ -986,8 +986,126 @@ for cmd in ("cp .claude/settings.json /tmp/", "cp .claude/settings.json /tmp/bac
     assert doors_of(cmd) == [], (cmd, doors_of(cmd))
 assert "forge-human-record" in doors_of("sed --in-pla 's/a/b/' docs/agents/mission/ledger.jsonl")
 for x in (os.path.join(gwt, "opencode.json"), "~/.config/opencode/config.json"):
-    assert ids("Write", {"file_path": x}) == ["change-agent-settings"], x
+    assert ids("Write", {"file_path": x}, cwd=g.dir) == ["change-agent-settings"], x     # this project's worktree
 ok("settings: copies into a settings directory, a settings directory removed or moved, globs, sed --in-pl, nested checkouts")
+
+# 21c) the third M9.31 review. A cd that may not run keeps both directories (where it started and where it
+#      goes), not an unknown one: a settings write after it is still placed, an ordinary command after it is
+#      not a wall, and an absolute cd brings the directory back
+os.makedirs(os.path.join(p.dir, ".codex"), exist_ok=True)
+open(os.path.join(p.dir, ".claude", "settings.json"), "w").write("{}")
+for cmd in ("mkdir -p .claude && cd .claude; echo '{}' > settings.local.json", "{ cd .claude; }; echo '{}' > settings.json",
+            "if [ -d .claude ]; then cd .claude; fi\ncp /tmp/s settings.json", "git fetch && cd .codex; echo x > hooks.json",
+            "true && cd .claude; rm settings.json", "true && cd .codex; sed -i s/a/b/ hooks.json"):
+    assert "change-agent-settings" in doors_of(cmd), (cmd, doors_of(cmd))
+for cmd in ("mkdir -p out && cd out; python3 gen.py > events.jsonl", "test -d out || cd out; echo x > ledger.jsonl"):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+os.makedirs(os.path.join(gwt, "web"), exist_ok=True)
+for cmd in ("npm ci && cd web && npm run build; git push -u origin HEAD", "if [ -d web ]; then cd web; fi; npm test; git push",
+            "{ cd web; npm test; }; git push origin HEAD", "git commit -m x && cd web && npm test; cd %s && git push -u origin HEAD" % gwt,
+            "false && cd web; cd %s; git push origin HEAD" % gwt, "if [ -d web ]; then cd web; fi; cd %s; git push origin HEAD" % gwt):
+    assert hook(g, "Bash", {"command": cmd}, cwd=gwt).stdout == "", cmd                # the worktree's own branch
+# after `||` the cd may have been skipped for the rest of the chain; a subshell in the chain does not end it
+# early; `cd -` and a bare pushd go back; popd -n moves nothing; `cd X &` and `cd ''` leave it; eval's cd counts
+for cmd in ("true || cd %s && git push origin HEAD", "false && cd %s && (true); git push origin HEAD",
+            "cd %s && git log -1 && cd - && git push origin HEAD", "cd %s; cd -- -; git push origin HEAD",
+            "pushd %s; pushd; git push origin HEAD", "cd %s; pushd ..; popd -n; git push origin HEAD",
+            "cd %s & git push origin HEAD", "cd %s; eval cd ..; git push origin HEAD"):
+    assert "push-default-branch" in denied(hook(g, "Bash", {"command": cmd % gwt})), cmd
+assert "push-default-branch" in denied(hook(g, "Bash", {"command": "cd '' && git push origin HEAD"}))
+for cmd in ("GIT_DIR=%s/.git git push origin HEAD", "export GIT_DIR=%s/.git; git push origin HEAD",
+            "env GIT_DIR=%s/.git git push origin HEAD", "GIT_WORK_TREE=%s git reset --hard"):
+    assert denied(hook(g, "Bash", {"command": cmd % g.dir}, cwd=gwt)), cmd               # git's own dir is elsewhere
+for cmd in ("cd /tmp & rm -rf .aladdin", "rm -rf ~+/.aladdin", "truncate -s0 ~+/.aladdin/logs/events.jsonl"):
+    assert "forge-human-record" in doors_of(cmd), (cmd, doors_of(cmd))
+assert "change-agent-settings" in doors_of("echo {} > ~+/opencode.json")
+# a pipe into a { } group or a compound feeds each command inside; `source /dev/stdin` and more exec
+# wrappers (builtin, setsid, flock, taskset, script -c) run what they are given
+main = "git push origin main"
+for cmd in ("echo '%s' | { true; bash; }" % main, "echo '%s' | if true; then bash; fi" % main,
+            "printf 'x\\n%s\\n' | { read l; bash; }" % main, "source /dev/stdin <<< '%s'" % main,
+            ". /dev/stdin <<'EOF'\n%s\nEOF" % main, "echo '%s' | source /dev/stdin" % main, "builtin eval '%s'" % main,
+            "builtin source /dev/stdin <<< '%s'" % main, "setsid %s" % main, "flock /tmp/l %s" % main,
+            "flock -w 5 /tmp/l %s" % main, "taskset -c 0 %s" % main, "taskset 0x1 %s" % main, "script -qc '%s' /dev/null" % main):
+    assert "push-default-branch" in doors_of(cmd), (cmd, doors_of(cmd))
+# nested groups each with their own heredoc: read once each, not once per enclosing group (no exponential blowup)
+nest = "bash; bash"
+for i in range(16):
+    nest = "{ %s\n} <<E%d\n:\nE%d\n" % (nest, i, i)
+t0 = time.time()
+assert doors_of(nest) == [] and time.time() - t0 < 3, time.time() - t0
+ok("directories: a cd that may not run keeps both; ||, subshells, cd -, pushd, popd -n, &, GIT_DIR, ~+; pipes into groups")
+
+# copies: -t with sources the gate cannot see, --parents/-R, rsync --remove-source-files, links to a settings file,
+# a home directory's contents, GNU option abbreviations and options after the operands
+for cmd in ("find /tmp/evil -name settings.json -exec cp -t .claude {} +", "echo /tmp/evil/settings.json | xargs cp -t .claude",
+            "cd /tmp/tpl && cp --parents .claude/settings.json %s/" % p.dir, "cd /tmp/tpl && rsync -R .claude/settings.json %s/" % p.dir,
+            "rsync --remove-source-files .claude/settings.json /tmp/bak/", "ln -s .claude/settings.json s && echo '{}' > s",
+            "ln .claude/settings.json alias.json", "cp -l .claude/settings.json alias.json", "cp -as $PWD/.claude/settings.json s.json",
+            "cp --target=.claude /tmp/cfg/settings.json", "mv --targ=.claude /tmp/cfg/settings.json",
+            "install --target=.claude /tmp/cfg/settings.json", "ln -s --target=.claude /tmp/cfg/settings.json",
+            "cp /tmp/s .claude/settings.json --no-preserve mode", "cp /tmp/s .claude/settings.json --sparse always",
+            "rsync -a /tmp/s .claude/settings.json --log-format %n", "cp -r /tmp/conf oc.d && mv oc.d .config/opencode"):
+    assert "change-agent-settings" in doors_of(cmd), (cmd, doors_of(cmd))
+for cmd in ("cp -a /tmp/dot/. ~/", "cp -a /tmp/dot/. ~", "rsync -a /tmp/dot/ ~/"):
+    assert "change-agent-settings" in denied(hook(p, "Bash", {"command": cmd})), cmd
+for cmd in ("cp notes.md .claude/", "cp -r .claude .claude.bak", "cp -r .claude/ /tmp/bak/", "cp -r .claude /tmp/claude-backup",
+            "cp -r .opencode /tmp/oc", "rsync -a .claude /tmp/backup/", "ln -s ../shared/CLAUDE.md .claude/",
+            "cp .claude/settings.json /tmp/x.json", "cp -r src/. build"):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+# a glob is the shell's: through a link it reaches the link's target, and one that names more files than the gate
+# lists asks (its directory is written); a quoted pattern is no glob
+far = os.path.join(tempfile.mkdtemp(), ".claude")
+os.makedirs(far)
+open(os.path.join(far, "settings.json"), "w").write("{}")
+os.symlink(far, os.path.join(p.dir, "h"))
+for cmd in ("rm -f h/*", "rm -f h/s*", "echo {} > h/settings.j*", "sed -i s/a/b/ h/*.json"):
+    assert "change-agent-settings" in doors_of(cmd), (cmd, doors_of(cmd))
+many = tempfile.mkdtemp()
+subprocess.run(["git", "init", "-q", many], check=True)
+os.makedirs(os.path.join(many, ".claude"))
+for i in range(D.GLOB_MAX + 100):
+    open(os.path.join(many, ".claude", "f%04d" % i), "w").close()
+open(os.path.join(many, ".claude", "settings.json"), "w").write("{}")
+assert "change-agent-settings" in doors_of("rm -f .claude/*", cwd=many)
+t0 = time.time()
+assert doors_of("find / -path '/*/*/*/*/*/x' -prune") == [] and time.time() - t0 < 3, time.time() - t0
+# another checkout's run home is not this project's; copying a tree into another checkout is no settings change here
+demo = tempfile.mkdtemp()
+subprocess.run(["git", "init", "-q", demo], check=True)
+for cmd in ("rm -rf %s/.aladdin", "cd %s && rm -rf .aladdin", "truncate -s0 %s/.aladdin/logs/events.jsonl",
+            "rsync -a --delete dist/ %s/", "cp -r dist/. %s"):
+    assert doors_of(cmd % demo) == [], (cmd, doors_of(cmd % demo))
+ok("copies: -t, --parents, -R, --remove-source-files, links, home, abbreviations; globs through links; backups pass")
+shutil.rmtree(many, ignore_errors=True)
+shutil.rmtree(demo, ignore_errors=True)
+shutil.rmtree(os.path.dirname(far), ignore_errors=True)
+os.unlink(os.path.join(p.dir, "h"))
+
+# MCP names: Composio's VERBS_A_ form, kebab-case tools, scheduled messages, a verb before the service, GitLab and
+# Bitbucket merges, Google Workspace's Drive access tools; drafts and reads pass
+for tool, inp, want in (
+        ("mcp__slack__SLACK_SENDS_A_MESSAGE_TO_A_SLACK_CHANNEL", {}, "send-external-message"),
+        ("mcp__composio__SLACK_SENDS_A_MESSAGE_TO_A_SLACK_CHANNEL", {}, "send-external-message"),
+        ("mcp__discord__send-message", {}, "send-external-message"), ("mcp__ms365__send-mail", {}, "send-external-message"),
+        ("mcp__slack__slack_schedule_message", {}, "send-external-message"),
+        ("mcp__composio__SLACK_SCHEDULE_MESSAGE", {}, "send-external-message"),
+        ("mcp__slack__conversations_add_message", {}, "send-external-message"),
+        ("mcp__google-workspace__send_gmail_message", {}, "send-external-message"), ("mcp__gmail__send_draft", {}, "send-external-message"),
+        ("mcp__gitlab__merge_merge_request", {}, "push-default-branch"),
+        ("mcp__composio__GITHUB_MERGE_A_PULL_REQUEST", {}, "push-default-branch"),
+        ("mcp__bitbucket__mergePullRequest", {}, "push-default-branch"),
+        ("mcp__workspace-mcp__manage_drive_access", {"action": "grant", "share_type": "anyone"}, "visibility-or-sharing"),
+        ("mcp__workspace-mcp__set_drive_file_permissions", {"link_sharing": "reader"}, "visibility-or-sharing")):
+    assert ids(tool, inp) == [want], (tool, ids(tool, inp))
+for tool, inp in (("mcp__slack__slack_send_message_draft", {}), ("mcp__slack__slack_posts_list", {}),
+                  ("mcp__slack__slack_list_scheduled_messages", {}), ("mcp__google-workspace__draft_gmail_message", {}),
+                  ("mcp__claude-code-remote__send_message", {}), ("mcp__gitlab__get_merge_request", {}),
+                  ("mcp__gitlab__list_merge_requests", {}), ("mcp__workspace-mcp__manage_drive_access", {"action": "remove"}),
+                  ("mcp__workspace-mcp__get_drive_file_permissions", {}),
+                  ("mcp__workspace-mcp__set_drive_file_permissions", {"link_sharing": "off"})):
+    assert ids(tool, inp) == [], (tool, ids(tool, inp))
+ok("MCP: Composio, kebab-case, scheduled and verb-first sends; GitLab and Bitbucket merges; Drive access grants")
 shutil.rmtree(g.dir, ignore_errors=True)
 shutil.rmtree(other, ignore_errors=True)
 
