@@ -296,9 +296,15 @@ def cmd_derive(cwd, o):
         E.report(rc, ebad)
         return rc
     if edoc.get("goal_id"):
-        report(["eval %s is narrowed to goal %s's targets (it was active): a new goal comes from an eval of the "
-                "whole mission (close goal %s, then mission evaluate)" % (edoc["eval_id"], edoc["goal_id"], edoc["goal_id"])],
-               [])
+        gdoc, _ = M.load(M.path_of(cwd, "goal", edoc["goal_id"]))
+        if isinstance(gdoc, dict) and EV.retired(cwd, gdoc):
+            report(["eval %s is narrowed to goal %s, which an ethics hard line has retired: run mission evaluate "
+                    "(with no active goal it covers the whole mission), then derive from it"
+                    % (edoc["eval_id"], edoc["goal_id"])], [])
+        else:
+            report(["eval %s is narrowed to goal %s's targets (it was active): a new goal comes from an eval of the "
+                    "whole mission (close goal %s, then mission evaluate)"
+                    % (edoc["eval_id"], edoc["goal_id"], edoc["goal_id"])], [])
         return 2
     if edoc["goal_met"]:
         report(["the evaluation %s says the goal is met: go back to research and raise the bar (new journeys "
