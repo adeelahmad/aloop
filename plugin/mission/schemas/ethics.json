@@ -1,0 +1,41 @@
+{
+ "title": "ethics — the Ethics Reviewer's review of the mission or one goal (ROADMAP §4.12, M9.4): docs/agents/mission/ethics/<ethics_id>.json",
+ "type": "object",
+ "required": ["ethics_id", "subject", "screen", "findings", "tier", "status", "created_at"],
+ "additionalProperties": false,
+ "properties": {
+  "ethics_id": {"type": "string", "pattern": "^eth_"},
+  "subject": {
+   "type": "object",
+   "required": ["kind", "ref", "id", "sha256"],
+   "additionalProperties": false,
+   "properties": {
+    "kind": {"enum": ["mission", "goal"]},
+    "ref": {"type": "string", "minLength": 1},
+    "id": {"type": "string", "pattern": "^(msn|gol)_[0-9a-f]{20}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+   }
+  },
+  "screen": {"type": "array", "items": {"enum": ["illegal", "deceptive", "harmful", "user-data", "notifications", "engagement", "third-party", "outreach", "security"]}},
+  "findings": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["category", "tier", "reason"],
+    "additionalProperties": false,
+    "properties": {
+     "category": {"enum": ["illegal", "deceptive", "harmful", "user-data", "notifications", "engagement", "third-party", "outreach", "security", "other"]},
+     "tier": {"enum": ["clear", "gray", "hard"]},
+     "reason": {"type": "string", "minLength": 1},
+     "evidence": {"type": "array", "items": {"type": "string", "minLength": 1}},
+     "gaps": {"type": "array", "items": {"type": "string", "minLength": 1}}
+    }
+   }
+  },
+  "tier": {"enum": ["clear", "gray", "hard"]},
+  "reviewer": {"type": "object"},
+  "status": {"enum": ["recorded"]},
+  "created_at": {"type": "string", "minLength": 1},
+  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+ }
+}
