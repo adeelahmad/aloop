@@ -19,7 +19,8 @@ do exactly the action it names, and tick again. *Models explore. Gates decide.*
 
 The loop is IBM's autonomic MAPE-K over `docs/agents/mission/`: monitor (ASSESS), analyze
 (EVALUATE), plan (DERIVE_GOAL, PLAN_INTENTS), execute (SPRINT, an Aladdin sprint). A met goal
-sends it back to the mission to raise the bar. Every command is `aloop mission …`; each
+sends it back to the mission to raise the bar; a goal its sprints did not meet is retired
+(RETIRE_GOAL) and the next one is derived. Every command is `aloop mission …`; each
 area explains itself with `aloop mission <area> --help`, and `aloop mission --list` lists them.
 
 ## Setting a mission (first run only)
@@ -72,7 +73,7 @@ paste artifacts into it. A role writes its artifact only through `aloop mission 
 | `STOPPED` | human | The human ran `aloop stop`: say so with its reason and do nothing else. Only they resume it (`aloop stop --clear` in their own terminal). | they clear the stop |
 | `STOP_BUDGET` | human | Show the spend and cap from `aloop mission tick --json` (`budget`). A higher cap is a mission change: edit, then their approval. | the cap is raised or the mission ends |
 | `ETHICS_REVIEW` | `ethics-reviewer` | Review the subject (the mission or a goal) against the mission's constraints; it records the tier with `aloop mission ethics`. | a review covers that content |
-| `BLOCKED` | human | A hard line, 3 failed goals in a row, a stalled sprint, an action repeated without result, or a broken record (the ledger, the confirmed baseline). Report it. | the human fixes the subject; a repeat or 3 failed goals: `aloop mission tick --force --by "<their name>"`, then their `lift …` line |
+| `BLOCKED` | human | A hard line, every open gap held (a hard line, or a retired goal's gaps: a new baseline version, their lift or their approval of the mission frees those), 3 failed goals in a row, a stalled sprint, an action repeated without result, or a broken record (the ledger, the confirmed baseline). Report it. | the human fixes the subject; a repeat, 3 failed goals or a retired goal's held gaps: `aloop mission tick --force --by "<their name>"`, then their `lift …` line |
 | `ASK_CONSENT` | human | Gray tier: show the review's reason and relay the `consent <id> <code>` line tick names; once they have typed it, run the `aloop mission ethics consent` it names. It never carries over to another goal. | consent covers that content |
 | `RESEARCH` | `market-researcher` | Sourced landscape: rival products, papers, benchmarks (`aloop mission research`). When the goal is met: raise the bar, "what is best that the user is not even thinking of?" | a new research artifact |
 | `DEFINE_JOURNEYS` | `market-researcher` | User journeys from the research: scripted steps, pass criteria, an event per step, sources (`aloop mission journeys`). A baseline with nothing to earn: raise the bar (new or stricter journeys). A listed journey that no longer runs as pinned: a journey that supersedes it. | a proposed journey |
@@ -85,6 +86,7 @@ paste artifacts into it. A role writes its artifact only through `aloop mission 
 | `ASSESS` | `state-assessor` | Measure the product with the pinned scripts; numbers only, no opinions (`aloop mission assess`). | a new state report |
 | `EVALUATE` | `evaluator` | Compare the state with the baseline and the rivals: the gap list and `goal_met` (`aloop mission evaluate`); it never builds. A goal met in its eval: `aloop mission goal close <goal_id> --eval <eval_id>`. | a new eval, or a closed goal |
 | `DERIVE_GOAL` | `mission-planner` | The eval's top gaps become one goal, with the standing principles for the mode (`aloop mission goal derive`). | a derived goal |
+| `RETIRE_GOAL` | `mission-planner` | Every intent of the goal was sprinted and the newest eval of it still lists gaps: set it aside (`aloop mission goal retire <goal_id> --eval <eval_id>`). The next eval covers the whole mission, and the next goal is derived from the gaps the retired goal did not hold open. | a `goal.retired` record |
 | `WAIT` | — | A sprint is running, planning is under way, or the raised bar is still met. Stop. | the cron wakes the loop |
 
 Usage telemetry (Google Analytics) is opt-in (`aloop mission telemetry`): it feeds research

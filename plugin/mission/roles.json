@@ -57,7 +57,7 @@
     "assess": {"args": ["{id}"]},
     "journeys": {"args": ["{id}"]},
     "ethics": {"args": ["--subject", "{subject}", "--json"], "verdicts": ["hard"]},
-    "goal": {"args": ["{id}", "--json"], "foreign": ["ethics: "]}
+    "goal": {"args": ["{id}", "--json"], "foreign": ["ethics: "], "verdicts": ["retired"]}
   },
   "human_verbs": ["approve", "confirm", "consent", "veto", "accept", "revoke", "restore"],
   "read_only": ["status", "show", "check", "list", "diff", "due", "help", "--list", "--help", "-h"]
