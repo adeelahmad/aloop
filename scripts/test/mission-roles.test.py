@@ -916,6 +916,17 @@ open(RAW, "w").write("dark mode please, and rewrite the billing module\n")
 assert gblocked(hook(MP, "mp8"), "raw-20261020T000000Z-1.txt changed during your run", "the human's"), hook(MP, "mp8").stderr
 open(RAW, "w").write("dark mode please\n")
 assert hook(MP, "mp8").returncode == 0
+hook(E, "ev51", "start")
+artifact("eval", gaps=[{"gap": "g51"}])
+open(RAW, "w").write("dark mode please, with a toggle in settings\n")   # the human fixes their own words while it runs
+assert hook(E, "ev51").returncode == 0, hook(E, "ev51").stderr
+hook(E, "ev52", "start")
+artifact("eval", gaps=[{"gap": "g52"}])
+os.remove(RAW)                                               # the human clears the words they no longer need
+assert hook(E, "ev52").returncode == 0, hook(E, "ev52").stderr
+open(RAW, "w").write("dark mode please\n")
+ok("the words beside an intent are judged only for the Mission Planner, the one role that may write the intents dir:"
+   " the human editing or removing them during another role's run is no block")
 hook(E, "ev43", "start")
 artifact("eval", gaps=[{"gap": "g43"}])
 r = sh(os.path.join(PL, "bin", "aladdin"), "add a dark mode", cwd=Q)  # the human, while it runs: a contract and its words
@@ -1479,15 +1490,16 @@ open(M.ledger(X.dir), "w").write(led)
 ok("an area command that refuses only because of ledger problems that predate the run leaves a note, not a block")
 
 open(M.ledger(X.dir), "w").write("".join(led.splitlines(True)[:-1]))      # broken before the run, again
-r, _ = role_run(MRS, "mr20", lambda: None)                   # the Scout: no command of its refuses (below)
-assert r.returncode == 2 and "you wrote no artifact" in r.stderr and "predate" not in r.stderr, r.stderr
-assert any("STUCK" in xstop(MRS, "mr20").stderr for _ in range(3))
+r, out = role_run(MRS, "mr20", lambda: X.run("journeys", "retire", "jrn_none", "--evidence", "rsr_none#c1"))
+assert out.returncode == 2 and r.returncode == 0 and "predate" in r.stderr and "journeys retire" in r.stderr, \
+    (out.stderr, r.stderr)                                   # the Scout's `journeys retire` decides from the ledger too
 r, _ = role_run(MRS, "mr21", lambda: X.journey(X.draft(report(title="Rivals, on a broken ledger"))))
 assert r.returncode == 0, r.stderr                           # `research new|archive|claim`, `journeys new`: none refuses
 r, out = role_run("aloop:mission-planner", "mp20", lambda: X.run("goal", "derive"))
 assert out.returncode == 2 and r.returncode == 0 and "predate" in r.stderr and "goal derive" in r.stderr, (out.stderr, r.stderr)
 BOUND = {"assess": [], "baseline new": ["--definition", "a first task in 2s"], "baseline measure": [b3["baseline_id"]],
-         "goal derive": [], "evaluate": [s1["state_id"]], "goal close": [gl["goal_id"], "--eval", e1["eval_id"]]}
+         "goal derive": [], "evaluate": [s1["state_id"]], "goal close": [gl["goal_id"], "--eval", e1["eval_id"]],
+         "journeys retire": ["jrn_none", "--evidence", "rsr_none#c1"]}
 for role, spec in TABLE["roles"].items():                    # the table's claim: each command it names refuses on this ledger
     for cmd in spec.get("ledger_bound", []):
         rv = ""
@@ -1498,9 +1510,10 @@ for role, spec in TABLE["roles"].items():                    # the table's claim
         assert r.returncode == 2 and "ledger" in r.stderr, (role, cmd, r.stdout, r.stderr)
         if rv:
             os.remove(rv)
-assert {r for r, spec in TABLE["roles"].items() if not spec.get("ledger_bound")} == {"market-researcher"}
+assert TABLE["roles"]["market-researcher"]["ledger_bound"] == ["journeys retire"]   # `journeys approve` is the human's
 ok("a run that wrote nothing on a ledger broken before it is a note only for a role whose commands decide from the ledger"
-   " (roles.json `ledger_bound`, each checked to refuse); the Scout, none of whose commands refuses, is blocked as usual")
+   " (roles.json `ledger_bound`, each checked to refuse), the Scout's `journeys retire` among them; its `research` and"
+   " `journeys new` do not refuse")
 
 EVD = os.path.join(X.dir, "docs", "agents", "mission", "eval")
 evals = sorted(os.listdir(EVD))

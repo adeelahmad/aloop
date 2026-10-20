@@ -17,8 +17,8 @@ when none does). At its stop the run's changes (the files now against the start 
      command's own event of the run names it (judge.run, telemetry.report: a record no event names was
      written by hand and blocks). Writing nothing while the ledger still has the problems it started with is a
      note for a role whose own commands decide from it (roles.json `ledger_bound`: `baseline new`, `assess`, `goal
-     derive`, `evaluate`, `goal close`, `ethics record`), which refuse until the supervisor repairs it; none of the
-     Scout's does;
+     derive`, `evaluate`, `goal close`, `ethics record`, the Scout's `journeys retire`), which refuse until the
+     supervisor repairs it;
   2. every artifact it wrote passes the core contract (`_mission.problems`: harness-issued id matching
      the file name, a known status, a sha256 that matches the content, the kind's schema once its area
      ships one) and its area's own check (`mission <area> check`, when plugin/mission/<area>.py exists;
@@ -49,7 +49,9 @@ when none does). At its stop the run's changes (the files now against the start 
      role cannot write: a human event naming it, or (not for a deletion) intake's own intent.received (with the
      source the file says, or another of the human's: intake's fill may turn `prompt` to `mixed`, never to or from
      `mission`) or intent.normalized, naming the intent by its refs.intent or intent_id, never by a ref the caller
-     picks (a new file of words: the intent.received whose raw_ref it is). A file a `git merge` or `git pull` made
+     picks (a new file of words: the intent.received whose raw_ref it is). The words beside an intent (a file no
+     intent id names) are judged only in a run of the Mission Planner, the one role the scope gate lets write the
+     dir: the human may edit or clear their own words while another role runs. A file a `git merge` or `git pull` made
      during the run brought in or removed is the supervisor's (no mission role writes git), until the role changes
      it: HEAD's reflog entries since the start chain from the start commit to HEAD, the last to change the file is a
      merge or a pull (for a merge it made, the file is the other side's blob), no commit made here during the run made
@@ -306,6 +308,8 @@ def judge(R, M, project, role, run):
                                                             R.head_commit(project)[:12]))
                     continue
                 stem = R.intent_stem(rel)
+                if stem is None and role not in R.owners(rel):
+                    continue                              # the words: only the planner may write the dir (bin/gate-mission-scope)
                 how = "changed" if rel in before and rel in now else "new" if rel in now else "deleted"
                 # whose it is: its source as the run found it (a pass accepts only the planner's), as intake's `intent new`
                 # of the run recorded it, else as it is now
