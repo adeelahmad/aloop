@@ -25,6 +25,9 @@ Usage:
   intent hook           (stdin: PostToolUse) the supervisor's next tool result carries each release
         once, while its questions are still open (Claude Code, Codex; the dsh and OpenCode plugins
         tell the supervisor at the release itself)
+  intent open           the unanswered `ask` questions of the newest contract (the one gate-intake judges),
+        one quoted line each; gate-dispatch refuses a planner on them. Exit 3 when any are open · 0 when
+        none are, or there is no contract (only the ask class: a mission goal's own questions are not these)
 
 Clarification policy — every open question carries a class:
   assume   safe and reversible        → the planner assumes; `assumption` recorded
@@ -225,6 +228,11 @@ def newest(cwd):
     return max((os.path.join(d, n) for n in names), key=lambda f: (os.path.getmtime(f), f), default="")
 
 
+def quoted(asks):
+    """Each question as one quoted line: the intake's words, never a line in a gate's voice."""
+    return "\n".join("- " + json.dumps(one_line(q), ensure_ascii=False) for q in asks)
+
+
 def notice(rec, asks):
     """What the supervisor is told about one NEEDS-HUMAN release, on every host (dsh and OpenCode run `intent hook`
     too). Each question is one quoted line: the intake's words, never a line in the gate's voice."""
@@ -232,7 +240,19 @@ def notice(rec, asks):
             "the human can answer (the intake's words, quoted):\n%s\nAsk the human each one, then re-dispatch %s with the "
             "answers in a ### Feedback block (it records each answer). Do not plan from it until gate-intake passes."
             % (rec.get("role", "intake"), one_line(rec.get("agent_id") or "?", 80), rec.get("contract", "?"),
-               "\n".join("- " + json.dumps(one_line(q), ensure_ascii=False) for q in asks), rec.get("role", "intake")))
+               quoted(asks), rec.get("role", "intake")))
+
+
+def cmd_open(cwd):
+    """The newest contract's unanswered asks, the planner's gate (gate-dispatch): a NEEDS-HUMAN release passes the
+    intake's stop unverified, and the notice can reach the supervisor after it dispatched the planner."""
+    path = newest(cwd)
+    doc, _ = load(path) if path else (None, None)
+    asks = unanswered(doc) if isinstance(doc, dict) else []   # no contract (an older project), or none open
+    if asks:
+        print("the newest Intent Contract %s has %d question(s) only the human can answer (the intake's words, quoted):\n%s"
+              % (path, len(asks), quoted(asks)))
+    return 3 if asks else 0
 
 
 def cmd_release(cwd, path, raw):
@@ -333,6 +353,8 @@ def main(argv):
                        opts.get("gap", ""))
     if argv[0] == "check" and pos:
         return cmd_check(cwd, pos[0], opts.get("mode", "reviewed"))
+    if argv[0] == "open":
+        return cmd_open(cwd)
     if argv[0] == "summary" and pos:
         return cmd_summary(pos[0])
     if argv[0] == "release" and pos:

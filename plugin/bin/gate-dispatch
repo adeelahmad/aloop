@@ -4,7 +4,8 @@
 # A worker's gates read its task contract (<run-data>/state/tasks/<TASK_ID>.env), found through the
 # `TASK_ID: <id>` line the dispatch prompt opens with. Dispatched before that contract exists, the
 # worker's SubagentStop gate cannot find STORY_DIR and blocks on every stop — a block the worker
-# cannot fix (live e2e run 6: 25 blocks). So the dispatch itself is refused until it is right.
+# cannot fix (live e2e run 6: 25 blocks). So the dispatch itself is refused until it is right. Every
+# aloop role's model is checked too, and a planner waits while the newest Intent Contract has an open `ask`.
 #
 # Only aloop execution roles, only from the main session (a sub-agent's own Agent calls carry
 # agent_type), only in a repo with aloop state (.agentic/). Exit: 0 allow · 2 deny. SKIP_HOOKS=1.
@@ -52,6 +53,18 @@ if [ -n "$want" ]; then
   if [ "$bad" = 1 ]; then
     echo "BLOCK[$GATE_NAME]: dispatch $role with model: $want (the project's confirmed model for this role: \`aloop models resolve $role\`, from docs/agents/defaults.md)${model:+; this call passes $( [ "$model" = "-" ] && echo "no model, which would fall back to the agent file's default" || echo "model: $model")}." >&2
     echo "  The model per role is a project setting (confirmed at init), not a per-dispatch choice. To change it: re-run the init skill or edit .aladdin/config.yaml and \`aloop config sync\`." >&2
+    exit 2
+  fi
+fi
+# Plan only once gate-intake passes (ROADMAP §4.9): a NEEDS-HUMAN release lets the intake's stop through
+# UNVERIFIED, and its notice can reach the supervisor after the planner's call (on Claude Code a PostToolUse,
+# late when the intake ran in the background), so the planner is refused here while the newest Intent Contract
+# has an unanswered `ask` (`intent open`, the one gate-intake judges). No contract at all is no block.
+if [ "$role" = planner ]; then
+  asks="$("$HERE/intent" open 2>/dev/null)"; orc=$?
+  if [ "$orc" = 3 ]; then
+    echo "BLOCK[$GATE_NAME]: dispatch the planner only once gate-intake passes: $asks" >&2
+    echo "  Ask the human each one, then re-dispatch intake with the answers in a ### Feedback block (it records each answer)." >&2
     exit 2
   fi
 fi

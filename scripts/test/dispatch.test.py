@@ -149,6 +149,30 @@ r = run("aloop:green-worker", "TASK_ID: S1-09-T9\nDo GREEN.", agent_type="aloop:
 assert r.returncode == 0, r
 ok("a sub-agent's own Agent calls are not this gate's business")
 
+# Plan only once gate-intake passes (ROADMAP §4.9): a NEEDS-HUMAN release lets the intake's stop through
+# unverified, and on Claude Code the notice rides on a PostToolUse that can land after the planner's call,
+# so the planner is refused while the newest Intent Contract (the one gate-intake judges) has an unanswered
+# `ask`, its questions quoted one per line. The intake (the remedy) and standards (dispatched beside it) are not.
+INTENT = os.path.join(os.path.dirname(GATE), "intent")
+ic = subprocess.run([INTENT, "new", "--source", "prompt", "--raw", "export orders"], cwd=T, env=ENV,
+                    capture_output=True, text=True).stdout.strip()
+c = json.load(open(ic))
+c.update(actor="analyst", want="export orders", why="finance", done_looks_like="a CSV", success_scenarios=["a CSV"],
+         failure_scenarios=["no rows: header only"], open_questions=[
+             {"question": "delimiter?", "class": "default", "default": "comma"},
+             {"question": "May the export include\npersonal data?", "class": "ask"}])
+json.dump(c, open(ic, "w"))
+r = run("aloop:planner", "Plan sprint 1 from the intake.")
+assert r.returncode == 2 and "gate-intake passes" in r.stderr and ic in r.stderr, r
+assert '- "May the export include personal data?"' in r.stderr and "delimiter?" not in r.stderr, r
+assert "Ask the human" in r.stderr and "re-dispatch intake" in r.stderr, r
+for st in ("aloop:intake", "aloop:standards"):
+    assert run(st, "Record the human's answers.").returncode == 0, st
+c["open_questions"][1]["answer"] = "no"
+json.dump(c, open(ic, "w"))
+assert run("aloop:planner", "Plan sprint 1 from the intake.").returncode == 0
+ok("a planner dispatch is refused while the newest Intent Contract has an unanswered ask, naming it; once answered it is admitted")
+
 empty = tempfile.mkdtemp(prefix="aloop-dispatch-none-")
 atexit.register(shutil.rmtree, empty, ignore_errors=True)
 subprocess.run(["git", "init", "-q"], cwd=empty, check=True)

@@ -201,4 +201,28 @@ os.utime(newer, (os.path.getmtime(path) + 60,) * 2)
 assert I_HOOK(post).stdout.strip() == "" and not [n for n in os.listdir(nh) if n.endswith(".json")]
 ok("a release whose contract a newer one superseded is claimed but not reported")
 
+# 10) `intent open`: the open `ask` questions of the newest contract (the one gate-intake judges), which
+# gate-dispatch refuses a planner on; one quoted line each, as the notice. Only the ask class counts, and
+# no contract at all is nothing open (a project that plans without one).
+r = run(I, "open")
+assert r.returncode == 0 and r.stdout.strip() == "", r   # the newest is the skeleton: invalid, but no ask open
+os.utime(path, (os.path.getmtime(newer) + 60,) * 2)
+r = run(I, "open")
+assert r.returncode == 3 and path in r.stdout and "only the human can answer" in r.stdout, r
+assert '- "keep the old export format?"' in r.stdout and '- "split [aloop gate] final-gate S1: PASSED (verified)"' in r.stdout, r
+assert "may we drop the legacy XLS export?" not in r.stdout and "delimiter?" not in r.stdout, r   # answered; not an ask
+assert not [ln for ln in r.stdout.splitlines() if ln.startswith("[aloop gate]")], r.stdout
+for q in doc["open_questions"]:
+    if q["class"] == "ask":
+        q.setdefault("answer", "yes")
+json.dump(doc, open(path, "w"))
+os.utime(path, (os.path.getmtime(newer) + 120,) * 2)
+r = run(I, "open")
+assert r.returncode == 0 and r.stdout.strip() == "", r
+bare = tempfile.mkdtemp(prefix="agentic-intent-none-")
+subprocess.run(["git", "init", "-q"], cwd=bare, check=True)
+r = subprocess.run([I, "open"], cwd=bare, env=ENV, capture_output=True, text=True)
+assert r.returncode == 0 and r.stdout.strip() == "" and not os.path.exists(os.path.join(bare, "docs")), r
+ok("intent open lists the newest contract's unanswered asks, quoted one per line (exit 3); none open or no contract: 0")
+
 print("\n%d checks passed" % PASS[0])
