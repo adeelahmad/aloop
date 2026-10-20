@@ -51,8 +51,9 @@ About a dollar and ten minutes per tested feature in [measured runs](#demo), on 
   market, turn user journeys into a reproducible evaluation, derive the next goal from the gap
   list and hand it to Aladdin as intents. Shipped: `aloop mission` init, approval, journeys,
   baseline, research, judges, assess, evaluate, ethics, principles, goals and the Aladdin
-  handoff, the `tick` loop with its cron line, the `/aloop:mission` skill and opt-in GA4
-  telemetry. In review: the six roles. [More below](#the-mission-layer).
+  handoff, the six fixed roles with their path-guard gates, the `tick` loop with its cron line,
+  the `/aloop:mission` skill and opt-in GA4 telemetry. Next: the end-to-end mission run.
+  [More below](#the-mission-layer).
 - **🚪 One-way and two-way doors (draft, [#86](https://github.com/adeelahmad/aloop/pull/86)).** Core principles for every agent, inspired by
   Amazon's Leadership Principles: a reversible decision is the agent's to make and record; an
   irreversible one is stopped by a gate until the human authorizes it. [More below](#agent-principles).
@@ -186,7 +187,7 @@ opt-in) informs goals and is never a gate.
 | Research and judges | sourced claims with archived snapshots; LLM judges on pinned models and a frozen rubric, decided by majority | ✅ shipped |
 | Ethics and principles | clear / gray / hard-line review of every goal, consent bound to its sha256; the principles below | ✅ shipped |
 | Telemetry | GA4 set up by the agents through its API, opt-in, minimum-sample rule | ✅ shipped |
-| Roles and gates | the six fixed roles and their path guards | 🔄 in review |
+| Roles and gates | the six fixed roles, their model routes, and two gates (role path guards, artifact checks) | ✅ shipped |
 | Goals → intents | the top gaps become a goal, one Intent Contract per gap, handed to Aladdin | ✅ shipped |
 | Loop and skill | `tick`, a zero-token `due`, the cron line, budget caps, `/aloop:mission` | ✅ shipped |
 | End to end | an offline scripted mission cycle in CI, then a live one | ⏳ next |
@@ -353,7 +354,7 @@ change rationale.
 .claude-plugin/marketplace.json   marketplace catalog (source: ./plugin)
 plugin/                           the installable plugin (see plugin/README.md)
   bin/        the tools and gates (aladdin, aloop, gate-*, budget, sweep, targets, events, host, mission …)
-  agents/     the 9 roles · skills/ the supervisor playbooks (aloop, aladdin, init, mission)
+  agents/     the 15 roles (Aladdin's 9 + the mission layer's 6) · skills/ the supervisor playbooks (aloop, aladdin, init, mission)
   hooks/      hooks.json (aloop:<role> matchers) · hosts/ capabilities, routes, the OpenCode plugin
   mission/    the mission layer's areas (journeys, baseline, assess, evaluate …) and their schemas
   schemas/    KDL schemas for the planning artifacts · tools/ ctx-symbols + md-db sources
@@ -449,8 +450,8 @@ and [docs/TRACKING.md](docs/TRACKING.md).
 - CI validates the plugin and runs every offline suite, but not a live session; the live runs
   (`make smoke-live`, `make e2e-live`) spend tokens and are run by hand. Codex and OpenCode have
   no measured public run yet.
-- The mission layer is not usable end to end yet: its six roles are in review, and the end-to-end
-  mission run (M9.13) has not run yet.
+- The mission layer has not run end to end yet: every part is shipped, but the offline and live
+  mission runs (M9.13) are still to come.
 - Run data lives in `.aladdin/`, whose own `.gitignore` keeps everything but `config.yaml` (the
   human's file) out of git. A project that still has `.agentic/` keeps using it until
   `aloop layout migrate`. `docs/agents/` and the `AGENTIC_*` keys keep their pre-rename names.

@@ -15,8 +15,8 @@ import os
 import re
 
 HOOKS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "hooks", "hooks.json")
-ROLES = ["intake", "standards", "planner", "archivist", "red-worker", "scaffolder", "green-worker",
-         "structural-reviewer", "final-gate"]
+# every role the plugin ships (Aladdin's nine and the mission layer's six), from plugin/agents/
+ROLES = sorted(f[:-3] for f in os.listdir(os.path.join(os.path.dirname(HOOKS), "..", "agents")) if f.endswith(".md"))
 n = 0
 
 
