@@ -1,9 +1,10 @@
 """_prices.py — published per-token prices, for a host whose CLI prints no cost (ROADMAP §4.9).
 
 Claude Code reports its own cost (`total_cost_usd` on its `result` line). DeepSeek Harness (dsh)
-reports none, but the aloop dsh plugin logs every call's exact usage per role (_usage rows), so
-run-summary prices each call here. A model with no row is UNPRICED: its tokens are reported and
-its cost is None, never a guess.
+reports none, but the aloop dsh plugin logs each completed call's exact usage per role (_usage
+rows; dsh's compaction and session-title calls included, a retried attempt not: ROADMAP §4.9),
+so run-summary prices each call here. A model with no row is UNPRICED: its tokens are reported
+and its cost is None, never a guess.
 
 DeepSeek, USD per 1M tokens, from https://api-docs.deepseek.com/quick_start/pricing (read 2026-10-20):
 

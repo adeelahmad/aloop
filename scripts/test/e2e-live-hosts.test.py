@@ -194,9 +194,9 @@ assert abs(by["deepseek-v4-pro"]["usd"] - PRO) < 1e-6 and abs(by["deepseek-flash
 assert abs(by["deepseek-v4-flash"]["usd"] - LEGACY) < 1e-6, by
 assert by["deepseek-v4-pro"]["in"] == 200000 and by["deepseek-v4-pro"]["cache_read"] == 3000000 and by["deepseek-v4-pro"]["out"] == 60000, by
 assert by["deepseek-flash"]["cache_write"] == 100000 and by["deepseek-flash"]["calls"] == 2, by
-assert s["cost_usd"] == round(PRO + FLASH + LEGACY, 2) == 1.18 and "api-docs.deepseek.com" in (s.get("prices") or ""), s
+assert s["cost_usd"] == round(PRO + FLASH + LEGACY, 6) == 1.1798 and "api-docs.deepseek.com" in (s.get("prices") or ""), s
 row = [l for l in r.stdout.splitlines() if l.startswith("| ")][-1]
-assert "| semver (dsh) |" in row and "| $1.18 |" in row and "HOST=dsh" in row, row
+assert "| semver (dsh) |" in row and "| $1.1798 |" in row and "HOST=dsh" in row, row
 calls(os.path.join(hd, "root", "subagents", "agent-w3.jsonl"), ("2026-10-20T12:00:00.000Z", "my-gateway-model", 5000, 0, 0, 700))
 r = subprocess.run([os.path.join(BIN, "run-summary"), rd, "--intent", "semver", "--host", "dsh"], capture_output=True, text=True, env=ENV)
 s = json.load(open(os.path.join(rd, "summary.json")))
@@ -209,6 +209,20 @@ shutil.rmtree(os.path.join(rd, "repo", ".aladdin"))
 r = subprocess.run([os.path.join(BIN, "run-summary"), rd, "--host", "dsh"], capture_output=True, text=True, env=ENV)
 assert json.load(open(os.path.join(rd, "summary.json")))["cost_usd"] is None and "$0.00" not in r.stdout, r.stdout
 ok("run-summary --host dsh: every call priced from the dated DeepSeek table (model, cache hits, peak band); an unpriced model keeps its tokens and the cost is unmeasured")
+
+# 5a') DeepSeek bills 20-100x below Claude, so a short dsh run costs a fraction of a cent: cost_usd keeps
+#      the micro-dollars and the row cell four places, never $0.00 (the "unmeasured shown as free" cell)
+for name, tokens, cost, cell in (("rs-dsh-cent", 10000, 0.0015, "$0.0015"), ("rs-dsh-micro", 100, 0.000015, "<$0.0001")):
+    rd = os.path.join(T, name); hd = os.path.join(rd, "repo", ".aladdin", "host", "dsh")
+    os.makedirs(hd)
+    subprocess.run(["git", "init", "-q", os.path.join(rd, "repo")], check=True, env=ENV)
+    open(os.path.join(rd, "out.jsonl"), "w").write("")
+    calls(os.path.join(hd, "root.jsonl"), ("2026-10-24T12:00:00.000Z", "deepseek-flash", tokens, 0, 0, 0))   # Sat: off-peak
+    r = subprocess.run([os.path.join(BIN, "run-summary"), rd, "--host", "dsh"], capture_output=True, text=True, env=ENV)
+    s = json.load(open(os.path.join(rd, "summary.json")))
+    row = [l for l in r.stdout.splitlines() if l.startswith("| ")][-1]
+    assert s["cost_usd"] == cost == s["cost_by_model"]["deepseek-flash"]["usd"] and "| %s |" % cell in row and "| $0.00 |" not in row, (s, row)
+ok("run-summary --host dsh keeps a sub-cent cost (cost_usd to the micro-dollar, the row to four places, <$0.0001 below), never $0.00")
 
 # 5b) the Python intent seeds a Python package (no cargo) and needs python3 + pytest, not cargo
 py = os.path.join(STUBS, "python3")      # the real python3, except `-m pytest` answers $HAS_PYTEST

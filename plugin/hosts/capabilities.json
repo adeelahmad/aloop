@@ -27,7 +27,7 @@
       "rotate_command": "/new"
     },
     "dsh": {
-      "usage": "exact; session-title and web-search calls not reported",
+      "usage": "exact; retried attempts and web-search requests not reported",
       "compaction": "advertised",
       "live_messaging": "advertised",
       "lifecycle": "plugin events + aloop bind",

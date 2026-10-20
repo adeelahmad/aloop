@@ -55,6 +55,17 @@ assert c == {"in": 20000, "cache_read": sum(190000 + i * 1000 for i in range(10)
 assert _usage.charge(c) == 30000 and _usage.charge(c, "context") == 202000 + 10000
 ok("classes kept apart; fresh charge 30k vs context charge 212k for the same log")
 
+# 1b) a call the host makes outside the conversation (dsh's session title, its compaction summary: the
+#     plugin marks it `aux`) is charged, but never becomes the context in use, also when it lands last
+aux = cached_calls("u1b")
+with open(aux, "a") as f:
+    f.write(json.dumps({"timestamp": "2026-10-17T10:00:59Z", "aux": "session-title", "message": {
+        "id": "t1", "model": "deepseek-flash", "usage": {"input_tokens": 300, "output_tokens": 20}}}) + "\n")
+c = _usage.classes(aux)
+assert c["in"] == 20300 and c["out"] == 10020 and c["context"] == 2000 + 199000 + 1000, c
+assert _usage.context_plus_output(aux) == 202000 + 10020 and len(_usage.rows(aux)) == 11
+ok("an aux call (dsh title, compaction) is charged but is never the context in use, also when it is the latest call")
+
 # 2) the hook charges fresh+output by default and records the classes
 sh("git", "init", "-q"); sh("git", "config", "user.email", "a@a"); sh("git", "config", "user.name", "A")
 sh("git", "commit", "-q", "--allow-empty", "-m", "init")

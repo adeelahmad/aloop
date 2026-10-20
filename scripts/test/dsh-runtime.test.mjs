@@ -11,8 +11,9 @@
 // and that the one install runs a second project's roles on that project's own models. It also proves
 // what the capability matrix claims for dsh: a role is not offered send_message (so dsh adds no return
 // guidance), the supervisor's send_message reaches a running role (live messaging), the time
-// soft-stop reaches a running worker, and dsh compacts a session (a context overflow here) and the
-// plugin records it.
+// soft-stop reaches a running worker, and dsh compacts a session (a context overflow here), the
+// plugin records it and the handoff joins the first request after it; every call dsh made (its
+// compaction and session-title calls too) is priced, to the micro-dollar.
 //   DSH_BIN=<dsh's lib/bin.js or a dsh executable> node scripts/test/dsh-runtime.test.mjs
 // Without DSH_BIN it uses `dsh` on PATH, and skips when there is none (ALOOP_REQUIRE_DSH=1 fails
 // instead: CI installs the pinned @deepseek-ai/dsh and sets it).
@@ -241,6 +242,13 @@ const events = readFileSync(join(P, ".aladdin/logs/events.jsonl"), "utf8").trim(
 assert.equal(events.filter((e) => e.event === "context.compacted").length, 1, JSON.stringify(events.map((e) => e.event)))
 assert.ok(sup.some((q) => /NEXT-MARKER/.test(q.all.split("</compacted-summary>")[1] || "")), JSON.stringify(sup.map((q) => q.all.slice(-300))))
 ok("the compaction is recorded (context.compacted) and the handoff rejoins the compacted session, as SessionStart(compact)")
+// ...on the FIRST request after it, the overflow retry itself (dsh admits inbox messages only on a step's
+// first attempt, so an injected handoff would arrive a step late), and once: no later request repeats it
+const tail = (q) => q.all.split("</compacted-summary>")[1] || ""
+const later = sup.filter((q) => q.step >= 7 && !q.overflow)
+assert.ok(/NEXT-MARKER/.test(tail(retry)) && /aloop tools: call `aloop <tool>`/.test(tail(retry))
+  && later.every((q) => (tail(q).match(/NEXT-MARKER/g) || []).length === 1), JSON.stringify(later.map((q) => [q.step, tail(q).slice(0, 400)])))
+ok("the first request after a compaction (the overflow retry) carries the handoff and the tools note, once")
 
 // a mission role on each route (ROADMAP §4.12): the Scout through subagent_planning, the Surveyor through subagent
 const scout = of("market-researcher"), surveyor = of("state-assessor")
@@ -299,6 +307,18 @@ for (const [m, [miss, hit, out]] of Object.entries({ "deepseek-flash": [0.15, 0.
 }
 assert.ok(sum.cost_usd !== null, JSON.stringify(sum))
 ok("run-summary prices the runtime's usage per model id dsh sent (deepseek-flash, deepseek-v4-pro), never unmeasured")
+// every reply the endpoint served is a priced call: the role turns, dsh's compaction and its session title
+const served = reqs.filter((q) => !q.overflow), priced = Object.values(sum.cost_by_model).reduce((n, c) => n + c.calls, 0)
+assert.ok(served.some((q) => q.role === "title") && served.some((q) => q.role === "compaction") && priced === served.length,
+  JSON.stringify([priced, served.length, served.filter((q) => ["title", "compaction"].includes(q.role))]))
+ok("every call dsh made is priced, its compaction and session-title calls included (never a partial sum as the total)")
+// a DeepSeek run costs a fraction of a cent here: kept to the micro-dollar (the total and each model's
+// sum are each rounded to 6 places), and the evidence row shows it to four
+const usd = Object.values(sum.cost_by_model).reduce((n, c) => n + c.usd, 0), places = 1e-6 * Object.keys(sum.cost_by_model).length
+const cell = (rs.stdout.split("\n").filter((l) => l.startsWith("| ")).pop() || "").split("|").map((c) => c.trim())[6] || ""
+assert.ok(sum.cost_usd > 0 && Math.abs(sum.cost_usd - usd) <= places && /^\$\d+\.\d{4}$/.test(cell) && Math.abs(Number(cell.slice(1)) - sum.cost_usd) < 5e-5,
+  JSON.stringify([sum.cost_usd, usd, cell]))
+ok("a sub-cent dsh cost is kept: cost_usd is the sum of cost_by_model (> 0), and the evidence row shows it, never $0.00")
 
 // One install serves every project: a second project with other models, where `aloop install dsh` never
 // ran (the one profile still records the first project and its models), runs each role on ITS models.
