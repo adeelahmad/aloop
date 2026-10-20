@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""mission — the mission layer on top of Aladdin (ROADMAP §4.12, M9).
+
+A human sets a mission (bigger than a goal), a budget and a cadence, confirms the
+direction, and leaves everything quantifiable to fixed roles. The loop: baseline →
+evaluation layer → goals → Aladdin sprints → re-evaluate → back to the mission.
+Artifacts live in docs/agents/mission/ (see plugin/mission/README.md).
+
+Usage:
+  mission init "<mission>" --mode autonomous|spoon-fed --budget-usd N | --budget-tokens N
+               [--deadline YYYY-MM-DD] [--cadence 6h] [--constraint TEXT]… [--by NAME]
+        write docs/agents/mission/mission.json (draft, sealed); emits mission.set.
+        At least one budget cap is required: the loop is capped outside the model.
+  mission check [--json]
+        the mission's deterministic check: schema, harness-issued id, and its content is the
+        content a human approved. Exit 0 ok · 2 invalid or changed · 3 needs the human
+        (draft, or changed since the last approval)
+  mission approve --by NAME [--reason TEXT]
+        a human approves the CURRENT content: seal it, record mission.approved (subject + sha256)
+  mission show [--json]       the mission and whether its content is approved
+  mission status [--json]     what exists per artifact kind (the facts `mission tick` reads)
+  mission --list              the area commands
+  mission <area> …            an area command: plugin/mission/<area>.py (mission <area> --help)
+
+The fixed point: the mission, its mode, budget caps and constraints change only with a new
+human approval; goals change every cycle.
+"""
+import json
+import os
+import re
+import sys
+
+BIN = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, BIN)
+import _mission as M  # noqa: E402
+
+MODES = ("autonomous", "spoon-fed")
+CADENCE = re.compile(r"^([1-9][0-9]*)([mhd])$")
+DEFAULT_CADENCE = "6h"   # ROADMAP §4.12 call: the slower of the two examples (3h/6h) — fewer tokens per day
+
+
+def cadence_seconds(c):
+    m = CADENCE.match(c or "")
+    if not m:
+        return None
+    return int(m.group(1)) * {"m": 60, "h": 3600, "d": 86400}[m.group(2)]
+
+
+def areas():
+    out = []
+    for f in sorted(os.listdir(M.AREAS_DIR)) if os.path.isdir(M.AREAS_DIR) else []:
+        if f.endswith(".py") and not f.startswith("_"):
+            out.append(f[:-3])
+    return out
+
+
+def parse(argv):
+    opts, pos, multi, k = {}, [], {"constraint"}, None
+    for a in argv:
+        if k:
+            if k in multi:
+                opts.setdefault(k, []).append(a)
+            else:
+                opts[k] = a
+            k = None
+        elif a.startswith("--"):
+            k = a[2:].replace("-", "_")
+            if k in ("json", "force"):
+                opts[k], k = True, None
+        else:
+            pos.append(a)
+    if k:
+        opts[k] = ""
+    return opts, pos
+
+
+def cmd_init(cwd, statement, o):
+    path = M.path_of(cwd, "mission")
+    if os.path.exists(path) and not o.get("force"):
+        print("mission init: %s exists (a mission changes only by editing it and a human `mission approve`)"
+              % M.rel(cwd, path), file=sys.stderr)
+        return 2
+    mode, cad = o.get("mode", ""), o.get("cadence") or DEFAULT_CADENCE
+    bad = []
+    if not (statement or "").strip():
+        bad.append('the mission statement is empty: mission init "<mission>"')
+    if mode not in MODES:
+        bad.append("--mode must be one of %s (autonomous: set and forget; spoon-fed: you feed the asks)"
+                   % ", ".join(MODES))
+    if cadence_seconds(cad) is None:
+        bad.append("--cadence must look like 30m, 6h or 1d")
+    budget = {}
+    for key, flag in (("usd", "budget_usd"), ("tokens", "budget_tokens")):
+        if o.get(flag):
+            try:
+                budget[key] = float(o[flag]) if key == "usd" else int(o[flag])
+            except ValueError:
+                bad.append("--%s must be a number" % flag.replace("_", "-"))
+    if o.get("deadline"):
+        budget["deadline"] = o["deadline"]
+    if not any(k in budget for k in ("usd", "tokens")):
+        bad.append("a budget cap is required: --budget-usd N and/or --budget-tokens N "
+                   "(the loop is capped outside the model)")
+    for b in bad:
+        print("BLOCK[mission]: %s" % b, file=sys.stderr)
+    if bad:
+        return 64
+    doc = {"mission_id": M.new_id("mission"), "statement": statement.strip(), "mode": mode, "cadence": cad,
+           "budget": budget, "constraints": o.get("constraint", []), "status": "draft", "created_at": M.now(),
+           "provenance": {"set_by": o.get("by", ""), "set_at": M.now()}}
+    M.seal(doc)
+    M.save(path, doc)
+    M.emit(cwd, "mission.set", role="human", refs={"mission": M.rel(cwd, path)}, mission_id=doc["mission_id"],
+           mode=mode, sha256=doc["sha256"])
+    print(path)
+    return 0
+
+
+def evaluate(cwd):
+    """(exit code, problems, facts) for the mission's deterministic check."""
+    path = M.path_of(cwd, "mission")
+    doc, err = M.load(path)
+    if doc is None:
+        return 3, ["no mission yet: mission init \"<mission>\" --mode … --budget-usd N"], {}
+    if not isinstance(doc, dict):
+        return 2, ["mission.json is not an object"], {}
+    bad = [p for p in M.problems(doc, "mission", path) if not p.startswith("sha256 does not match")]
+    if cadence_seconds(doc.get("cadence")) is None:
+        bad.append("cadence %r must look like 30m, 6h or 1d" % doc.get("cadence"))
+    budget = doc.get("budget") if isinstance(doc.get("budget"), dict) else {}
+    if not any(k in budget for k in ("usd", "tokens")):
+        bad.append("budget needs a usd or tokens cap")
+    sha = M.digest(doc)
+    ref = M.rel(cwd, path)
+    ev = M.approved(cwd, "mission.approved", ref, sha)
+    facts = {"mission_id": doc.get("mission_id"), "path": ref, "status": doc.get("status"), "sha256": sha,
+             "sealed": doc.get("sha256") == sha, "approved_by": ((ev or {}).get("data") or {}).get("by"),
+             "approval_event": (ev or {}).get("event_id")}
+    if bad:
+        return 2, bad, facts
+    if doc.get("status") == "approved" and not ev:
+        return 2, ["mission.json says approved but its content has no human approval "
+                   "(changed since it was approved): a human runs `aloop mission approve --by NAME`"], facts
+    if doc.get("status") != "approved" or not ev:
+        why = "changed since it was sealed" if not facts["sealed"] else "a draft"
+        return 3, ["the mission is %s: the human confirms it (`aloop mission approve --by NAME`)" % why], facts
+    return 0, [], facts
+
+
+def cmd_check(cwd, as_json):
+    rc, bad, facts = evaluate(cwd)
+    if as_json:
+        print(json.dumps({"exit": rc, "problems": bad, **facts}, indent=1))
+    for b in bad:
+        print("%s[mission]: %s" % ("ASK" if rc == 3 else "BLOCK", b), file=sys.stderr)
+    if rc == 0 and not as_json:
+        print("[mission] %s ok (approved by %s)" % (facts["mission_id"], facts["approved_by"]), file=sys.stderr)
+    return rc
+
+
+def cmd_approve(cwd, o):
+    path = M.path_of(cwd, "mission")
+    doc, err = M.load(path)
+    if doc is None:
+        print("mission approve: no mission (%s)" % err, file=sys.stderr)
+        return 2
+    rc, bad, _ = evaluate(cwd)
+    if rc == 2 and not bad[0].startswith("mission.json says approved"):
+        for b in bad:
+            print("BLOCK[mission]: %s" % b, file=sys.stderr)
+        return 2
+    sha = M.seal(doc)
+    try:
+        eid = M.approve(cwd, "mission.approved", M.rel(cwd, path), sha, o.get("by", ""), o.get("reason", ""),
+                        mission_id=doc.get("mission_id"))
+    except ValueError as e:
+        print("mission approve: %s" % e, file=sys.stderr)
+        return 64
+    doc["status"], doc["approval"] = "approved", {"event_id": eid, "by": o["by"], "at": M.now()}
+    M.save(path, doc)
+    print("[mission] %s approved by %s (sha256 %s)" % (doc["mission_id"], o["by"], sha[:12]), file=sys.stderr)
+    return 0
+
+
+def cmd_show(cwd, as_json):
+    doc, err = M.load(M.path_of(cwd, "mission"))
+    if doc is None:
+        print("mission: none yet (mission init)", file=sys.stderr)
+        return 3
+    rc, bad, facts = evaluate(cwd)
+    if as_json:
+        print(json.dumps({"mission": doc, "check": {"exit": rc, "problems": bad, **facts}}, indent=1))
+        return 0
+    b = doc.get("budget", {})
+    caps = ", ".join("%s %s" % (k, b[k]) for k in ("usd", "tokens", "deadline") if k in b)
+    print("Mission: %s\nMode: %s · cadence %s · caps: %s\nStatus: %s%s" % (
+        doc.get("statement"), doc.get("mode"), doc.get("cadence"), caps or "none", doc.get("status"),
+        " (approved by %s)" % facts["approved_by"] if rc == 0 else " — %s" % (bad[0] if bad else "")))
+    for c in doc.get("constraints") or []:
+        print("Constraint: %s" % c)
+    return 0
+
+
+def cmd_status(cwd, as_json):
+    snap = M.snapshot(cwd)
+    if as_json:
+        print(json.dumps(snap, indent=1, sort_keys=True))
+        return 0
+    for kind, s in snap.items():
+        by = ", ".join("%s %d" % kv for kv in sorted(s["by_status"].items())) or "none"
+        print("%-10s %s" % (kind, by))
+    return 0
+
+
+def run_area(name, argv, cwd):
+    import importlib.util
+    path = os.path.join(M.AREAS_DIR, name + ".py")
+    spec = importlib.util.spec_from_file_location("mission_area_" + name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.path.insert(0, M.AREAS_DIR)
+    spec.loader.exec_module(mod)
+    if not argv or argv[0] in ("-h", "--help"):
+        print((mod.__doc__ or name).strip())
+        return 0
+    return mod.main(argv, cwd)
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0
+    cwd = os.getcwd()
+    cmd, rest = argv[0], argv[1:]
+    if cmd == "--list":
+        print("\n".join(["init", "check", "approve", "show", "status"] + areas()))
+        return 0
+    o, pos = parse(rest)
+    if cmd == "init":
+        return cmd_init(cwd, " ".join(pos), o)
+    if cmd == "check":
+        return cmd_check(cwd, o.get("json"))
+    if cmd == "approve":
+        return cmd_approve(cwd, o)
+    if cmd == "show":
+        return cmd_show(cwd, o.get("json"))
+    if cmd == "status":
+        return cmd_status(cwd, o.get("json"))
+    if cmd in areas():
+        return run_area(cmd, rest, cwd)
+    print("mission: unknown command %r (mission --help, mission --list)" % cmd, file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

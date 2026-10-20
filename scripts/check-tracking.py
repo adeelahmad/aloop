@@ -3,6 +3,7 @@
 every IMPLEMENTED_TESTED row names a test file that exists and that the Makefile runs.
     python3 scripts/check-tracking.py
 """
+import fnmatch
 import os
 import re
 import sys
@@ -13,6 +14,8 @@ STATES = {"IMPLEMENTED_TESTED", "IMPLEMENTED_UNTESTED", "BLOCKED_HOST", "NOT_IMP
 
 def main():
     make = open(os.path.join(ROOT, "Makefile")).read()
+    # a Makefile loop over a glob (`for t in scripts/test/mission-*.test.py`) runs every match
+    globs = re.findall(r"(scripts/test/[^\s;\"']*\*[^\s;\"']*)", make)
     bad, rows = [], 0
     for ln in open(os.path.join(ROOT, "docs", "TRACKING.md")):
         cells = [c.strip() for c in ln.strip().strip("|").split("|")]
@@ -30,7 +33,7 @@ def main():
             for t in tests:
                 if not os.path.isfile(os.path.join(ROOT, t)):
                     bad.append("%s %s: %s does not exist" % (sec, req, t))
-                elif t not in make:
+                elif t not in make and not any(fnmatch.fnmatch(t, g) for g in globs):
                     bad.append("%s %s: %s is not run by the Makefile" % (sec, req, t))
     for b in bad:
         print("BLOCK[tracking]: %s" % b, file=sys.stderr)

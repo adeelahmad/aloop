@@ -1,0 +1,27 @@
+{
+ "title": "mission — the human's one input (ROADMAP §4.12): docs/agents/mission/mission.json",
+ "type": "object",
+ "required": ["mission_id", "statement", "mode", "cadence", "budget", "constraints", "status", "created_at", "provenance"],
+ "additionalProperties": false,
+ "properties": {
+  "mission_id": {"type": "string", "pattern": "^msn_"},
+  "statement": {"type": "string", "minLength": 1},
+  "mode": {"enum": ["autonomous", "spoon-fed"]},
+  "cadence": {"type": "string", "pattern": "^[1-9][0-9]*[mhd]$"},
+  "budget": {
+   "type": "object",
+   "additionalProperties": false,
+   "properties": {
+    "usd": {"type": "number", "minimum": 0},
+    "tokens": {"type": "integer", "minimum": 1},
+    "deadline": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}"}
+   }
+  },
+  "constraints": {"type": "array", "items": {"type": "string", "minLength": 1}},
+  "status": {"enum": ["draft", "approved"]},
+  "created_at": {"type": "string", "minLength": 1},
+  "provenance": {"type": "object"},
+  "approval": {"type": "object"},
+  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+ }
+}
