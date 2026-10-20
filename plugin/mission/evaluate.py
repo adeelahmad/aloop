@@ -37,24 +37,40 @@ KIND = "eval"
 
 def active_goal(cwd):
     """The goal being worked, from the records: the newest goal whose current content a
-    goal.derived (or the human's goal.approved) record covers, no later goal.met record closed and
-    no ethics hard line retired (M9.29: it never closes, so the next eval covers the whole mission
-    and the loop derives past it). A status field activates nothing. A goal (M9.11) names its
-    targets as [{"journey_id", "criterion_id"}]."""
+    goal.derived (or the human's goal.approved) record covers, while no later goal.met record closed it and
+    nothing retired it (an ethics hard line, M9.29, or `goal retire` once its sprints left gaps open,
+    M9.50: it never closes, so the next eval covers the whole mission and the loop derives past it).
+    A status field activates nothing. A goal (M9.11) names its targets as [{"journey_id", "criterion_id"}]."""
     best = None
     for path, d in M.artifacts(cwd, "goal"):
         ref, sha = M.rel(cwd, path), M.digest(d)
         starts = [r["ts"] for ev in ("goal.derived", "goal.approved") for r in M.records(cwd, ev, ref)
                   if r["data"].get("sha256") == sha]
-        if starts and not any(r["ts"] >= max(starts) for r in M.records(cwd, "goal.met", ref)) \
-                and (best is None or max(starts) > best[0]) and not retired(cwd, d):
-            best = (max(starts), d)
-    return best[1] if best else None
+        key = (max(starts), str(d.get("goal_id"))) if starts else None    # a tie in the second: the newer id
+        if key and (best is None or key > best[0]):
+            best = (key, d, ref)
+    # only the newest goal is in flight, as `mission tick` reads it: once it is met or retired the next
+    # eval covers the whole mission, never an older goal nobody works
+    if not best or any(r["ts"] >= best[0][0] for r in M.records(cwd, "goal.met", best[2])) or retired(cwd, best[1]):
+        return None
+    return best[1]
 
 
 def retired(cwd, goal):
-    """A goal an ethics hard line holds (the verdict's own rule: this goal, or its words under any id)."""
-    return isinstance(goal.get("goal_id"), str) and E.verdict(cwd, "goal", goal["goal_id"])[2].get("state") == "hard"
+    """A goal set aside: `goal retire` recorded it (M9.50), or an ethics hard line holds it (the
+    verdict's own rule: this goal, or its words under any id)."""
+    return isinstance(goal.get("goal_id"), str) and (bool(retirement(cwd, goal)) or
+                                                     E.verdict(cwd, "goal", goal["goal_id"])[2].get("state") == "hard")
+
+
+def retirement(cwd, goal):
+    """The goal.retired ledger record of this goal's content (`mission goal retire`: its intents were
+    all sprinted and an evaluation of it after them still listed gaps), or None."""
+    if not isinstance(goal.get("goal_id"), str):
+        return None
+    sha = M.digest(goal)
+    return next((r for r in reversed(M.records(cwd, "goal.retired", M.rel(cwd, M.path_of(cwd, "goal", goal["goal_id"]))))
+                 if r["data"].get("sha256") == sha), None)
 
 
 def goal_problems(cwd, goal, bdoc):

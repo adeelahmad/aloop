@@ -39,7 +39,8 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-validate-artifact\"" } ] },
       { "matcher": "*", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" record" },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook post", "timeout": 15 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook post", "timeout": 15 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/intent\" hook", "timeout": 15 } ] }
     ],
     "Stop": [
       { "matcher": "*", "hooks": [

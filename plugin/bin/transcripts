@@ -20,7 +20,7 @@
 #   transcripts snapshot              copy the full session transcript (stdin JSON)         [Stop]
 #   transcripts stop                  snapshot + remove ./.transcripts + stop marker        [SubagentStop *]
 #   transcripts view --all|--task ID  read the store (supervisor)
-#   transcripts prune                 manual: keep last N events/task (AGENTIC_TRANSCRIPTS_KEEP, default all)
+#   transcripts prune                 manual: keep last N tool records/task and every prompt (AGENTIC_TRANSCRIPTS_KEEP)
 #
 # Per-worktree contract: the supervisor writes ./.aladdin/task.env (./.agentic/ in a legacy project) at dispatch with
 #   TASK_ID, ATTEMPT, AGENT_ROLE  (real env overrides it). The store path is fixed (_paths.sh).
@@ -138,12 +138,15 @@ case "$cmd" in
   prune)
     ensure; N="${AGENTIC_TRANSCRIPTS_KEEP:-}"
     [ -n "$N" ] || { echo "set AGENTIC_TRANSCRIPTS_KEEP=<n> to prune (default keeps everything)"; exit 0; }
+    # The human's prompts stay: a grant (M9.17, a sprint's plan approval M0.9) cites one, so pruning it
+    # would revoke the grant. Only tool-call records are compacted.
     for d in "$STORE"/*/; do
       f="${d}events.jsonl"; [ -f "$f" ] || continue
-      n="$(wc -l < "$f" 2>/dev/null || echo 0)"
+      n="$(grep -cv '"kind": *"prompt"' "$f" 2>/dev/null || true)"
       if [ "${n:-0}" -gt "$N" ]; then
-        head -n "$((n-N))" "$f" >> "$STORE/compacted/$(basename "$d").jsonl" 2>/dev/null || true
-        tail -n "$N" "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f" 2>/dev/null || true
+        : > "$f.tmp" && awk -v drop="$((n-N))" -v out="$STORE/compacted/$(basename "$d").jsonl" -v tmp="$f.tmp" '
+          !/"kind": *"prompt"/ && ++k <= drop { print >> out; next } { print > tmp }' "$f" 2>/dev/null \
+          && mv "$f.tmp" "$f" 2>/dev/null || true
       fi
     done
     echo "pruned (keep $N/task)";;

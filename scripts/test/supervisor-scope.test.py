@@ -6,11 +6,17 @@ Regression: on Linux `stat -f %m` prints filesystem info instead of failing clea
 recency arm crashed (`File: unbound variable`), the hook exited 1 (non-blocking) and the
 supervisor's write went through. Found by a live Claude Code smoke run.
 
+Regression (ROADMAP §4.9): it and gate-validate-artifact, the other tool-event gate that read
+its payload with sed, took a key the model added to tool_input, or a path cut short at a quote,
+for the host's field. Both read the payload as JSON; the last section holds the second's checks
+and the guard that no tool-event gate goes back to sed.
+
     python3 scripts/test/supervisor-scope.test.py
 """
 import json
 import atexit
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -232,5 +238,83 @@ open(LOCK, "w").close(); open(LOCK, "w").write("s-other\n"); os.utime(LOCK, (old
 r = sup("git commit -am wip")
 assert r.returncode == 0, r
 ok("stale lock: a commit on main outside any live sprint is allowed")
+
+# ── The model's arguments never stand in for the host's fields (ROADMAP §4.9). The gate read each
+# field with a greedy sed over the raw payload: the LAST `"<name>": "<value>"` anywhere won, so a key
+# the model added inside tool_input (OpenCode passes its arguments through) spoofed a top-level
+# field, and an escaped quote cut a path short. It reads the payload as JSON.
+def gate(p, cwd=T):
+    raw = p if isinstance(p, str) else json.dumps(p)
+    return subprocess.run([GATE], input=raw, cwd=cwd, env=ENV, capture_output=True, text=True)
+
+
+open(LOCK, "w").write("s-main\n")
+r = gate({"session_id": "s-main", "cwd": T, "tool_name": "Write",
+          "tool_input": {"file_path": os.path.join(T, "src", "lib.rs"), "content": "x", "agent_type": "aloop:green-worker", "agent_id": "w1"}})
+assert r.returncode == 2 and "may not write production source" in r.stderr, r
+r = gate({"session_id": "s-main", "cwd": T, "tool_name": "ScheduleWakeup", "tool_input": {"delaySeconds": 60, "agent_type": "aloop:planner"}})
+assert r.returncode == 2 and "notification" in r.stderr, r
+ok("an `agent_type` inside tool_input does not make the supervisor a dispatched agent")
+os.makedirs(os.path.join(T, "docs", "agents", "sprint1", 'init.md"'))
+r = gate({"session_id": "s-main", "cwd": T, "tool_name": "Write",
+          "tool_input": {"file_path": os.path.join(T, "docs", "agents", "sprint1", 'init.md"', "..", "..", "..", "..", "src", "lib.rs"), "content": "x"}})
+assert r.returncode == 2 and "may not write production source" in r.stderr, r
+ok("a quote in the path does not cut it short to a docs path (the write lands in src/)")
+for cmd, why in (("git commit -am wip", "never commits on main"), ("echo x >> docs/agents/sprint1/output.md", "re-dispatch")):
+    r = gate({"session_id": "s-main", "cwd": T, "tool_name": "Bash", "tool_input": {"command": cmd, "cwd": WT}})
+    assert r.returncode == 2 and why in r.stderr, (cmd, r)
+ok("a `cwd` inside tool_input does not move the supervisor's shell into a task worktree")
+r = gate({"session_id": "s-main", "cwd": T, "tool_name": "Write",
+          "tool_input": {"file_path": os.path.join(T, "src", "lib.rs") + "\0s-main\0aloop:green-worker", "content": "x"}})
+assert r.returncode == 2, r
+for raw in ('{"session_id": "s-main", "tool_name": "Write"', '["Write"]'):
+    r = gate(raw)
+    assert r.returncode == 2 and "JSON" in r.stderr, (raw, r)
+os.remove(LOCK)
+r = gate('{"session_id": "s-main", "tool_name": "Write"')
+assert r.returncode == 0, r
+assert gate("").returncode == 0
+ok("an unreadable payload blocks while a sprint lock exists (fail closed) and passes in any other repo")
+
+# ── gate-validate-artifact (PostToolUse · Write) reads its path the same way: tool_input's file_path.
+# The sed took a later field's, or the path cut short at a quote, and the write it named went unchecked.
+BIN = os.path.dirname(GATE)
+VENV = {k: v for k, v in ENV.items() if k != "TOOL_FILE_PATH"}
+
+
+def validate(p):
+    raw = p if isinstance(p, str) else json.dumps(p)
+    return subprocess.run([os.path.join(BIN, "gate-validate-artifact")], input=raw, cwd=T, env=VENV, capture_output=True, text=True)
+
+
+story = os.path.join(T, "docs", "agents", "sprint1", "s1-02-y")
+os.makedirs(os.path.join(story, 'a"b'))
+init = os.path.join(story, "init.md")
+open(init, "w").write("no frontmatter\n")
+post = {"hook_event_name": "PostToolUse", "session_id": "s-main", "cwd": T, "tool_name": "Write"}
+r = validate(dict(post, tool_input={"file_path": init, "content": "no frontmatter\n"}))
+assert r.returncode == 2 and "missing top YAML frontmatter" in r.stderr, r
+r = validate(dict(post, tool_input={"file_path": os.path.join(story, 'a"b', "..", "init.md"), "content": "no frontmatter\n"}))
+assert r.returncode == 2 and "missing top YAML frontmatter" in r.stderr, r
+ok("gate-validate-artifact: a quote in the path does not cut it short (the write it names is checked)")
+r = validate(dict(post, tool_input={"file_path": init, "content": "x"}, tool_response={"file_path": os.path.join(T, "README")}))
+assert r.returncode == 2 and "missing top YAML frontmatter" in r.stderr, r
+ok("gate-validate-artifact: the path is tool_input's, never a later field's")
+r = validate('{"tool_name": "Write", "tool_input": {"file_path": "%s"' % init)
+assert r.returncode == 2 and "JSON" in r.stderr, r
+assert validate("").returncode == 0
+assert validate(dict(post, tool_input={"file_path": os.path.join(story, "notes.md")})).returncode == 0
+ok("gate-validate-artifact: an unreadable payload blocks (fail closed); no payload, or a file it does not judge, passes")
+
+# The guard: every gate a tool event runs (hooks.json PreToolUse/PostToolUse, plus gate-tooling,
+# which OpenCode and dsh run on a worker's first tool call) reads no payload field with a sed regex.
+gates = {"gate-tooling"}
+for ev in ("PreToolUse", "PostToolUse"):
+    for group in json.load(open(os.path.join(BIN, "..", "hooks", "hooks.json")))["hooks"][ev]:
+        for h in group["hooks"]:
+            gates.update(re.findall(r"bin/(gate-[a-z0-9-]+)", h["command"]))
+bad = [g for g in sorted(gates) if re.search(r"\bsed\b[^\n]*\[\[:space:\]\]\*:", open(os.path.join(BIN, g)).read())]
+assert {"gate-supervisor-scope", "gate-validate-artifact"} <= gates and not bad, (sorted(gates), bad)
+ok("no tool-event gate reads its payload with sed (%s)" % ", ".join(sorted(gates)))
 
 print("\n%d checks passed" % n)

@@ -65,7 +65,7 @@ clippy: ## Clippy with warnings-as-errors
 .PHONY: shellcheck
 shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent)
 	@if ! command -v shellcheck >/dev/null; then echo "WARN: shellcheck not installed; skipping (CI enforces it)"; else \
-	  shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh plugin/bin/_failclosed.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
+	  shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh plugin/bin/_failclosed.sh plugin/bin/_finddoc.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
 	       plugin/bin/selfcheck plugin/bin/transcripts plugin/bin/worktree-create plugin/bin/worktree-remove \
 	       plugin/bin/worktree-hygiene plugin/bin/ensure-tools plugin/bin/md-db plugin/bin/ctx-symbols \
 	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/aloop plugin/bin/aladdin plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree; fi
@@ -73,8 +73,8 @@ shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent
 .PHONY: pycheck
 pycheck: ## Byte-compile the Python hook scripts
 	@python3 -m py_compile plugin/bin/budget plugin/bin/stats plugin/bin/aloop-init plugin/bin/gate-commit-author plugin/bin/_paths.py \
-	    plugin/bin/_usage.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/capabilities plugin/bin/models plugin/bin/_routes.py plugin/bin/host plugin/bin/_host.py plugin/bin/config plugin/bin/_config.py plugin/bin/layout plugin/bin/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
-	    plugin/bin/mission plugin/bin/_mission.py plugin/bin/_mission_roles.py plugin/bin/_shellread.py plugin/bin/gate-mission-scope plugin/bin/gate-mission-artifact $$(ls plugin/mission/*.py 2>/dev/null) \
+	    plugin/bin/_usage.py plugin/bin/_prices.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/capabilities plugin/bin/models plugin/bin/_routes.py plugin/bin/host plugin/bin/_host.py plugin/bin/config plugin/bin/_config.py plugin/bin/layout plugin/bin/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
+	    plugin/bin/_approval.py plugin/bin/mission plugin/bin/_mission.py plugin/bin/_mission_roles.py plugin/bin/_shellread.py plugin/bin/gate-mission-scope plugin/bin/gate-mission-artifact $$(ls plugin/mission/*.py 2>/dev/null) \
 	  && rm -rf plugin/bin/__pycache__ plugin/mission/__pycache__ && echo "python ok"
 
 .PHONY: test-hosts
@@ -97,6 +97,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and
 	python3 scripts/test/ids-integrity.test.py
 	python3 scripts/test/semantic-targets.test.py
 	python3 scripts/test/supply-chain.test.py
+	python3 scripts/test/project-stop.test.py
 	python3 scripts/test/commit-trace.test.py
 	python3 scripts/test/impact-provider.test.py
 	python3 scripts/test/timebox-auto.test.py
@@ -124,6 +125,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and
 	python3 scripts/test/planner-stuck.test.py
 	python3 scripts/test/hook-matchers.test.py
 	python3 scripts/test/dispatch.test.py
+	python3 scripts/test/plan-approval.test.py
 	python3 scripts/test/log-execution.test.py
 	python3 scripts/test/ensure-tools.test.py
 	python3 scripts/test/fail-closed.test.py

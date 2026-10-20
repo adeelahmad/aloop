@@ -185,6 +185,8 @@ class Dsh(HostAdapter):
              "(intake, standards, planner, archivist): agent_preset: aloop-<role>, description, prompt opening with "
              "`TASK_ID: <id>` and the worktree path, cwd: <worktree> for a writer")
     WAIT = "start the delegations together, then end your turn: each `subagent finished` notice wakes you (no wait tool)"
+    SEND = ("send_message agent_id: <the role's id from `started subagent <id>`>, message: <text>: a working role reads "
+            "it at its next step, an idle one starts a turn with it (a role itself is not offered send_message)")
     CANCEL = "interrupt_agent <agent_id>, then `aloop budget mark-killed <agent_id>`"
     ISOLATION = ("aloop task-worktree add <TASK>; dispatch with cwd: <worktree>; the worker's first command is "
                  "`aloop bind <path>`; host-adapter then denies any command or path outside it (dsh cannot rewrite a call)")
