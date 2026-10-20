@@ -1,7 +1,7 @@
-"""_host.py — the HostAdapter interface (ROADMAP §4.9) and its three adapters.
+"""_host.py — the HostAdapter interface (ROADMAP §4.9) and its four adapters.
 
-Claude Code is the reference implementation; Codex and OpenCode are adapters behind the
-same interface. Every method names the ONE place the harness does that thing on that host,
+Claude Code is the reference implementation; Codex, OpenCode and DeepSeek Harness (dsh) are
+adapters behind the same interface. Every method names the ONE place the harness does that thing on that host,
 so a new host is a new adapter class, not another `if host == ...` in a gate.
 
 Interface (see HostAdapter): capabilities · spawn / wait / send / cancel (the dispatch
@@ -178,7 +178,22 @@ class OpenCode(HostAdapter):
     TOOL_POLICY = "aloop.js: tool.execute.before rewrites or denies; a gate's exit 2 denies the call"
 
 
-ADAPTERS = {"claude": Claude, "codex": Codex, "opencode": OpenCode}
+class Dsh(HostAdapter):
+    """DeepSeek Harness: roles are agent presets aloop-<role>; hosts/dsh/aloop.mjs runs the gates."""
+    name = "dsh"
+    SPAWN = ("subagent (red-worker, scaffolder, green-worker, structural-reviewer, final-gate) or subagent_planning "
+             "(intake, standards, planner, archivist): agent_preset: aloop-<role>, description, prompt opening with "
+             "`TASK_ID: <id>` and the worktree path, cwd: <worktree> for a writer")
+    WAIT = "start the delegations together, then end your turn: each `subagent finished` notice wakes you (no wait tool)"
+    CANCEL = "interrupt_agent <agent_id>, then `aloop budget mark-killed <agent_id>`"
+    ISOLATION = ("aloop task-worktree add <TASK>; dispatch with cwd: <worktree>; the worker's first command is "
+                 "`aloop bind <path>`; host-adapter then denies any command or path outside it (dsh cannot rewrite a call)")
+    INSTALL_GATE = "aloop install dsh writes the aloop profile ($DSH_HOME/profiles/aloop): run `dsh --profile aloop`"
+    ENFORCE_GATE = "native"     # a block is dsh's own deny / post-execute block / steer before the child settles
+    TOOL_POLICY = "aloop.mjs: tools/pre-execute denies on a gate's exit 2; a writer is denied until bound, then confined"
+
+
+ADAPTERS = {"claude": Claude, "codex": Codex, "opencode": OpenCode, "dsh": Dsh}
 
 
 def adapter(name=None):

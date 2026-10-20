@@ -24,7 +24,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 
 ## Who it is for
 
-- Developers using **Claude Code** (reference host), **Codex** or **OpenCode** who want an
+- Developers using **Claude Code** (reference host), **Codex**, **OpenCode** or **DeepSeek Harness** (`dsh`) who want an
   agent to deliver a multi-story feature or a whole service, not a single edit.
 - People who want to stay in the loop for *what* gets built and be absent for *how*.
 - Teams that care about cost: most of the work runs on cheaper models in narrow context.
@@ -79,7 +79,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 | Schemas | [`plugin/schemas/*.kdl`](../plugin/schemas/) | What `md-db validate` enforces on every planning and comms artifact |
 | `ctx-symbols` | [`plugin/tools/ctx-symbols/`](../plugin/tools/ctx-symbols/) | Rust, tree-sitter symbol resolver (Rust, Python, JS/TS, Go): count, locate, conflicts |
 | `md-db` | [`plugin/tools/md-db/`](../plugin/tools/md-db/) | Vendored Rust markdown-as-database validator (AGPL-3.0 subtree) |
-| Other hosts | [`plugin/hosts/opencode/`](../plugin/hosts/opencode/), `bin/install` | Generates agents/skills for Codex and OpenCode; same gates via `host-adapter` |
+| Other hosts | [`plugin/hosts/opencode/`](../plugin/hosts/opencode/), [`plugin/hosts/dsh/`](../plugin/hosts/dsh/), `bin/install` | Generates agents/skills for Codex and OpenCode, and the `aloop` profile (role presets, delegation tools, the native plugin) for DeepSeek Harness; same gates via `host-adapter` |
 | Evals | [`plugin/evals/`](../plugin/evals/), [`scripts/eval/`](../scripts/eval/) | Per-agent eval suites + grader/aggregator |
 
 ## What it leaves on disk
@@ -103,16 +103,18 @@ The model can ignore a skill; it cannot ignore an exit code.
 
 **Working and tested:**
 - The full planning → execution loop on Claude Code; Codex and OpenCode via generated
-  agents and the same gates.
+  agents and the same gates; DeepSeek Harness via a generated profile and a native plugin on
+  dsh's own deny, block and steer points (proven on the real dsh runtime against a scripted
+  model; no live DeepSeek run yet).
 - CI on every PR: Rust fmt/clippy/tests for both backends, shellcheck on every gate, the
   ROADMAP §6 conformance suite (real gates on a fixture crate, plus the focused tests that hold
   the tool-level items: 19 of the 20 items, 78 checks; §6.15 is measured by live runs), the host tests
   (budget/worktree, Codex hooks emulation, supervisor scope, hook matchers, dispatch,
-  ensure-tools, fail-closed: 73 checks; OpenCode end-to-end: 20), `claude plugin validate
+  ensure-tools, fail-closed: 73 checks; OpenCode end-to-end: 20; dsh plugin: 40, on the real dsh runtime: 32, dsh install: 9), `claude plugin validate
   --strict`, eval-suite and version-lockstep checks,
   the tracking check and `host check`, plus the newer suites (targets render, host swap,
   metrics, config, the aladdin CLI, the site).
-- The north-star run, `make e2e-live YES=1 [INTENT=<intent>] [HOST=codex|opencode]`: a one-line intent becomes
+- The north-star run, `make e2e-live YES=1 [INTENT=<intent>] [HOST=codex|opencode|dsh]`: a one-line intent becomes
   planned, test-first, gate-verified, merged code in a real Claude Code session with the
   approval given up front. Eight intents pass every check: a Rust semver parser, a two-story
   word-frequency tool, Python `slugify`, Go `roman`, JS `camel`, two brownfield changes to a

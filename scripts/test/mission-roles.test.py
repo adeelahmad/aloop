@@ -145,6 +145,25 @@ for r in ROLES:
 assert '"gate-mission-scope"' in js and '"gate-mission-artifact", ["start"]' in js
 ok("host install: Codex and OpenCode agents rendered per route group; the OpenCode plugin wires both gates")
 
+DENV = dict(ENV, DSH_HOME=os.path.join(T, "dsh-home"))
+r = sh(os.path.join(BIN, "install"), "dsh", "--project", P0, cwd=P0, env=DENV)
+assert r.returncode == 0, r.stderr
+yml = open(os.path.join(DENV["DSH_HOME"], "profiles", "aloop", "cordis.patch.yml")).read()
+tools = dict(re.findall(r"toolName: (\w+), allowedAgentPresets: \[([^\]]*)\]", yml))
+for r in ROLES:
+    tool = "subagent_planning" if TABLE["roles"][r]["group"] == "planning" else "subagent"
+    assert "aloop-" + r in tools[tool].split(", "), (r, tools)
+    assert ("You are aloop's `%s` role." % r) in yml and "## On DeepSeek Harness" in yml, r
+mjs = open(os.path.join(ROOT, "hosts", "dsh", "aloop.mjs")).read()
+for r in ROLES:
+    assert re.search(r'"?%s"?:\s*"gate-mission-artifact"' % re.escape(r), mjs), r
+assert '["gate-mission-scope", []]' in mjs and '"gate-mission-artifact", ["start"]' in mjs
+sk = os.path.join(P0, ".dsh", "skills", "aloop-mission", "SKILL.md")
+assert os.path.isfile(sk) and "name: aloop-mission" in open(sk).read()
+r = sh(os.path.join(BIN, "install"), "dsh", "--uninstall", "--project", P0, cwd=P0, env=DENV)
+assert r.returncode == 0 and not os.path.exists(os.path.dirname(sk)), (r.stdout, r.stderr)
+ok("host install: dsh presets per route group, the dsh plugin wires both gates, the mission skill comes and goes")
+
 # the mission skill (M9.12, plugin/skills/mission/) reaches OpenCode as `aloop-mission` once it ships;
 # until then the install skips it (checked on the real plugin above)
 IP = os.path.join(T, "install-plugin")
