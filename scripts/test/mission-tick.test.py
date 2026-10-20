@@ -88,10 +88,15 @@ class Project:
     def at(self, hours):
         return self.t0 + int(hours * H)
 
-    def art(self, kind, status, hours, **fields):
+    def art(self, kind, status, hours, record=True, **fields):
         SEQ[0] += 1
         aid = "%s_%012x%08x" % (M.PREFIX[kind], self.at(hours), SEQ[0])
         doc = dict({kind + "_id": aid, "status": status, "created_at": iso(self.at(hours))}, **fields)
+        if kind == "state" and record:                  # as `mission assess` records it
+            M.seal(doc)
+            with self.clock(hours):
+                M.record(self.dir, "state.assessed", self.ref(kind, aid), "state-assessor", sha256=doc["sha256"],
+                         state_id=aid, baseline_id=fields.get("baseline_id"))
         M.save(M.path_of(self.dir, kind, aid), doc)
         return aid, doc
 
@@ -791,7 +796,169 @@ expect(p.tick(2.1), "ASSESS", 0, "sprint 1 closed")
 ok("second-resolution stamps tie toward after: a sprint planned in the second of its handout is the goal's; a "
    "same-second close re-assesses")
 
-# 19) discovery and help: the three areas are found by name
+# 19) an archived version is no replacement: after the human's restore the cycle goes on, and the loop
+#     never asks for a version that would undo it
+p = Project(veto=0).init()
+bid = cleared(p)
+assert p.mi("assess").returncode == 0
+b2 = p.baseline()
+assert p.mi("baseline", "apply", b2).returncode == 0
+expect(p.tick(0.3), "ASSESS", 0, "another baseline")
+assert p.mi("baseline", "restore", bid, "--by", "Adeel").returncode == 0
+expect(p.tick(0.4), "EVALUATE", 0, "no eval yet")                          # the state measured the restored one
+ok("after a restore the archived replacement is not a candidate: the cycle goes on against the restored version")
+
+# 20) a proposed version the gates would refuse to measure asks for what they accept: a new version (the
+#     mission changed since it was proposed), a superseding journey (a runner file changed), and a new
+#     version when the bar was raised after it had nothing to earn
+p = Project().init()
+p.review(p.mission_ref(), p.mission_doc(), "clear", 0.1)
+p.research()
+p.journey()
+bid = p.baseline(measure=False)
+d1 = p.tick(0.2)
+expect(d1, "BASELINE", 0, "measure it")
+doc = p.mission_doc()
+doc["constraints"] = ["works offline"]
+doc["status"] = "draft"
+M.save(M.path_of(p.dir, "mission"), doc)
+assert p.mi("approve", "--by", "Adeel").returncode == 0
+p.review(p.mission_ref(), p.mission_doc(), "clear", 0.25)
+assert p.mi("baseline", "measure", bid).returncode == 2                    # what the gate says
+d2 = p.tick(0.3)
+expect(d2, "BASELINE", 0, "can no longer be measured (the mission changed")
+assert d2["key"] != d1["key"] and d2["handout"] == 1, (d1["key"], d2["key"])
+b2 = p.baseline()
+expect(p.tick(0.4), "CONFIRM_BASELINE", 3)
+p = Project().init()
+p.review(p.mission_ref(), p.mission_doc(), "clear", 0.1)
+p.research()
+jid = p.journey()
+bid = p.baseline(measure=False)
+with open(os.path.join(p.dir, "tools", "journey.py"), "a") as f:
+    f.write("# made deterministic\n")
+assert p.mi("baseline", "measure", bid).returncode == 2
+d = p.tick(0.2)
+expect(d, "DEFINE_JOURNEYS", 0, "runner file tools/journey.py changed")
+assert d["subject"] == p.ref("journey", jid), d
+p = Project().init()
+p.review(p.mission_ref(), p.mission_doc(), "clear", 0.1)
+p.research()
+p.journey()
+p.app(**PASSING)
+bid = p.baseline(measure=False)
+assert p.mi("baseline", "measure", bid).returncode == 2
+expect(p.tick(0.2), "DEFINE_JOURNEYS", 0, "nothing to earn")
+p.journey(pass_criteria=[{"id": "all", "steps": "all"}, {"id": "fast", "metric": "secs", "op": "<=", "value": 1}])
+expect(p.tick(0.3), "BASELINE", 0, "journeys changed since it was measured")
+p.baseline()
+expect(p.tick(0.4), "CONFIRM_BASELINE", 3)
+ok("a proposed version that can no longer be measured asks for a new version or a superseding journey (its own "
+   "key); a raised bar asks for a new version, then it is confirmed")
+
+# 21) a veto binds the content: the loop says so and keys the work on that content, so proposing it again
+#     is the same work, not progress
+p = Project().init()
+p.review(p.mission_ref(), p.mission_doc(), "clear", 0.1)
+p.research()
+p.journey()
+bid = p.baseline()
+expect(p.tick(0.2), "CONFIRM_BASELINE", 3)
+assert p.mi("baseline", "veto", bid, "--by", "Adeel", "--reason", "not this").returncode == 0
+d1 = p.tick(0.3)
+expect(d1, "BASELINE", 0, "content the human vetoed (Adeel")
+assert "not this" in d1["reason"]
+p.baseline()                                                               # the same content again
+d2 = p.tick(0.4)
+expect(d2, "BASELINE", 0, "vetoed")
+assert d2["key"] == d1["key"] and d2["handout"] == 2, (d1["key"], d2["key"], d2["handout"])
+ok("after a veto the loop names it (by, when, why) and a re-proposal of that content counts as the same work")
+
+# 22) every block is its own: a stalled sprint, then a broken ledger, each reach the human (due exits 3 twice)
+p = Project(cadence="1d").init()
+cleared(p)
+p.art("state", "recorded", 1)
+p.art("eval", "recorded", 1.1, goal_met=False)
+p.event("plan.created", 1.5, sprint="S1")
+r = p.mi("due", "-q", "--now", iso(p.at(14)))
+assert r.returncode == 3 and "no activity" in r.stdout, (r.returncode, r.stdout)
+lp = M.ledger(p.dir)
+rows = open(lp).read().splitlines()
+open(lp, "w").write("\n".join(rows[:-2] + rows[-1:]) + "\n")              # a row lost in a bad merge
+r = p.mi("due", "-q", "--now", iso(p.at(14.5)))
+assert r.returncode == 3 and "ledger fails its check" in r.stdout, (r.returncode, r.stdout)
+ok("a stalled sprint and a broken ledger are different blocks: each is told to the human")
+
+# 23) a committed hard review holds on a fresh checkout (fail closed: the run log may be gone)
+p = Project().init()
+mdoc = p.mission_doc()
+p.art("ethics", "recorded", 0.1, subject={"kind": "mission", "ref": p.mission_ref(), "id": mdoc["mission_id"],
+                                          "sha256": M.digest(mdoc)}, tier="hard")
+p.review(p.mission_ref(), mdoc, "clear", 0.2)                              # a clear review in the run log only
+expect(p.tick(0.3), "BLOCKED", 2, "hard line")
+ok("a recorded hard review in the repo blocks even when the run log has only a clear one")
+
+# 24) the ledger is folded in the core's order (by time): after a union merge the human's newest pick
+#     decides, whichever branch's row comes first in the file
+p = Project(mode="spoon-fed").init()
+cleared(p)
+p.art("state", "recorded", 1)
+p.art("eval", "recorded", 1.1, goal_met=False)
+gid, gx = active_goal(p, 1.2, "derived")
+lp = M.ledger(p.dir)
+head = json.loads(open(lp).read().splitlines()[-1])["hash"]
+gy = dict(gx, title="refined")
+
+
+def pick(doc, hours, eid):
+    """A human's goal pick as another branch recorded it (chained to the common head)."""
+    row = {"event_id": eid, "ts": iso(p.at(hours)), "event": "goal.approved", "role": "human", "prev": head,
+           "data": {"subject": p.ref("goal", gid), "sha256": M.digest(doc), "by": "Adeel", "reason": "",
+                    "prompt": {"ts": iso(p.at(hours)), "sha256": "0" * 64, "session": "s",      # the human's line
+                               "line": "approve %s %s" % (gid, M.code(M.digest(doc)))}}}
+    row["hash"] = M._row_hash(row)
+    return json.dumps(row, sort_keys=True) + "\n"
+
+
+with open(lp, "a") as f:                                                   # merge=union: A's row, then B's
+    f.write(pick(gy, 2.0, "branch-a") + pick(gx, 1.5, "branch-b"))
+assert not M.ledger_problems(p.dir), M.ledger_problems(p.dir)
+M.save(M.path_of(p.dir, "goal", gid), gy)
+p.review(p.ref("goal", gid), gy, "clear", 2.1)
+expect(p.tick(2.2), "PLAN_INTENTS", 0)
+M.save(M.path_of(p.dir, "goal", gid), gx)
+expect(p.tick(2.3), "OFFER_OPTIONS", 3)                                    # the older pick is superseded
+ok("after a union merge the newest human pick by time decides, as the core reads it")
+
+# 25) a state report counts only with its state.assessed record; lifting a repeat block does not reset the
+#     failed-goal count; the fingerprint covers what decides
+p = Project().init()
+cleared(p)
+p.art("state", "recorded", 1, record=False)                               # a file nobody measured
+expect(p.tick(1.1, "--peek"), "ASSESS", 0, "no state report")
+p.art("state", "recorded", 1.2)
+p.art("eval", "recorded", 1.3, goal_met=False)
+for i, h in enumerate((1.4, 1.6)):
+    g, gd = p.art("goal", "derived", h)
+    p.review(p.ref("goal", g), gd, "hard", h + 0.05)
+for i in range(3):
+    expect(p.tick(1.7 + i * 0.01), "DERIVE_GOAL", 0, "hard line")
+expect(p.tick(1.75), "BLOCKED", 2, "3 times")
+assert p.mi("tick", "--force", "--by", "Adeel", "--now", iso(p.at(1.76))).returncode == 0
+g, gd = p.art("goal", "derived", 1.8)
+p.review(p.ref("goal", g), gd, "hard", 1.85)
+expect(p.tick(1.9), "BLOCKED", 2, "3 goals")                              # the streak was not lifted
+q = Project(budget=("--budget-tokens", "1000")).init()
+q.review(q.mission_ref(), q.mission_doc(), "clear", 0.1)
+f1 = q.tick(0.2, "--peek")
+q.ledger([(0.15, "claude-opus-5-5", 2000, 0, 0, 500)])
+f2 = q.tick(0.2, "--peek")
+expect(f2, "STOP_BUDGET", 3)
+assert f1["facts"] != f2["facts"], f1["facts"]
+ok("a state file with no record is not a state; a repeat-guard grant leaves the failed-goal streak; the facts "
+   "fingerprint changes with the spend")
+
+# 26) discovery and help: the three areas are found by name
 listed = p.mi("--list").stdout.split()
 assert {"tick", "due", "cron"} <= set(listed), listed
 for a in ("tick", "due", "cron"):

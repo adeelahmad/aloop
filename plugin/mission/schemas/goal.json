@@ -1,0 +1,75 @@
+{
+ "title": "goal — the Mission Planner's next goal, derived from the Evaluator's gap list (ROADMAP §4.12, M9.11): docs/agents/mission/goals/<goal_id>.json",
+ "type": "object",
+ "required": ["goal_id", "mission", "eval", "statement", "targets", "gaps", "mode", "autonomy", "principles", "status", "created_at"],
+ "additionalProperties": false,
+ "properties": {
+  "goal_id": {"type": "string", "pattern": "^gol_"},
+  "mission": {
+   "type": "object",
+   "required": ["mission_id", "sha256"],
+   "additionalProperties": false,
+   "properties": {
+    "mission_id": {"type": "string", "pattern": "^msn_[0-9a-f]{20}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+   }
+  },
+  "eval": {
+   "type": "object",
+   "required": ["eval_id", "sha256"],
+   "additionalProperties": false,
+   "properties": {
+    "eval_id": {"type": "string", "pattern": "^evl_[0-9a-f]{20}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+   }
+  },
+  "statement": {"type": "string", "minLength": 1},
+  "targets": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "required": ["journey_id", "criterion_id"],
+    "additionalProperties": false,
+    "properties": {
+     "journey_id": {"type": "string", "pattern": "^jrn_[0-9a-f]{20}$"},
+     "criterion_id": {"type": "string", "minLength": 1}
+    }
+   }
+  },
+  "gaps": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "required": ["gap_id", "journey_id", "criterion_id", "kind", "target", "now", "summary"],
+    "additionalProperties": false,
+    "properties": {
+     "gap_id": {"type": "string", "minLength": 1},
+     "journey_id": {"type": "string", "pattern": "^jrn_[0-9a-f]{20}$"},
+     "criterion_id": {"type": "string", "minLength": 1},
+     "kind": {"enum": ["regression", "open", "unscored"]},
+     "target": {"type": "string"},
+     "now": {"type": "string"},
+     "summary": {"type": "string", "minLength": 1}
+    }
+   }
+  },
+  "mode": {"enum": ["autonomous", "spoon-fed"]},
+  "autonomy": {"enum": ["autonomous", "reviewed"]},
+  "principles": {
+   "type": "object",
+   "required": ["mode", "sha256", "ids"],
+   "additionalProperties": false,
+   "properties": {
+    "mode": {"enum": ["autonomous", "spoon-fed"]},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "ids": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+   }
+  },
+  "status": {"enum": ["derived", "approved", "active", "met", "retired", "blocked"]},
+  "created_at": {"type": "string", "minLength": 1},
+  "approval": {"type": "object"},
+  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+ }
+}
