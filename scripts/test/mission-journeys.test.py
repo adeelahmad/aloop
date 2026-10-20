@@ -10,9 +10,10 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
-from mission_fixture import Project, M  # noqa: E402
+from mission_fixture import Project, M, PIN  # noqa: E402
 
 PASS = [0]
 
@@ -217,5 +218,143 @@ open(os.path.join(p.dir, "tools", "quiet.py"), "w").write('print(\'{"steps": {"o
 rec, err = J.run_journey(p.dir, dict(base, runner={"command": ["python3", "tools/quiet.py"]}))
 assert rec["unreported"] == ["add", "see", "secs", "tasks_shown"], rec
 ok("a runner script edited after it was pinned refuses to run; versions match whole; NaN, no-start, malformed: blocked")
+
+# 8) a judged metric pins its rubric's content: a weaker rubric is a change to the journey
+j8 = p.journey(p.draft(rid))
+base = p.load("journey", j8)
+
+
+def bad(**over):
+    return J.problems(p.dir, p.path("journey", j8), dict(base, **over))
+
+
+rub = M.new_id("rubric")
+rdoc = {"rubric_id": rub, "status": "active", "created_at": M.now(), "pass": 4,
+        "criteria": [{"id": "delight", "scale": "1-5", "anchor": "a first-time user smiles"}]}
+M.seal(rdoc)
+p.save("rubric", rub, rdoc)
+mj = dict(m_ga, id="ux", query={"kind": "judge", "rubric": rub})
+x = bad(metrics=base["metrics"] + [mj])
+assert any("does not pin its rubric's content (query.rubric_sha256" in m for m in x), x
+pinned = dict(mj, query=dict(mj["query"], rubric_sha256=M.digest(rdoc)))
+assert bad(metrics=base["metrics"] + [pinned]) == []
+p.save("rubric", rub, dict(rdoc, status="retired"))          # a status is not content
+assert bad(metrics=base["metrics"] + [pinned]) == []
+weaker = dict(rdoc, **{"pass": 2})
+M.seal(weaker)
+p.save("rubric", rub, weaker)
+x = bad(metrics=base["metrics"] + [pinned])
+assert any("rubric %s changed since this journey pinned it" % rub in m for m in x), x
+x = bad(metrics=base["metrics"] + [dict(pinned, query=dict(pinned["query"], rubric="rub_" + "2" * 20))])
+assert any("rubric rub_%s, which does not exist" % ("2" * 20) in m for m in x), x
+x = bad(metrics=base["metrics"] + [dict(pinned, query=dict(pinned["query"], rubric="rub_../../mission"))])
+assert any("query.rubric does not match" in m for m in x), x
+new = dict(base, metrics=base["metrics"] + [dict(pinned, query=dict(pinned["query"], rubric_sha256=M.digest(weaker)))])
+old = dict(base, metrics=base["metrics"] + [pinned])
+assert any("metric ux is measured differently" in m for m in J.weakenings(old, new)), J.weakenings(old, new)
+for ev in ("app_install", "notification_send", "session_start_with_rollout", "app_background"):
+    x = bad(steps=base["steps"][:2] + [dict(base["steps"][2], event=ev)])
+    assert any("a name GA4 reserves for itself" in m for m in x), (ev, x)
+ok("a judged metric pins its rubric by sha256 (a re-pin is a journey diff); GA4's reserved names, both lists")
+
+# 9) pins and retirements come from the records: hiding or editing a file unpins or un-retires nothing
+import shutil  # noqa: E402
+import subprocess  # noqa: E402
+q = Project(veto_window_h=0)
+qr = q.research(["c1", "c2"])
+qa = q.journey(q.draft(qr))
+r = q.run("baseline", "new", "--definition", "a first task in under 5 seconds")
+qbid = json.load(open(r.stdout.strip()))["baseline_id"]
+assert q.run("baseline", "measure", qbid).returncode == 0 and q.run("baseline", "confirm", qbid, "--by", "Adeel").returncode == 0
+stricter = q.draft(qr, pass_criteria=[{"id": "all", "steps": "all"}, {"id": "fast", "metric": "secs", "op": "<=", "value": 4}])
+qb, qc = q.journey(stricter), q.journey(stricter)
+assert q.run("journeys", "retire", qa, "--evidence", qr + "#c2", "--replaced-by", qb).returncode == 0
+pa = q.path("journey", qa)
+shutil.move(pa, pa + ".aside")
+r = q.run("journeys", "retire", qb, "--evidence", qr + "#c1")
+assert r.returncode == 3 and "weakens the evaluation" in r.stderr, (r.returncode, r.stderr)   # still pinned, by the record
+shutil.move(pa + ".aside", pa)
+assert q.run("journeys", "retire", qc, "--evidence", qr + "#c1").returncode == 0                # proposed: no human needed
+cdoc = q.load("journey", qc)
+undone = {k: v for k, v in cdoc.items() if k not in ("retirement", "sha256")}
+undone["status"] = "proposed"
+M.seal(undone)
+q.save("journey", qc, undone)
+r = q.run("journeys", "check", qc)
+assert r.returncode == 2 and "changed after it was retired" in r.stderr, r.stderr
+r = q.run("journeys", "retire", qb, "--evidence", qr + "#c2", "--replaced-by", qc)
+assert r.returncode == 2 and "replacement %s is retired itself" % qc in r.stderr, r.stderr
+q.save("journey", qc, cdoc)
+r = q.run("journeys", "diff", qa, qb)
+assert r.returncode == 0, r.stderr
+tight = q.journey(q.draft(qr, pass_criteria=[{"id": "all", "steps": "all"}, {"id": "fast", "metric": "secs", "op": "<", "value": 5}]))
+loose = q.journey(q.draft(qr, pass_criteria=[{"id": "all", "steps": "all"}, {"id": "fast", "metric": "secs", "op": "<", "value": 6}]))
+assert q.run("journeys", "diff", qa, tight).returncode == 0                  # <= 5 to < 5 checks more, not less
+r = q.run("journeys", "diff", qa, loose)
+assert r.returncode == 2 and "criterion fast is looser" in r.stderr, r.stderr
+assert J.weakenings({"pass_criteria": [{"id": "f", "metric": "secs", "op": "<="}]},
+                    {"pass_criteria": [{"id": "f", "metric": "secs", "op": "<=", "value": 5}]})
+ok("pins and retirements are the records': a hidden or edited file changes neither; a tighter operator is not weaker")
+
+# 10) the runner pins every project file it runs; links, inline code and outside scripts are refused
+os.symlink("journey.py", os.path.join(q.dir, "tools", "run.py"))
+outside = tempfile.mkdtemp(prefix="aloop-outside-")
+with open(os.path.join(outside, "x.py"), "w") as f:
+    f.write("print('{}')\n")
+for runner, want in ((["python3", "tools/run.py"], "names a symlink tools/run.py"),
+                     (["python3", "-c", "exec(open('tools/journey.py').read())"], "runs inline code"),
+                     (["python3", os.path.join(outside, "x.py")], "outside the project"),
+                     (5, "runner.command must be an argv list")):
+    d = q.draft(qr, runner={"command": runner, "pinned": PIN, "timeout_s": 60})
+    dp = os.path.join(q.dir, "d10.json")
+    json.dump(d, open(dp, "w"))
+    r = q.run("journeys", "new", "--from", dp)
+    assert r.returncode == 2 and want in r.stderr and "Traceback" not in r.stderr, (runner, r.returncode, r.stderr)
+prog = shutil.which("python3")                          # often a link (/usr/bin/python3): a tool, pinned by version
+d = q.draft(qr, runner={"command": [prog, "tools/journey.py"], "pinned": PIN, "timeout_s": 60})
+json.dump(d, open(dp, "w"))
+r = q.run("journeys", "new", "--from", dp)
+assert r.returncode == 0, r.stderr
+assert json.load(open(r.stdout.strip()))["runner"]["files"] == {"tools/journey.py": hashlib.sha256(
+    open(os.path.join(q.dir, "tools", "journey.py"), "rb").read()).hexdigest()}
+d = q.draft(qr, runner={"command": ["python3", "tools/journey.py"], "files": 5, "pinned": PIN, "timeout_s": 60})
+json.dump(d, open(dp, "w"))
+r = q.run("journeys", "new", "--from", dp)
+assert r.returncode == 2 and "runner.files must be a list" in r.stderr, r.stderr
+qd = q.journey(q.draft(qr))
+doc = q.load("journey", qd)
+doc["runner"]["files"] = {}
+M.seal(doc)
+q.save("journey", qd, doc)
+r = q.run("journeys", "check", qd)
+assert r.returncode == 2 and "runner.files does not pin tools/journey.py" in r.stderr, r.stderr
+shutil.copy(os.path.join(q.dir, "tools", "journey.py"), os.path.join(q.dir, "tools", "j2.py"))
+doc = q.load("journey", qd)
+doc["runner"] = dict(doc["runner"], command=["python3", "tools/j2.py"],
+                     files={"tools/journey.py": hashlib.sha256(open(os.path.join(q.dir, "tools", "journey.py"), "rb").read()).hexdigest()})
+M.seal(doc)
+q.save("journey", qd, doc)
+r = q.run("journeys", "check", qd)
+assert r.returncode == 2 and "runner.files does not pin tools/j2.py" in r.stderr, r.stderr
+jp = os.path.join(q.dir, "tools", "journey.py")
+kept = open(jp).read()
+open(jp, "a").write("\n# edited after it was pinned\n")
+r = q.run("journeys", "check", qb)
+assert r.returncode == 2 and "runner file tools/journey.py changed since it was pinned" in r.stderr, r.stderr
+open(jp, "w").write(kept)
+ok("runner.files pins every project file the command runs; a link, inline code, an outside script, a bad shape: refused")
+
+# 11) flags: --k=v is --k v; an unknown flag is a usage error, never a silently broader decision
+r = q.run("journeys", "approve", qb, "--replace-by", qc, "--by", "Adeel", "--reason", "typo")
+assert r.returncode == 64 and "unknown flag --replace-by" in r.stderr, r.stderr
+assert not M.records(q.dir, "journey.approved")
+r = q.run("journeys", "approve", qb, "--replaced-by=" + qa, "--by=Adeel", "--reason", "x")
+assert r.returncode == 2 and "replacement %s is retired itself" % qa in r.stderr, r.stderr
+for args in (["baseline", "new", "--definitoin", "x"], ["evaluate", "--rivals", "x"], ["assess", "--run", "3"]):
+    r = q.run(*args)
+    assert r.returncode == 64 and "unknown flag" in r.stderr, (args, r.returncode, r.stderr)
+x = J.problems(q.dir, "", dict(q.load("journey", qd), journey_id=["jrn_x"]))
+assert x and J.lifecycle(q.dir, "", {"journey_id": ["jrn_x"]}) == "proposed"
+ok("flags: --k=v is accepted; an unknown flag exits 64 in every area; a malformed id never crashes the lifecycle")
 
 print("mission-journeys: %d checks passed" % PASS[0])

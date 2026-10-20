@@ -76,6 +76,21 @@ def current(cwd):
     return path, doc if isinstance(doc, dict) else None
 
 
+def current_intact(cwd):
+    """(path, doc, problems) of the current version; a gate decides from it only when it is the
+    content its confirmation covers (a moved, edited or malformed file decides nothing)."""
+    rows = M.records(cwd, CONFIRM)
+    if not rows:
+        return None, None, []
+    path, doc = current(cwd)
+    rel, cid = rows[-1]["data"].get("subject"), current_id(cwd)
+    if doc is None:
+        return path, None, ["the current version %s is gone or not a JSON object: restore it (git checkout -- %s)" % (cid, rel)]
+    if M.malformed(M.problems(doc, KIND, path)) or rows[-1]["data"].get("sha256") != M.digest(doc):
+        return path, doc, ["the current version %s changed after it was confirmed: restore it (git checkout -- %s)" % (cid, rel)]
+    return path, doc, []
+
+
 def current_id(cwd):
     path, _ = current(cwd)
     return os.path.basename(path)[:-len(".json")] if path else None
@@ -93,7 +108,11 @@ def say(level, msg):
 
 
 def content_sha(doc):
-    return M.digest(doc, drop=NOT_CONTENT)
+    """What a veto binds: the content, with its lists in a canonical order (reordering the same
+    journeys, rivals or benchmarks is the same proposal)."""
+    key = lambda x: json.dumps(x, sort_keys=True)     # noqa: E731
+    d = dict(doc, **{k: sorted(doc.get(k) or [], key=key) for k in ("journeys", "rivals", "benchmarks")})
+    return M.digest(d, drop=NOT_CONTENT)
 
 
 def listing_problems(cwd, listed):
@@ -127,7 +146,9 @@ def listing_problems(cwd, listed):
 
 def standing_problems(cwd, doc):
     """Why this version could not take over from the current one now (empty: it could)."""
-    out = []
+    out = current_intact(cwd)[2]
+    if out:
+        return out
     for j in doc["journeys"]:
         jd, _ = J.load(cwd, j["journey_id"])
         if not isinstance(jd, dict):
@@ -153,10 +174,15 @@ def cmd_new(cwd, o):
     if not mev:
         say("ASK", "the mission is not approved yet (mission check): a baseline is measured for an approved mission")
         return 3
+    _, _, bad = current_intact(cwd)
+    if bad:
+        for b in bad:
+            say("BLOCK", b)
+        return 2
     pin = J.pins(cwd)
     ids = o.get("journey") or [d["journey_id"] for p, d in J.all_journeys(cwd) if isinstance(d.get("journey_id"), str)
                                and J.lifecycle(cwd, p, d, pin[0]) != "retired"]
-    bad, listed = [], []
+    bad, listed = ["lists journey %s twice" % j for j in sorted(set(ids)) if ids.count(j) > 1], []
     for jid in ids:
         p = J.jpath(cwd, jid)
         d, _ = M.load(p)
@@ -332,6 +358,8 @@ def measurement_problems(doc):
     elif not m.get("agreed"):
         out.append("its measurements did not agree")
     first = (runs[0] if runs and isinstance(runs[0], dict) else {}).get("journeys") or {}
+    if not isinstance(first, dict):
+        return out + ["measurements.runs[0].journeys must be an object"]
     if runs and not any(isinstance(r, dict) and r.get("passed") is False for r in first.values()):
         out.append("no journey failed when it was measured: a baseline with nothing to earn is refused")
     return out
@@ -341,7 +369,7 @@ def freeze(cwd, doc, path, by="", reason="", window=None):
     """Record the confirmation (a human's, or an autonomous mission's veto window passing), freeze
     the journeys and mark the previous version superseded."""
     prev_path, prev = current(cwd)
-    data = {"baseline_id": doc["baseline_id"], "version": doc["version"]}
+    data = {"baseline_id": doc["baseline_id"], "version": doc["version"], "journeys": doc["journeys"]}
     if window is None:
         eid = M.approve(cwd, CONFIRM, M.rel(cwd, path), M.digest(doc), by, reason, **data)
     else:     # not a human decision: recorded as the mission's, so no reader mistakes it for one
@@ -380,6 +408,8 @@ def measured_ok(cwd, bid):
                                        "measurement counts (mission baseline measure %s)" % (bid, bid)]
     if doc.get("status") != "measured":
         bad.append("%s is %s: only a measured version is confirmed or applied" % (bid, doc.get("status")))
+    if M.records(cwd, CONFIRM, M.rel(cwd, path)):
+        bad.append("%s was confirmed before: only the human reinstates it (mission baseline restore %s)" % (bid, bid))
     bad += measurement_problems(doc) + standing_problems(cwd, doc)
     return doc, path, rec, bad
 
@@ -483,7 +513,7 @@ def cmd_restore(cwd, bid, o):
     prev_path, prev = current(cwd)
     try:
         eid = M.approve(cwd, CONFIRM, M.rel(cwd, path), sha, o.get("by", ""), o.get("reason", ""),
-                        baseline_id=bid, version=doc["version"], action="restore",
+                        baseline_id=bid, version=doc["version"], journeys=doc["journeys"], action="restore",
                         replaces=(prev or {}).get("baseline_id"))
     except ValueError as e:
         print("baseline restore: %s" % e, file=sys.stderr)
@@ -500,8 +530,11 @@ def cmd_restore(cwd, bid, o):
 def cmd_veto(cwd, bid, o):
     path = bpath(cwd, bid)
     doc, err = M.load(path)
-    if not isinstance(doc, dict) or doc.get("status") not in ("proposed", "measured") or bid == current_id(cwd):
-        say("BLOCK", "%s is not a proposed or measured version" % bid)
+    if not isinstance(doc, dict):
+        say("BLOCK", "no baseline %s (%s)" % (bid, err))
+        return 2
+    if bid == current_id(cwd) or M.records(cwd, CONFIRM, M.rel(cwd, path)):      # the records decide, never status
+        say("BLOCK", "%s was confirmed: the human reinstates another version instead (mission baseline restore)" % bid)
         return 2
     by, reason = (o.get("by") or "").strip(), (o.get("reason") or "").strip()
     if not by or not reason:
@@ -526,9 +559,9 @@ def evaluate(cwd):
     facts.update({"baseline_id": doc.get("baseline_id"), "version": doc.get("version")})
     if M.malformed(bad):
         return 2, bad, facts
-    rec = M.newest(cwd, CONFIRM, M.rel(cwd, path))
+    rec = M.records(cwd, CONFIRM)[-1]          # the row current() chose: a second lookup by path can miss it
     if rec["data"].get("sha256") != M.digest(doc):
-        bad.append("its content changed after it was confirmed")
+        return 2, bad + ["its content changed after it was confirmed"], facts
     bad += measurement_problems(doc)
     if doc.get("status") != "confirmed":
         bad.append("%s is the current version but says %s (the records decide)" % (doc["baseline_id"], doc.get("status")))
@@ -579,18 +612,28 @@ def cmd_show(cwd, bid, as_json):
         return 0
     m = doc.get("measurements") or {}
     print("Baseline %s v%s (%s)\nBest looks like: %s\nJourneys: %d · failing now: %s · max drift %s "
-          "(tolerance %g)" % (doc.get("baseline_id"), doc.get("version"), doc.get("status"), doc.get("definition_of_best"),
-                              len(doc.get("journeys") or []), ", ".join(m.get("not_passing") or []) or "-",
+          "(tolerance %s)" % (doc.get("baseline_id"), doc.get("version"), doc.get("status"), doc.get("definition_of_best"),
+                              len(doc.get("journeys") or []), ", ".join(map(str, m.get("not_passing") or [])) or "-",
                               m.get("max_drift", "-"), doc.get("tolerance", DEFAULT_TOLERANCE)))
     return 0
 
 
+FLAGS = ("benchmark", "by", "definition", "evidence", "journey", "reason", "rival", "runs", "supersedes", "tolerance")
+
+
 def parse(argv):
-    return J.parse(argv, multi=("journey", "rival", "evidence"))
+    return J.parse(argv, multi=("journey", "rival", "evidence"), known=FLAGS)
+
+
+DECIDES = ("new", "measure", "confirm", "apply", "veto", "restore")     # nothing decides from a broken ledger
 
 
 def main(argv, cwd):
     cmd, (o, pos) = argv[0], parse(argv[1:])
+    if J.unknown_flags(o, KIND):
+        return 64
+    if cmd in DECIDES and M.ledger_block(cwd, KIND):
+        return 2
     if cmd == "new":
         return cmd_new(cwd, o)
     if cmd == "measure" and pos:
@@ -608,10 +651,10 @@ def main(argv, cwd):
     if cmd == "show":
         return cmd_show(cwd, pos[0] if pos else "", o.get("json"))
     if cmd == "current":
-        _, doc = current(cwd)
-        if doc:
-            print(doc["baseline_id"])
-        return 0 if doc else 3
+        cid = current_id(cwd)
+        if cid:
+            print(cid)
+        return 0 if cid else 3
     print("mission baseline: unknown or incomplete command (mission baseline --help)", file=sys.stderr)
     return 64
 
