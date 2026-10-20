@@ -22,6 +22,7 @@ PASS = [0]
 sys.path.insert(0, BIN)
 sys.path.insert(0, os.path.join(ROOT, "mission"))
 import _mission as M  # noqa: E402
+import _events  # noqa: E402
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "fixtures"))
 from mission_fixture import as_human  # noqa: E402
 import ethics as E  # noqa: E402
@@ -221,7 +222,38 @@ assert run(MI, "ethics", "check", "--subject", gid3).returncode == 2
 os.remove(p5)
 r = run(MI, "ethics", "check", "--subject", gid3)
 assert r.returncode == 2 and "hard line" in r.stderr, r.stderr   # the ethics.blocked event still holds
-ok("hard: record blocks and emits ethics.blocked; consent refused; a later softer review or a deleted file never unlocks")
+gref = M.rel(T, M.path_of(T, "goal", gid3))
+assert [x["event_id"] for x in M.records(T, "ethics.blocked", gref)] == [blk[0]["event_id"]]   # a ledger record
+stream = os.path.join(T, ".aladdin", "logs", "events.jsonl")
+os.rename(stream, stream + ".gone")              # a fresh checkout: the git-ignored run log is gone
+r = run(MI, "ethics", "check", "--subject", gid3)
+assert r.returncode == 2 and "hard line" in r.stderr, r.stderr
+os.rename(stream + ".gone", stream)
+led = M.ledger(T)
+keep = open(led).read()
+open(led, "w").write(keep.replace('"categories": ["illegal"]', '"categories": ["other"]'))
+assert keep != open(led).read()
+r = run(MI, "ethics", "check", "--subject", gid3)
+assert r.returncode == 2 and "was edited" in r.stderr and "git checkout --" in r.stderr, r.stderr   # it decides nothing
+open(led, "w").write(keep)
+ok("hard: record blocks and records ethics.blocked in the ledger; consent refused; a later softer review, a deleted file, a lost run log or an edited row never unlocks")
+
+#    an upgrade keeps every hard line: one recorded before the ledger held them (the run log only) still binds
+gid7 = goal("phish users for their bank passwords")
+subj7, doc7 = E.binding(T, "goal", gid7)
+_events.emit(T, "ethics.blocked", role="ethics-reviewer", refs={"subject": subj7["ref"]}, ethics_id="eth_old",
+             subject=subj7["ref"], sha256=subj7["sha256"], text_sha256=E.text_digest(doc7), categories=["harmful"],
+             kind="goal", words=E.word_keys("goal", doc7))
+r = run(MI, "ethics", "check", "--subject", gid7)
+assert r.returncode == 2 and "hard line" in r.stderr and "eth_old" in r.stderr, r.stderr
+assert set(E.word_keys("goal", doc7)) <= E.hard_words(T)
+p7, _ = start(gid7)
+r = fill(p7, [{"category": c, "tier": "gray", "reason": "only a little"} for c in json.load(open(p7))["screen"]] or
+         [{"category": "other", "tier": "gray", "reason": "only a little"}], "gray")
+assert r.returncode == 2 and "hard line" in r.stderr, r.stderr
+r = run(MI, "ethics", "consent", "--subject", gid7, "--by", "Adeel", "--reason", "fine")
+assert r.returncode == 2, r.stderr
+ok("upgrade: a hard line only the run log holds (recorded before the ledger) still blocks; a later gray review and consent do not clear it")
 
 # 8) tampering: an edited review fails its seal; an edited subject binding is a review of other content
 rev = json.load(open(path))
@@ -287,7 +319,11 @@ sub = fd["subject"]
 M.emit(T, "ethics.reviewed", role="ethics-reviewer", ethics_id=fd["ethics_id"], subject=sub["ref"],
        sha256=sub["sha256"], review_sha256=fd["sha256"], tier="clear")
 r = run(MI, "ethics", "check", "--subject", gF)
-assert r.returncode == 2 and "is not the sealed review's" in r.stderr, r.stderr
+assert r.returncode == 2 and "is not the sealed review's" in r.stderr, r.stderr   # a stream record must agree
+M.record(T, "ethics.reviewed", sub["ref"], "ethics-reviewer", ethics_id=fd["ethics_id"], sha256=sub["sha256"],
+         review_sha256=fd["sha256"], tier="clear")
+r = run(MI, "ethics", "check", "--subject", gF)
+assert r.returncode == 2 and "is not the sealed review's" in r.stderr, r.stderr   # a ledger row must agree too
 gC = goal("a lighter theme")
 rC, _ = start(gC)
 assert fill(rC, [{"category": "other", "tier": "gray", "reason": "contrast drops"}], "gray").returncode == 3
@@ -460,6 +496,13 @@ assert run(MI, "ethics", "check").returncode == 64
 assert run(MI, "ethics", "nope").returncode == 64
 assert "ethics" in run(MI, "--list").stdout.split()
 assert "three tiers" in run(MI, "ethics", "--help").stdout
+before = run(MI, "ethics", "check", "--subject", gT)
+with open(_events.path(T), "a") as f:       # malformed run-log lines are skipped, never a traceback
+    f.write(json.dumps({"event": "ethics.reviewed", "event_id": "x1", "ts": "2026-10-20T00:00:00Z", "data": "tier=hard"}) + "\n")
+    f.write(json.dumps({"event": "ethics.blocked", "event_id": "x2", "ts": "2026-10-20T00:00:00Z",
+                        "data": {"subject": "mission/x.json", "kind": "goal", "words": 5}}) + "\n")
+r = run(MI, "ethics", "check", "--subject", gT)
+assert (r.returncode, r.stdout) == (before.returncode, before.stdout) and "Traceback" not in r.stderr, r.stderr
 shutil.rmtree(T, ignore_errors=True)
 ok("unknown subject (2) and missing --subject or command (64); discovered as an area")
 

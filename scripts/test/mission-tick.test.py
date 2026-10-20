@@ -12,6 +12,7 @@ import fcntl
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -255,6 +256,17 @@ def expect(d, action, rc=None, why=None):
         assert why in d["reason"], "%s: %r not in %r" % (action, why, d["reason"])
 
 
+def granted(p, d, *args):
+    """The human types the line tick's reason names (M9.17), and the command it names records the grant:
+    the hand-off alone is enough to get the human's word, with nothing re-derived."""
+    m = re.search(r"the human replies `([^`]+)`, then `aloop mission ([^`]+)`", d["reason"])
+    assert m, "%s names no reply line: %r" % (d["action"], d["reason"])
+    assert " ".join(args).startswith(m.group(2).split(" --by")[0]), (m.group(2), args)
+    F.say(p.dir, p.env, m.group(1))
+    r = p.run(MI, *args)
+    assert r.returncode == 0, (m.group(1), r.stderr)
+
+
 def cleared(p, hours=0.1):
     """A project through the mission's ethics review, research, a journey and a confirmed baseline."""
     p.review(p.mission_ref(), p.mission_doc(), "clear", hours)
@@ -293,9 +305,9 @@ assert d["roles"] == ["state-assessor", "product-tester"], d["roles"]
 bid = p.baseline(measure=False)
 expect(p.tick(0.08), "BASELINE", 0, "measure it")
 assert p.mi("baseline", "measure", bid).returncode == 0
-d = p.tick(0.09)
-expect(d, "CONFIRM_BASELINE", 3, "is measured")
-assert d["subject"] == p.ref("baseline", bid)
+dc = p.tick(0.09)
+expect(dc, "CONFIRM_BASELINE", 3, "is measured")
+assert dc["subject"] == p.ref("baseline", bid)
 bdoc = p.load("baseline", bid)
 bdoc["status"] = "confirmed"                                               # a status is not a confirmation
 M.save(M.path_of(p.dir, "baseline", bid), bdoc)
@@ -303,7 +315,7 @@ d = p.tick(0.10)
 assert d["action"] == "BASELINE" and "only a measured version" in d["reason"], d
 bdoc["status"] = "measured"
 M.save(M.path_of(p.dir, "baseline", bid), bdoc)
-assert p.mi("baseline", "confirm", bid, "--by", "Adeel").returncode == 0
+granted(p, dc, "baseline", "confirm", bid, "--by", "Adeel")                 # a status is outside its code
 expect(p.tick(0.11), "ASSESS", 0, "no state report")
 assert p.mi("assess").returncode == 0
 d = p.tick(0.12)
@@ -368,8 +380,9 @@ d = p.tick(0.2)
 expect(d, "ASK_CONSENT", 3, "ethics consent --subject mission")
 assert d["subject"] == p.mission_ref()
 p.approve("ethics.consent", p.mission_ref(), p.mission_doc(), 0.3, reason="ok", review=ea, review_sha256="2" * 64)
-expect(p.tick(0.35), "ASK_CONSENT", 3)                                     # it names another version of the review
-p.consent("mission")
+d = p.tick(0.35)
+expect(d, "ASK_CONSENT", 3)                                                # it names another version of the review
+granted(p, d, "ethics", "consent", "--subject", "mission", "--by", "Adeel", "--reason", "fine for this content")
 expect(p.tick(0.4), "RESEARCH", 0)
 p.review(p.mission_ref(), p.mission_doc(), "gray", 0.41)
 expect(p.tick(0.42), "ASK_CONSENT", 3)                                     # every gray review needs its consent
@@ -399,7 +412,7 @@ p.review(p.ref("goal", gid), gdoc, "gray", 1.3)
 d = p.tick(1.4)
 expect(d, "ASK_CONSENT", 3)
 assert d["subject"] == p.ref("goal", gid)
-p.consent(gid)
+granted(p, d, "ethics", "consent", "--subject", gid, "--by", "Adeel", "--reason", "fine for this content")
 expect(p.tick(1.6), "PLAN_INTENTS", 0)
 gdoc = p.load("goal", gid)
 gdoc["status"] = "blocked"
@@ -446,7 +459,9 @@ expect(p.tick(2.0), "APPROVE_PLAN", 3, "sprint 1")
 p.event("plan.approved", 2.1, sprint="S1")
 expect(p.tick(2.2), "WAIT", 4)
 b2 = p.baseline()
-expect(p.tick(2.3), "CONFIRM_BASELINE", 3, "spoon-fed")
+d = p.tick(2.3)
+expect(d, "CONFIRM_BASELINE", 3, "spoon-fed")
+assert "replies `confirm %s %s`" % (b2, M.code(M.digest(p.load("baseline", b2)))) in d["reason"], d["reason"]
 ok("spoon-fed: OFFER_OPTIONS until a ledger goal.approved covers the goal's content; APPROVE_PLAN before the "
    "sprint runs; a replacement baseline waits for the human")
 
@@ -470,7 +485,9 @@ expect(p.tick(0.2), "BASELINE", 0, "apply it")
 assert p.mi("baseline", "apply", b2).returncode == 0
 expect(p.tick(0.3), "ASSESS", 0, "another baseline")                       # the state measured the old version
 b3 = p.baseline("--tolerance", "0.2")
-expect(p.tick(0.4), "CONFIRM_BASELINE", 3, "more drift")
+d = p.tick(0.4)
+expect(d, "CONFIRM_BASELINE", 3, "more drift")
+granted(p, d, "baseline", "confirm", b3, "--by", "Adeel")
 ok("autonomous: a replacement applies after the mission's veto window unless vetoed; then the product is "
    "re-assessed against it; a looser tolerance waits for the human")
 
@@ -1059,18 +1076,28 @@ expect(p.tick(later(p)), "RESEARCH", 0, "the goal is met")
 q = Project().init()
 cleared(q)
 assert q.mi("assess").returncode == 0 and q.mi("evaluate").returncode == 0
-r = q.mi("goal", "derive")
+r = q.mi("goal", "derive", "--top", "1")
 g2 = json.load(open(r.stdout.strip()))["goal_id"]
+assert q.mi("assess").returncode == 0 and q.mi("evaluate").returncode == 0      # narrowed to g2
 q.review(q.ref("goal", g2), q.load("goal", g2), "hard")
-assert q.mi("assess").returncode == 0 and q.mi("evaluate").returncode == 0
-expect(q.tick(later(q)), "BLOCKED", 2, "M9.29")
+expect(q.tick(later(q)), "EVALUATE", 0, "hard line")              # M9.29: g2 is retired, the narrowed eval says nothing
+assert q.mi("evaluate").returncode == 0                            # the whole mission: evaluate skips a retired goal
+d = q.tick(later(q))
+expect(d, "DERIVE_GOAL", 0, "aloop mission goal derive")          # the loop moves on, no human needed
+r = q.mi("goal", "derive")
+assert r.returncode == 0, r.stderr
+g3 = json.load(open(r.stdout.strip()))["goal_id"]
+assert g3 != g2 and not {x["gap_id"] for x in q.load("goal", g3)["gaps"]} & {x["gap_id"] for x in q.load("goal", g2)["gaps"]}
+q.review(q.ref("goal", g3), q.load("goal", g3), "hard")
+assert q.mi("evaluate").returncode == 0
+expect(q.tick(later(q)), "BLOCKED", 2, "held by a hard line")     # every gap held: the human changes the mission
 s = Project(mode="spoon-fed").init()
 cleared(s)
 assert s.mi("assess").returncode == 0 and s.mi("evaluate").returncode == 0
 expect(s.tick(later(s)), "OFFER_OPTIONS", 3, "aloop mission goal options")
 ok("goals run through `aloop mission goal` (derive, intents, next, close) and the loop names each command; a "
-   "goal file nobody derived is none; open gaps after every sprint, or a hard line evaluate still narrows to, "
-   "go to the human; spoon-fed offers the gap list")
+   "goal file nobody derived is none; open gaps after every sprint go to the human; a hard-lined goal is retired "
+   "and the loop derives another (M9.29); spoon-fed offers the gap list")
 
 # 28) discovery and help: the three areas are found by name
 p = Project().init()
