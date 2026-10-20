@@ -65,7 +65,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.3 | Journeys and metrics: events per step, query definitions, no removal or weakening without approval | NOT_IMPLEMENTED | §4.12 |
 | M9.4 | Ethics: three tiers; gray consent bound to the goal; hard line never unlocked | NOT_IMPLEMENTED | §4.12 |
 | M9.5 | LLM judges: pinned model, hashed rubric, several runs, agreement threshold | NOT_IMPLEMENTED | §4.12 |
-| M9.6 | Telemetry (GA4): opt-in, Admin API setup, debug hit, fixed reports, minimum sample; never a gate | NOT_IMPLEMENTED | §4.12 |
+| M9.6 | Telemetry (GA4): opt-in, Admin API setup, debug hit, fixed reports, minimum sample; never a gate | IMPLEMENTED_TESTED | `scripts/test/mission-telemetry.test.py` |
 | M9.7 | Standing principles in two variants (autonomous, spoon-fed) | NOT_IMPLEMENTED | §4.12 |
 | M9.8 | Mission loop: `tick` from facts, zero-token `due`, cron, budget caps | NOT_IMPLEMENTED | §4.12 |
 | M9.9 | Six fixed mission roles, wired; role path guards; artifact check at stop | NOT_IMPLEMENTED | §4.12 |
