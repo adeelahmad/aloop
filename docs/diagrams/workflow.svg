@@ -1,20 +1,20 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1158" width="1600" height="1158" role="img" aria-labelledby="t d">
-<title id="t">agentic-agile — the deterministic sprint loop</title>
+<title id="t">aloop — the deterministic sprint loop</title>
 <desc id="d">Init, human-gated planning, an orchestrator that dispatches time-boxed TDD workers in isolated worktrees, hook-enforced gates, final gate with harness-written stats and handoff, clear context, repeat. Runs on Claude Code, Codex and OpenCode.</desc>
 <defs>
-<marker id="ah-9fb0c8" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9fb0c8"/></marker>
+<marker id="ah-f87171" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f87171"/></marker>
 <marker id="ah-34d399" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#34d399"/></marker>
-<marker id="ah-22d3ee" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22d3ee"/></marker>
+<marker id="ah-9fb0c8" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9fb0c8"/></marker>
+<marker id="ah-60a5fa" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#60a5fa"/></marker>
 <marker id="ah-6b7c96" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7c96"/></marker>
 <marker id="ah-a78bfa" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a78bfa"/></marker>
+<marker id="ah-22d3ee" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#22d3ee"/></marker>
 <marker id="ah-fbbf24" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fbbf24"/></marker>
 <marker id="ah-f472b6" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f472b6"/></marker>
-<marker id="ah-60a5fa" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#60a5fa"/></marker>
-<marker id="ah-f87171" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f87171"/></marker>
 <linearGradient id="bar" x1="0" x2="1"><stop offset="0" stop-color="#34d399"/><stop offset="0.6" stop-color="#fbbf24"/><stop offset="1" stop-color="#f87171"/></linearGradient>
 </defs>
 <rect x="0" y="0" width="1600" height="1158" rx="0" fill="#0b1220" stroke="#0b1220" stroke-width="0"/>
-<text x="48" y="64" font-size="40" fill="#e6edf7" font-weight="800" text-anchor="start" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">agentic-agile</text>
+<text x="48" y="64" font-size="40" fill="#e6edf7" font-weight="800" text-anchor="start" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">aloop</text>
 <text x="48" y="94" font-size="16" fill="#9fb0c8" font-weight="400" text-anchor="start" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">You state the intent. Deterministic hooks — not model goodwill — drive every sprint to done.</text>
 <rect x="48" y="112" width="49.6" height="24" rx="12" fill="#60a5fa22" stroke="#60a5fa88" stroke-width="1"/>
 <text x="72.8" y="128.5" font-size="11.5" fill="#60a5fa" font-weight="600" text-anchor="middle" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">PLAN</text>
@@ -44,7 +44,7 @@
 <text x="70" y="205.5" font-size="15" fill="#0b1220" font-weight="800" text-anchor="middle" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">1</text>
 <text x="94" y="198" font-size="17" fill="#e6edf7" font-weight="750" text-anchor="start" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">Init</text>
 <text x="94" y="217" font-size="12" fill="#a78bfa" font-weight="600" text-anchor="start" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">human confirms · once</text>
-<text x="72" y="250" font-size="12" fill="#9fb0c8" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">/agentic-agile:init</text>
+<text x="72" y="250" font-size="12" fill="#9fb0c8" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">/aloop:init</text>
 <circle cx="62" cy="272.5" r="2.6" fill="#a78bfa"/>
 <text x="72" y="277" font-size="13" fill="#e6edf7" font-weight="400" text-anchor="start" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">tokens 150k / 250k</text>
 <circle cx="62" cy="293.5" r="2.6" fill="#a78bfa"/>
@@ -60,7 +60,7 @@
 <text x="58" y="407" font-size="10.5" fill="#6b7c96" font-weight="700" text-anchor="start" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">WRITTEN BY THE HARNESS</text>
 <text x="72" y="425" font-size="12" fill="#9fb0c8" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">docs/agents/defaults.md</text>
 <rect x="52" y="540" width="198" height="30" rx="8" fill="#a78bfa18" stroke="#a78bfa55" stroke-width="1"/>
-<text x="151" y="560" font-size="12" fill="#a78bfa" font-weight="650" text-anchor="middle" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">agentic init --apply</text>
+<text x="151" y="560" font-size="12" fill="#a78bfa" font-weight="650" text-anchor="middle" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">aloop init --apply</text>
 <rect x="286" y="162" width="222" height="420" rx="14" fill="#111a2e" stroke="#60a5fa99" stroke-width="1.6"/>
 <rect x="286" y="162" width="222" height="6" rx="3" fill="#60a5fa" stroke="#60a5fa" stroke-width="0"/>
 <circle cx="316" cy="200" r="15" fill="#60a5fa"/>
@@ -176,7 +176,7 @@
 <text x="1370" y="398" font-size="12" fill="#9fb0c8" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">sprint · session</text>
 <text x="1370" y="417" font-size="12" fill="#9fb0c8" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">whole project</text>
 <rect x="1350" y="540" width="198" height="30" rx="8" fill="#22d3ee18" stroke="#22d3ee55" stroke-width="1"/>
-<text x="1449" y="560" font-size="12" fill="#22d3ee" font-weight="650" text-anchor="middle" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">agentic stats show</text>
+<text x="1449" y="560" font-size="12" fill="#22d3ee" font-weight="650" text-anchor="middle" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">aloop stats show</text>
 <path d="M266 362 L282 362" fill="none" stroke="#60a5fa" stroke-width="2.4" marker-end="url(#ah-60a5fa)"/>
 <path d="M512 362 L528 362" fill="none" stroke="#fbbf24" stroke-width="2.4" marker-end="url(#ah-fbbf24)"/>
 <path d="M758 362 L774 362" fill="none" stroke="#34d399" stroke-width="2.4" marker-end="url(#ah-34d399)"/>
@@ -209,7 +209,7 @@
 <text x="856" y="838" font-size="12.5" fill="#e6edf7" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">sprintN/stories.md · plan.md</text>
 <text x="856" y="856.5" font-size="12.5" fill="#e6edf7" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">sprintN/sNN-*/tasks · validate · plan</text>
 <text x="856" y="875" font-size="12.5" fill="#e6edf7" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">sprintN/execution.log · stats.md</text>
-<text x="1202" y="764" font-size="13" fill="#22d3ee" font-weight="700" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">.agentic/  (always git-ignored)</text>
+<text x="1202" y="764" font-size="13" fill="#22d3ee" font-weight="700" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">.aladdin/  (run data, git-ignored)</text>
 <text x="1216" y="782.5" font-size="12.5" fill="#e6edf7" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">transcripts/  full capture</text>
 <text x="1216" y="801" font-size="12.5" fill="#e6edf7" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">budget/  one file per attempt</text>
 <text x="1216" y="819.5" font-size="12.5" fill="#e6edf7" font-weight="400" text-anchor="start" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">ledger/  tokens per session</text>
@@ -244,5 +244,5 @@
 <text x="1276" y="1012" font-size="12.5" fill="#e6edf7" font-weight="400" text-anchor="start" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">· token ledger</text>
 <text x="1276" y="1031" font-size="12.5" fill="#e6edf7" font-weight="400" text-anchor="start" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">· announce sprint totals</text>
 <text x="1276" y="1050" font-size="12.5" fill="#e6edf7" font-weight="400" text-anchor="start" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">· ask for /clear</text>
-<text x="800" y="1142" font-size="12" fill="#6b7c96" font-weight="400" text-anchor="middle" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">tools on PATH as `agentic &lt;tool&gt;` · md-db + ctx-symbols auto-built · commits authored by you · open source (MIT)</text>
+<text x="800" y="1142" font-size="12" fill="#6b7c96" font-weight="400" text-anchor="middle" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">tools on PATH as `aloop &lt;tool&gt;` · md-db + ctx-symbols auto-built · commits authored by you · open source (MIT)</text>
 </svg>

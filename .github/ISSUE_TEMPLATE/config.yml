@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: What aloop is
+    url: https://github.com/adeelahmad/aloop/blob/master/docs/OVERVIEW.md
+    about: Read the overview before asking; it is written from the code.
+  - name: Security vulnerability
+    url: https://github.com/adeelahmad/aloop/blob/master/SECURITY.md
+    about: Report privately, never in a public issue.

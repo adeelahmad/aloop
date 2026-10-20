@@ -278,6 +278,33 @@ def problems(sdir, targets, root, doc=None):
                 p.append("%s: symbol %s is not defined in %s" % (where, t["symbol"], path))
         elif op in NEEDS_REAL and not t.get("symbol") and not t.get("planned_symbol"):
             p.append("%s: %s needs a symbol (or a planned_symbol for extend)" % (where, op))
+    if doc and doc.get("tasks") and not os.path.exists(os.path.join(sdir, "plan-ready.md")):
+        p += merge_problems(doc["tasks"], targets)
+    return p
+
+
+MERGE_TESTS = 8  # "a handful of tests": two tasks this small on the same files are one
+
+
+def merge_problems(tasks, targets):
+    """Adjacent tasks on the same files with a handful of tests between them are one task: each
+    task costs a fixed RED/SCAFFOLD/GREEN cycle (live runs 44 and 47: a wc-like CLI planned as 7
+    and 5 tasks of 1-5 tests). Checked only before execution starts, so a re-plan never merges
+    a task that is already done."""
+    files = {}
+    for t in targets:
+        files.setdefault(str(t.get("task")), set()).add(t.get("path"))
+    for t in tasks:
+        files.setdefault(str(t.get("id")), set()).update(x.get("path") for x in t.get("tests") or [])
+    p = []
+    for a, b in zip(tasks, tasks[1:]):
+        fa, fb = files.get(str(a.get("id")), set()), files.get(str(b.get("id")), set())
+        n = len(a.get("tests") or []) + len(b.get("tests") or [])
+        if fa and fb and (fa <= fb or fb <= fa) and n <= MERGE_TESTS:
+            p.append("%s and %s change the same files (%s) with %d tests between them: plan them as ONE "
+                     "task, one test per behaviour (every task costs a fixed RED, SCAFFOLD and GREEN "
+                     "cycle); split only past the soft limit" % (a.get("id"), b.get("id"),
+                                                                ", ".join(sorted(fa | fb)), n))
     return p
 
 

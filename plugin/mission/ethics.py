@@ -39,7 +39,6 @@ import sys
 import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "bin"))
-import _events  # noqa: E402
 import _mission as M  # noqa: E402
 
 TIERS = ("clear", "gray", "hard")
@@ -175,13 +174,13 @@ def word_keys(kind, doc, only=None):
 
 def hard_words(cwd):
     """Every word key a hard line has fixed (the goal module skips gaps that repeat one)."""
-    return {w for e in _events.read(cwd) if e.get("event") == "ethics.blocked"
+    return {w for e in M.history(cwd) if e.get("event") == "ethics.blocked"
             for w in ((e.get("data") or {}).get("words") or []) if isinstance(w, str)}
 
 
 def held_gaps(cwd):
     """Every gap id a hard line has fixed: the gap is held by its id as well as by its words."""
-    return {g for e in _events.read(cwd) if e.get("event") == "ethics.blocked"
+    return {g for e in M.history(cwd) if e.get("event") == "ethics.blocked"
             for g in ((e.get("data") or {}).get("gaps") or []) if isinstance(g, str)}
 
 
@@ -317,8 +316,12 @@ def verdict(cwd, kind, sid):
     facts = {"subject": ref, "kind": kind, "id": subj["id"], "sha256": sha, "state": "none",
              "screen": {c: p for c, p in matched}, "tier": None, "review": None, "reviews": [],
              "consent_event": None}
+    broken = M.ledger_problems(cwd)          # reviews and hard lines are its rows: what is left of it decides nothing
+    if broken:
+        facts["state"] = "broken"
+        return 2, ["%s (restore it: git checkout -- %s)" % (b, M.rel(cwd, M.ledger(cwd))) for b in broken], facts
     every, recs, hard, consents = [], {}, [], []
-    for e in _events.read(cwd):
+    for e in M.history(cwd):
         d = e.get("data") or {}
         if not str(e.get("event", "")).startswith("ethics."):
             continue
@@ -458,19 +461,20 @@ def cmd_record(cwd, path):
         return 2
     M.save(path, rev)
     kind, sid = parsed
-    mine = [e for e in _events.read(cwd) if e.get("event") == "ethics.reviewed"
+    mine = [e for e in M.history(cwd) if e.get("event") == "ethics.reviewed"
             and (e.get("data") or {}).get("ethics_id") == eid]
     if not mine or mine[-1]["data"].get("review_sha256") != rev["sha256"]:   # re-recording the same file is a no-op
-        refs = {"review": M.rel(cwd, path), "subject": cur["ref"]}
-        words = text_digest(doc)
-        M.emit(cwd, "ethics.reviewed", role="ethics-reviewer", refs=refs, ethics_id=eid, subject=cur["ref"],
-               sha256=cur["sha256"], text_sha256=words, review_sha256=rev["sha256"], tier=rev["tier"], kind=kind)
+        if M.ledger_block(cwd, "ethics"):
+            return 2
+        words = text_digest(doc)     # a ledger row: a fresh checkout keeps every review and hard line
+        M.record(cwd, "ethics.reviewed", cur["ref"], "ethics-reviewer", ethics_id=eid, review=M.rel(cwd, path),
+                 sha256=cur["sha256"], text_sha256=words, review_sha256=rev["sha256"], tier=rev["tier"], kind=kind)
         if rev["tier"] == "hard":
             cats = [c for c in list(CATEGORIES) + ["other"]
                     if any(f["category"] == c and f["tier"] == "hard" for f in rev["findings"])]
-            M.emit(cwd, "ethics.blocked", role="ethics-reviewer", refs=refs, ethics_id=eid, subject=cur["ref"],
-                   sha256=cur["sha256"], text_sha256=words, categories=cats, kind=kind, words=hard_keys(kind, doc, rev),
-                   gaps=hard_gaps(kind, doc, rev))
+            M.record(cwd, "ethics.blocked", cur["ref"], "ethics-reviewer", ethics_id=eid, review=M.rel(cwd, path),
+                     sha256=cur["sha256"], text_sha256=words, categories=cats, kind=kind, words=hard_keys(kind, doc, rev),
+                     gaps=hard_gaps(kind, doc, rev))
     print("[ethics] %s recorded: tier %s for %s" % (eid, rev["tier"], cur["ref"]), file=sys.stderr)
     rc, bad, facts = verdict(cwd, kind, sid)
     if facts.get("state") == "hard" and kind == "goal" and doc.get("status") != "blocked":

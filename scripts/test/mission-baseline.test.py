@@ -43,7 +43,7 @@ b1 = new_id(p.run("baseline", "new", "--definition", "a first task in under 5 se
 doc = p.load("baseline", b1)
 assert doc["version"] == 1 and doc["status"] == "proposed" and doc["journeys"] == [
     {"journey_id": j1, "sha256": M.digest(p.load("journey", j1))}]
-assert doc["mission_sha256"] == M.mission(p.dir)[1]
+assert doc["direction_sha256"] == M.direction(M.mission(p.dir)[0])
 assert p.run("baseline", "check").returncode == 3          # nothing confirmed yet
 ok("baseline new: bound to the approved mission, lists its journeys by sha256, rivals are sourced claims")
 
@@ -103,13 +103,23 @@ bd["tolerance"] = 0.05
 p.save("baseline", b1, bd)
 assert p.run("baseline", "check").returncode == 0
 md = p.load("mission")
-md["statement"] += ", for teams"
-md["status"] = "draft"
+md["budget"]["usd"], md["cadence"], md["status"] = 80.0, "12h", "draft"     # caps and cadence are not "best"
 p.save("mission", "", md)
-assert p.run("approve", "--by", "Adeel").returncode == 0
 r = p.run("baseline", "check")
-assert r.returncode == 3 and "earlier mission content" in r.stderr, r.stderr
-ok("a frozen journey or baseline edited by hand fails the check; a re-approved mission asks to re-confirm")
+assert r.returncode == 3 and "the mission is not approved" in r.stderr, r.stderr  # but an unapproved mission decides nothing
+assert p.run("approve", "--by", "Adeel").returncode == 0
+assert p.run("baseline", "check").returncode == 0, p.run("baseline", "check").stderr
+md = p.load("mission")
+for key, value in (("statement", md["statement"] + ", for teams"), ("mode", "spoon-fed"),
+                   ("constraints", ["no paid SaaS"])):
+    p.save("mission", "", dict(md, status="draft", **{key: value}))
+    assert p.run("approve", "--by", "Adeel").returncode == 0
+    r = p.run("baseline", "check")
+    assert r.returncode == 3 and "earlier mission direction" in r.stderr, (key, r.stderr)
+md["statement"] += ", for teams"
+p.save("mission", "", dict(md, status="draft"))
+assert p.run("approve", "--by", "Adeel").returncode == 0
+ok("a frozen journey or baseline edited by hand fails the check; a new budget or cadence keeps the baseline, a new direction asks")
 
 # 6) a replacement needs evidence; an autonomous mission applies it after the veto window, unless vetoed
 md["statement"] = md["statement"].replace(", for teams", "")

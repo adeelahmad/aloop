@@ -55,6 +55,8 @@ each flag of one parser) belong in ONE task with one test per behaviour. Split o
 would not fit the soft limit, or what a later task genuinely builds on (live run 44: a
 small wc-like CLI planned as 7 tasks cost $1.54 and 56 supervisor turns; one-to-two-task
 runs of the same size cost $0.67).
+Enforced before execution starts: `targets check` refuses two adjacent tasks of one story that
+change the same files with 8 or fewer tests between them (merge them into one task).
 A later task's RED tests must fail against what the EARLIER tasks leave on main, not only
 against the empty tree: `gate-red-verify` requires every new test to fail by assertion, so
 a task whose planned tests already pass against the previous task's skeleton (a placeholder
