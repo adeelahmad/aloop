@@ -90,7 +90,23 @@ assert run(MI, "check").returncode == 2
 doc["statement"] = "the world's best to-do app with the best user experience"
 json.dump(doc, open(path, "w"))
 assert run(MI, "check").returncode == 0     # back to the approved content: approved again
-ok("a changed mission fails the check (2) or asks (3) until approved; reverting restores the approval")
+doc["budget"]["usd"] = 40.0                 # the content approved first: the newest approval covers usd 4000
+json.dump(doc, open(path, "w"))
+r = run(MI, "check")
+assert r.returncode == 2 and "rolled back" in r.stderr, r.stderr
+doc["budget"]["usd"] = 4000
+json.dump(doc, open(path, "w"))
+assert run(MI, "check").returncode == 0
+raw = open(path).read()
+open(path, "w").write(raw[:40])
+r = run(MI, "check")
+assert r.returncode == 2 and "not a JSON object" in r.stderr, r.stderr      # corrupt is invalid, not "no mission"
+open(path, "w").write(raw)
+json.dump(dict(doc, cadence=6), open(path, "w"))
+r = run(MI, "check")
+assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+open(path, "w").write(raw)
+ok("a changed mission fails the check (2) or asks (3) until approved; reverting restores the approval; a rollback fails")
 
 # 4) a hand-made id and unknown fields are refused by the schema + core contract
 bad = dict(doc, mission_id="msn_madeup", extra=1, mode="sometimes")
@@ -142,5 +158,57 @@ import _events  # noqa: E402
 for e in list(M.APPROVAL_EVENTS) + ["mission.set", "mission.tick", "goal.derived", "ethics.reviewed", "judge.run"]:
     assert e in _events.EVENT_TYPES, e
 ok("approval events, layouts, prefixes and statuses agree; mission events are registered")
+
+# 9) the ledger: committed with the artifacts (a fresh checkout keeps every decision) and tamper-evident
+led = M.ledger(T)
+assert open(os.path.join(T, "docs", "agents", "mission", ".gitattributes")).read() == "ledger.jsonl merge=union\n"
+lines = open(led).read().splitlines()
+rows = [json.loads(l) for l in lines]
+assert [r["event"] for r in rows] == ["mission.approved"] * 2 and all(r["data"]["by"] == "Adeel" for r in rows), rows
+assert rows[0]["prev"] == "" and rows[1]["prev"] == rows[0]["hash"] and rows[1]["role"] == "human"
+assert len(M.approvals(T, "mission.approved", "docs/agents/mission/mission.json")) == 2
+os.rename(os.path.join(T, ".aladdin", "logs", "events.jsonl"), os.path.join(T, "events.bak"))
+r = run(MI, "check")
+assert r.returncode == 0 and "approved by Adeel" in r.stderr, r.stderr
+os.rename(os.path.join(T, "events.bak"), os.path.join(T, ".aladdin", "logs", "events.jsonl"))
+
+
+def tampered(text, want):
+    open(led, "w").write(text)
+    r = run(MI, "check")
+    assert r.returncode == 2 and want in r.stderr and "Traceback" not in r.stderr, (want, r.stderr)
+
+
+tampered("\n".join([lines[0].replace('"by": "Adeel"', '"by": "Eve"'), lines[1]]) + "\n", "ledger line 1 was edited")
+tampered(lines[1] + "\n", "ledger line 1 follows a row that is no longer there")
+tampered("\n".join(lines + ["<<<<<<< HEAD", "[]"]) + "\n", "ledger line 3 is not JSON")
+tampered("\n".join(lines + ["[]"]) + "\n", "ledger line 3 is not a ledger row")
+forged = {"event_id": "f" * 32, "ts": "2000-01-01T00:00:00Z", "event": "mission.approved", "role": "human",
+          "data": dict(rows[1]["data"], by="Eve"), "prev": rows[1]["hash"]}
+forged["hash"] = M.digest(forged, drop=("hash",))
+tampered("\n".join(lines + [json.dumps(forged)]) + "\n", "ledger line 3 is dated before the row it follows")
+tampered(lines[0] + "\n", "the ledger lost mission.approved")         # the run log still has the removed row
+open(led, "w").write("\n".join(lines) + "\n")
+assert run(MI, "check").returncode == 0
+try:
+    M.record_human(T, "mission.set", "x", "Adeel")
+    raise AssertionError("a non-human event was recorded as a human decision")
+except ValueError:
+    pass
+ok("the ledger keeps every decision without run data; an edited, removed, backdated or junk row fails the check")
+
+# 10) an area that opts in with NO_ARGS runs bare (`aloop mission due`); others print their help
+import shutil  # noqa: E402
+P2 = os.path.join(T, "plugin2")
+shutil.copytree(BIN, os.path.join(P2, "bin"), ignore=shutil.ignore_patterns("__pycache__"))
+os.makedirs(os.path.join(P2, "mission", "schemas"))
+for name, body in (("bare", '"""bare: help"""\nNO_ARGS = True\n\ndef main(argv, cwd):\n    print("ran", argv)\n    return 4\n'),
+                   ("plain", '"""plain: help"""\n\ndef main(argv, cwd):\n    return 9\n')):
+    open(os.path.join(P2, "mission", name + ".py"), "w").write(body)
+r = run(os.path.join(P2, "bin", "mission"), "bare")
+assert r.returncode == 4 and "ran []" in r.stdout, (r.returncode, r.stdout, r.stderr)
+r = run(os.path.join(P2, "bin", "mission"), "plain")
+assert r.returncode == 0 and "plain: help" in r.stdout, (r.returncode, r.stdout)
+ok("NO_ARGS areas run with no arguments; the rest print their help")
 
 print("mission-core: %d checks passed" % PASS[0])
