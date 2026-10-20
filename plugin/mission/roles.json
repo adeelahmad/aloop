@@ -1,6 +1,6 @@
 {
   "schema": "aladdin.mission-roles/1",
-  "note": "The six fixed mission roles (ROADMAP §4.12, M9.9): the same for every mission. `writes` is every project path a role may write; the rest of the project is refused (bin/gate-mission-scope), so no mission role writes source and no builder writes docs/agents/mission/. `group` is the model route group (bin/_routes.py). At its stop, bin/gate-mission-artifact checks every artifact the role wrote (`mission <area> check`, once per artifact with the `area_checks` args where the area checks one; a `verdicts` state such as an ethics hard line is the role's finding, not a defect, and a `foreign` block such as a goal's pending ethics review is another role's next step) and refuses a change to another role's files: a file whose `role` field names a role is that role's (the Product Tester's own reports in `research/`, `research new --role product-tester`). `records` are the files a role's command writes beside its artifacts (a judge run log, a usage report): its work only when the command's own `event` of the run names the file (`ref`), checked by their area. A research snapshot belongs to the roles whose reports cite it. A track whose command makes one role write another role's dir changes `writes` here, with its reason.",
+  "note": "The six fixed mission roles (ROADMAP §4.12, M9.9): the same for every mission. `writes` is every project path a role may write; the rest of the project is refused (bin/gate-mission-scope), so no mission role writes source and no builder writes docs/agents/mission/. `group` is the model route group (bin/_routes.py). At its stop, bin/gate-mission-artifact checks every artifact the role wrote (`mission <area> check`, once per artifact with the `area_checks` args where the area checks one; a `verdicts` state such as an ethics hard line is the role's finding, not a defect, and a `foreign` block such as a goal's pending ethics review is another role's next step) and refuses a change to another role's files: a file whose `role` field names a role is that role's (the Product Tester's own reports in `research/`, `research new --role product-tester`). `records` are the files a role's command writes beside its artifacts (a judge run log, a usage report): its work only when the command's own `event` of the run names the file (`ref`), checked by their area. A research snapshot belongs to the roles whose reports cite it. A track whose command makes one role write another role's dir changes `writes` here, with its reason. `ledger_bound` names a role's own commands that decide from the ledger, so they refuse while it is broken: a run of that role that wrote nothing on a ledger broken before it is a note, not a block (the Scout's `research new` and the Evaluator's `evaluate` never refuse, so theirs is a block); mission-roles.test.py checks each one refuses.",
   "roles": {
     "market-researcher": {
       "persona": "The Scout",
@@ -12,12 +12,14 @@
       "persona": "The Field Tester",
       "job": "Runs rival products through the journeys on pinned versions and records what they score: the rival half of the baseline",
       "writes": ["docs/agents/mission/baseline/", "docs/agents/mission/research/"],
+      "ledger_bound": ["baseline new"],
       "group": "worker"
     },
     "state-assessor": {
       "persona": "The Surveyor",
       "job": "Measures our own product with pinned scripts (journeys, the baseline measure, telemetry reports) and reports numbers only; never interprets",
       "writes": ["docs/agents/mission/state/", "docs/agents/mission/baseline/", "docs/agents/mission/telemetry/"],
+      "ledger_bound": ["assess", "baseline new", "baseline measure"],
       "group": "worker"
     },
     "evaluator": {
@@ -30,12 +32,14 @@
       "persona": "The Navigator",
       "job": "Turns the top gaps into the next goal, applies the standing principles and the mission's mode, and hands the goal to Aladdin as intents",
       "writes": ["docs/agents/mission/goals/", "docs/agents/intents/"],
+      "ledger_bound": ["goal derive"],
       "group": "planning"
     },
     "ethics-reviewer": {
       "persona": "The Conscience",
       "job": "Reviews the mission and every derived goal in three tiers: clear (proceed), gray (pause and ask; the consent is bound to that goal), hard line (no consent unlocks it)",
       "writes": ["docs/agents/mission/ethics/"],
+      "ledger_bound": ["ethics record"],
       "group": "planning"
     }
   },

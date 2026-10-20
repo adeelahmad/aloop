@@ -3,7 +3,8 @@
 
   gate-mission-artifact start   SubagentStart of a mission role: record what exists under
                                 docs/agents/mission/ and docs/agents/intents/, whose each file says it is, the
-                                ledger's bytes (<run-data>/state/mission-runs/<agent_id>.json)
+                                ledger's bytes and rows, the commit HEAD names
+                                (<run-data>/state/mission-runs/<agent_id>.json)
   gate-mission-artifact         SubagentStop of a mission role, or `aloop selfcheck <role>`: judge what this run wrote
 
 Each of the six roles writes schema-checked artifacts in its own paths (plugin/mission/roles.json); a file
@@ -14,8 +15,9 @@ when none does). At its stop the run's changes (the files now against the start 
      a record its command writes beside its artifacts (roles.json `records`: a judge run log
      judges/runs/<rub_id>.jsonl, a usage report telemetry/reports/<id>.json) is its work too, when that
      command's own event of the run names it (judge.run, telemetry.report: a record no event names was
-     written by hand and blocks). Writing nothing while the ledger still has the problems it started with
-     is a note: the area commands that decide from it refuse until the supervisor repairs it;
+     written by hand and blocks). Writing nothing while the ledger still has the problems it started with is a
+     note for a role whose own commands decide from it (roles.json `ledger_bound`: `baseline new`, `assess`, `goal
+     derive`, `ethics record`), which refuse until the supervisor repairs it; the Scout's and the Evaluator's do not;
   2. every artifact it wrote passes the core contract (`_mission.problems`: harness-issued id matching
      the file name, a known status, a sha256 that matches the content, the kind's schema once its area
      ships one) and its area's own check (`mission <area> check`, when plugin/mission/<area>.py exists;
@@ -37,16 +39,25 @@ when none does). At its stop the run's changes (the files now against the start 
      with the status it has now: a human's step (an approval's subject; a confirmation's journeys frozen
      and the version it replaced superseded; a restore's replaced version) or this role's own command (an
      ethics hard line blocking its goal). The human's step is never the role's write either, in its own
-     paths too. docs/agents/intents/ is shared with Aladdin: an intent with source `mission` is the Mission
-     Planner's handoff (another role changing or deleting one blocks, unless a planner run answers for it).
-     Any other intent is the human's or intake's: a change to it, a new one or (named by an intent id) a
-     deleted one blocks unless an event of the run makes it theirs, one a mission role cannot write: a
-     human event naming it, or (not for a deletion) intake's own intent.received or intent.normalized;
+     paths too. docs/agents/intents/ is shared with Aladdin, and every file there counts (`aladdin run` takes
+     the newest *.json there as the request, and reads back the words `aladdin` kept beside it): an intent with
+     source `mission` (as the run found it, or as intake's `intent new` of the run recorded it) is the Mission
+     Planner's handoff (another role changing or deleting one blocks, unless a planner run answers for it, and no
+     role flips one to another source, posing it as the human's). Any other file is the human's or intake's: a
+     change to it, a new one or a deleted one blocks unless an event of the run makes it theirs, one a mission
+     role cannot write: a human event naming it, or (not for a deletion) intake's own intent.received (with the
+     source the file says) or intent.normalized, naming the intent by its refs.intent or intent_id, never by a
+     ref the caller picks (a new file of words: the intent.received whose raw_ref it is). A file a commit made
+     during the run brought in or removed (HEAD moved, and the file is HEAD's blob, or was the start commit's and
+     HEAD has none: a supervisor's `git merge` or `git pull`, since no mission role writes git) is the
+     supervisor's, until the role changes it;
   5. the mission's ledger (docs/agents/mission/ledger.jsonl) is append-only during the run: it still starts
      with exactly the bytes it had at the start (a removed or edited row blocks, with or without the run
      log), and still verifies if it changed (M9.17 covers a forged append). The supervisor's repair is no
-     rewrite: a ledger that verifies and starts with HEAD's committed copy (`git checkout`), or, when the
-     run started with it broken, with its rows before the first bad line;
+     rewrite: a ledger that verifies, starts with HEAD's committed copy (`git checkout`) or, when the run
+     started with it broken, with its rows before the first bad line, and holds after that only rows the run
+     started with, byte for byte, and rows a command of the run appended (its ledger event names them): a row
+     edited in place, its event_id kept and the chain hashed again, still blocks;
   6. a human event (an approval, a consent, `mission.set`) appended to the event log during the run is
      named in a note and in `gate.passed` (`human_events`): the gate cannot tell who ran it, and
      M9.17 binds an approval to the human's own prompt. A human approval of a file is not a write.
@@ -199,6 +210,16 @@ def judge(R, M, project, role, run):
     was_roles = run.get("roles") if isinstance((run or {}).get("roles"), dict) else now_roles
     was_sources = run.get("sources") if isinstance((run or {}).get("sources"), dict) else now_sources
     was_cites = run.get("cites") if isinstance((run or {}).get("cites"), dict) else now_cites
+    # what a commit made during the run brought into docs/agents/intents/ (a supervisor's merge or pull): not its write
+    came = R.arrived(project, (run or {}).get("head") if isinstance((run or {}).get("head"), str) else "",
+                     sorted(rel for rel in set(before) | set(now) if R.under(rel, R.INTENTS)
+                            and (before.get(rel) or [None])[0] != (now.get(rel) or [None])[0]), before) \
+        if before is not None else set()
+    received = {}                                         # intent id: the source intake's `intent new` of the run recorded
+    for e in evs:
+        d = e.get("data") or {}
+        if e.get("event") == "intent.received" and e.get("role") == "intake" and isinstance(d.get("intent_id"), str):
+            received[d["intent_id"]] = d.get("source") if isinstance(d.get("source"), str) else ""
     # what the records of the run say a status-only change is ({path: the statuses they leave, None for any}):
     # the human's steps (with what their command changed: journeys frozen, a version superseded), and this role's
     # own commands (an ethics hard line blocking its goal)
@@ -232,24 +253,38 @@ def judge(R, M, project, role, run):
             return R.cited_by(rel, was_cites, now_cites)
         return R.owners_of(rel, (was_roles if before is not None and rel in before else now_roles).get(rel))
 
-    def explained(iid, deleted=False):
-        """The event of the run that makes a change to the human's or intake's intent theirs, "" when none does: a
-        human event naming it, or (not for a deletion) intake's own record of it (`intent new`'s intent.received,
-        `intent check`'s intent.normalized): the scope gate refuses both commands, and a hand-emitted intent.* event,
-        to every mission role but the planner, whose own `intent check` this cannot tell apart from intake's."""
+    def explained(rel, how):
+        """The event of the run that makes a change (`how`: changed, new, deleted) to a file of the human's or intake's
+        in docs/agents/intents/ theirs, "" when none does. An intent is named only by what its own record is about
+        (refs.intent, data.intent_id), never by another ref its caller picks (`intent new --raw-ref`): a human event, or
+        (not for a deletion) intake's own record of it (`intent new`'s intent.received, with the source the file says,
+        `intent check`'s intent.normalized): the scope gate refuses both commands, and a hand-emitted intent.* event, to
+        every mission role but the planner, whose own `intent check` this cannot tell apart from intake's. Any other
+        file there (the words `aladdin` kept beside an intent) is named by a human event, or, new, by the
+        intent.received whose raw_ref it is."""
+        stem = R.intent_stem(rel)
         for e in evs:
-            names = (e.get("data") or {}).get("intent_id") == iid or \
-                any(os.path.basename(x) == iid + ".json" for x in R.named_paths(e))
-            if names and (R.is_human_event(e) or not deleted and e.get("role") == "intake"
-                          and e.get("event") in ("intent.received", "intent.normalized")):
-                return e.get("event")
+            refs, d, ev = e.get("refs") or {}, e.get("data") or {}, e.get("event")
+            if stem is not None:
+                names = R.rel_path(project, refs.get("intent")) == rel or d.get("intent_id") == stem
+            else:
+                names = rel in {R.rel_path(project, v) for v in R.named_paths(e)}
+            if names and R.is_human_event(e):
+                return ev
+            if how == "deleted" or e.get("role") != "intake":
+                continue
+            if stem is not None and names and (ev == "intent.normalized" or ev == "intent.received"
+                                               and d.get("source") == now_sources.get(rel)):
+                return ev
+            if stem is None and how == "new" and ev == "intent.received" and R.rel_path(project, refs.get("raw")) == rel:
+                return ev
         return ""
 
     # what this run wrote: new or changed files it owns; the human's step (an approval, a freeze) is not its write
-    changed = sorted(rel for rel in now if role in owned_by(rel)
+    changed = sorted(rel for rel in now if role in owned_by(rel) and rel not in came
                      and (before is None or (before.get(rel) or [None])[0] != now[rel][0]) and not said(rel, stepped))
     judged = {rel: now.get(rel) for rel in set(before or {}) | set(now) if before is not None and role in owned_by(rel)
-              and (before.get(rel) or [None])[0] != (now.get(rel) or [None])[0]}
+              and rel not in came and (before.get(rel) or [None])[0] != (now.get(rel) or [None])[0]}
     if before is not None:
         others = R.overlapping_runs(project, run)
         answered = lambda rel, by: any(o["role"] in by and R.answers(o, rel, now.get(rel)) for o in others)  # noqa: E731
@@ -258,36 +293,53 @@ def judge(R, M, project, role, run):
                           if e.get("event") in ("artifact.created", "artifact.updated")}
         gone = {x for x in accepted_since if isinstance(x, str) and x not in before and x not in now}
         for rel in sorted(set(before) | set(now) | gone):
-            if R.under(rel, R.INTENTS):
-                if rel not in gone and (before.get(rel) or [None])[0] == (now.get(rel) or [None])[0] \
-                        or rel.count("/") != 3 or not rel.endswith(".json"):
+            if R.under(rel, R.INTENTS):               # every file there counts: an intent, the words kept beside it
+                if rel not in gone and (before.get(rel) or [None])[0] == (now.get(rel) or [None])[0]:
                     continue
-                iid = os.path.basename(rel)[:-5]
-                # whose it is: its source as the run found it (a pass accepts only the planner's), else as it is now
-                was = was_sources.get(rel) if rel in before else "mission" if rel in gone else now_sources.get(rel)
+                if rel in came:
+                    notes.append("%s %s through a commit made while you ran (HEAD moved to %s): the supervisor's merge or"
+                                 " pull, not your write" % (rel, "arrived" if rel in now else "was removed",
+                                                            R.head_commit(project)[:12]))
+                    continue
+                stem = R.intent_stem(rel)
+                how = "changed" if rel in before and rel in now else "new" if rel in now else "deleted"
+                # whose it is: its source as the run found it (a pass accepts only the planner's), as intake's `intent new`
+                # of the run recorded it, else as it is now
+                was = was_sources.get(rel) if rel in before else "mission" if rel in gone else \
+                    received.get(stem) or now_sources.get(rel)
                 if was == "mission":                      # the Mission Planner's handoff to Aladdin
-                    if role != "mission-planner" and not answered(rel, ["mission-planner"]):
+                    if role != "mission-planner" and answered(rel, ["mission-planner"]):
+                        continue                          # a planner run answers for it
+                    if rel in now and now_sources.get(rel) != "mission":
+                        problems.append("%s was a `source: mission` intent (the Mission Planner's handoff to Aladdin) and now"
+                                        " says source %s: no mission role poses its intent as the human's or intake's, which"
+                                        " would skip its goal's gate and ethics review. Put `source: mission` back; if the"
+                                        " human should ask for it, say so in your final message"
+                                        % (rel, now_sources.get(rel) or "none"))
+                    elif role != "mission-planner":
                         problems.append("%s %s during your run, and it is mission-planner's artifact (a `source: mission`"
                                         " intent is its handoff to Aladdin), not yours. Undo that change; if a goal needs"
                                         " an intent, say so in your artifact" % (rel, "changed" if rel in now else "was deleted"))
                     continue
-                why = explained(iid, deleted=rel not in now)   # the human's or intake's: never a mission role's
+                what = "intent (source %s)" % (was or "?") if stem is not None else \
+                    "file in Aladdin's intents dir (`aladdin` keeps the human's words there, and `aladdin run` reads them back)"
+                why = explained(rel, how)                 # the human's or intake's: never a mission role's
                 if why:
                     notes.append("%s changed while you ran, and `%s` of your run names it: the human's or intake's step, not"
                                  " yours; if you changed it, say so in your final message" % (rel, why))
-                elif rel in before and rel in now:
-                    problems.append("%s changed during your run, and it is the human's intent (source %s), not yours:"
-                                    " no mission role rewrites the human's or intake's intents. Undo that change; if"
-                                    " the intent needs one, say so in your final message" % (rel, was or "?"))
-                elif rel in now and R.is_intent_file(rel):   # a file no intent id names is no intent: none made or lost
-                    problems.append("%s is a new intent (source %s), and no event of your run names it (intake's `intent"
-                                    " new`, the human's record): only intake and the human pose a request, and a mission"
-                                    " role hands work to Aladdin only as the planner's `source: mission` intent. Remove"
-                                    " it; if work is needed, say so in your artifact" % (rel, was or "?"))
-                elif R.is_intent_file(rel):
-                    problems.append("%s was deleted during your run: it is the human's or intake's intent (source %s), and"
-                                    " no mission role removes one. Restore it; if it should go, say so in your final"
-                                    " message" % (rel, was or "?"))
+                elif how == "changed":
+                    problems.append("%s changed during your run, and it is the human's or intake's %s, not yours: no mission"
+                                    " role rewrites the human's or intake's intents or their words. Undo that change; if"
+                                    " the intent needs one, say so in your final message" % (rel, what))
+                elif how == "new":
+                    problems.append("%s is a new %s, and no event of your run names it (intake's `intent new`, the human's"
+                                    " record): `aladdin run` takes the newest *.json there as the human's request, so only"
+                                    " intake and the human add a file there, and a mission role hands work to Aladdin only"
+                                    " as the planner's `source: mission` intent. Remove it; if work is needed, say so in"
+                                    " your artifact" % (rel, what))
+                else:
+                    problems.append("%s was deleted during your run: it is the human's or intake's %s, and no mission role"
+                                    " removes one. Restore it; if it should go, say so in your final message" % (rel, what))
                 continue
             if not R.under(rel, R.MISSION):
                 continue
@@ -321,7 +373,7 @@ def judge(R, M, project, role, run):
                             " artifact and its owner is dispatched for it" % (rel, " or ".join(own_by)))
 
     kept = before is None or R.ledger_kept(project, run.get("ledger"))
-    restored = "" if kept else R.ledger_restored(project, run.get("ledger"))
+    restored = "" if kept else R.ledger_restored(project, run.get("ledger"), evs)
     if restored:                                          # the supervisor's documented repair, and it verifies
         notes.append("%s was restored during your run (to %s) and verifies: the supervisor's repair, not your write"
                      % (R.LEDGER, restored))
@@ -340,17 +392,19 @@ def judge(R, M, project, role, run):
     def is_intent(rel):
         """An intent this role handed to Aladdin (`intent new --source mission`); the human's and
         intake's intents in the same dir are not the role's work."""
-        if not (rel.startswith(R.INTENTS) and rel.endswith(".json") and rel.count("/") == 3):
+        if R.intent_stem(rel) is None:
             return False
         doc, _ = M.load(os.path.join(project, rel))
         return isinstance(doc, dict) and doc.get("source") == "mission"
     had = (run or {}).get("ledger_problems") or []      # the ledger's problems the run started with
     if not any(R.kind_of(rel) or R.record_of(rel) or is_intent(rel) for rel in changed) and not problems:
         still = [x for x in R.ledger_problems(project) if x in had] if had else []
-        if still:                                         # its area commands decide from the ledger, so they refuse
-            notes.append("you wrote no artifact, and the ledger has problems that predate your run, so the area commands"
-                         " that decide from it refuse: not yours to fix, the supervisor repairs the ledger and dispatches"
-                         " you again. Say so in your final message:\n      %s" % "\n      ".join(still[:5]))
+        bound = R.ledger_bound(role)
+        if still and bound:                               # its own commands decide from the ledger, so they refuse
+            notes.append("you wrote no artifact, and the ledger has problems that predate your run, so your commands that"
+                         " decide from it (%s) refuse: not yours to fix, the supervisor repairs the ledger and dispatches"
+                         " you again. Say so in your final message:\n      %s"
+                         % (", ".join("`aloop mission %s`" % c for c in bound), "\n      ".join(still[:5])))
         else:
             problems.append("you wrote no artifact in %s during this run. Create it with its area command (`aloop"
                             " mission --list`, `aloop mission <area> --help`), fill it, then run `aloop mission <area>"

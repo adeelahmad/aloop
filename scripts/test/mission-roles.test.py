@@ -520,17 +520,24 @@ ok("a status-only change to another role's artifact blocks unless the human appr
 
 hook("aloop:mission-planner", "mp1", "start")
 os.makedirs(os.path.join(Q, "docs", "agents", "intents"), exist_ok=True)
-json.dump({"intent_id": "int_human", "source": "prompt"}, open(os.path.join(Q, "docs", "agents", "intents", "int_human.json"), "w"))
+H1, H2 = (os.path.join(Q, "docs", "agents", "intents", n + ".json") for n in ("int_human", "int_human2"))
+json.dump({"intent_id": "int_human", "source": "prompt"}, open(H1, "w"))
 r = hook("aloop:mission-planner", "mp1")
-assert gblocked(r, "you wrote no artifact") and "int_human" not in r.stderr, r.stderr   # the human's intent is not its work
+assert gblocked(r, "int_human.json is a new intent (source prompt)"), r.stderr   # every file there counts: nothing names it
+M.emit(Q, "human.override", role="human", refs={"intent": H1})                 # the human's record of it
+r = hook("aloop:mission-planner", "mp1")
+assert gblocked(r, "you wrote no artifact") and "int_human" not in r.stderr.split("BLOCK[")[-1], r.stderr   # not its work
 json.dump({"intent_id": "int_bogus", "source": "mission"}, open(os.path.join(Q, "docs", "agents", "intents", "int_bogus.json"), "w"))
 r = hook("aloop:mission-planner", "mp1")
 assert gblocked(r, "int_bogus.json fails `intent check`"), r.stderr
 hook(E, "ev12", "start")
 artifact("eval", gaps=[{"gap": "g13"}])
-json.dump({"intent_id": "int_human2", "source": "prompt"}, open(os.path.join(Q, "docs", "agents", "intents", "int_human2.json"), "w"))
-os.remove(os.path.join(Q, "docs", "agents", "intents", "int_human.json"))
-assert hook(E, "ev12").returncode == 0                       # intake or the human wrote it: not the evaluator's doing
+json.dump({"intent_id": "int_human2", "source": "prompt"}, open(H2, "w"))
+os.remove(H1)
+assert gblocked(hook(E, "ev12"), "int_human2.json is a new intent", "int_human.json was deleted"), hook(E, "ev12").stderr
+for p in (H1, H2):
+    M.emit(Q, "human.override", role="human", refs={"intent": p})             # the human's records of both
+assert hook(E, "ev12").returncode == 0                       # the human's step: not the evaluator's doing
 ok("a Mission Planner's intents (source mission) must pass `intent check`; the human's intents are no role's")
 
 hook(E, "ev6", "start")
@@ -836,6 +843,177 @@ artifact("eval", gaps=[{"gap": "g24"}])
 os.remove(dr)
 assert hook(E, "ev25").returncode == 0                       # it was never an artifact (no harness id): removing it is no deletion
 ok("a draft beside the artifacts (no harness id in its name) may be removed by a later run of its role")
+
+# the fourth review's artifact-gate findings (each its reproduction, with its allow-control)
+def rechained(rows):
+    """The ledger's bytes for `rows`, every hash chained again (what `python3 -c` can do after an edit)."""
+    out, prev = [], None
+    for row in rows:
+        if prev is not None:
+            row["prev"] = prev
+        row["hash"] = M._row_hash(row)
+        prev = row["hash"]
+        out.append(json.dumps(row, sort_keys=True) + "\n")
+    return "".join(out)
+
+
+def qgit(*args):
+    return subprocess.run(["git", "-c", "user.email=a@a", "-c", "user.name=A"] + list(args), cwd=Q, check=True,
+                          capture_output=True, text=True)
+
+
+grant("goal.approved", "docs/agents/mission/goals/gol_w.json", "0" * 64)    # the human's newest row
+led = open(M.ledger(Q)).read()
+lines = led.splitlines(True)
+open(M.ledger(Q), "w").write("".join(lines[:-1]) + '{"event": "junk"}\n' + lines[-1])   # a bad line before it
+assert M.ledger_problems(Q)
+hook(E, "ev40", "start")
+artifact("eval", gaps=[{"gap": "g40"}])
+rows = [json.loads(x) for x in lines]
+rows[-1]["data"]["reason"] = "edited after the bad line"     # the row after the bad line edited in place, chained again
+open(M.ledger(Q), "w").write(rechained(rows))
+assert not M.ledger_problems(Q)
+assert gblocked(hook(E, "ev40"), "ledger.jsonl was rewritten during your run"), hook(E, "ev40").stderr
+open(M.ledger(Q), "w").write(led)                            # the repair: the bad line gone, the row after it as it was
+r = hook(E, "ev40")
+assert r.returncode == 0 and "ledger.jsonl was restored during your run" in r.stderr, r.stderr
+for c in (["add", os.path.relpath(M.ledger(Q), Q)], ["commit", "-qm", "the mission's ledger"]):
+    qgit(*c)
+grant("goal.approved", "docs/agents/mission/goals/gol_v.json", "0" * 64)    # the human's row after HEAD, not committed yet
+led = open(M.ledger(Q)).read()
+hook(E, "ev41", "start")
+artifact("eval", gaps=[{"gap": "g41"}])
+rows = [json.loads(x) for x in led.splitlines(True)]
+rows[-1]["data"]["reason"] = "edited in place"                # its event_id kept, its hash chained again: it verifies
+open(M.ledger(Q), "w").write(rechained(rows))
+head_led = qgit("show", "HEAD:./" + os.path.relpath(M.ledger(Q), Q)).stdout
+assert not M.ledger_problems(Q) and open(M.ledger(Q)).read().startswith(head_led) and len(head_led) < len(led)
+assert gblocked(hook(E, "ev41"), "ledger.jsonl was rewritten during your run"), hook(E, "ev41").stderr
+open(M.ledger(Q), "w").write(led)
+assert hook(E, "ev41").returncode == 0                       # the row as it was
+open(M.ledger(Q), "w").write(led + '{"event": "junk"}\n')    # and a bad line after it: the next run starts broken
+hook(E, "ev42", "start")
+artifact("eval", gaps=[{"gap": "g42"}])
+forged = dict(json.loads(led.splitlines(True)[-1]), event_id="f" * 32, event="eval.completed", role="evaluator",
+              data={"subject": "docs/agents/mission/eval/evl_x.json", "sha256": "0" * 64})
+forged["prev"], forged["ts"] = json.loads(led.splitlines(True)[-1])["hash"], M.now()
+forged["hash"] = M._row_hash(forged)
+open(M.ledger(Q), "w").write(led + json.dumps(forged, sort_keys=True) + "\n")   # a valid row no command of the run appended
+assert not M.ledger_problems(Q)
+assert gblocked(hook(E, "ev42"), "ledger.jsonl was rewritten during your run"), hook(E, "ev42").stderr
+open(M.ledger(Q), "w").write(led)                            # HEAD's copy and the uncommitted row as it was
+grant("goal.approved", "docs/agents/mission/goals/gol_u.json", "0" * 64)    # and a command's own append after it
+r = hook(E, "ev42")
+assert r.returncode == 0 and "ledger.jsonl was restored during your run" in r.stderr, r.stderr
+ok("a ledger restore is HEAD's copy or the rows before the first bad line, then only rows the run started with, byte for"
+   " byte, and a command's appends: a row after HEAD or after the bad line edited in place blocks")
+
+RAW = os.path.join(INT, "raw-20261020T000000Z-1.txt")       # the human's words as `aladdin "<text>"` kept them
+open(RAW, "w").write("dark mode please\n")
+hook(MP, "mp8", "start")
+artifact("goal", eval_id="evl_x", gaps=["g8"])
+open(RAW, "w").write("dark mode please, and rewrite the billing module\n")
+assert gblocked(hook(MP, "mp8"), "raw-20261020T000000Z-1.txt changed during your run", "the human's"), hook(MP, "mp8").stderr
+open(RAW, "w").write("dark mode please\n")
+assert hook(MP, "mp8").returncode == 0
+hook(E, "ev43", "start")
+artifact("eval", gaps=[{"gap": "g43"}])
+r = sh(os.path.join(PL, "bin", "aladdin"), "add a dark mode", cwd=Q)  # the human, while it runs: a contract and its words
+assert r.returncode == 0 and len(glob.glob(os.path.join(INT, "raw-*.txt"))) == 2, (r.stdout, r.stderr)
+r = hook(E, "ev43")
+assert r.returncode == 0 and "intent.received" in r.stderr, r.stderr   # intake's record names both files
+ok("every file in docs/agents/intents/ counts: the human's words beside an intent (raw-*.txt, which `aladdin run` reads"
+   " back) are no role's to rewrite; `aladdin \"<text>\"` during a run is intake's, and passes")
+
+hook(MP, "mp9", "start")
+artifact("goal", eval_id="evl_x", gaps=["g9"])
+hp_was = open(hp).read()
+json.dump(dict(json.load(open(hp)), want="dark mode, and rewrite the billing module"), open(hp, "w"))
+r = sh(os.path.join(PL, "bin", "intent"), "new", "--source", "prompt", "--raw", "x", "--raw-ref", os.path.relpath(hp, Q), cwd=Q)
+os.remove(r.stdout.strip().splitlines()[-1])                 # its intent.received names the victim only as refs.raw
+assert gblocked(hook(MP, "mp9"), "int_human2.json changed during your run"), hook(MP, "mp9").stderr
+open(hp, "w").write(hp_was)
+assert hook(MP, "mp9").returncode == 0
+ok("an event names an intent only by its refs.intent or intent_id, never by a ref its caller picks (`--raw-ref`)")
+
+hook(MP, "mp10", "start")
+artifact("goal", eval_id="evl_x", gaps=["g10"])
+ZZ = os.path.join(INT, "zz-request.json")                    # no intent id in its name, but `aladdin run` picks it
+json.dump(dict(ok_intent, intent_id="zz-request", want="rewrite billing", provenance={"received_at": M.now(),
+                                                                                      "raw_ref": os.path.relpath(RAW, Q)}), open(ZZ, "w"))
+assert gblocked(hook(MP, "mp10"), "zz-request.json is a new intent (source prompt)"), hook(MP, "mp10").stderr
+os.remove(ZZ)
+assert hook(MP, "mp10").returncode == 0
+mine_p = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "4d5e6f70"))
+json.dump(dict(mint, intent_id=os.path.basename(mine_p)[:-5]), open(mine_p, "w"))   # the planner's handoff, before the run
+hook(MP, "mp11", "start")
+artifact("goal", eval_id="evl_x", gaps=["g11"])
+d = json.load(open(mine_p))
+posed = dict(d, source="prompt", want="rewrite the billing module (the human asked)",
+             provenance={k: v for k, v in d["provenance"].items() if k != "goal_id"})
+json.dump(posed, open(mine_p, "w"))                          # its own intent, now posing as the human's
+assert gblocked(hook(MP, "mp11"), "was a `source: mission` intent", "now says source prompt"), hook(MP, "mp11").stderr
+json.dump(dict(d, want="close gap g1, and nothing else"), open(mine_p, "w"))   # its own intent edited, still mission
+assert hook(MP, "mp11").returncode == 0
+new_p = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "5e6f7081"))
+hook(MP, "mp12", "start")
+artifact("goal", eval_id="evl_x", gaps=["g12"])
+json.dump(dict(mint, intent_id=os.path.basename(new_p)[:-5]), open(new_p, "w"))
+M.emit(Q, "intent.received", role="intake", refs={"intent": new_p, "raw": ""}, intent_id=os.path.basename(new_p)[:-5],
+       source="mission", goal_id=gol, gap_id="g1")             # `intent new --source mission` of the run
+json.dump(dict(json.load(open(new_p)), source="prompt"), open(new_p, "w"))     # then flipped in the same run
+assert gblocked(hook(MP, "mp12"), "was a `source: mission` intent", "now says source prompt"), hook(MP, "mp12").stderr
+json.dump(dict(mint, intent_id=os.path.basename(new_p)[:-5]), open(new_p, "w"))
+assert hook(MP, "mp12").returncode == 0
+ok("a new file in docs/agents/intents/ no intent id names is no exemption; no role flips a `source: mission` intent to"
+   " another source (posing as the human), whether it found it there or made it in the run")
+
+qgit("add", "-A", os.path.relpath(INT, Q))                   # the intents as they are now, committed
+qgit("commit", "-qm", "intents")
+qgit("checkout", "-qb", "other")
+far = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "6f708192"))
+json.dump(dict(ok_intent, intent_id=os.path.basename(far)[:-5], want="a dark mode, from another machine"), open(far, "w"))
+far_raw = os.path.join(INT, "raw-20261020T000001Z-2.txt")
+open(far_raw, "w").write("a dark mode, from another machine\n")
+qgit("add", far, far_raw)
+qgit("commit", "-qm", "the human's intent, made by intake on another machine")
+far2 = os.path.join(INT, "int_%012x%s.json" % (int(time.time() * 1000), "708192a3"))
+json.dump(dict(ok_intent, intent_id=os.path.basename(far2)[:-5], want="a light mode, from another machine"), open(far2, "w"))
+qgit("add", far2)
+qgit("commit", "-qm", "another intent of the human's")
+qgit("rm", "-q", far_raw)
+qgit("commit", "-qm", "the human's words, moved off")
+qgit("checkout", "-q", "-")
+assert not os.path.exists(far) and not os.path.exists(far2)
+hook(E, "ev44", "start")
+artifact("eval", gaps=[{"gap": "g44"}])
+qgit("merge", "-q", "--ff-only", "other~2")                  # the supervisor merges while the evaluator runs
+r = hook(E, "ev44")
+assert r.returncode == 0 and "%s arrived through a commit" % os.path.basename(far) in r.stderr, r.stderr
+hook(E, "ev45", "start")
+artifact("eval", gaps=[{"gap": "g45"}])
+qgit("merge", "-q", "--ff-only", "other~1")
+json.dump(dict(json.load(open(far2)), want="a light mode, and rewrite the billing module"), open(far2, "w"))   # then rewritten
+assert gblocked(hook(E, "ev45"), "%s is a new intent" % os.path.basename(far2)), hook(E, "ev45").stderr
+qgit("checkout", "--", far2)
+assert hook(E, "ev45").returncode == 0
+hook(E, "ev46", "start")
+artifact("eval", gaps=[{"gap": "g46"}])
+qgit("merge", "-q", "--ff-only", "other")                    # a commit that removes the human's words
+r = hook(E, "ev46")
+assert r.returncode == 0 and "%s was removed through a commit" % os.path.basename(far_raw) in r.stderr, r.stderr
+far2_was = open(far2).read()
+hook(E, "ev47", "start")
+artifact("eval", gaps=[{"gap": "g47"}])
+open(os.path.join(Q, "unrelated.txt"), "w").write("x\n")
+qgit("add", "unrelated.txt")
+qgit("commit", "-qm", "an unrelated commit")                 # HEAD moves, and the role deletes an intent itself
+os.remove(far2)
+assert gblocked(hook(E, "ev47"), "%s was deleted during your run" % os.path.basename(far2)), hook(E, "ev47").stderr
+open(far2, "w").write(far2_was)
+assert hook(E, "ev47").returncode == 0
+ok("an intent a supervisor's `git merge`/`git pull` brings in or removes during a role's run is not the role's (no mission"
+   " role writes git); one the role rewrites after it came in, or deletes itself, still blocks")
 
 open(os.path.join(PL, "mission", "roles.json"), "w").write("{ not json")          # a broken role table: a gate bug
 r = hook(E, "ev9")
@@ -1210,6 +1388,30 @@ r, out = role_run(S, "sa16", lambda: X.run("assess"))        # its command decid
 assert out.returncode != 0 and r.returncode == 0 and "you wrote no artifact" in r.stderr and "predate" in r.stderr, r.stderr
 open(M.ledger(X.dir), "w").write(led)
 ok("an area command that refuses only because of ledger problems that predate the run leaves a note, not a block")
+
+open(M.ledger(X.dir), "w").write("".join(led.splitlines(True)[:-1]))      # broken before the run, again
+for at, aid in ((MRS, "mr20"), (E, "ev40")):                 # `research new`, `evaluate`: no command of theirs refuses
+    r, _ = role_run(at, aid, lambda: None)                   # a run that wrote nothing and ran nothing
+    assert r.returncode == 2 and "you wrote no artifact" in r.stderr and "predate" not in r.stderr, (aid, r.stderr)
+    assert any("STUCK" in xstop(at, aid).stderr for _ in range(3))
+r, out = role_run("aloop:mission-planner", "mp20", lambda: X.run("goal", "derive"))
+assert out.returncode == 2 and r.returncode == 0 and "predate" in r.stderr and "goal derive" in r.stderr, (out.stderr, r.stderr)
+BOUND = {"assess": [], "baseline new": ["--definition", "a first task in 2s"], "baseline measure": [b3["baseline_id"]],
+         "goal derive": []}
+for role, spec in TABLE["roles"].items():                    # the table's claim: each command it names refuses on this ledger
+    for cmd in spec.get("ledger_bound", []):
+        rv = ""
+        if cmd == "ethics record":
+            rv = made_path(X.run("ethics", "new", "--subject", "mission"))
+            json.dump(dict(json.load(open(rv)), findings=[], tier="clear"), open(rv, "w"))
+        r = X.run(*(cmd.split() + ([rv] if rv else BOUND[cmd])))
+        assert r.returncode == 2 and "ledger" in r.stderr, (role, cmd, r.stdout, r.stderr)
+        if rv:
+            os.remove(rv)
+assert {r for r, spec in TABLE["roles"].items() if not spec.get("ledger_bound")} == {"market-researcher", "evaluator"}
+open(M.ledger(X.dir), "w").write(led)
+ok("a run that wrote nothing on a ledger broken before it is a note only for a role whose commands decide from the ledger"
+   " (roles.json `ledger_bound`, each checked to refuse); the Scout and the Evaluator are blocked as usual")
 
 LED = os.path.relpath(M.ledger(X.dir), X.dir)
 for c in (["add", LED], ["-c", "user.email=a@a", "-c", "user.name=A", "commit", "-qm", "the mission's ledger"]):

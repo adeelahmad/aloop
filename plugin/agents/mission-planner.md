@@ -42,7 +42,9 @@ refuses every other path in the project (source, `mission.json`, other roles' di
 worktree); a scratch dir outside the project is fine. At stop, gate-mission-artifact refuses a
 change to another role's files, and a deleted artifact (retire it with its area command instead).
 In `docs/agents/intents/` only its `source: mission` intents are its work: the human's and
-intake's intents are never its to change, and its stop blocks on a rewrite of one.
+intake's intents, and the words `aladdin` keeps beside them, are never its to change, and its
+stop blocks on a rewrite of one, on a mission intent turned to another `source`, and on any
+other file it leaves there (a draft or a note goes in a scratch dir outside the project).
 
 ## Tools
 Everything is on PATH, never search for it: `aloop mission` (`aloop mission --list` names the

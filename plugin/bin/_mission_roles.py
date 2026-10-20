@@ -27,7 +27,6 @@ ROLES_FILE = os.path.join(M.AREAS_DIR, "roles.json")
 MISSION = "docs/agents/mission/"
 INTENTS = "docs/agents/intents/"
 LEDGER = MISSION + "ledger.jsonl"   # appended only by the mission CLI (_mission.record)
-INTENT_ID = re.compile(r"^int_[0-9a-f]{20}$")   # bin/intent's own id (`intent new` issues it)
 SNAPSHOTS = MISSION + "%s/snapshots/" % M.LAYOUT["research"]   # a source's archived bytes, named by their sha256
 RUN_DATA = (".aladdin/", ".agentic/", ".transcripts/")
 OPEN_RUN_TTL = 90 * 60        # an open run with no activity for this long (its stop never came) owns nothing:
@@ -64,6 +63,12 @@ def writes(role):
     return tuple(T["roles"][role]["writes"]) if role in T["roles"] else ()
 
 
+def ledger_bound(role):
+    """The role's own commands that decide from the ledger, so they refuse while it is broken (roles.json
+    `ledger_bound`): only for such a role is a run that wrote nothing on a ledger broken before it no defect."""
+    return tuple(T["roles"][role].get("ledger_bound", ())) if role in T["roles"] else ()
+
+
 def under(rel, prefix):
     """A project-relative path is the dir `prefix` (ends with /) or inside it."""
     return (rel.rstrip("/") + "/").startswith(prefix)
@@ -81,11 +86,19 @@ def owners_of(rel, field):
     return [field] if field in by else by
 
 
-def is_intent_file(rel):
-    """An Aladdin intent: docs/agents/intents/<intent_id>.json named by the id `intent new` issued. Any other
-    file there (a skeleton under a made-up name, a scratch note) is no intent: no intake check accepts it."""
-    return under(rel, INTENTS) and rel.count("/") == 3 and bool(INTENT_ID.match(os.path.basename(rel)[:-5])) \
-        and rel.endswith(".json")
+def intent_stem(rel):
+    """The intent id a file in docs/agents/intents/ is named for (`<id>.json` at its top: what `aladdin run`, which
+    takes the newest *.json there, reads as a request), else None (the words `aladdin` kept beside an intent, a note)."""
+    return os.path.basename(rel)[:-5] if under(rel, INTENTS) and rel.count("/") == 3 and rel.endswith(".json") else None
+
+
+def rel_path(project, v):
+    """A path an event names, relative to the project (a command records it absolute), "" when it is outside it."""
+    if not isinstance(v, str) or not v:
+        return ""
+    root = os.path.realpath(project)
+    full = os.path.realpath(os.path.join(root, v))
+    return os.path.relpath(full, root).replace(os.sep, "/") if full.startswith(root.rstrip("/") + "/") else ""
 
 
 def is_snapshot(rel):
@@ -244,15 +257,29 @@ def _mark(raw):
     return {"size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
 
 
+def _rows(raw):
+    """{sha256 of each row's line: its event_id} of a ledger's bytes: the rows it holds, byte for byte."""
+    out = {}
+    for ln in raw.splitlines():
+        try:
+            row = json.loads(ln.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            continue
+        if isinstance(row, dict) and isinstance(row.get("event_id"), str):
+            out[hashlib.sha256(ln).hexdigest()] = row["event_id"]
+    return out
+
+
 def ledger_mark(project, problems=()):
-    """{size, sha256} of the ledger's bytes now, None when there is none: the CLI only appends to it. A ledger
-    with problems also marks its `good` rows: those before the first bad line (the supervisor's repair keeps them)."""
+    """{size, sha256, rows} of the ledger's bytes now, None when there is none: the CLI only appends to it, and
+    `rows` names each row it holds (byte for byte, by event_id). A ledger with problems also marks its `good` rows:
+    those before the first bad line (the supervisor's repair keeps them)."""
     try:
         with open(os.path.join(project, LEDGER), "rb") as f:
             raw = f.read()
     except OSError:
         return None
-    mark = _mark(raw)
+    mark = dict(_mark(raw), rows=_rows(raw))
     if problems:
         bad = [int(m.group(1)) for m in (re.match(r"ledger line (\d+) ", x) for x in problems) if m]
         lines = raw.splitlines(True)
@@ -281,10 +308,12 @@ def committed_ledger(project):
     return r.stdout if r.returncode == 0 else None
 
 
-def ledger_restored(project, mark):
+def ledger_restored(project, mark, events=()):
     """What a ledger rewritten during a run (it no longer starts with the bytes `mark` recorded) was restored to,
-    when that is the supervisor's repair: it verifies now and starts with HEAD's committed copy (`git checkout`),
-    or with the good rows of a ledger that started broken (`mark` good); "" for any other rewrite."""
+    when that is the supervisor's repair: it verifies now, it is HEAD's committed copy (`git checkout`) or the good
+    rows of a ledger that started broken (`mark` good), and every row after that is one the run started with, byte
+    for byte, or one a command of the run appended (its ledger event in `events`, under the row's event_id: the
+    mission CLI writes the row, then the event); "" for any other rewrite (an edited row whose event_id was kept)."""
     try:
         with open(os.path.join(project, LEDGER), "rb") as f:
             raw = f.read()
@@ -292,11 +321,24 @@ def ledger_restored(project, mark):
         return ""
     if ledger_problems(project):
         return ""
+    mark = mark if isinstance(mark, dict) else {}
+    had = mark.get("rows") if isinstance(mark.get("rows"), dict) else {}
+    ids = set(had.values())
+    appended = {e.get("event_id") for e in events if (e.get("data") or {}).get("ledger") is True}
+
+    def kept_after(size):
+        for ln in raw[size:].splitlines():
+            if not ln.strip() or hashlib.sha256(ln).hexdigest() in had:
+                continue                                  # a row the run started with, byte for byte
+            eid = next(iter(_rows(ln).values()), None)
+            if eid is None or eid in ids or eid not in appended:
+                return False                              # an edited row (its event_id kept), or one no command appended
+        return True
     head = committed_ledger(project)
-    if head and raw.startswith(head):
+    if head is not None and raw.startswith(head) and kept_after(len(head)):
         return "HEAD's committed copy"
-    good = (mark or {}).get("good") if isinstance(mark, dict) else None
-    if isinstance(good, dict) and _mark(raw[:int(good.get("size") or 0)]) == good:
+    good = mark.get("good")
+    if isinstance(good, dict) and _mark(raw[:int(good.get("size") or 0)]) == good and kept_after(int(good.get("size") or 0)):
         return "the rows it had before its first bad line"
     return ""
 
@@ -388,13 +430,47 @@ def ledger_problems(project):
         return ["cannot verify the ledger: %s" % e]
 
 
+def head_commit(project):
+    """The commit HEAD names now, "" when there is none (no git, or no commit yet)."""
+    return _paths._git(project, "rev-parse", "-q", "--verify", "HEAD^{commit}")
+
+
+def arrived(project, since, rels, was=None):
+    """The files of `rels` (changed during a run) a commit made during it brought in or removed: HEAD moved off
+    commit `since`, and a file now is HEAD's blob of it, which `since` did not have, or a file gone (`was`: {rel:
+    [raw sha256, …]} as the run found it) was `since`'s blob of it, and HEAD has none (a supervisor's `git merge` or
+    `git pull`: no mission role writes git, gate-mission-scope refuses it). A file changed after that is not one."""
+    head = head_commit(project)
+    if not since or not head or head == since:
+        return set()
+
+    def blob(commit, rel):
+        return _paths._git(project, "rev-parse", "-q", "--verify", "%s:%s" % (commit, rel))
+    out = set()
+    for rel in rels:
+        full = os.path.join(project, rel)
+        if os.path.isfile(full):
+            b = blob(head, rel)
+            if b and b != blob(since, rel) and b == _paths._git(project, "hash-object", "--", full):
+                out.add(rel)
+        elif (was or {}).get(rel) and not blob(head, rel) and blob(since, rel):
+            try:
+                raw = subprocess.run(["git", "-C", project, "cat-file", "--filters", "%s:%s" % (since, rel)],
+                                     capture_output=True, timeout=10).stdout
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if hashlib.sha256(raw).hexdigest() == was[rel][0]:
+                out.add(rel)
+    return out
+
+
 def marks(project):
     """What a stop diffs against: every file's fingerprint, who the files say they belong to, the event log's
-    size, the ledger's bytes and its problems."""
+    size, the ledger's bytes and its problems, and the commit HEAD names."""
     roles, sources, cites = labels(project)
     problems = ledger_problems(project)
     return {"files": scan(project), "roles": roles, "sources": sources, "cites": cites, "events_at": events_size(project),
-            "ledger": ledger_mark(project, problems), "ledger_problems": problems}
+            "ledger": ledger_mark(project, problems), "ledger_problems": problems, "head": head_commit(project)}
 
 
 def record_start(project, agent_id, role):
