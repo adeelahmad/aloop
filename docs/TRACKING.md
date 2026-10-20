@@ -83,7 +83,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.26 | A goal's sprint history is read from committed records | NOT_IMPLEMENTED | §4.12 |
 | M9.27 | The mission loop trusts an eval only when `evaluate check` would | NOT_IMPLEMENTED | §4.12 |
 | M9.28 | The mission loop drives the goal commands and reads goals by their records | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
-| M9.29 | A hard-lined goal stops being the active goal | NOT_IMPLEMENTED | §4.12 |
+| M9.29 | A hard-lined goal stops being the active goal | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py`, `scripts/test/mission-tick.test.py` |
 | M9.30 | Core agent principles; one-way / two-way door rule enforced by a gate | IMPLEMENTED_TESTED | `scripts/test/mission-doors.test.py` |
 | M9.40 | Artifact provenance in the mission loop | NOT_IMPLEMENTED | §4.12 |
 | M9.41 | Concurrent mission role runs are serialized | NOT_IMPLEMENTED | §4.12 |
