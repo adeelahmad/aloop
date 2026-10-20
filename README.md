@@ -42,7 +42,7 @@ About a dollar and ten minutes per tested feature in [measured runs](#demo), on 
 | Every task starts with a failing test (RED) that a hook proves fails. GREEN is a claim a gate checks, not a sentence a model says. | Deterministic hook gates block a stop or a tool call and hand the reason back. A gate that crashes blocks; a BLOCK is never downgraded. | Workers get their task's contract and tests, never the whole repo, so most of the work runs on the cheapest model. A whole sprint costs about a dollar. |
 
 *Formerly **agentic-agile**; the old names keep working ([upgrading](#upgrading-from-agentic-agile)).*
-**New here?** [What this project is](docs/OVERVIEW.md) · [Roadmap](docs/ROADMAP.md) · [Operator playbook](plugin/skills/aloop/SKILL.md) · [Site source](docs/index.html)
+**New here?** [What this project is](docs/OVERVIEW.md) · [Roadmap](docs/ROADMAP.md) · [Operator playbook](plugin/skills/aloop/SKILL.md) · [The site](https://adeelahmad.github.io/aloop/)
 
 ## What's new
 
