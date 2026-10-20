@@ -136,7 +136,8 @@ the first write passes (live runs 12–14 hit each of these):
   `planned_symbol` — `create` for a new file (the path must not exist yet), `extend` for a new
   symbol in an existing file (`"operation": "extend", "path": "src/lib.rs", "planned_symbol": "count_words"`);
   a `create` of a test file may omit it when the task's `tests` name that path (the first `fn` is used);
-- `modify|refactor|replace|delete` need a `symbol` that exists (or `planned_symbol` for `extend`).
+- `modify|refactor|replace|delete` need a `symbol` that exists, or one an earlier task's target plans
+  in that file (T2 extends `run`, T3 modifies `run`); `extend` takes a `planned_symbol`.
 Prefer the whole plan in targets.json: add `story` and `tasks` (`id` T1…, `title`, `summary`,
 optional `budget`, `tests` [{path, fn, assert}], optional `validate` [{run, expect}]) and run
 `targets render <STORY_DIR>` — tasks.md, validate.md and plan.md are then rendered from it,

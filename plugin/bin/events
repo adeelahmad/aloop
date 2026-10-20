@@ -126,7 +126,8 @@ def mission_trace(evs, recv):
     if not gd:
         print("goal     %s (missing: no goal.derived)" % gid)
         return
-    d, ref = gd.get("data") or {}, (gd.get("refs") or {}).get("goal")
+    d = gd.get("data") or {}
+    ref = d.get("subject")              # the goal file the ledger row covers
     print("goal     %s from eval %s gaps=%s (%s)" % (gid, d.get("eval_id"), ",".join(d.get("gaps") or []), d.get("autonomy")))
     about = [e for e in evs if (e.get("data") or {}).get("subject") == ref and (e.get("data") or {}).get("sha256") == d.get("sha256")]
     tiers = [e["data"].get("tier") for e in about if e.get("event") == "ethics.reviewed"]

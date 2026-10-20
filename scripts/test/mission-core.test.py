@@ -155,8 +155,9 @@ ok("mission --list = the built-ins + every plugin/mission/<area>.py; `aloop miss
 assert set(M.APPROVAL_EVENTS.values()) <= set(M.LAYOUT) and set(M.PREFIX) == set(M.LAYOUT) == set(M.STATUSES)
 sys.path.insert(0, BIN)
 import _events  # noqa: E402
-for e in list(M.APPROVAL_EVENTS) + ["mission.set", "mission.tick", "goal.derived", "ethics.reviewed", "judge.run"]:
+for e in list(M.APPROVAL_EVENTS) + list(M.LEDGER_EVENTS) + ["mission.set", "mission.tick", "judge.run"]:
     assert e in _events.EVENT_TYPES, e
+assert {"ethics.blocked", "ethics.reviewed", "goal.derived", "goal.met"} <= set(M.LEDGER_EVENTS)
 ok("approval events, layouts, prefixes and statuses agree; mission events are registered")
 
 # 9) the ledger: committed with the artifacts (a fresh checkout keeps every decision) and tamper-evident
@@ -210,5 +211,70 @@ assert r.returncode == 4 and "ran []" in r.stdout, (r.returncode, r.stdout, r.st
 r = run(os.path.join(P2, "bin", "mission"), "plain")
 assert r.returncode == 0 and "plain: help" in r.stdout, (r.returncode, r.stdout)
 ok("NO_ARGS areas run with no arguments; the rest print their help")
+
+# 11) text is UTF-8 whatever the locale; a lone surrogate is a problem, never a crash
+import hashlib  # noqa: E402
+T3 = tempfile.mkdtemp(prefix="aloop-mission-")
+subprocess.run(["git", "init", "-q"], cwd=T3, check=True)
+CENV = dict(ENV, LC_ALL="C", LANG="C", PYTHONUTF8="0", PYTHONCOERCECLOCALE="0")
+intent = "the world’s best café app — for everyone"
+r = subprocess.run([MI, "init", intent, "--mode", "autonomous", "--budget-usd", "4"], cwd=T3, env=CENV,
+                   capture_output=True)
+assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+mdoc = json.load(open(M.path_of(T3, "mission"), encoding="utf-8"))
+assert mdoc["statement"] == intent and mdoc["sha256"] == M.digest(mdoc), mdoc
+r = subprocess.run([MI, "check"], cwd=T3, env=CENV, capture_output=True)
+assert r.returncode == 3, (r.returncode, r.stderr.decode("utf-8", "replace"))
+r = subprocess.run([MI, "approve", "--by", "Zoë"], cwd=T3, env=CENV, capture_output=True)
+assert r.returncode == 0, r.stderr.decode("utf-8", "replace")
+assert subprocess.run([MI, "check"], cwd=T3, env=CENV, capture_output=True).returncode == 0
+assert M.digest({"a": "é", "b": 1}) == hashlib.sha256(b'{"a":"\xc3\xa9","b":1}').hexdigest()
+assert M.digest({"a": "\ud800"}) != M.digest({"a": "\ud801"})
+raw = open(M.path_of(T3, "mission"), encoding="utf-8").read().replace("café", "caf\\ud800")
+with open(M.path_of(T3, "mission"), "w", encoding="utf-8") as f:
+    f.write(raw)
+r = subprocess.run([MI, "check"], cwd=T3, env=ENV, capture_output=True, text=True)
+assert r.returncode == 2 and "lone surrogate" in r.stderr, (r.returncode, r.stderr)
+assert "draft" in M.STATUSES["ethics"] and "recorded" in M.STATUSES["ethics"]
+ok("text is UTF-8 in any locale (argv, files); a lone surrogate blocks instead of crashing; ethics has drafts")
+
+# 12) the run-log cross-check is this branch's; a junk run-log line is skipped; nothing records past a broken ledger
+T4 = tempfile.mkdtemp(prefix="aloop-mission-")
+GENV = dict(ENV, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+
+
+def at4(*args):
+    return subprocess.run(args, cwd=T4, env=GENV, capture_output=True, text=True)
+
+
+at4("git", "init", "-q", "-b", "main")
+assert at4(MI, "init", "a mission on two branches", "--mode", "autonomous", "--budget-usd", "4").returncode == 0
+assert at4(MI, "approve", "--by", "Adeel").returncode == 0
+at4("git", "add", "-A")
+at4("git", "commit", "-qm", "approved")
+at4("git", "checkout", "-qb", "experiment")
+assert at4(MI, "approve", "--by", "Adeel", "--reason", "on a branch").returncode == 0
+at4("git", "commit", "-qam", "approved again on a branch")
+at4("git", "checkout", "-q", "main")
+at4("git", "branch", "-qD", "experiment")
+r = at4(MI, "check")
+assert r.returncode == 0 and "lost" not in r.stderr, r.stderr
+led4 = M.ledger(T4)
+kept = open(led4).read()
+assert at4(MI, "approve", "--by", "Adeel", "--reason", "on main").returncode == 0
+open(led4, "w").write(kept)                    # the newest row removed on the branch that recorded it
+r = at4(MI, "check")
+assert r.returncode == 2 and "the ledger lost mission.approved" in r.stderr, r.stderr
+with open(os.path.join(T4, ".aladdin", "logs", "events.jsonl"), "a") as f:
+    f.write('123\nnull\n"x"\n[]\n')
+r = at4(MI, "check")
+assert r.returncode == 2 and "Traceback" not in r.stderr, r.stderr
+try:
+    M.record(T4, "baseline.measured", "docs/agents/mission/baseline/x.json", "state-assessor", sha256="0" * 64)
+    raise AssertionError("a row was chained past a broken ledger")
+except M.LedgerBroken as e:
+    assert "the ledger lost mission.approved" in str(e), e
+assert open(led4).read() == kept
+ok("the lost-row cross-check is scoped to the branch that recorded it; junk run-log lines are skipped; no row past a broken ledger")
 
 print("mission-core: %d checks passed" % PASS[0])

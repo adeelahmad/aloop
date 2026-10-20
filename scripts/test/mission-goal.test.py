@@ -146,7 +146,9 @@ assert g["principles"] == P.stamp("autonomous") and g["sha256"] == M.digest(g)
 assert "Add a task and see it (fast): secs <= 5" in g["statement"] and M.problems(g, "goal", gpath) == []
 d = p.events("goal.derived")
 ec = [e for e in p.events("eval.completed") if e["data"]["eval_id"] == ev1][0]
-assert len(d) == 1 and d[0]["data"]["goal_id"] == gid and d[0]["caused_by"] == ec["event_id"], d
+assert len(d) == 1 and d[0]["data"]["goal_id"] == gid and d[0]["data"]["eval_event"] == ec["event_id"], d
+rows = M.records(p.dir, "goal.derived", M.rel(p.dir, gpath))   # a ledger record: it survives a fresh checkout
+assert [r["event_id"] for r in rows] == [d[0]["event_id"]] and rows[0]["data"]["sha256"] == g["sha256"], rows
 assert d[0]["data"]["mission_id"] == mdoc["mission_id"] and d[0]["data"]["sha256"] == g["sha256"]
 assert d[0]["data"]["gaps"] == [j1 + "#fast", j1 + "#all"]
 ok("derive: the top N gaps as given; targets, mission, eval, principles stamp and autonomy bound; goal.derived")
@@ -257,6 +259,7 @@ assert e3["goal_id"] == gid and e3["goal_met"] is True
 r = p.run("goal", "close", gid, "--eval", e3["eval_id"])
 assert r.returncode == 0, r.stderr
 assert p.load("goal", gid)["status"] == "met" and p.events("goal.met")[-1]["data"]["goal_id"] == gid
+assert [r["data"]["eval_id"] for r in M.records(p.dir, "goal.met", M.rel(p.dir, gpath))] == [e3["eval_id"]], "goal.met is a ledger record"
 assert M.digest(p.load("goal", gid)) == g["sha256"]                      # closing changes only the status
 r = p.run("goal", "close", gid, "--eval", e3["eval_id"])
 assert r.returncode == 0 and len(p.events("goal.met")) == 1, r.stderr   # already met: no second goal.met

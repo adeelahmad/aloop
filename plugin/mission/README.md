@@ -46,31 +46,53 @@ A gate checks structure and evidence, never whether a judgment is right.
 - `M.mission(cwd)` → `(doc, sha256, approval record)`; the record is `None` while the mission is a
   draft or changed since its newest approval.
 - **The ledger** `docs/agents/mission/ledger.jsonl` holds every record a gate decides from
-  (`LEDGER_EVENTS`: the human decisions, `baseline.measured`, `journey.retired`), committed with the
-  artifacts. `M.record(cwd, event, subject, role, **data)` appends one (and emits the event);
-  `M.record_human` / `M.approve` are the human-only forms. The event stream is git-ignored run data,
-  so a fresh checkout reads the ledger only. Each row carries the hash of the row it follows: an
-  edited, removed, backdated or junk row, or a ledger row the run log has and the ledger lost, makes
-  `M.ledger_problems` (and so `mission check`, `baseline check`, `journeys check`) fail. Recovery is
-  `git checkout -- docs/agents/mission/ledger.jsonl`. `mission init` marks it `merge=union`. A forged
-  row appended with a valid hash is not detectable here: M9.9 denies roles direct writes to it and
-  M9.17 ties each human record to a captured prompt.
-- `M.covered(cwd, kind, event)` → every artifact whose current content its newest `event` record
-  covers; `baseline.current` is the version the newest `baseline.confirmed` record names, and
-  `journeys.lifecycle` / `journeys.pins` say what a journey is and which content it may not leave.
+  (`LEDGER_EVENTS`: the human decisions, `baseline.measured`, `journey.retired`, `ethics.reviewed`,
+  `ethics.blocked`, `goal.derived`, `goal.met`), committed with the artifacts.
+  `M.record(cwd, event, subject, role, **data)` appends one (and emits the event); `M.record_human` /
+  `M.approve` are the human-only forms. The event stream is git-ignored run data, so a fresh checkout
+  reads the ledger only. Each row carries the hash of the row it follows: an edited, removed,
+  backdated or junk row, or a row the run log recorded **on this branch** and the ledger lost, makes
+  `M.ledger_problems` fail. Nothing decides from a broken ledger: a deciding command starts with
+  `M.ledger_block(cwd, area)` (prints `BLOCK` lines, returns 2), and `M.record` raises
+  `M.LedgerBroken` rather than chain a row past a broken one. Recovery is
+  `git checkout -- docs/agents/mission/ledger.jsonl`. `mission init` marks it `merge=union`.
+  **Not detectable here:** a forged row appended with a valid hash, and, on a checkout without the run
+  log, the newest rows removed. M9.9 denies roles direct writes to the ledger and M9.17 ties each human
+  record to a captured prompt.
+- A confirmation record carries the journeys it froze (`data.journeys`), and a retirement record its
+  replacement (`replaced_by`, `replaced_by_sha256`): `journeys.pins` and `journeys.lifecycle` read
+  those records, so hiding or editing a file never unfreezes, unpins or un-retires a journey.
+  `baseline.current` is the version the newest `baseline.confirmed` record names.
 - `plugin/mission/_runner.py` runs a pinned script: each `pinned` tool's probe must print its
   version, then the command's last stdout line is the result
   `{"steps": {id: bool}, "metrics": {id: number|bool}}` (NaN and Infinity are refused). The files the
-  command runs are pinned by sha256 (`runner.files`, filled by `journeys new` and `baseline new`), and a
+  command runs are pinned by sha256 (`runner.files`, filled by `journeys new` and `baseline new`;
+  `journeys check` refuses a map that misses a file the command runs, an empty one, a changed file, a
+  symlinked script, inline code such as `python3 -c`, and a script outside the project), and a
   pinned version must appear whole in the probe's output (`3.1` never matches `3.12`). `drift(a, b)` is
   the relative difference (infinite for a non-finite number).
+- Flags: `--k=v` is `--k v`, and an area exits 64 on a flag it does not know (`J.parse(…, known=)` and
+  `J.unknown_flags`), so a typo never records a broader decision than the human typed.
+- Text is UTF-8 whatever the locale: `M.cli_text(argv)` recovers argv, files are read and written as
+  UTF-8, and a lone surrogate in a file is a `BLOCK`, never a crash.
 - An area that must run with no arguments (`aloop mission due`) sets `NO_ARGS = True`.
 - A research source ref is `<research_id>#<claim_id>`, resolved against the research artifact's
   `claims: [{"claim_id", …}]` (M9.1 owns that schema). Evidence (`--evidence`, `evidence_refs`) is a
   research claim or an existing `evl_`, `sta_` or `rsr_` id: a placeholder string is refused.
-- A journey's judged metric is scored by `judge.verdict(cwd, rubric, journey_id)` (M9.5): only a `pass`
-  or `fail` verdict fills the value; anything else leaves the criterion pending, and a pending
-  criterion is never a baseline's RED.
+- A journey's judged metric pins its rubric's content (`query.rubric_sha256` = `M.digest(rubric)`), so a
+  weaker rubric is a change to the journey that its approval does not cover. It is scored by
+  `judge.verdict(cwd, rubric, journey_id, rubric_sha256=…)` (M9.5): only a `pass` or `fail` verdict fills
+  the value; anything else (or a judge that cannot check the pin) leaves the criterion pending, and a
+  pending criterion is never a baseline's RED.
+- A gap list (`evl_…`, sealed) is `{eval_id, state_id, baseline_id, goal_id, goal_met, regressions,
+  gaps, earned, metrics}`; each gap is `{gap_id: "<journey_id>#<criterion_id>", journey_id,
+  criterion_id, kind: regression|open|unscored, now, baseline, target, distance}`, regressions first,
+  then by distance. `eval.completed` carries `eval_id` and `sha256`. Every input is the content its
+  record covers: the state a `state.assessed` ledger record (only `mission assess` measures), the
+  baseline a confirmation, each journey the content the baseline froze, and the goal a `goal.derived`
+  or `goal.approved` record (the newest such goal with no later `goal.met` record is the active one; a
+  status field activates nothing) whose targets are criteria the baseline froze. Anything else blocks
+  `evaluate` and `evaluate check`.
 
 ## Notes for the tracks (from mapping the repo, 2026-10-20)
 
@@ -102,6 +124,8 @@ A gate checks structure and evidence, never whether a judgment is right.
   human approved.
 - **Rivals (M9.1 → M9.10).** A baseline's `rivals` are claim refs today; the Product Tester's values per
   benchmark and metric belong in a keyed object so `evaluate` can compare against them.
+- **M9.6 telemetry.** `journeys.GA4_RESERVED_NAMES` is the one reserved-name list (the union of both
+  tracks' lists plus `session_start_with_rollout`); import it.
 - **M9.6 telemetry (GA4 facts, 2026-10-20).** A GA account needs a human ToS acceptance (no
   `accounts.create`); below it the Admin API does everything (properties, a web stream with its
   measurement id, `acknowledgeUserDataCollection` with the exact string, the MP secret, key events).

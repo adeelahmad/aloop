@@ -18,7 +18,7 @@ Usage:
         write goals/<goal_id>.json from the latest recorded eval of the whole mission (no active goal)
         whose goal is not met, once the mission is approved and its ethics check passes; the goal
         names its targets [{journey_id, criterion_id}], which `mission evaluate` narrows to while
-        it is active; emits goal.derived (and goal.approved on a pick)
+        it is active; records goal.derived in the ledger (and goal.approved on a pick)
   mission goal check GOAL_ID [--json]
         the gate before intents: seal, the content goal.derived recorded, the mission unchanged and
         approved, the eval unchanged, the principles stamp well formed (an older block is stale, kept as provenance), mission and goal ethics, and in spoon-fed mode a human
@@ -34,7 +34,7 @@ Usage:
         links it; exit 1 when every intent has a plan
   mission goal close GOAL_ID --eval EVAL_ID
         an active goal (sealed, as derived) and a recorded evaluation of it, newer than the goal,
-        that says goal_met: status met, goal.met (a goal already met: exit 0, no new event). Exit 2
+        that says goal_met: status met, a goal.met ledger record (a goal already met: exit 0, no new record). Exit 2
         while a target (or a regression) is still open, or for a goal that is not active
   mission goal show GOAL_ID [--json]
         the goal, its check, and the principles block it carries
@@ -76,8 +76,8 @@ def first(cwd, event, key, value):
 
 def eval_record(cwd, eid):
     """(doc, eval.completed event, problems) of one gap list: M9.10's own check (it follows from its
-    state, baseline and goal), the eval.completed that recorded this content, and the state.assessed
-    that recorded the measurement it came from (both written only by their commands)."""
+    state, which a state.assessed ledger record covers, its baseline and goal) and the eval.completed
+    that recorded this content (written only by `mission evaluate`)."""
     if not isinstance(eid, str) or not EVAL_ID.match(eid):
         return None, None, ["%r is not an eval id (evl_…)" % (eid,)]
     path = M.path_of(cwd, "eval", eid)
@@ -96,16 +96,6 @@ def eval_record(cwd, eid):
         bad.append("eval %s is not recorded (no eval.completed event names it)" % eid)
     elif ev["data"].get("sha256") != sha:
         bad.append("eval %s is not the content its eval.completed recorded" % eid)
-    sid = doc.get("state_id")
-    st, _ = M.load(M.path_of(cwd, "state", str(sid)))
-    sev = first(cwd, "state.assessed", "state_id", sid)
-    try:
-        measured = isinstance(st, dict) and sev and sev["data"].get("sha256") == M.digest(st)
-    except (TypeError, ValueError) as e:
-        measured = False
-    if not bad and not measured:
-        bad.append("eval %s: state %s was not measured by mission assess (no state.assessed records its content)"
-                   % (eid, sid))
     return doc, ev, bad
 
 
@@ -158,11 +148,17 @@ def mission_of(cwd):
     return (path, doc) if isinstance(doc, dict) else (path, None)
 
 
+def derived(cwd, gid):
+    """The goal.derived ledger record `derive` wrote for this goal, or None."""
+    ref = M.rel(cwd, M.path_of(cwd, "goal", gid))
+    return next((r for r in M.records(cwd, "goal.derived", ref) if r["data"].get("goal_id") == gid), None)
+
+
 def derived_problems(cwd, g):
-    """A goal is the content `derive` recorded in goal.derived (gate-owned), so every derive rule (the
-    latest eval's open, unheld gaps; the real principles stamp) holds at the gate as well."""
+    """A goal is the content `derive` recorded in its goal.derived ledger row, so every derive rule
+    (the latest eval's open, unheld gaps; the real principles stamp) holds at the gate as well."""
     gid = g["goal_id"]
-    d = first(cwd, "goal.derived", "goal_id", gid)
+    d = derived(cwd, gid)
     if not d:
         return ["no goal.derived records %s: only `aloop mission goal derive` makes a goal" % gid]
     data = d.get("data") or {}
@@ -254,6 +250,8 @@ def cmd_options(cwd, o):
 
 
 def cmd_derive(cwd, o):
+    if M.ledger_block(cwd, "goal"):
+        return 2
     mpath, m = mission_of(cwd)
     if not m or m.get("mode") not in AUTONOMY:
         report(["no mission yet (aloop mission init)"], [])
@@ -336,12 +334,10 @@ def cmd_derive(cwd, o):
     M.seal(doc)
     path = M.path_of(cwd, "goal", gid)
     M.save(path, doc)
-    ref = M.rel(cwd, path)
-    refs = {"goal": ref, "eval": M.rel(cwd, M.path_of(cwd, "eval", edoc["eval_id"])), "mission": M.rel(cwd, mpath)}
-    M.emit(cwd, "goal.derived", role="mission-planner", caused_by=(eev or {}).get("event_id"), refs=refs,
-           goal_id=gid, sha256=doc["sha256"], mission_id=m["mission_id"], mission_sha256=msha,
-           eval_id=edoc["eval_id"], gaps=[g["gap_id"] for g in chosen], mode=mode, autonomy=doc["autonomy"],
-           principles_sha256=doc["principles"]["sha256"])
+    M.record(cwd, "goal.derived", M.rel(cwd, path), "mission-planner", goal_id=gid, sha256=doc["sha256"],
+             mission_id=m["mission_id"], mission_sha256=msha, eval_id=edoc["eval_id"], eval_event=(eev or {}).get("event_id"),
+             gaps=[g["gap_id"] for g in chosen], mode=mode, autonomy=doc["autonomy"],
+             principles_sha256=doc["principles"]["sha256"])
     if mode == "spoon-fed":
         rc = approve(cwd, gid, o["by"], "picked from eval %s" % edoc["eval_id"])
         if rc:
@@ -512,7 +508,9 @@ def cmd_close(cwd, gid, eid):
     if bad:
         report(bad, [])
         return 2
-    if g["status"] == "met":
+    if M.ledger_block(cwd, "goal"):
+        return 2
+    if M.records(cwd, "goal.met", M.rel(cwd, gpath)):     # the record decides, never the status field
         print("[goal] %s is already met" % gid, file=sys.stderr)
         return 0
     if g["status"] != "active":
@@ -527,7 +525,7 @@ def cmd_close(cwd, gid, eid):
         report(["eval %s is not an evaluation of goal %s (it evaluates %s): evaluate while the goal is active"
                 % (eid, gid, doc.get("goal_id") or "the whole mission")], [])
         return 2
-    born = stream_index(cwd, lambda e: e.get("event") == "goal.derived" and (e.get("data") or {}).get("goal_id") == gid)
+    born = stream_index(cwd, lambda e: e.get("event_id") == derived(cwd, gid)["event_id"])
     seen = stream_index(cwd, lambda e: e.get("event_id") == ev.get("event_id"))
     if born < 0 or seen <= born:
         report(["eval %s was recorded before goal %s was derived: it says nothing about the goal's work" % (eid, gid)], [])
@@ -538,8 +536,8 @@ def cmd_close(cwd, gid, eid):
         return 2
     g["status"] = "met"
     M.save(gpath, g)
-    M.emit(cwd, "goal.met", role="evaluator", caused_by=ev.get("event_id"), refs={"goal": M.rel(cwd, gpath)},
-           goal_id=gid, eval_id=eid, sha256=M.digest(g))
+    M.record(cwd, "goal.met", M.rel(cwd, gpath), "evaluator", goal_id=gid, eval_id=eid, eval_event=ev.get("event_id"),
+             sha256=M.digest(g))
     print("[goal] %s met (eval %s)" % (gid, eid), file=sys.stderr)
     return 0
 

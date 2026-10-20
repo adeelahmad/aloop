@@ -22,6 +22,7 @@ import math
 import os
 import re
 import secrets
+import sys
 import time
 import uuid
 
@@ -51,7 +52,7 @@ STATUSES = {
     "state": ("recorded",),
     "eval": ("recorded",),
     "goal": ("derived", "approved", "active", "met", "retired", "blocked"),
-    "ethics": ("recorded",),
+    "ethics": ("draft", "recorded"),
     "rubric": ("proposed", "active", "retired"),
     "telemetry": ("off", "consented", "configured", "revoked"),
 }
@@ -87,10 +88,22 @@ def path_of(cwd, kind, artifact_id=""):
     return mdir(cwd, loc, artifact_id + ".json")
 
 
+def cli_text(argv):
+    """argv as the UTF-8 it was typed in, and a stdout/stderr that never crash on it, whatever the
+    locale: a C locale decodes argv as ASCII and leaves lone surrogates in it."""
+    for s in (sys.stdout, sys.stderr):
+        try:
+            s.reconfigure(errors="backslashreplace")
+        except (AttributeError, ValueError):
+            pass
+    return [os.fsencode(a).decode("utf-8", "replace") for a in argv]
+
+
 def canonical(doc, drop=UNHASHED):
-    """The canonical bytes of a document: sorted keys, no whitespace, `drop` fields removed."""
+    """The canonical bytes of a document: sorted keys, no whitespace, `drop` fields removed. A lone
+    surrogate (only a hand-edited file holds one) is encoded as is, so digesting never crashes."""
     body = {k: v for k, v in doc.items() if k not in drop}
-    return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    return json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8", "surrogatepass")
 
 
 def digest(doc, drop=UNHASHED):
@@ -99,7 +112,7 @@ def digest(doc, drop=UNHASHED):
 
 def load(path):
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f), None
     except (OSError, ValueError) as e:
         return None, str(e)
@@ -109,7 +122,7 @@ def save(path, doc):
     """Write atomically (a reader never sees half a file)."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = "%s.tmp.%d" % (path, os.getpid())
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=1, ensure_ascii=False)
         f.write("\n")
     os.replace(tmp, path)
@@ -153,6 +166,8 @@ def validate(doc, schema, where="$"):
             out.append("%s is empty" % where if not doc.strip() else "%s is too short" % where)
         if "pattern" in schema and not re.search(schema["pattern"], doc):
             out.append("%s does not match %s" % (where, schema["pattern"]))
+        if re.search("[\ud800-\udfff]", doc):
+            out.append("%s holds a lone surrogate, which is not text" % where)
     if isinstance(doc, float) and not math.isfinite(doc):
         return ["%s must be a finite number" % where]
     if isinstance(doc, (int, float)) and not isinstance(doc, bool):
@@ -180,7 +195,7 @@ def validate(doc, schema, where="$"):
 
 
 def schema(kind):
-    with open(os.path.join(SCHEMAS_DIR, kind + ".json")) as f:
+    with open(os.path.join(SCHEMAS_DIR, kind + ".json"), encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -209,8 +224,10 @@ def emit(cwd, event, role="", refs=None, **data):
 
 
 HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed",)
-# every record a mission gate decides from: the human decisions, plus what the harness measured
-LEDGER_EVENTS = HUMAN_EVENTS + ("baseline.measured", "journey.retired")
+# every record a mission gate decides from: the human decisions, plus what the harness measured,
+# assessed, retired, reviewed (a hard ethics line stays blocked on a fresh checkout) and derived
+LEDGER_EVENTS = HUMAN_EVENTS + ("baseline.measured", "state.assessed", "journey.retired", "ethics.reviewed",
+                                "ethics.blocked", "goal.derived", "goal.met")
 
 
 def ledger(cwd=None):
@@ -230,7 +247,7 @@ def ledger_rows(cwd):
     """(intact rows in file order, problems): one problem per malformed line, edited row, row
     whose predecessor is gone, or row dated before the row it follows."""
     try:
-        with open(ledger(cwd)) as f:
+        with open(ledger(cwd), encoding="utf-8") as f:
             lines = f.read().splitlines()
     except OSError:
         return [], []
@@ -260,30 +277,57 @@ def ledger_rows(cwd):
     return rows, bad
 
 
+def branch(cwd):
+    """The main worktree's branch (the ledger is that worktree's file), or "" on a detached HEAD."""
+    return _paths._git(_paths.project(cwd), "symbolic-ref", "-q", "--short", "HEAD")
+
+
+class LedgerBroken(RuntimeError):
+    """The ledger has problems, so no gate decides from it and no row is chained past them."""
+
+
 def ledger_problems(cwd):
-    """The ledger's own problems, plus every ledger event the run log recorded that the ledger lost."""
+    """The ledger's own problems, plus every ledger event the run log recorded on this branch that
+    the ledger lost (the run log is shared by every branch of the checkout; another branch's
+    ledger never had this branch's rows)."""
     rows, bad = ledger_rows(cwd)
     have = set(r.get("event_id") for r in rows)
+    here = None
     for e in _events.read(cwd):
-        if (e.get("data") or {}).get("ledger") is True and e.get("event_id") not in have:
-            bad.append("the ledger lost %s %s (the run log recorded it at %s)"
-                       % (e.get("event"), (e.get("data") or {}).get("subject"), e.get("ts")))
+        d = e.get("data")
+        if not isinstance(d, dict) or d.get("ledger") is not True or e.get("event_id") in have:
+            continue
+        here = branch(cwd) if here is None else here
+        if d.get("branch", here) == here:
+            bad.append("the ledger lost %s %s (the run log recorded it at %s)" % (e.get("event"), d.get("subject"), e.get("ts")))
     return bad
+
+
+def ledger_block(cwd, area):
+    """Print why and return 2 when the ledger is broken (nothing may decide from it), else 0."""
+    bad = ledger_problems(cwd)
+    for b in bad:
+        print("BLOCK[%s]: %s (restore it: git checkout -- %s)" % (area, b, rel(cwd, ledger(cwd))), file=sys.stderr)
+    return 2 if bad else 0
 
 
 def record(cwd, event, subject_ref, role, **data):
     """Append one record a gate decides from to the ledger (and the event stream); returns the row."""
     if event not in LEDGER_EVENTS:
         raise ValueError("not a ledger event: %r" % event)
+    bad = ledger_problems(cwd)
+    if bad:
+        raise LedgerBroken("; ".join(bad))
     body = dict(data, subject=subject_ref)
-    eid = emit(cwd, event, role=role, refs={"subject": subject_ref}, ledger=True, **body) or uuid.uuid4().hex
+    eid = emit(cwd, event, role=role, refs={"subject": subject_ref}, ledger=True, branch=branch(cwd), **body) \
+        or uuid.uuid4().hex
     rows, _ = ledger_rows(cwd)
     ts = max([now()] + [r["ts"] for r in rows[-1:]])
     row = {"event_id": eid, "ts": ts, "event": event, "role": role, "data": body,
            "prev": rows[-1]["hash"] if rows else ""}
     row["hash"] = _row_hash(row)
     os.makedirs(os.path.dirname(ledger(cwd)), exist_ok=True)
-    with open(ledger(cwd), "a") as f:
+    with open(ledger(cwd), "a", encoding="utf-8") as f:
         f.write(json.dumps(row, sort_keys=True) + "\n")
     return row
 
