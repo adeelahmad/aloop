@@ -26,6 +26,9 @@ Usage:
   mission telemetry debug-hit
         confirm the local secret is live on the stream (Admin API; Google's validation server
         does not check secrets), then send every active journey step's event to that server
+  mission telemetry verify
+        the live proof: one probe event through the real Measurement Protocol endpoint must
+        show in the stream's realtime report (MP answers 2xx even when it drops a hit)
   mission telemetry report [--realtime] [--json]
         the fixed Data API reports, scoped to the stream: settled (28 days ending 3 days ago,
         so ≥48h old) or realtime (a quick signal only); written to docs/agents/mission/telemetry/reports/
@@ -37,11 +40,14 @@ Usage:
         the structural check: consent covers the current terms; once consented, every active
         journey step's event is emitted by non-test code in this checkout; once set up, the
         app carries the stream's measurement id, the key events match the journeys and a
-        passing debug hit covers the current events. Usage numbers never change its exit.
+        passing debug hit covers the current events. Consent and revoke are read from the
+        committed ledger, active journeys from their records. Usage numbers never change its exit.
         Exit 0 ok (or off) · 2 block · 3 needs the human · 64 usage
 
 Environment: ALADDIN_GA_ACCESS_TOKEN (an OAuth access token), ALADDIN_GA_TOKEN_COMMAND (default
-`gcloud auth application-default print-access-token`), ALADDIN_GA_BASE (a loopback fake, tests only).
+`gcloud auth application-default print-access-token`), ALADDIN_GA_QUOTA_PROJECT (sent as
+x-goog-user-project, for user credentials), ALADDIN_GA_VERIFY_WAIT (seconds verify waits, default
+180), ALADDIN_GA_BASE (a loopback fake, tests only).
 """
 import glob
 import json
@@ -50,13 +56,14 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlencode, urlsplit
 
-import _events
 import _mission as M
 import _paths
+import journeys as J
 
 SCOPES = ("https://www.googleapis.com/auth/analytics.edit", "https://www.googleapis.com/auth/analytics.readonly")
 # Google's verbatim text for properties.acknowledgeUserDataCollection, which a Measurement Protocol
@@ -79,7 +86,7 @@ SETTLED = {"startDate": "30daysAgo", "endDate": "3daysAgo"}   # 28 days; the new
 # Aggregate dimensions only: agents never see a user or client id
 AGGREGATE_DIMENSIONS = {"eventName", "date", "newVsReturning", "deviceCategory"}
 REPORTS = {
-    "users": {"api": "runReport", "body": {"dateRanges": [SETTLED], "metrics": [
+    "users": {"api": "runReport", "no_probe": True, "body": {"dateRanges": [SETTLED], "metrics": [
         {"name": "totalUsers"}, {"name": "newUsers"}, {"name": "activeUsers"}]}},
     "journeys": {"api": "runReport", "events": True, "body": {"dateRanges": [SETTLED], "dimensions": [
         {"name": "eventName"}], "metrics": [{"name": "eventCount"}, {"name": "totalUsers"}]}},
@@ -88,20 +95,24 @@ REPORTS = {
 }
 SETTLED_REPORTS = ("users", "journeys")
 
-# GA4 event names, conservatively: an ASCII letter, then letters, digits or _, at most 40; the
-# Measurement Protocol's reserved names (plus the app-only ones) and Firebase's reserved prefixes
+# GA4 event names, conservatively: an ASCII letter, then letters, digits or _, at most 40
 EVENT_NAME = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,39}$")
+# Measurement Protocol's reserved names (plus the app-only ones) and Firebase's reserved prefixes,
+# never fewer than journeys (M9.3) refuses
 RESERVED = {"ad_activeview", "ad_click", "ad_exposure", "ad_impression", "ad_query", "ad_reward", "adunit_exposure",
-            "app_clear_data", "app_exception", "app_install", "app_remove", "app_store_refund", "app_update",
-            "app_upgrade", "dynamic_link_app_open", "dynamic_link_app_update", "dynamic_link_first_open", "error",
-            "firebase_campaign", "firebase_in_app_message_action", "firebase_in_app_message_dismiss",
-            "firebase_in_app_message_impression", "first_open", "first_visit", "in_app_purchase",
-            "notification_dismiss", "notification_foreground", "notification_open", "notification_receive",
-            "notification_send", "os_update", "screen_view", "session_start", "user_engagement"}
-RESERVED_PREFIXES = ("_", "firebase_", "ga_", "google_")
+            "app_background", "app_clear_data", "app_exception", "app_install", "app_remove", "app_store_refund",
+            "app_store_subscription_cancel", "app_store_subscription_convert", "app_store_subscription_renew",
+            "app_update", "app_upgrade", "dynamic_link_app_open", "dynamic_link_app_update",
+            "dynamic_link_first_open", "error", "firebase_campaign", "firebase_in_app_message_action",
+            "firebase_in_app_message_dismiss", "firebase_in_app_message_impression", "first_open", "first_visit",
+            "in_app_purchase", "notification_dismiss", "notification_foreground", "notification_open",
+            "notification_receive", "notification_send", "os_update", "screen_view", "session_start",
+            "session_start_with_rollout", "user_engagement"} | set(J.GA4_RESERVED_NAMES)
+RESERVED_PREFIXES = tuple(sorted({"_", "firebase_", "ga_", "google_"} | set(J.GA4_RESERVED)))
 MP_BATCH = 25                     # events per Measurement Protocol request (the validator does not enforce it)
-DEBUG_CLIENT_ID = "aloop.debug"   # the debug hit's client id: no user's
-PROBE_EVENT = "aloop_probe"       # sent when no journey has events yet, to prove the wiring
+DEBUG_CLIENT_ID = "1000000001.1000000001"   # the debug hit's and probe's client id (GA's random.timestamp form): no user's
+PROBE_EVENT = "aloop_probe"       # the debug hit's event while no journey has events; verify's live probe
+VERIFY_WAIT, VERIFY_EVERY, VERIFY_MAX = 180, 15, 900   # seconds: realtime data usually shows within a minute
 SECRET_NAME = "aloop"
 
 # the emit check reads this checkout's code, not docs, data or tests
@@ -160,21 +171,23 @@ def current(cwd):
 
 
 def consent_state(cwd, path, doc):
-    """none | revoked | stale (the last consent covers other terms) | ok, from human events only:
-    an event any other role wrote is not a consent (approval provenance itself is M9.17)."""
-    ref, last = M.rel(cwd, path), None
-    for e in _events.read(cwd):
-        if e.get("event") in ("telemetry.consent", "telemetry.revoked") and e.get("role") == "human" \
-                and (e.get("data") or {}).get("subject") == ref:
-            last = e
+    """none | broken | revoked | stale (the newest consent covers other terms) | ok: the record's
+    newest human consent or revoke in the committed ledger decides, so a fresh checkout keeps it.
+    Newest is by time, not file order (a union merge appends a branch's older rows after newer
+    ones). A row any other role wrote is not a decision (approval provenance itself is M9.17), and
+    while the ledger fails its own check (an edited or lost row may be a revoke) nothing is decided."""
+    if M.ledger_problems(cwd):
+        return "broken", None
+    ref = M.rel(cwd, path)
+    mine = [(r["ts"], i, r) for i, r in enumerate(M.ledger_rows(cwd)[0])
+            if r["event"] in ("telemetry.consent", "telemetry.revoked") and r.get("role") == "human"
+            and r["data"].get("subject") == ref]
+    last = max(mine, key=lambda x: x[:2])[2] if mine else None
     if last is None:
         return "none", None
     if last["event"] == "telemetry.revoked":
         return "revoked", last
-    sha = terms_sha(doc)
-    if (last.get("data") or {}).get("sha256") == sha and M.approved(cwd, "telemetry.consent", ref, sha):
-        return "ok", last
-    return "stale", last
+    return ("ok" if last["data"].get("sha256") == terms_sha(doc) else "stale"), last
 
 
 def bound(doc):
@@ -187,7 +200,7 @@ def derive_status(cwd, path, doc):
     if state == "revoked":
         return "revoked"
     if state != "ok":
-        return "off"
+        return "off"            # none, stale or broken
     return "configured" if bound(doc) else "consented"
 
 
@@ -202,7 +215,7 @@ def consented(cwd):
     if doc is None:
         say("ASK", OPT_IN)
         return None, None, 3
-    bad = M.problems(doc, "telemetry", path)
+    bad = M.problems(doc, "telemetry", path) + ledger_problems(cwd)
     if bad:
         for b in bad:
             say("BLOCK", b)
@@ -220,6 +233,11 @@ def consented(cwd):
         say("ASK", "not consented yet: a human reviews `aloop mission telemetry show` and runs "
             "`aloop mission telemetry consent --by NAME`")
     return path, doc, 3
+
+
+def ledger_problems(cwd):
+    """The ledger holds the consent: while it fails its own check, no decision read from it holds."""
+    return ["%s (recover: `git checkout -- %s`)" % (b, M.rel(cwd, M.ledger(cwd))) for b in M.ledger_problems(cwd)]
 
 
 def store(path, doc):
@@ -261,24 +279,31 @@ def local_time_zone():
     return tz if ok else "America/Los_Angeles"
 
 
-# ── journeys (M9.3's files, read by contract fields only) and the emit check ─────────
+# ── journeys (M9.3's records) and the emit check ─────────────────────────────────────
 def journeys(cwd):
-    """Active journeys as [(name, [step event, …])], oldest first."""
+    """[(title, [step event, …], drifted)] of every journey the records bind, oldest first: one a
+    confirmed baseline froze, or a frozen one's recorded replacement, and not retired; never the
+    hand-editable status field. drifted: its content is not what the records pinned."""
+    frozen, pinned = J.pins(cwd)
     out = []
-    for _, d in M.artifacts(cwd, "journey"):
-        if d.get("status") == "active":
-            evs = [s.get("event") for s in d.get("steps") or [] if isinstance(s, dict) and isinstance(s.get("event"), str)]
-            out.append((d.get("name") or d.get("journey_id"), evs))
+    for p, d in M.artifacts(cwd, "journey"):
+        jid = d.get("journey_id")
+        if not isinstance(jid, str) or jid not in pinned or J.lifecycle(cwd, p, d, frozen) == "retired":
+            continue
+        steps = d.get("steps") if isinstance(d.get("steps"), list) else []
+        evs = [s["event"] for s in steps if isinstance(s, dict) and isinstance(s.get("event"), str)]
+        out.append((d["title"] if isinstance(d.get("title"), str) else jid, evs,
+                    M.digest(J.unretired(d)) != pinned[jid]))
     return out
 
 
 def journey_events(cwd):
-    return sorted({e for _, evs in journeys(cwd) for e in evs})
+    return sorted({e for _, evs, _ in journeys(cwd) for e in evs})
 
 
 def key_events(cwd):
     """The key event of each active journey: its last step's event."""
-    return sorted({evs[-1] for _, evs in journeys(cwd) if evs and not name_problem(evs[-1])})
+    return sorted({evs[-1] for _, evs, _ in journeys(cwd) if evs and not name_problem(evs[-1])})
 
 
 def events_sha(evs):
@@ -286,10 +311,12 @@ def events_sha(evs):
 
 
 def name_problem(name):
-    if not EVENT_NAME.match(name):
+    if not EVENT_NAME.fullmatch(name):
         return "must start with a letter and use only letters, digits and _ (at most 40)"
-    if name in RESERVED or name.startswith(RESERVED_PREFIXES):
+    if name in RESERVED or name.lower().startswith(RESERVED_PREFIXES):
         return "is reserved by Google Analytics"
+    if name == PROBE_EVENT:
+        return "is aloop's own probe event (a journey step that sent it would make verify prove nothing)"
     return None
 
 
@@ -391,6 +418,8 @@ def call(method, api, path, body=None, tok=None, query=None):
     headers = {"Content-Type": "application/json"}
     if tok:
         headers["Authorization"] = "Bearer " + tok
+    if api != "mp" and _paths.env("GA_QUOTA_PROJECT"):
+        headers["x-goog-user-project"] = _paths.env("GA_QUOTA_PROJECT")     # user credentials bill a project
     req = urllib.request.Request(url, data=None if body is None else json.dumps(body).encode(), headers=headers,
                                  method=method)
     # a loopback fake is reached directly, never through a proxy
@@ -464,7 +493,9 @@ def cmd_init(cwd, o):
     terms = {"uri": uri,
              "purpose": "usage of %s informs research and goal-setting for the mission; it is never a gate" % uri,
              "collects": ["the app's Google Analytics 4 web measurement on this uri",
-                          "one event per user-journey step (its name and engagement time)"],
+                          "one event per user-journey step (its name and engagement time)",
+                          "a synthetic %s event from client id %s each time agents verify the setup"
+                          % (PROBE_EVENT, DEBUG_CLIENT_ID)],
              "agents_see": "aggregate counts of this uri's stream only (event name, users, new users) from fixed "
                            "report definitions; never a user or client id",
              "acknowledgement": ACKNOWLEDGEMENT, "credential": CREDENTIAL, "scopes": list(SCOPES),
@@ -476,10 +507,10 @@ def cmd_init(cwd, o):
         doc = {"telemetry_id": tid, "status": "off", "created_at": M.now(), "provider": "ga4",
                "mission_id": mission.get("mission_id"), "terms": terms, "settings": settings, "account": None,
                "property": None, "acknowledged": False, "stream": None, "secret": None, "key_events": [],
-               "debug_hit": None}
+               "debug_hit": None, "verified": None}
     else:
         if (doc.get("terms") or {}).get("uri") != uri:     # another uri: the old stream measures something else
-            doc.update(stream=None, secret=None, key_events=[], debug_hit=None)
+            doc.update(stream=None, secret=None, key_events=[], debug_hit=None, verified=None)
         doc.update(terms=terms, settings=settings)
     doc["status"] = derive_status(cwd, path, doc)
     store(path, doc)
@@ -526,9 +557,7 @@ def cmd_revoke(cwd, o):
         say("ASK", OPT_IN)
         return 3
     by, reason = who(o, "revoke")
-    ref = M.rel(cwd, path)
-    M.emit(cwd, "telemetry.revoked", role="human", refs={"subject": ref}, subject=ref, by=by, reason=reason,
-           telemetry_id=doc.get("telemetry_id"))
+    M.record_human(cwd, "telemetry.revoked", M.rel(cwd, path), by, reason, telemetry_id=doc.get("telemetry_id"))
     try:
         os.remove(secret_file(cwd, doc["telemetry_id"]))
     except OSError:
@@ -537,7 +566,8 @@ def cmd_revoke(cwd, o):
     M.save(path, doc)       # status is outside the digest: the seal still holds
     print("[telemetry] %s revoked by %s: agents stop setup, debug hits and usage reports, usage no longer drives "
           "goals, and the local Measurement Protocol secret is deleted. The app's own GA tag keeps sending until "
-          "it is removed (`aloop mission telemetry check` names where it is)." % (doc["telemetry_id"], by),
+          "it is removed (`aloop mission telemetry check` names where it is). Commit the ledger so every "
+          "checkout sees the revoke." % (doc["telemetry_id"], by),
           file=sys.stderr)
     return 0
 
@@ -603,7 +633,7 @@ def cmd_setup(cwd, o):
             return rc
         if prop != doc.get("property"):
             doc.update(account=acct, property=prop, acknowledged=False, stream=None, secret=None, key_events=[],
-                       debug_hit=None)
+                       debug_hit=None, verified=None)
         store(path, doc)                         # progress survives a later failure: a rerun reuses it
         if not doc.get("acknowledged"):
             call("POST", "admin", "/v1beta/%s:acknowledgeUserDataCollection" % prop,
@@ -619,7 +649,7 @@ def cmd_setup(cwd, o):
                       "webStreamData": {"defaultUri": uri}}, tok)
         stream = {"name": s["name"], "measurement_id": s["webStreamData"]["measurementId"], "default_uri": uri}
         if stream != doc.get("stream"):
-            doc.update(stream=stream, secret=None, debug_hit=None)
+            doc.update(stream=stream, secret=None, debug_hit=None, verified=None)
         store(path, doc)
         local = read_secret(cwd, tid)
         secrets = listall("/v1beta/%s/measurementProtocolSecrets" % s["name"], "measurementProtocolSecrets", tok)
@@ -632,7 +662,9 @@ def cmd_setup(cwd, o):
             raise GAError(0, "NO_SECRET", "Google returned no Measurement Protocol secret value")
         write_secret(cwd, tid, {"telemetry_id": tid, "stream": s["name"], "name": sec["name"],
                                 "api_secret": sec["secretValue"]})
-        doc["secret"] = {"name": sec["name"], "display_name": sec.get("displayName") or SECRET_NAME}
+        secret = {"name": sec["name"], "display_name": sec.get("displayName") or SECRET_NAME}
+        if secret != doc.get("secret"):
+            doc.update(secret=secret, verified=None)     # a new secret never round-tripped
         want = key_events(cwd)
         have = {k.get("eventName") for k in listall("/v1beta/%s/keyEvents" % prop, "keyEvents", tok)}
         for ev in sorted(set(want) - have):
@@ -650,15 +682,34 @@ def cmd_setup(cwd, o):
     return 0
 
 
+def secret_live(doc, sec, tok):
+    """Google's validation server checks the payload, never the secret: prove it on the Admin API."""
+    live = listall("/v1beta/%s/measurementProtocolSecrets" % doc["stream"]["name"], "measurementProtocolSecrets", tok)
+    return any(x.get("name") == sec.get("name") and x.get("secretValue") == sec["api_secret"] for x in live)
+
+
+def not_live(doc):
+    return ("the local Measurement Protocol secret is not live on %s (deleted or for another stream): rerun "
+            "`aloop mission telemetry setup`" % doc["stream"]["name"])
+
+
+def ready(cwd, doc):
+    """(secret, rc): the stream and its local secret, or a block naming setup."""
+    sec = read_secret(cwd, doc["telemetry_id"])
+    if not bound(doc) or not sec:
+        say("BLOCK", "not set up for %s on this machine: `aloop mission telemetry setup` first" % doc["terms"]["uri"])
+        return None, 2
+    return sec, 0
+
+
 def cmd_debug_hit(cwd, o):
     path, doc, rc = consented(cwd)
     if rc:
         return rc
     endpoint("mp")
-    sec = read_secret(cwd, doc["telemetry_id"])
-    if not bound(doc) or not sec:
-        say("BLOCK", "not set up for %s on this machine: `aloop mission telemetry setup` first" % doc["terms"]["uri"])
-        return 2
+    sec, rc = ready(cwd, doc)
+    if rc:
+        return rc
     evs = journey_events(cwd)
     bad = ["event %r %s" % (e, name_problem(e)) for e in evs if name_problem(e)]
     for b in bad:
@@ -670,12 +721,9 @@ def cmd_debug_hit(cwd, o):
         return 3
     mid, msgs, send = doc["stream"]["measurement_id"], [], evs or [PROBE_EVENT]
     try:
-        # Google's validation server checks the payload, never the secret: prove the secret on the Admin API
-        live = listall("/v1beta/%s/measurementProtocolSecrets" % doc["stream"]["name"], "measurementProtocolSecrets", tok)
-        if not any(x.get("name") == sec.get("name") and x.get("secretValue") == sec["api_secret"] for x in live):
+        if not secret_live(doc, sec, tok):
             msgs.append({"fieldPath": "api_secret", "validationCode": "SECRET_NOT_LIVE",
-                         "description": "the local Measurement Protocol secret is not live on %s (deleted or for "
-                                        "another stream): rerun `aloop mission telemetry setup`" % doc["stream"]["name"]})
+                         "description": not_live(doc)})
         else:
             for i in range(0, len(send), MP_BATCH):
                 body = {"client_id": DEBUG_CLIENT_ID, "validation_behavior": "ENFORCE_RECOMMENDATIONS",
@@ -720,15 +768,102 @@ def simplify(r):
             "thresholded": bool(meta.get("subjectToThresholding")), "data_loss": bool(meta.get("dataLossFromOtherRow"))}
 
 
+def probes(doc, tok):
+    """The probe events the stream's realtime report counts (the last 30 minutes)."""
+    r = simplify(call("POST", "data", "/v1beta/%s:runRealtimeReport" % doc["property"],
+                      request("realtime", [PROBE_EVENT], stream_id(doc)), tok))
+    return sum(int(x.get("eventCount") or 0) for x in r["rows"] if x.get("eventName") == PROBE_EVENT)
+
+
+def verify_wait():
+    try:
+        wait = float(_paths.env("GA_VERIFY_WAIT") or VERIFY_WAIT)
+    except ValueError:
+        wait = -1
+    if not 0 <= wait <= VERIFY_MAX:
+        raise Usage("ALADDIN_GA_VERIFY_WAIT must be 0 to %d seconds" % VERIFY_MAX)
+    return wait
+
+
+def still(cwd, doc):
+    """The consent and setup verify started from still hold (a revoke or a new setup may land meanwhile)."""
+    path, now = current(cwd)
+    return now is not None and now.get("telemetry_id") == doc["telemetry_id"] and now.get("stream") == doc["stream"] \
+        and consent_state(cwd, path, now)[0] == "ok"
+
+
+def cmd_verify(cwd, o):
+    """The live proof (M9.14): one probe through the real Measurement Protocol endpoint must reach
+    the stream's realtime report. MP answers 2xx even when it drops a hit (a wrong secret or
+    measurement id), so nothing short of this round-trip proves the setup."""
+    path, doc, rc = consented(cwd)
+    if rc:
+        return rc
+    endpoint("mp")
+    endpoint("data")
+    wait = verify_wait()
+    sec, rc = ready(cwd, doc)
+    if rc:
+        return rc
+    tok = need_token()
+    if not tok:
+        return 3
+    mid = doc["stream"]["measurement_id"]
+    changed = ("the consent or setup changed while verify ran (a revoke, new terms or a new stream): nothing "
+               "recorded; rerun `aloop mission telemetry verify` once it is consented and set up")
+    try:
+        if not secret_live(doc, sec, tok):
+            say("BLOCK", not_live(doc))
+            return 2
+        before = probes(doc, tok)
+        # Realtime shows a Measurement Protocol event only with a session id and engagement time
+        call("POST", "mp", "/mp/collect", {"client_id": DEBUG_CLIENT_ID, "events": [
+            {"name": PROBE_EVENT, "params": {"session_id": str(int(time.time())), "engagement_time_msec": 1}}]},
+             query={"measurement_id": mid, "api_secret": sec["api_secret"]})
+        deadline = time.time() + wait
+        while True:
+            if not still(cwd, doc):
+                say("ASK", changed)
+                return 3
+            after = probes(doc, tok)
+            left = deadline - time.time()
+            if after > before or left <= 0:
+                break
+            before = min(before, after)      # older probes left the 30-minute window: count from here
+            time.sleep(min(VERIFY_EVERY, left))
+    except GAError as e:
+        return ga_failed(e)
+    if not still(cwd, doc):
+        say("ASK", changed)
+        return 3
+    path, doc = current(cwd)
+    ok = after > before
+    doc["verified"] = {"at": M.now(), "ok": ok, "measurement_id": mid, "before": before, "after": after}
+    store(path, doc)
+    M.emit(cwd, "telemetry.setup", role="mission", refs={"telemetry": M.rel(cwd, path)}, action="verify",
+           telemetry_id=doc["telemetry_id"], ok=ok)
+    if not ok:
+        say("BLOCK", "the %s probe sent to %s did not reach the stream's realtime report within %ds: Google "
+            "dropped it (a wrong secret or measurement id answers 2xx too) or is slow; rerun "
+            "`aloop mission telemetry verify`, then `setup`" % (PROBE_EVENT, mid, wait))
+        return 2
+    print("[telemetry] verified live: the probe reached %s (realtime %s: %d -> %d)" % (mid, PROBE_EVENT, before, after),
+          file=sys.stderr)
+    return 0
+
+
 def stream_id(doc):
     return doc["stream"]["name"].rsplit("/", 1)[-1]
 
 
 def request(name, events, stream):
-    """The exact body sent for a fixed report: its definition, scoped to the consented stream and,
-    for event reports, to the journey events."""
+    """The exact body sent for a fixed report: its definition, scoped to the consented stream,
+    without the probe's client for user counts and, for event reports, to the journey events."""
     body = json.loads(json.dumps(REPORTS[name]["body"]))
     exprs = [{"filter": {"fieldName": "streamId", "stringFilter": {"matchType": "EXACT", "value": stream}}}]
+    if REPORTS[name].get("no_probe"):        # verify's probe client is no user
+        exprs.append({"notExpression": {"filter": {"fieldName": "eventName", "stringFilter": {
+            "matchType": "EXACT", "value": PROBE_EVENT}}}})
     if REPORTS[name].get("events"):
         exprs.append({"filter": {"fieldName": "eventName", "inListFilter": {"values": sorted(events)}}})
     body["dimensionFilter"] = exprs[0] if len(exprs) == 1 else {"andGroup": {"expressions": exprs}}
@@ -802,7 +937,8 @@ def latest_share(cwd):
     path, doc = current(cwd)
     none = {"usage": 0, "research": 1, "report": None}
     if doc is None or consent_state(cwd, path, doc)[0] != "ok":
-        return dict(none, reason="telemetry is off, revoked or not consented: research only")
+        return dict(none, reason="telemetry is off, revoked, not consented, or its ledger fails its check: "
+                                 "research only")
     stream = (doc.get("stream") or {}).get("name") if bound(doc) else None
     for p in sorted(glob.glob(M.mdir(cwd, "telemetry", "reports", "*.json")), reverse=True):
         rep, _ = M.load(p)
@@ -829,7 +965,7 @@ def evaluate(cwd):
     path, doc = current(cwd)
     if doc is None:
         return 0, [], {"status": "off", "note": "telemetry off (opt-in): nothing to check"}
-    bad = M.problems(doc, "telemetry", path)
+    bad = M.problems(doc, "telemetry", path) + ledger_problems(cwd)
     facts = {"telemetry_id": doc.get("telemetry_id"), "path": M.rel(cwd, path), "status": doc.get("status")}
     if bad:
         return 2, bad, facts
@@ -847,12 +983,16 @@ def evaluate(cwd):
         return 3, ["the consent does not cover the current terms: a human runs "
                    "`aloop mission telemetry consent --by NAME`"], facts
     js, problems = journeys(cwd), []
-    evs = sorted({e for _, x in js for e in x})
+    for j, _, drifted in js:
+        if drifted:
+            problems.append("journey %r changed after the records pinned it: `aloop mission journeys check` names "
+                            "the fix" % j)
+    evs = sorted({e for _, x, _ in js for e in x})
     for e in evs:
         if name_problem(e):
             problems.append("journey event %r %s" % (e, name_problem(e)))
     found = emitted(cwd, evs)
-    missing = [{"journey": j, "event": e} for j, x in js for e in x if e not in found]
+    missing = [{"journey": j, "event": e} for j, x, _ in js for e in x if e not in found]
     for m in missing:
         problems.append("journey %r step event %r is not emitted by any non-test source file (instrumentation is "
                         "part of done)" % (m["journey"], m["event"]))
@@ -869,6 +1009,8 @@ def evaluate(cwd):
         if doc.get("key_events") != key_events(cwd):
             problems.append("the key events %s do not match the active journeys' last steps %s: "
                             "`aloop mission telemetry setup`" % (doc.get("key_events"), key_events(cwd)))
+        facts["verified"] = bool((doc.get("verified") or {}).get("ok")
+                                 and doc["verified"].get("measurement_id") == mid)
         dh = doc.get("debug_hit")
         if not dh:
             problems.append("no debug hit yet: `aloop mission telemetry debug-hit`")
@@ -908,8 +1050,10 @@ def cmd_show(cwd, o):
               doc["telemetry_id"], doc.get("status"), state, t["uri"], t["purpose"], "; ".join(t["collects"]),
               t["agents_see"], t["others"], t["acknowledgement"], t["credential"], " ".join(t["scopes"])))
     if doc.get("property"):
-        print("Property: %s · stream %s · key events: %s" % (doc["property"], (doc.get("stream") or {}).get(
-            "measurement_id"), ", ".join(doc.get("key_events") or []) or "none"))
+        v = doc.get("verified") or {}
+        print("Property: %s · stream %s · key events: %s · verified live: %s" % (
+            doc["property"], (doc.get("stream") or {}).get("measurement_id"),
+            ", ".join(doc.get("key_events") or []) or "none", v.get("at") if v.get("ok") else "no"))
     return 0
 
 
@@ -921,6 +1065,7 @@ def cmd_auth(cwd, o):
 CMDS = {"init": (cmd_init, {"uri", "name", "time_zone", "force"}), "consent": (cmd_consent, {"by", "reason"}),
         "revoke": (cmd_revoke, {"by", "reason"}), "auth": (cmd_auth, set()),
         "setup": (cmd_setup, {"account", "property"}), "debug-hit": (cmd_debug_hit, set()),
+        "verify": (cmd_verify, set()),
         "report": (cmd_report, {"realtime", "json"}), "share": (cmd_share, {"json"}), "show": (cmd_show, {"json"}),
         "check": (cmd_check, {"json"})}
 FLAGS = {"json", "force", "realtime"}

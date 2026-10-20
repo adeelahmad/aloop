@@ -231,6 +231,7 @@ def emit(cwd, event, role="", refs=None, **data):
     return _events.emit(cwd, event, role=role, refs=refs, **data)
 
 
+# a human decision that is not an approval: a veto, an opt-out
 HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed", "telemetry.revoked")
 # every record a mission gate decides from: the human decisions, plus what the harness measured,
 # assessed, retired, reviewed (a hard ethics line stays blocked on a fresh checkout) and derived
