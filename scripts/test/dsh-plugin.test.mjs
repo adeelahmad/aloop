@@ -4,7 +4,7 @@
 // dsh-runtime.test.mjs runs the same plugin on dsh itself; this one covers what a scripted model
 // cannot reach cheaply: the budget limits, the STUCK release, the cancel, the fallbacks.
 import { execFileSync } from "node:child_process"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -42,7 +42,10 @@ function host(config) {
   const ctx = {
     on: (ev, fn) => { on[ev] = fn },
     get: (name) => name === "workingDirectory"
-      ? { get: (session) => wd.get(session?.header?.id), set: async (agent, p) => { wd.set(agent.session.header.id, p); return p } } : undefined,
+      ? { get: (session) => wd.get(session?.header?.id), set: async (agent, p) => { wd.set(agent.session.header.id, p); return p },
+          // dsh's ensure(): a directory that vanished is replaced by the session's first one (header.cwd)
+          ensure: async (agent) => { const h = agent.session.header, c = wd.get(h.id); if (c && existsSync(c)) return c; wd.set(h.id, h.cwd); return h.cwd } }
+      : undefined,
   }
   return { on, wd, ctx, config }
 }
@@ -144,6 +147,11 @@ assert.ok(allowed(await pre(h, child, "write", { file_path: "tests/a.rs", conten
 assert.ok(denied(await pre(h, child, "write", { file_path: join(T, "src/lib.rs"), content: "x" }), /inside your worktree/))
 assert.ok(allowed(await pre(h, child, "read", { file_path: join(story, "init.md") })))
 ok("a bound writer: commands and relative edits in the worktree; edits outside it denied; reads anywhere")
+mkdirSync(join(wt, "gone")); h.wd.set("child", join(wt, "gone")); rmSync(join(wt, "gone"), { recursive: true })
+assert.ok(denied(await pre(h, child, "write", { file_path: "VANISH.txt", content: "x" }), /edit only files inside your worktree/))
+assert.ok(denied(await pre(h, child, "bash", { command: "touch VANISH" }), /inside your worktree/) && h.wd.get("child") === T)
+ok("a working directory that vanished is judged where dsh's tools will run (the session's first one, the main tree)")
+h.wd.set("child", wt)
 
 // token ledger + time box, Claude-shaped per role
 await usage(h, child, "m1", 120, 10, { cacheReadTokens: 0 })              // no cache-write count reported
@@ -249,5 +257,41 @@ for (const k of ["DEEPSEEK_API_KEY", "GITHUB_TOKEN", "DSH_SESSION_ID", "DSH_HOME
 for (const kv of ["AGENTIC_HOST=dsh", `CLAUDE_PLUGIN_ROOT=${FR}`, "TOKENS_SOFT=5", "AGENTIC_TOKENS_X=1", `HOME=${process.env.HOME}`, "GIT_CONFIG_KEY_0=core.pager"]) assert.ok(genv.includes(`\n${kv}\n`) || genv.startsWith(`${kv}\n`), kv)
 for (const k of ["DEEPSEEK_API_KEY", "GITHUB_TOKEN", "DSH_SESSION_ID", "TOKENS_SOFT", "AGENTIC_TOKENS_X", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"]) delete process.env[k]
 ok("a gate never sees the API key (dsh's shell scrub), keeps aloop's settings and git's config set whole, and gets the plugin root")
+
+// a gate switch dsh loaded from the launch directory's .env (it may come with a clone) never reaches a gate;
+// one the user exported at launch does
+const LD = join(T, "launch"); mkdirSync(LD)
+writeFileSync(join(LD, ".env"), "SKIP_HOOKS=1\nGATE_RUN_TESTS=0\nREPO_DIR=/elsewhere\nAGENTIC_NO_BUDGET=1\nDATABASE_URL=pg://x\nSCOPE_GLOBS=*\n")
+Object.assign(process.env, { SKIP_HOOKS: "1", GATE_RUN_TESTS: "0", REPO_DIR: "/elsewhere", AGENTIC_NO_BUDGET: "1", DATABASE_URL: "pg://x", SCOPE_GLOBS: "src/**" })
+const here = process.cwd(); process.chdir(LD)
+const fe = host({ root: FR })
+plugin.apply(fe.ctx, fe.config)
+process.chdir(here)
+await pre(fe, agentOf("root4"), "bash", { command: "ls" })
+const fenv = readFileSync(join(FR, "env.txt"), "utf8")
+for (const k of ["SKIP_HOOKS", "GATE_RUN_TESTS", "REPO_DIR", "AGENTIC_NO_BUDGET"]) assert.ok(!new RegExp(`^${k}=`, "m").test(fenv), k)
+assert.ok(/^DATABASE_URL=pg:\/\/x$/m.test(fenv) && /^SCOPE_GLOBS=src\/\*\*$/m.test(fenv), fenv)
+for (const k of ["SKIP_HOOKS", "GATE_RUN_TESTS", "REPO_DIR", "AGENTIC_NO_BUDGET", "DATABASE_URL", "SCOPE_GLOBS"]) delete process.env[k]
+ok("a gate switch from the project's .env (SKIP_HOOKS, GATE_RUN_TESTS, REPO_DIR, AGENTIC_*) never reaches a gate; an exported one and other names do")
+
+// the one dsh profile serves one project: a session in another is told how to switch it
+const fo = host({ root: ROOT, project: "/elsewhere", models: { subagent: "deepseek-flash", subagent_planning: "deepseek-v4-pro" } })
+plugin.apply(fo.ctx, fo.config)
+const r6 = agentOf("root6")
+await fo.on["agent/created"]({ agent: r6, source: "startup" })
+assert.ok(/rendered for \/elsewhere.*aloop install dsh --project/s.test(textOf(r6.injected[0])), textOf(r6.injected[0]))
+const fs = host({ root: ROOT, project: realpathSync(T), models: {} })
+plugin.apply(fs.ctx, fs.config)
+const r7 = agentOf("root7")
+await fs.on["agent/created"]({ agent: r7, source: "startup" })
+assert.ok(!/rendered for/.test(textOf(r7.injected[0])))
+ok("a session in a project the dsh profile does not serve is told to run `aloop install dsh` there (its role models are another project's)")
+
+// an interrupted supervisor Stop still delivers the sprint-close notice (stats announces it once)
+const r5 = agentOf("root5")
+writeFileSync(join(T, ".aladdin/state/pending-close"), "Sprint 2 closed. Tokens — sprint: 1k\n")
+await h.on["agent/turn-stopping"]({ agent: r5, turn: 1, signal: AbortSignal.abort() })
+assert.ok(!r5.steered.length && r5.injected.some((m) => /Sprint 2 closed/.test(textOf(m))), JSON.stringify(r5.injected))
+ok("an interrupted supervisor Stop queues the sprint-close notice for its next turn instead of dropping it")
 
 console.log(`\n${pass} checks passed`)

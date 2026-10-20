@@ -112,10 +112,10 @@ os.makedirs(os.path.join(wt, ".aladdin"), exist_ok=True)
 open(os.path.join(wt, ".aladdin", "task.env"), "w").write("TASK_ID=S1-02-T1\nATTEMPT=1\nAGENT_ROLE=red-worker\n")
 
 
-def pre(tool, ti, role="red-worker", agent="dsh-child-1"):
+def pre(tool, ti, role="red-worker", agent="dsh-child-1", host="dsh"):
     p = {"hook_event_name": "PreToolUse", "cwd": T, "session_id": "root", "agent_id": agent, "agent_type": role,
          "transcript_path": os.path.join(T, ".aladdin", "host", "dsh", "root.jsonl"), "tool_name": tool, "tool_input": ti}
-    out = run(os.path.join(BIN, "host-adapter"), "hook", AGENTIC_HOST="dsh", inp=json.dumps(p)).stdout.strip()
+    out = run(os.path.join(BIN, "host-adapter"), "hook", AGENTIC_HOST=host, inp=json.dumps(p)).stdout.strip()
     return json.loads(out)["hookSpecificOutput"]["permissionDecisionReason"] if out else ""
 
 
@@ -128,13 +128,13 @@ reg = json.load(open(os.path.join(T, ".aladdin", "state", "agents", "dsh-child-1
 assert reg["worktree"] == wt and reg["host"] == "dsh", reg
 ok("dsh: a writer is refused until `aloop bind`, which host-adapter records; readers are not confined")
 assert pre("Bash", {"command": "cargo test", "workdir": wt}) == ""
+os.makedirs(os.path.join(wt, "src"), exist_ok=True)                    # dsh runs only in a directory that exists
 assert pre("Bash", {"command": "cargo test", "workdir": os.path.join(wt, "src")}) == ""
 assert "inside your worktree" in pre("Bash", {"command": "cargo test", "workdir": T})
 assert pre("Bash", {"command": "cd %s && cargo test" % wt, "workdir": T}) == ""
 assert "stay in your worktree" in pre("Bash", {"command": "cd %s && git commit -am x" % T, "workdir": wt})
 assert "stay in your worktree" in pre("Bash", {"command": "cd .. && touch x", "workdir": wt})
 assert "stay in your worktree" in pre("Bash", {"command": "cd && touch x", "workdir": wt})
-os.makedirs(os.path.join(wt, "src"), exist_ok=True)
 assert pre("Bash", {"command": "cd src && cargo test", "workdir": wt}) == ""
 assert pre("Bash", {"command": "cd src; cargo test", "workdir": wt}) == ""
 ok("dsh: a bound writer's command runs only in (or `cd`s into) its worktree, never `cd`s out of it")
@@ -160,5 +160,23 @@ assert pre("Bash", {"command": "cd %s && aloop bind %s" % (wt, wt), "workdir": T
 assert "inside your worktree" in pre("Bash", {"command": "touch x; aloop bind %s" % wt, "workdir": T}, agent="dsh-child-2")
 assert json.load(open(os.path.join(T, ".aladdin", "state", "agents", "dsh-child-2.json")))["worktree"] == wt
 ok("only a bare `aloop bind` skips the checks: a bind in a comment or chained to a command is confined (and still recorded)")
+assert "inside your worktree" in pre("Bash", {"command": "aloop bind %s;touch x" % wt, "workdir": T})
+assert "inside your worktree" in pre("Bash", {"command": "cd $(touch x)&&aloop bind %s" % wt, "workdir": T})
+assert "inside your worktree" in pre("Bash", {"command": "aloop bind %s\ntouch x" % wt, "workdir": T})
+assert "bind your worktree first" in pre("Bash", {"command": "aloop bind $(touch${IFS}x)", "workdir": T}, agent="dsh-child-3")
+assert "bind your worktree first" in pre("Bash", {"command": 'aloop bind "`touch x`"', "workdir": T}, agent="dsh-child-3")
+for host in ("dsh", "codex"):
+    for cmd in ("aloop bind %s 2>&1" % wt, "aloop bind '%s' >/dev/null" % wt):
+        assert pre("Bash", {"command": cmd, "workdir": T}, agent="%s-child-4" % host, host=host) == "", (host, cmd)
+assert "inside your worktree" in pre("Bash", {"command": "aloop bind %s >%s/x" % (wt, T)}, agent="codex-child-4", host="codex")
+ok("a bind with no space before a `;`, a `$(…)`, a newline or a redirect into the tree is confined too; `2>&1` and /dev/null are not")
+os.makedirs(os.path.join(wt, "gone"))
+assert pre("working_directory", {"cd": "gone", "workdir": wt}) == ""
+os.rmdir(os.path.join(wt, "gone"))
+gone = os.path.join(wt, "gone")
+assert "no longer exists" in pre("Bash", {"command": "touch x", "workdir": gone})
+assert "no longer exists" in pre("Write", {"file_path": os.path.join(gone, "x.txt"), "workdir": gone})
+assert pre("working_directory", {"cd": wt, "workdir": gone}) == ""
+ok("dsh: nothing runs from a working directory that vanished (dsh would move it to the main tree); moving back is allowed")
 
 print("\n%d checks passed" % PASS[0])

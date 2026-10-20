@@ -17,8 +17,10 @@ PreToolUse (Codex, OpenCode, dsh — Claude Code isolates workers itself): workt
   - dsh runs a command in bash's own `workdir` argument or else the agent's working directory;
     the dsh plugin passes that directory as tool_input.workdir: a command whose workdir is inside
     the worktree is inside it, and relative paths resolve against that directory. The
-    working_directory tool may move only within the worktree.
-  - Only a command that is just the bind (`[cd X &&] aloop bind <worktree>`) skips the checks:
+    working_directory tool may move only within the worktree, and nothing runs from a working
+    directory that no longer exists (dsh would move it back to the main tree).
+  - Only a command that is just the bind (`[cd X &&] aloop bind <worktree>`, words the shell does not
+    expand, at most a redirect to /dev/null) skips the checks:
     anything chained to it, or a bind in a comment, is confined like any other command.
 
 Deterministic, never fails a tool call on an internal error.
@@ -36,7 +38,12 @@ import _usage  # noqa: E402
 
 WRITERS = ("red-worker", "scaffolder", "green-worker")
 BIND = re.compile(r"(?:^|[;&|]\s*|\s)(?:\S*/)?(?:(?:aloop|agentic)\s+bind|bin/bind)\s+(\S+)")
-ONLY_BIND = re.compile(r"^\s*(?:cd\s+\S+\s*&&\s*)?(?:\S*/)?(?:(?:aloop|agentic)\s+bind|bin/bind)\s+\S+\s*$")
+# a command that is just the bind: every word plain or quoted with nothing the shell expands, so no
+# second command can hide in it (`;`, `&&`, `$(…)`, a newline); a redirect to /dev/null or `2>&1` may follow
+_SAFE = r"[A-Za-z0-9_./@%+=:,-]"
+_WORD = r"(?:'[^'\n]*'|\"[^\"$`\\\n!]*\"|%s+)" % _SAFE
+ONLY_BIND = re.compile(r"[ \t]*(?:cd[ \t]+%s[ \t]*&&[ \t]*)?(?:%s*/)?(?:(?:aloop|agentic)[ \t]+bind|bin/bind)[ \t]+%s"
+                       r"(?:[ \t]+(?:[12]?>[ \t]*/dev/null|2>&1))*\s*\Z" % (_WORD, _SAFE, _WORD))
 PATCH_PATHS = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
 
 
@@ -107,6 +114,11 @@ def pre_tool(payload, cwd, agent_id, role, host):
         d = ti.get("cd") if isinstance(ti.get("cd"), str) else ""
         if d and not under(d if os.path.isabs(d) else os.path.join(base, d), wt):
             deny("stay in your worktree %s — `working_directory` may only move inside it" % wt)
+        return
+    if workdir and not os.path.isdir(workdir) and tool in ("Bash", "bash", "shell", "Write", "Edit", "MultiEdit", "write", "edit"):
+        # dsh moves a vanished working directory back to the session's first one (the main tree)
+        deny("your working directory %s no longer exists, so this would run outside your worktree: "
+             "move back first with `working_directory` (cd: %s)" % (workdir, wt))
         return
     if tool in ("Bash", "bash", "shell"):
         try:

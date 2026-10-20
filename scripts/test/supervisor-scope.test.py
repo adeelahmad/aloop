@@ -83,6 +83,20 @@ for path in (".aladdin/worktrees/S1-01-T1/.aladdin/task.env", ".aladdin/state/ta
     assert r.returncode == 0, (path, r)
 assert run(".aladdin/worktrees/S1-01-T1/src/main.rs", agent_type="aloop:green-worker").returncode == 0
 ok("live sprint: the supervisor may not edit source inside a task worktree (only its marker dir); a worker may")
+for path in (".aladdin/../src/x.rs", "docs/agents/sprint1/../../../src/x.rs", ".aladdin/worktrees/S1-01-T1/.aladdin/../src/lib.rs"):
+    r = run(path)
+    assert r.returncode == 2 and "may not write production source" in r.stderr, (path, r)
+p = {"session_id": "s-main", "cwd": T, "tool_name": "Write", "tool_input": {"file_path": ".aladdin/../src/y.rs", "content": "x"}}
+r = subprocess.run([GATE], input=json.dumps(p), cwd=T, env=ENV, capture_output=True, text=True)
+assert r.returncode == 2 and "may not write production source" in r.stderr, r
+os.makedirs(os.path.join(T, "docs", "agents", "sprint1"), exist_ok=True)
+os.makedirs(os.path.join(T, "src", "deep"), exist_ok=True)
+os.symlink(os.path.join(T, "src", "deep"), os.path.join(T, "docs", "agents", "sprint1", "lnk"))
+r = run("docs/agents/sprint1/lnk/../main.rs")
+assert r.returncode == 2 and "may not write production source" in r.stderr, r
+r = run(".aladdin/statex/../state/tasks/S1-01-T1.env", agent_type="aloop:green-worker")
+assert r.returncode == 2 and "task contract" in r.stderr, r
+ok("a path is judged where it lands: `..` and a symlink before `..` never turn source into a control file or docs")
 
 
 
@@ -149,6 +163,20 @@ ok("a commit inside a task worktree passes (that is where work is committed)")
 r = bash("git add -A && git commit -m 'S1-01-T1 RED'")
 assert r.returncode == 0, r
 ok("a dispatched worker's git commit is never judged here")
+
+# the supervisor's hook can run inside a task worktree (after its `cd` there): the worktree's
+# task.env names a worker, but the supervisor's payload has no agent_id, so it is still judged
+os.makedirs(os.path.join(WT, ".aladdin"), exist_ok=True)
+open(os.path.join(WT, ".aladdin", "task.env"), "w").write("TASK_ID=S1-01-T1\nAGENT_ROLE=green-worker\n")
+open(LOCK, "w").write("s-main\n")
+for target in (os.path.join(WT, "src", "main.rs"), os.path.join(T, "src", "lib.rs")):
+    p = {"session_id": "s-main", "cwd": WT, "tool_name": "Write", "tool_input": {"file_path": target, "content": "x"}}
+    r = subprocess.run([GATE], input=json.dumps(p), cwd=WT, env=ENV, capture_output=True, text=True)
+    assert r.returncode == 2 and "may not write production source" in r.stderr, (target, r)
+    p["agent_id"] = "w1"
+    r = subprocess.run([GATE], input=json.dumps(p), cwd=WT, env=ENV, capture_output=True, text=True)
+    assert r.returncode == 0, (target, r)
+ok("the task.env fallback exempts only a sub-agent (it has an agent_id), never the supervisor's hook run inside a worktree")
 
 # ── The supervisor never writes an agent's output.md block (live e2e run 29: the final gate's
 # report was lost and the supervisor appended a final-gate block to output.md itself). The

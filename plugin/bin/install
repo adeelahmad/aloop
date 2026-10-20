@@ -263,9 +263,16 @@ def dsh_agent_options(model):
 OWNER = "# aloop-project: "
 
 
+def dsh_root(path):
+    """A project as the profile records it: its main tree (a linked worktree or a subdirectory is its project)."""
+    return os.path.realpath(_paths.project(os.path.realpath(path)))
+
+
 def dsh_owner(opts):
     """Whom the one global profile serves: the project it was rendered for, or (global)."""
-    return opts.get("owner") or ("(global)" if opts.get("global") else os.path.realpath(opts["project"]))
+    if "owner" in opts:
+        return opts["owner"]         # a re-render keeps what the profile records ("" = unrecorded)
+    return "(global)" if opts.get("global") else dsh_root(opts["project"])
 
 
 def dsh_profile_owner():
@@ -284,7 +291,7 @@ def dsh_profile_owner():
 
 def dsh_serves(project):
     """The profile is this project's to re-render or remove: rendered for it, for every project, or unrecorded."""
-    return dsh_profile_owner() in (None, "(global)", os.path.realpath(project))
+    return dsh_profile_owner() in (None, "(global)", dsh_root(project))
 
 
 def dsh_patch(st, owner):
@@ -302,8 +309,7 @@ def dsh_patch(st, owner):
             c += ", agentOptions: {provider: %s, model: %s}" % (yq(ao["provider"]), yq(ao["model"]))
         return c + "}"
 
-    out = ["# " + MARK,
-           OWNER + owner,
+    out = ["# " + MARK] + ([OWNER + owner] if owner else []) + [
            "# The aloop profile for DeepSeek Harness: `dsh --profile aloop`. Roles are agent presets",
            "# aloop-<role>; `subagent` dispatches the execution roles, `subagent_planning` the planning",
            "# roles; hosts/dsh/aloop.mjs runs the gates. Supervisor model: $ALOOP_DSH_MODEL.",
@@ -325,8 +331,8 @@ def dsh_patch(st, owner):
            "      config: %s" % tool_config("subagent_planning", plan),
            "    - id: aloop",
            "      name: %s" % yq(os.path.join(ROOT, "hosts", "dsh", "aloop.mjs")),
-           "      config: {root: %s, maxStopBlocks: 3, models: {subagent: %s, subagent_planning: %s}}" % (
-               yq(ROOT), yq(models["subagent"]), yq(models["subagent_planning"])),
+           "      config: {root: %s, project: %s, maxStopBlocks: 3, models: {subagent: %s, subagent_planning: %s}}" % (
+               yq(ROOT), yq(owner or ""), yq(models["subagent"]), yq(models["subagent_planning"])),
            "    - id: agent-preset-registry",
            "      name: '@deepseek-ai/dsh-agent-preset-registry'",
            "      config: {default: aloop-supervisor}",
@@ -436,6 +442,12 @@ def installed(project):
     return found
 
 
+def dsh_elsewhere(project):
+    """The owner of an installed dsh profile that serves another project, else None."""
+    p = os.path.join(dsh_profile(), "cordis.patch.yml")
+    return dsh_profile_owner() if os.path.isfile(p) and ours(p) and not dsh_serves(project) else None
+
+
 def rerender(project):
     """Called by aloop-init --apply: refresh every installed host with the new settings."""
     st = _paths.settings(project)
@@ -445,9 +457,14 @@ def rerender(project):
             has = lambda o: ours(os.path.join(dsh_skills_dir(o), "aloop", "SKILL.md"))  # noqa: E731
             opts["global"] = not has({"project": project})
             opts["skills"] = has(opts)
-            opts["owner"] = dsh_profile_owner() or dsh_owner(opts)
+            # an older profile records no owner: only a project with its own skills (it ran
+            # `install dsh --project`) claims it; any other re-render leaves it unrecorded
+            opts["owner"] = dsh_profile_owner() or (dsh_root(project) if has({"project": project}) else "")
         INSTALLERS[host](opts, st)
         print("  re-rendered %s agents (%s)" % (host, os.path.dirname(p)))
+    other = dsh_elsewhere(project)
+    if other:
+        print("  kept the dsh profile: it serves %s. Run `aloop install dsh --project %s` to switch it to this project." % (other, project))
 
 
 def main(argv):
@@ -470,6 +487,9 @@ def main(argv):
     if host == "status":
         for h, p in installed(opts["project"]):
             print("%-9s %s" % (h, os.path.dirname(p)))
+        other = dsh_elsewhere(opts["project"])
+        if other:
+            print("%-9s %s (serves %s, not this project)" % ("dsh", dsh_profile(), other))
         return 0
     if host == "claude":
         print("Claude Code:\n  /plugin marketplace add adeelahmad/agentic-agile\n  /plugin install aloop@aloop-marketplace")

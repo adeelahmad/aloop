@@ -238,6 +238,8 @@ def apply(cwd, pairs):
             git(cwd, "config", "--local", cfg, vals[key])
             print("  git config --local %s %s" % (cfg, vals[key]))
     _paths.home(cwd)                                 # create the run-data dir (its own .gitignore guards .aladdin/)
+    if os.environ.get("ALOOP_NO_HOST_RERENDER") == "1":
+        return 0                                     # the caller renders the hosts itself (e2e-live)
     try:                                             # keep Codex / OpenCode agents in step
         import importlib.machinery
         import importlib.util

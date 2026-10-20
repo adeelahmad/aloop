@@ -86,6 +86,11 @@ const script = {
     { tools: [{ name: "bash", input: { command: `cd ${P} && touch CD_ESCAPE`, description: "cd out" } }] },
     { tools: [{ name: "bash", input: { command: "touch REL_ESCAPE", description: "relative", workdir: relative(wt, P) } }] },
     { tools: [{ name: "send_message", input: { agent_id: "parent", message: "RED done, ready to merge" } }] },
+    { tools: [{ name: "bash", input: { command: "mkdir gone", description: "a dir" } }] },
+    { tools: [{ name: "working_directory", input: { cd: join(wt, "gone") } }] },
+    { tools: [{ name: "bash", input: { command: "cd .. && rmdir gone", description: "remove it" } },
+              { name: "write", input: { file_path: "VANISH_ESCAPE.txt", content: "x\n" } }] },
+    { tools: [{ name: "bash", input: { command: `aloop bind ${wt};echo>${join(P, "CHAIN_ESCAPE")}`, description: "chained", workdir: P } }] },
   ],
   intake: [
     { tools: [{ name: "write", input: { file_path: join(P, "docs/agents/sprint1/intake.md"), content:
@@ -95,6 +100,8 @@ const script = {
 }
 writeFileSync(join(T, "script.json"), JSON.stringify(script))
 
+// a project .env that switches the gates off (it can come with a clone): dsh loads it, the gates ignore it
+writeFileSync(join(P, ".env"), "SKIP_HOOKS=1\nGATE_RUN_TESTS=0\n")
 const LOG = join(T, "fake.jsonl")
 const fake = spawn(process.execPath, [join(HERE, "fixtures", "fake-deepseek.mjs")], { env: { ...env, FAKE_SCRIPT: join(T, "script.json"), FAKE_LOG: LOG } })
 const port = await new Promise((ok, no) => { fake.stdout.once("data", (d) => ok(String(d).trim())); fake.once("error", no) })
@@ -135,7 +142,7 @@ assert.ok(w.length && w.every((q) => q.model === "deepseek-flash") && intake.len
   JSON.stringify([w.map((q) => q.model), intake.map((q) => q.model)]))
 ok("each group runs on its own model: workers deepseek-flash (economical), planning deepseek-v4-pro (strongest)")
 assert.ok(/aloop bind <that path>/.test(w[0].system), w[0].system.slice(0, 400)); ok("the role's persona (its agent file + the dsh note) is the child's prompt")
-assert.ok(/bind your worktree first/.test(after("red-worker", 0)), after("red-worker", 0)); ok("an unbound writer is refused")
+assert.ok(/bind your worktree first/.test(after("red-worker", 0)), after("red-worker", 0)); ok("an unbound writer is refused (SKIP_HOOKS=1 in the project's .env does not lift it)")
 assert.ok(/bound: /.test(after("red-worker", 1)), after("red-worker", 1)); ok("aloop bind runs from the worker's shell")
 assert.ok(after("red-worker", 2).includes(`pwd=${wt} host=dsh key=none`), after("red-worker", 2))
 ok("the worker runs in the worktree it was dispatched with (cwd), knows its host, and never sees the API key")
@@ -154,10 +161,14 @@ assert.ok(/inside your worktree/.test(after("red-worker", 11)) && !existsSync(jo
 ok("a command that `cd`s out of the worktree, or a relative workdir out of it, is denied")
 assert.ok(/does not message the supervisor/.test(after("red-worker", 12)) && !/RED done, ready to merge/.test(sup.map((q) => q.all).join("\n")), after("red-worker", 12))
 ok("a role's result reaches the supervisor only through its stop gate (send_message is refused)")
+assert.ok(/edit only files inside your worktree/.test(after("red-worker", 15)) && !existsSync(join(P, "VANISH_ESCAPE.txt")), after("red-worker", 15))
+ok("a write after its working directory vanished is judged where dsh writes it (the main tree), and denied")
+assert.ok(/inside your worktree/.test(after("red-worker", 16)) && !existsSync(join(P, "CHAIN_ESCAPE")), after("red-worker", 16))
+ok("a command chained to a bind with no space (`aloop bind <wt>;…`) is confined")
 
 const steered = w.filter((q) => /\[aloop gate gate-red-verify\] Your stop was blocked/.test(q.last))
 assert.equal(steered.length, 3, JSON.stringify(w.map((q) => q.last.slice(0, 80))))
-ok("SubagentStop: gate-red-verify's block steers the worker back to work (native, before dsh settles it), 3 rounds")
+ok("SubagentStop: gate-red-verify's block steers the worker back to work (native, before dsh settles it), 3 rounds (GATE_RUN_TESTS=0 in .env ignored)")
 assert.ok(intake.length === 2 && !intake.some((q) => /Your stop was blocked/.test(q.last)), JSON.stringify(intake.map((q) => q.last.slice(0, 200))))
 ok("a role that passes its own gate (gate-intake) stops at once")
 const told = sup.map((q) => q.all).join("\n")

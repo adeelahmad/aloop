@@ -1,6 +1,6 @@
 // aloop for DeepSeek Harness (dsh).
 // Loaded by the `aloop` dsh profile that `aloop install dsh` writes
-// ($DSH_HOME/profiles/aloop/cordis.patch.yml, row `aloop`, config {root, models, maxStopBlocks}).
+// ($DSH_HOME/profiles/aloop/cordis.patch.yml, row `aloop`, config {root, project, models, maxStopBlocks}).
 // Maps dsh's plugin events onto the SAME scripts Claude Code runs from hooks/hooks.json, so gates,
 // time boxes, the token ledger, stats and the handoff behave identically on every host:
 //
@@ -31,8 +31,9 @@
 // Self-contained (node: built-ins only): a module outside the dsh profile cannot import dsh packages.
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs"
 import { dirname, isAbsolute, join, resolve, sep } from "node:path"
+import { parseEnv } from "node:util"
 
 export const name = "aloop"
 export const inject = []
@@ -60,10 +61,20 @@ const TOOLS_NOTE = "aloop tools: call `aloop <tool>` (e.g. `aloop selfcheck`, `a
 // every git command fail), plus the plugin root the gates read their schemas from.
 const SCRUB = /KEY|PASSWORD|SECRET|TOKEN/i
 const KEEP = /^(AGENTIC_|ALOOP_|ALADDIN_|CLAUDE_PLUGIN_)|^(SPRINT_)?TOKENS_(SOFT|HARD)$|^TOKEN_METER$|^TASK_ENV_KEYS$|^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/
-function gateEnv(root) {
+// dsh also loads the launch directory's .env into its environment (loadLayeredEnv: a name nobody
+// exported), and that file can come with a clone or a worker's commit. A gate switch from it
+// (SKIP_HOOKS, GATE_RUN_TESTS=0, a REPO_DIR or AGENTIC_* override) would turn a gate off, so it never
+// reaches a gate; the same setting exported at launch still does.
+const GATE_SWITCH = /^(SKIP_HOOKS|GATE_\w+|REPO_DIR|STORY_DIR|SPRINT_DIR|BASE_REF|SCOPE_GLOBS|TEST_GLOBS|SCAFFOLD_SYMBOLS|STANDARDS_FILE|INTAKE_FILE|MEMORY_FILE|TASK_\w+|ATTEMPT|AGENT_ROLE|TOOL_FILE_PATH|TOKEN_METER|(SPRINT_)?TOKENS_\w+|(AGENTIC|ALADDIN|ALOOP|CLAUDE|CODEX|XDG)_\w+)$/i
+function fileSwitches(dir) {
+  let values = {}
+  try { values = parseEnv(readFileSync(join(dir, ".env"), "utf8")) } catch {}
+  return new Set(Object.keys(values).filter((k) => GATE_SWITCH.test(k) && process.env[k] === values[k]))
+}
+function gateEnv(root, drop = new Set()) {
   const env = {}
   for (const [k, v] of Object.entries(process.env))
-    if (v !== undefined && !/^DSH_/i.test(k) && (KEEP.test(k) || !SCRUB.test(k))) env[k] = v
+    if (v !== undefined && !drop.has(k) && !/^DSH_/i.test(k) && (KEEP.test(k) || !SCRUB.test(k))) env[k] = v
   return { ...env, AGENTIC_HOST: "dsh", ...(root ? { CLAUDE_PLUGIN_ROOT: root } : {}) }
 }
 
@@ -102,6 +113,8 @@ export function apply(ctx, config = {}) {
   // A model's shell gets dsh's own environment (secrets and DSH_* removed), so this reaches every
   // `aloop …` the supervisor or a worker runs: bin/ scripts then know their host.
   process.env.AGENTIC_HOST = "dsh"
+  const FROM_FILE = fileSwitches(process.cwd())
+  if (FROM_FILE.size) process.stderr.write(`[aloop] gates ignore ${[...FROM_FILE].join(", ")} from ${join(process.cwd(), ".env")} (export a setting to use it)\n`)
   const sessions = new Map()      // session id -> state
 
   function info(x) {
@@ -138,6 +151,12 @@ export function apply(ctx, config = {}) {
   const cwdOf = (s) => {
     try { const c = ctx.get("workingDirectory")?.get(s.agent?.session); if (c) return c } catch {}
     return s.cwd0
+  }
+  // ...as dsh's tools will use it: they call ensure(), which moves a directory that vanished back to
+  // the session's first one (a child's is its parent's, the main tree), so a gate judges that one
+  const wdOf = async (s, agent) => {
+    try { const c = await ctx.get("workingDirectory")?.ensure?.(agent); if (c) return c } catch {}
+    return cwdOf(s)
   }
   function payload(event, s, extra = {}) {
     const p = { hook_event_name: event, session_id: s.root, transcript_path: join(hostDir(s), `${safe(s.root)}.jsonl`), cwd: s.project, ...extra }
@@ -188,7 +207,7 @@ export function apply(ctx, config = {}) {
       }
       let child
       try {
-        child = spawn(join(BIN, script), args, { cwd, env: gateEnv(ROOT) })
+        child = spawn(join(BIN, script), args, { cwd, env: gateEnv(ROOT, FROM_FILE) })
       } catch (e) { return finish(1, e) }
       // a hung script is killed after 10 minutes (as on OpenCode); spawn's own `timeout` would keep a
       // timer alive for a script that never started
@@ -222,7 +241,7 @@ export function apply(ctx, config = {}) {
       if (s.child) return "aloop: a role does not delegate. Finish your own task and report back to the supervisor."
       if (!a.agent_preset) return "aloop: dispatch an aloop role: pass agent_preset: \"aloop-<role>\" (subagent: red-worker, scaffolder, green-worker, structural-reviewer, final-gate, product-tester, state-assessor; subagent_planning: intake, standards, planner, archivist, market-researcher, evaluator, mission-planner, ethics-reviewer)."
     }
-    const p = payload("PreToolUse", s, { tool_name: TOOL[tool] || tool, tool_input: toolInput(tool, a, cwdOf(s)), tool_use_id: exec.callId })
+    const p = payload("PreToolUse", s, { tool_name: TOOL[tool] || tool, tool_input: toolInput(tool, a, await wdOf(s, exec.agent)), tool_use_id: exec.callId })
     let why = await gate("host-adapter", ["hook"], p, s.project)        // records `aloop bind`, confines writers
     if (why) return why
     if (s.child && EXECUTION.has(s.role) && !s.toolingOk) {               // SubagentStart preflight
@@ -301,7 +320,8 @@ export function apply(ctx, config = {}) {
     await run("transcripts", ["snapshot"], p, s.project)
     const res = await run("stats", ["hook"], p, s.project)
     if (res.json?.systemMessage) process.stderr.write(`[aloop] ${res.json.systemMessage}\n`)
-    if (res.json?.decision === "block" && res.json.reason && s.blocks < MAX && !signal?.aborted) {
+    if (res.json?.decision === "block" && res.json.reason && s.blocks < MAX) {
+      if (signal?.aborted) { agent.inject(msg(res.json.reason)); s.blocks = 0; return }   // stats announced it once: queue it for the next turn
       s.blocks++
       agent.steer(msg(res.json.reason))
       return
@@ -316,6 +336,14 @@ export function apply(ctx, config = {}) {
       if (!s.child) {
         const start = { hook_event_name: "SessionStart", session_id: s.id, transcript_path: transcriptOf(s), cwd: s.project, source: source || "startup" }
         const parts = [TOOLS_NOTE]
+        // the one dsh profile holds one project's role models (`aloop install dsh` records which)
+        let here = s.project
+        try { here = realpathSync(s.project) } catch {}
+        if (config.project && config.project !== "(global)" && config.project !== here) {
+          const note = `aloop: the dsh profile was rendered for ${config.project}, so its role models are that project's and gate-dispatch refuses a role on a model this one did not confirm. Run \`aloop install dsh --project ${s.project}\` first.`
+          parts.push(note)
+          process.stderr.write(`[${note}]\n`)
+        }
         for (const script of ["ensure-tools", "session-start"]) {
           const c = (await run(script, [], start, s.project)).json?.hookSpecificOutput?.additionalContext
           if (c) parts.push(c)

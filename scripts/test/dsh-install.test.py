@@ -52,13 +52,17 @@ profile = lambda: open(PROFILE).read()  # noqa: E731
 A, B = project("a"), project("b")
 run(os.path.join(BIN, "aloop"), "install", "dsh", "--project", A, cwd=A)
 assert "# aloop-project: %s\n" % A in profile() and 'subagent: "deepseek-flash"' in profile(), profile()[:600]
+assert 'project: "%s"' % A in profile()                      # the plugin warns a session in another project
 assert "dsh" in run(os.path.join(BIN, "install"), "status", cwd=A)
 ok("the profile records the project it was rendered for, with that project's models")
 
 before = profile()
 run(os.path.join(BIN, "aloop-init"), "--apply", "MODEL_WORKER=strongest", cwd=B)
 assert profile() == before, "another project's aloop-init re-rendered A's profile"
-assert "dsh" not in run(os.path.join(BIN, "install"), "status", cwd=B)
+st = run(os.path.join(BIN, "install"), "status", cwd=B)
+assert "(serves %s, not this project)" % A in st, st
+out = run(os.path.join(BIN, "aloop-init"), "--apply", "MODEL_WORKER=strongest", cwd=B)
+assert "it serves %s. Run `aloop install dsh --project %s`" % (A, B) in out, out
 out = run(os.path.join(BIN, "install"), "dsh", "--uninstall", "--project", B, cwd=B)
 assert os.path.isfile(PROFILE) and "kept" in out and A in out, out
 ok("another project's init, status and uninstall leave the profile alone (its gate-dispatch would refuse A's roles)")
@@ -74,10 +78,28 @@ assert 'subagent: "deepseek-flash"' in profile() and "# aloop-project: (global)\
 open(PROFILE, "w").write("\n".join(ln for ln in before.split("\n") if not ln.startswith("# aloop-project:")))
 assert "dsh" in run(os.path.join(BIN, "install"), "status", cwd=B)
 ok("a --global profile (or one from before the owner was recorded) is every project's, as Codex's global agents are")
+run(os.path.join(BIN, "aloop-init"), "--apply", "MODEL_WORKER=strongest", cwd=B)
+assert "# aloop-project:" not in profile() and 'subagent: "deepseek-v4-pro"' in profile(), profile()[:600]
+run(os.path.join(BIN, "aloop-init"), "--apply", "MODEL_WORKER=economical", cwd=A)
+assert "# aloop-project: %s\n" % A in profile(), profile()[:600]
+ok("an unrecorded profile stays unrecorded when a project without its own skills re-renders it; the one that installed it claims it")
 
 run(os.path.join(BIN, "install"), "dsh", "--uninstall", "--project", A, cwd=A)
 assert not os.path.exists(os.path.dirname(PROFILE))
 ok("the project it serves uninstalls it")
+
+W, SUB = os.path.join(T, "a-wt"), os.path.join(A, "sub")
+run("git", "worktree", "add", "-q", W, cwd=A)
+os.makedirs(SUB)
+for where in (W, SUB):
+    run(os.path.join(BIN, "aloop"), "install", "dsh", "--project", ".", cwd=where)
+    assert "# aloop-project: %s\n" % A in profile(), (where, profile()[:400])
+    out = run(os.path.join(BIN, "aloop-init"), "--apply", "MODEL_WORKER=strongest", cwd=where)
+    assert 'subagent: "deepseek-v4-pro"' in profile() and "kept the dsh profile" not in out, (where, out)
+    run(os.path.join(BIN, "install"), "dsh", "--uninstall", "--project", ".", cwd=where)
+    assert not os.path.exists(os.path.dirname(PROFILE)), where
+    run(os.path.join(BIN, "aloop-init"), "--apply", "MODEL_WORKER=economical", cwd=A)
+ok("a linked worktree or a subdirectory is its project: it records, re-renders and removes the project's profile")
 
 spec = importlib.util.spec_from_loader("aloop_install", importlib.machinery.SourceFileLoader("aloop_install", os.path.join(BIN, "install")))
 ins = importlib.util.module_from_spec(spec)

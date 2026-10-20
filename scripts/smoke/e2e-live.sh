@@ -162,11 +162,12 @@ else
   cargo generate-lockfile -q 2>/dev/null || true
 fi
 git add -A && git commit -qm init
-# A dsh home of the run's own, on every host and before aloop-init: init re-renders an installed
-# dsh profile, and the user's must never change (dsh: no user patches, the sessions stay with the run)
+# A dsh home of the run's own (dsh: no user patches, the sessions stay with the run). The seed init
+# re-renders no host install: the user's own (~/.codex/agents, their dsh profile) must never change,
+# and the run renders its host into the repo below.
 export DSH_HOME="$T/dsh-home"; mkdir -p "$DSH_HOME"
 if [ "$HOST" = dsh ] && [ -f "$USER_DSH_HOME/.env" ]; then cp "$USER_DSH_HOME/.env" "$DSH_HOME/.env"; fi
-"$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="${WORKER_MODEL:-economical}" MODEL_WORKER="${WORKER_MODEL:-economical}" GITIGNORE=yes >/dev/null
+ALOOP_NO_HOST_RERENDER=1 "$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="${WORKER_MODEL:-economical}" MODEL_WORKER="${WORKER_MODEL:-economical}" GITIGNORE=yes >/dev/null
 # Codex, OpenCode and dsh load the agents, skills and hooks from the project (dsh: its profile): render them in.
 [ "$HOST" = claude ] || "$PLUGIN/bin/install" "$HOST" --project . >/dev/null
 git add -A && git commit -qm "aloop init" >/dev/null 2>&1 || true
