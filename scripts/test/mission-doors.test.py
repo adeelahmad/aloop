@@ -1254,6 +1254,73 @@ for tool in ("mcp__ms365__send-shared-mailbox-draft", "mcp__gmail__send_saved_dr
 ok("MCP: a tool that writes a draft (send_mail_draft, forward_as_draft) does not send; one that sends a draft does")
 for x in (dot, tree, big, os.path.join(p.dir, "build"), os.path.join(p.dir, "dist")):
     shutil.rmtree(x, ignore_errors=True)
+# 21f) the sixth M9.31 review (of the fifth's fixes). The shell that reads a word expands its $PWD and $(pwd):
+#      the text a nested shell reads (sh -c "…", eval, <<<, an unquoted heredoc) carries the outer directory,
+#      and env -C or find -execdir moves the command, not the words the shell already expanded; `echo … &&
+#      exit` and `return 1 || exit 1` always exit
+for cmd, want in (("bash -c \"cd W && git -C $(pwd) push origin HEAD\"", "push-default-branch"),
+                  ("eval \"cd W && git -C $(pwd) push origin HEAD\"", "push-default-branch"),
+                  ("bash <<EOF\ncd W\ngit -C \"$(pwd)\" push origin HEAD\nEOF", "push-default-branch"),
+                  ("bash <<< \"cd W && git -C $(pwd) push origin HEAD\"", "push-default-branch"),
+                  ("timeout 60 bash -c \"cd W && git -C $(pwd) reset --hard\"", "discard-local-work"),
+                  ("bash -c \"cd W && cd $(pwd) && git push origin HEAD\"", "push-default-branch"),
+                  ("bash -c \"cd W && git -C $PWD push origin HEAD\"", "push-default-branch"),
+                  ("env -C W git -C \"$PWD\" push origin HEAD", "push-default-branch"),
+                  ("env -C W git -C \"$(pwd)\" push origin HEAD", "push-default-branch"),
+                  ("env -C W git -C \"$PWD\" reset --hard", "discard-local-work"),
+                  ("cd W || { [ -d .git ] && exit 1; }; git push origin HEAD", "push-default-branch"),
+                  ("cd W || { printf '%d' \"$n\" && exit 1; }; git push origin HEAD", "push-default-branch")):
+    cmd = cmd.replace("W ", W + " ").replace("W\n", W + "\n")
+    assert want in denied(hook(g, "Bash", {"command": cmd}, cwd=R)), cmd
+for cmd in ("bash -c 'cd W && git -C $(pwd) push origin HEAD'", "bash <<'EOF'\ncd W\ngit -C \"$(pwd)\" push origin HEAD\nEOF",
+            "env -C W git push origin HEAD", "cd W || { echo \"no worktree\" >&2 && exit 1; }; git push origin HEAD",
+            "cd W || { echo x; return 1 2>/dev/null || exit 1; }; git push origin HEAD",
+            "cd W || { echo no && exit 1; } && git push origin HEAD", "cd W || { printf 'no\\n' && exit 1; }; git reset --hard",
+            "cd W || { : && exit 1; }; git reset --hard"):
+    cmd = cmd.replace("W ", W + " ").replace("W\n", W + "\n")
+    assert hook(g, "Bash", {"command": cmd}, cwd=R).stdout == "", cmd
+for cmd in ("env -C /tmp rm -rf \"$PWD/.aladdin\"", "find /tmp -maxdepth 0 -execdir rm -rf \"$PWD/.aladdin\" \\;",
+            "env -C /tmp rm -f \"$(pwd)/.aladdin/logs/events.jsonl\"", "find . -name '*.bak' -execdir rm -rf \"$PWD/.aladdin\" \\;",
+            "env --chdir=/tmp sh -c \"rm -rf $PWD/.aladdin\"", "bash -c \"rm -rf $PWD/.aladdin\"",
+            "bash <<EOF\ncd /tmp\nrm -rf \"$PWD/.aladdin\"\nEOF", "echo \"cd /tmp && rm -rf $(pwd)/.aladdin\" | sh"):
+    assert "forge-human-record" in doors_of(cmd, assume=False), (cmd, doors_of(cmd, assume=False))
+assert "change-agent-settings" in doors_of("sh -c \"cd /tmp && cp x $PWD/.claude/settings.json\"")
+assert "push-default-branch" in denied(hook(g, "Bash", {"command": "echo \"cd %s && git -C $(pwd) push origin HEAD\" | bash" % W}, cwd=R))
+ok("directories: the outer shell's $PWD and $(pwd) in a nested shell and under env -C or -execdir; echo && exit exits")
+
+# copies: a directory the gate cannot list now (missing, or empty) holds more than the line's tracked writes
+# (tar, curl -o, unzip are not); a copy onto "$VAR/.claude" may become that directory; a variable last name in a
+# guarded directory is any name; a send tool whose last words are not a draft writer's sends
+os.makedirs(os.path.join(p.dir, "dist"), exist_ok=True)
+stage = os.path.join(tempfile.mkdtemp(), "cfg")
+for cmd in ("mkdir -p S && tar xzf cfg.tgz -C S && echo ok > S/.stamp && cp -r S/. .claude/",
+            "mkdir -p stage && echo x > stage/README && curl -fsSL URL -o stage/settings.json && cp stage/* .claude/",
+            "mkdir -p stage && echo x > stage/README && curl -fsSL URL -o stage/settings.json && rsync -a stage/ .claude/",
+            "mkdir -p stage && unzip -o cfg.zip -d stage && echo '{}' > stage/keybindings.json && cp -r stage/. ~/.claude/",
+            "echo x > dist/README && curl -fsSL URL -o dist/settings.json && cp dist/* .claude/",
+            "echo x > dist/README && curl -fsSL URL -o dist/settings.json && cp -r dist/. .claude/",
+            "cp -r .claude \"$WT/.claude\"", "git worktree add \"$WT\" -b x && cp -r .claude \"$WT/.claude\"",
+            "mv .claude.bak \"$REPO/.claude\"", "cp -a ~/.claude-template \"$PROJECT/.claude\"", "cp -r tmpl \"$WT/.claude/\"",
+            "cp -r cfg \"$WT/.codex\"", "mv opencode-cfg \"$PROJ/.opencode\"", "cd \"$X\" && cp -r cfg \"$(pwd)/.claude\"",
+            "cp x .claude/${F:?}", "cp x ~/.claude/${F:?}"):
+    cmd = cmd.replace("S/", stage + "/").replace("S ", stage + " ")
+    assert "change-agent-settings" in doors_of(cmd), (cmd, doors_of(cmd))
+for cmd in ("rm -f .aladdin/logs/${F:?}", "echo x > docs/agents/mission/${F:?}", "rm -f .aladdin/logs/$F",
+            "sed -i /door.revoked/d \".aladdin/logs/$F\"", "rm -f \".aladdin/logs/${F?}\""):
+    assert "forge-human-record" in doors_of(cmd), (cmd, doors_of(cmd))
+for cmd in ("cp -r .claude \"$tmp\"", "cp -r .claude \"$WT/\"", "cp -r . \"$TMPDIR\"", "rm -f build/$F", "echo x > \"logs/$name.log\"",
+            "mkdir -p out && echo x > out/a.txt && cp -r out/. dist/"):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+ok("copies: an unlisted or empty source directory, a copy that becomes $VAR/.claude, a variable last name")
+for tool in ("mcp__zapier__send_gmail_draft", "mcp__composio__send_gmail_draft", "mcp__gmail__send_from_alias_draft",
+             "mcp__gmail__send_canvas_draft"):
+    assert ids(tool, {}) == ["send-external-message"], (tool, ids(tool, {}))
+for tool in ("mcp__gmail__send_mail_draft", "mcp__gmail__send_email_as_draft", "mcp__outlook__forward_as_draft",
+             "mcp__slack__slack_send_message_draft"):
+    assert ids(tool, {}) == [], (tool, ids(tool, {}))
+ok("MCP: a draft writer is one whose last words are message, mail, email or as, then draft")
+shutil.rmtree(os.path.dirname(stage), ignore_errors=True)
+shutil.rmtree(os.path.join(p.dir, "dist"), ignore_errors=True)
 for x in (evil, fake, lnr):
     shutil.rmtree(x, ignore_errors=True)
 

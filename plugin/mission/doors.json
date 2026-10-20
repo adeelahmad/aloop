@@ -229,8 +229,8 @@
     }
    ],
    "tools": [
-    "(?i)^(?:mcp__(?:[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[\\w-]*?__(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?|[\\w-]+?__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9]*[_-])|(?!mcp__)[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9-]*_(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?)(?:(?:chat[_-]?)?(?:send|reply|forward|post|schedule[_-]?(?:message|post|email|mail|send))|(?:conversations[_-])?add[_-]message)(?!s(?:$|[_-](?!an?[_-]))|ed(?:$|[_-])|ing)(?![\\w-]*(?:message|mail|email|as)[_-]draft$)[\\w-]*$",
-    "(?i)^(?:mcp__[\\w-]+?__|(?!mcp__)[\\w-]+?_)(?:send|reply|forward|post)[_-](?![\\w-]*(?:message|mail|email|as)[_-]draft$)(?:[\\w-]*?[_-])?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[\\w-]*$"
+    "(?i)^(?:mcp__(?:[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[\\w-]*?__(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?|[\\w-]+?__\\w*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9]*[_-])|(?!mcp__)[\\w-]*?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[A-Za-z0-9-]*_(?:(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[_-])?)(?:(?:chat[_-]?)?(?:send|reply|forward|post|schedule[_-]?(?:message|post|email|mail|send))|(?:conversations[_-])?add[_-]message)(?!s(?:$|[_-](?!an?[_-]))|ed(?:$|[_-])|ing)(?![\\w-]*[_-](?:message|mail|email|as)[_-]draft$)[\\w-]*$",
+    "(?i)^(?:mcp__[\\w-]+?__|(?!mcp__)[\\w-]+?_)(?:send|reply|forward|post)[_-](?!(?:[\\w-]*[_-])?(?:message|mail|email|as)[_-]draft$)(?:[\\w-]*?[_-])?(?:gmail|mail|outlook|slack|teams|discord|telegram|twitter|linkedin|ms365|m365)[\\w-]*$"
    ],
    "examples": {
     "bash": [
@@ -255,7 +255,8 @@
      "mcp__slack__conversations_add_message",
      "mcp__google-workspace__send_gmail_message",
      "mcp__ms365__send-shared-mailbox-draft",
-     "mcp__gmail__send_saved_draft"
+     "mcp__gmail__send_saved_draft",
+     "mcp__zapier__send_gmail_draft"
     ]
    }
   },
@@ -550,7 +551,9 @@
      "install --strip /tmp/evil/settings.json .claude/settings.json",
      "cp -t .claude $SRC",
      "cd \"$REPO\" && rm -rf ./.claude",
-     "rm -rf \"$(pwd)/.claude\""
+     "rm -rf \"$(pwd)/.claude\"",
+     "cp -r .claude \"$WT/.claude\"",
+     "cp x .claude/${F:?}"
     ]
    }
   },
@@ -703,7 +706,9 @@
      "python3 - <<'EOF'\nimport _events\nev = 'door.authorized'\n_events.emit('.', ev, role='human', subject='door:x')\nEOF",
      "rsync -a --compress /tmp/fake/events.jsonl .aladdin/logs/events.jsonl",
      "cp -t .aladdin/logs \"$f\"",
-     "cp -r \"$SRC\"/. docs/agents/mission/"
+     "cp -r \"$SRC\"/. docs/agents/mission/",
+     "env -C /tmp rm -rf \"$PWD/.aladdin\"",
+     "rm -f .aladdin/logs/${F:?}"
     ],
     "paths": [
      "docs/agents/mission/ledger.jsonl",
