@@ -1325,6 +1325,46 @@ for tool in ("mcp__gmail__send_mail_draft", "mcp__gmail__send_email_as_draft", "
 ok("MCP: a draft writer is one whose last words are message, mail, email or as, then draft")
 shutil.rmtree(os.path.dirname(stage), ignore_errors=True)
 shutil.rmtree(os.path.join(p.dir, "dist"), ignore_errors=True)
+# 21g) the seventh M9.31 review (of the sixth's fixes): this shell's directory in a nested shell's text is a path
+#      only where it starts a word (`PREFIX=$PWD/out`, and `$(git rev-parse --show-toplevel)` inside a word, no
+#      longer crash the gate); a nested `cd $PWD` is the line's own checkout (its branch switch too); after a cd
+#      that may not run, a nested $PWD is each directory; a copy into "$PWD" is into the directory it is; only a
+#      whole substituted name is any name (`settings.json.bak.$(date +%s)` is a backup)
+open(os.path.join(p.dir, "notes.md"), "w").write("n")
+for cmd in ("bash <<EOF\necho \"Building in $PWD\"\nEOF", "bash -c \"make PREFIX=$PWD/out install\"",
+            "sh -c \"echo PROJECT_ROOT=$PWD >> .env\"", "bash -c \"pip install -e file://$PWD\"", "eval \"echo cwd=$(pwd)\"",
+            "bash <<< \"echo dir:$PWD\"", "cat <<EOF | sh\necho \"now in $PWD\"\nEOF",
+            "bash -c \"export PYTHONPATH=$PWD/src && pytest -q\"", "echo \"export PATH=$PWD/bin:\\$PATH\" | bash",
+            "make PREFIX=$(git rev-parse --show-toplevel)/out install", "bash -c \"export P=$(git rev-parse --show-toplevel)/src\"",
+            "cp /tmp/x.txt \"$PWD\"", "cp notes.md \"$PWD/\"", "cp /tmp/x.txt \"$(pwd)\"", "mv /tmp/report.md \"$PWD\"",
+            "ln -s /tmp/x \"$PWD\"", "install -m 644 /tmp/x \"$PWD\"", "cp /tmp/x.txt ~+", "cp notes.md \"$WT/.claude/\"",
+            "mv .aladdin/logs/mission-cron.log .aladdin/logs/mission-cron.log.$(date +%F)",
+            "cp docs/agents/mission/ledger.jsonl docs/agents/mission/ledger.jsonl.bak.$(date +%s)",
+            "gzip -c .aladdin/logs/gates.jsonl > .aladdin/logs/gates-$(date +%F).jsonl.gz",
+            "cp .claude/settings.json .claude/settings.json.bak.$(date +%s)", "rm -f .claude/settings.json.bak.$TS",
+            "echo \"$out\" > .claude/session-$SESSION.log", "rm -rf ~/.config/myapp-$VERSION"):
+    assert doors_of(cmd) == [], (cmd, doors_of(cmd))
+for cmd in ("[ -d sub ] && cd sub; bash -c \"rm -rf $PWD/.aladdin\"", "if [ -d sub ]; then cd sub; fi; bash -c \"rm -rf $PWD/.aladdin\"",
+            "cd sub || true; bash -c \"rm -rf $PWD/.aladdin\"", "[ -d sub ] && cd sub; bash <<EOF\nrm -rf $PWD/.aladdin\nEOF",
+            "[ -d sub ] && cd sub; echo \"rm -rf $PWD/.aladdin\" | sh", "[ -d sub ] && cd sub; bash -c \"mv $PWD/.aladdin /tmp/x\"",
+            "bash -c \"cd /tmp && rm -rf $(git rev-parse --show-toplevel)/.aladdin\""):
+    assert "forge-human-record" in doors_of(cmd), (cmd, doors_of(cmd))
+clone = tempfile.mkdtemp()
+for args in (["init", "-q"], ["checkout", "-q", "-b", "main"], ["commit", "-q", "--allow-empty", "-m", "x"],
+             ["checkout", "-q", "-b", "feat"]):
+    subprocess.run(["git"] + args, cwd=clone, check=True, env=dict(os.environ, **GENV))
+for cmd in ("git checkout main && bash -c \"cd $PWD && git push origin HEAD\"",
+            "git checkout main && eval \"git -C $PWD push origin HEAD\"",
+            "git checkout main && bash <<EOF\ngit -C \"$(pwd)\" push origin HEAD\nEOF",
+            "git checkout main && echo \"git -C $PWD push origin HEAD\" | bash"):
+    assert "push-default-branch" in doors_of(cmd, clone, False), (cmd, doors_of(cmd, clone, False))
+subprocess.run(["git", "checkout", "-q", "main"], cwd=clone, check=True)
+for cmd in ("git switch -c x && bash <<EOF\ncd $PWD\ngit push -u origin HEAD\nEOF",
+            "bash -c \"git worktree add $PWD/../wt9 -b f9 && cd ../wt9 && git push -u origin HEAD\""):
+    assert doors_of(cmd, clone, False) == [], (cmd, doors_of(cmd, clone, False))
+shutil.rmtree(clone, ignore_errors=True)
+os.unlink(os.path.join(p.dir, "notes.md"))
+ok("nested $PWD: a path only where it starts a word, the line's own checkout, each possible directory; $PWD copies")
 for x in (evil, fake, lnr):
     shutil.rmtree(x, ignore_errors=True)
 

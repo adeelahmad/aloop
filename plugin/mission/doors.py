@@ -202,7 +202,8 @@ def action_sha(tool, inp):
 
 UNKNOWN = "\0unknown"   # a directory the gate cannot resolve (a variable, `cd -`): its git state is assumed
 TOP = "\0top"           # $(git rev-parse --show-toplevel): the checkout's top, resolved per project
-HERE = "\0pwd"          # the reading shell's $PWD or $(pwd) in a word (render(mark=True)): chain() binds it
+HERE = "\0pwd"          # the reading shell's $PWD or ~+ in a word (render(mark=True)): chain() binds it
+HERE_CMD = "\0pwc"      # its $(pwd), likewise
 CWD = "\0cwd"           # the call's cwd, in text a nested shell reads (nested(): where the outer shell was)
 DEPTH = 8               # nested shells, evals, substitutions and find -exec read; deeper is unreadable (fails closed)
 
@@ -212,7 +213,7 @@ def render(parts, mark=False):
     a substitution `$(…)` (its commands are read on their own), and `*` for what only running it tells
     (a glob, arithmetic, a positional parameter). `mark`: the shell's own $PWD and $(pwd) are HERE, so
     the text a nested shell reads keeps the directory this shell expanded them in."""
-    pwd = HERE if mark else "$PWD"
+    pwd, pwc = (HERE, HERE_CMD) if mark else ("$PWD", "$PWD")
     out = []
     for p in parts:
         if isinstance(p, str):
@@ -221,7 +222,7 @@ def render(parts, mark=False):
             out.append("~" if p[1] == "HOME" and p[2] is None else pwd if p[1] == "PWD" else "$" + p[1])
         elif p[0] == "cmd":
             t = " ".join(p[1].split())
-            out.append(TOP if t == "git rev-parse --show-toplevel" else pwd if t in ("pwd", "pwd -L", "pwd -P") else "$(…)")
+            out.append(TOP if t == "git rev-parse --show-toplevel" else pwc if t in ("pwd", "pwd -L", "pwd -P") else "$(…)")
         elif p[0] == "proc":
             out.append("<(…)")
         else:
@@ -232,27 +233,29 @@ def render(parts, mark=False):
 
 def own(word):
     """A word as its command gets it: the shell's $PWD (where it is resolved, `shell`, is the view's)."""
-    return word.replace(HERE, "$PWD")
+    return word.replace(HERE, "$PWD").replace(HERE_CMD, "$PWD")
 
 
-def outer(cur):
-    """This shell's $PWD as text another shell reads: the directory itself (CWD for the call's), or `$(…)`
-    when it may be more than one."""
+def outer(cur, cmd=False):
+    """This shell's $PWD (`cmd`: its $(pwd)) as text another shell reads: the directory itself (CWD for the
+    call's, a path only where it starts a word); where the shell may be in more than one, `$PWD` read in
+    each directory the nested shell starts in, and `$(pwd)` unknown."""
     if len(cur) != 1 or cur[0] == UNKNOWN:
-        return "$(…)"
+        return "$(…)" if cmd else "$PWD"
     return cur[0] if os.path.isabs(cur[0]) or cur[0].startswith((TOP, CWD)) else CWD + ("/" + cur[0] if cur[0] else "")
 
 
 def nested(text, cur):
     """Text another shell reads after this one, in cur, expanded it (sh -c "…", eval, <<<, an unquoted
     heredoc, a pipe): this shell's $PWD is a directory the nested one's cd does not move."""
-    return text.replace(HERE, outer(cur))
+    return text.replace(HERE, outer(cur)).replace(HERE_CMD, outer(cur, True))
 
 
 def anyname(path):
-    """A path whose last name the shell substitutes (DIR/$F, DIR/${F:?}): any name in DIR, `DIR/?`."""
+    """A path whose whole last name the shell substitutes (DIR/$F, DIR/${F:?}, DIR/$(…)): any name in DIR,
+    `DIR/?` (`settings.json.bak.$(date +%s)` is still a backup's name)."""
     head, _, name = path.rpartition("/")
-    return head + "/?" if head and re.search(r"[$`]", name) else path
+    return head + "/?" if head and re.fullmatch(r"\$\w+|\$\(…\)", name) else path
 
 
 OUTER_PWD = re.compile(r"(?<!\\)(?:\$\(\s*pwd(?:\s+-[LP])?\s*\)|`\s*pwd(?:\s+-[LP])?\s*`|\$\{PWD\}|\$PWD(?!\w))")
@@ -263,13 +266,15 @@ def chdir(cur, arg, shell=None):
     `$PWD` is where the shell that expanded it is (`shell`, when env -C, git -C or find -execdir moved the
     command from there), `$(git rev-parse --show-toplevel)` the checkout's top, `$CLAUDE_PROJECT_DIR` the
     project's; `cd ''` stays; an absolute ARG is itself wherever the command was."""
-    if arg is not None and arg.startswith((TOP, CWD)):
+    if arg is not None and arg.startswith(CWD):
+        return arg[len(CWD):].lstrip("/")          # the call's cwd, as a line's directories name it ("" = it)
+    if arg is not None and arg.startswith(TOP):
         return arg
     for var, base in (("$PWD", cur if shell is None else shell),
                       ("$CLAUDE_PROJECT_DIR", os.environ.get("CLAUDE_PROJECT_DIR") or UNKNOWN)):
         if arg is not None and re.match(re.escape(var) + r"(?:/|$)", arg):
             return UNKNOWN if base == UNKNOWN else os.path.join(base, arg[len(var) + 1:]) if arg[len(var):] else base
-    if arg is None or arg == "-" or re.search(r"[$`*?]", arg):
+    if arg is None or arg == "-" or re.search(r"[$`*?\0]", arg):
         return UNKNOWN
     if arg == "":
         return cur
@@ -440,7 +445,8 @@ def views(cmd, depth=0, cur=""):
         inherited = fed is None
         for op, fd, w in c.redirs:          # the last redirect of fd 0 wins, left to right
             if fd in ("", "0") and op in ("<<", "<<-", "<<<", "<", "<&", "<>"):
-                stdin = (w.body if w.quoted or w.body is None else OUTER_PWD.sub(lambda _: outer(here), w.body)) \
+                stdin = (w.body if w.quoted or w.body is None else OUTER_PWD.sub(
+                    lambda m: outer(here, m.group().startswith(("$(", "`"))), w.body)) \
                     if op in ("<<", "<<-") else nested(render(w.parts, True), here) if op == "<<<" else None
                 inherited = False
         if own is not None:                 # the group's own redirects: its commands write and read them
@@ -734,6 +740,11 @@ def copy_writes(cwd, v, plan, made=()):
         return [base + "/" + n for n in keep[:4 * GLOB_MAX]] + ([base + "/*"] if len(keep) > 4 * GLOB_MAX else []) + (
             [base + "/?"] if not now and names else [])     # empty now: the line filled it, not only by what it shows
 
+    def a_file(s):                                          # a regular file now: it never becomes a directory
+        w = where_of(v, s)
+        f = resolve(cwd, w) if w != UNKNOWN else ""
+        return bool(f) and os.path.isfile(f)
+
     def a_dir(s):                                           # rsync copies a directory into DEST, as DEST/NAME
         w = where_of(v, s)
         f = resolve(cwd, w) if w != UNKNOWN else ""
@@ -741,7 +752,8 @@ def copy_writes(cwd, v, plan, made=()):
     if plan["whole"]:                                       # cp -T SRCDIR DEST: DEST gets SRCDIR's entries
         return out + [dest] + [w for s in srcs if plan["prog"] == "cp" and a_dir(s)
                                for w in contents(s.rstrip("/") + "/.")]
-    where = where_of(v, dest)
+    where = chdir(v["dir"], dest, v.get("shell")) if re.match(r"\$(?:PWD|CLAUDE_PROJECT_DIR)(?:/|$)", dest) \
+        else where_of(v, dest)                              # "$PWD": the directory the shell is in
     full = resolve(cwd, where) if where != UNKNOWN else ""
     if plan.get("nodir") and full and not dest.endswith("/") and os.path.islink(full):
         return out + [dest]                                 # ln -sfn X LINK: the link itself is replaced
@@ -782,7 +794,8 @@ def copy_writes(cwd, v, plan, made=()):
         if rsync and not s.endswith("/") and a_dir(s):
             return out + inside(s)
         return out + [dest] + (contents(s) if s.endswith("/.") or rsync and s.endswith("/") else [])
-    becomes = isdir is None and re.search(r"[$`]", dest) and len(srcs) == 1 and not rsync and not srcs[0].endswith("/.")
+    becomes = isdir is None and re.search(r"[$`]", dest) and len(srcs) == 1 and not rsync and not srcs[0].endswith("/.") \
+        and not a_file(srcs[0])                             # cp -r X "$WT/.claude": X may become that directory
     return out + [dest] + ([base + "/*"] if becomes else []) + [w for s in srcs or [STDIN] for w in inside(s)]
 
 
@@ -1041,6 +1054,8 @@ def resolve(cwd, where, kernel=False):
         where = toplevel(cwd) + where[len(TOP):]
     if where.startswith(CWD):
         where = where[len(CWD):].lstrip("/") or "."
+    if "\0" in where:
+        return ""                       # a mark inside a word (PREFIX=$(git rev-parse --show-toplevel)/x): no path
     where = os.path.join(cwd, os.path.expanduser(where))
     return os.path.realpath(where) if kernel else os.path.normpath(where)
 
@@ -1125,7 +1140,7 @@ def placed(cwd, top, v, path, kernel=False, here=None):
         return path
     if re.match("(?:%s|%s|\\$PWD|\\$CLAUDE_PROJECT_DIR)(?:/|$)" % (re.escape(TOP), re.escape(CWD)), path):
         where = chdir(v["dir"], path, v.get("shell"))
-    elif re.search(r"[$`]", path) or v["dir"] == UNKNOWN and not (os.path.isabs(path) or path.startswith("~")):
+    elif re.search(r"[$`\0]", path) or v["dir"] == UNKNOWN and not (os.path.isabs(path) or path.startswith("~")):
         where = UNKNOWN
     else:
         where = path if os.path.isabs(path) or path.startswith("~") or not v["dir"] else v["dir"] + "/" + path
@@ -1151,7 +1166,7 @@ KEEP = re.compile(r"(?:^|/)(?:\.[^/]*|[^/]*\.(?:jsonc?|jsonl|toml|ya?ml|m?js))$"
 
 def where_of(v, path):
     """Where a command's path operand is, as resolve() takes it (UNKNOWN: the gate cannot tell)."""
-    if re.search(r"[$`]", path) or "\n" in path or len(path) > 4096:
+    if re.search(r"[$`]", path) or "\n" in path or len(path) > 4096 or "\0" in path[1:]:
         return UNKNOWN
     if os.path.isabs(path) or path.startswith(("~", CWD)):
         return path                                         # where it says, wherever the command runs
