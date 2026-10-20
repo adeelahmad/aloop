@@ -80,7 +80,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.21 | Mission price table kept current | NOT_IMPLEMENTED | §4.12 |
 | M9.22 | Mission USD meter prices fast mode and server tools | NOT_IMPLEMENTED | §4.12 |
 | M9.23 | Mission loop takes its ethics facts from the ethics verdict | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
-| M9.24 | `--force` grants, ethics reviews and the budget stop are ledger rows | NOT_IMPLEMENTED | §4.12 |
+| M9.24 | `--force` grants, ethics reviews and the budget stop are ledger rows | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.25 | A baseline binds the mission's direction, not its budget | IMPLEMENTED_TESTED | `scripts/test/mission-baseline.test.py` |
 | M9.26 | A goal's sprint history is read from committed records | NOT_IMPLEMENTED | §4.12 |
 | M9.27 | The mission loop trusts an eval only when `evaluate check` would | NOT_IMPLEMENTED | §4.12 |
@@ -91,5 +91,8 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.41 | Concurrent mission role runs are serialized | NOT_IMPLEMENTED | §4.12 |
 | M9.42 | Shared mission role dirs, judge run records and the judge command | NOT_IMPLEMENTED | §4.12 |
 | M9.43 | A goal binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
+| M9.44 | A goal is re-measured between its sprints | NOT_IMPLEMENTED | §4.12 |
+| M9.45 | A journey's runner has a named author | NOT_IMPLEMENTED | §4.12 |
+| M9.46 | `mission due` is the supervisor's, not a role's | NOT_IMPLEMENTED | §4.12 |
 | M9.50 | A goal sprinted with gaps still open gets a next step | NOT_IMPLEMENTED | §4.12 |
 | M9.51 | Lifting a mission block is the human's typed line, kept in the ledger | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
