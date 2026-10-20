@@ -13,6 +13,7 @@ adds files and never edits a shared list:
 | File | What |
 |---|---|
 | `plugin/mission/<area>.py` | the module: a docstring (it is `mission <area> --help`) and `main(argv, cwd) -> int` |
+| | `BARE = True` makes a bare `mission <area>` run `main([], cwd)`; without it a bare call prints the docstring |
 | `plugin/mission/schemas/<kind>.json` | the artifact's schema (the JSON Schema subset `_mission.validate` reads) |
 | `scripts/test/mission-<area>.test.py` | its test; `make test-hosts` runs every `scripts/test/mission-*.test.py` |
 
@@ -37,3 +38,21 @@ Then flip the task's own row in ROADMAP §4.12 and its row in `docs/TRACKING.md`
   latest id. It reads only the contract fields, so the loop never depends on an area module.
 
 A gate checks structure and evidence, never whether a judgment is right.
+
+## What the loop reads (`mission tick`, M9.8)
+
+`tick` decides from the contract fields above and these facts only, so an area that wants the
+loop to move on records them:
+
+| Fact | Recorded as |
+|---|---|
+| an ethics verdict | `ethics.reviewed` {subject, sha256, tier: clear · gray · hard}; `ethics.blocked` {subject, sha256} is a hard line. The most severe verdict for a content wins |
+| a human approval | `approve(...)` with the subject's project-relative path (`rel`) and `digest` of its content: `mission.approved`, `baseline.confirmed`, `goal.approved` (spoon-fed pick), `ethics.consent` (gray; mission or goal) |
+| a vetoed replacement baseline | `baseline.vetoed` {subject} |
+| journeys defined | a journey with status `proposed` or `active` |
+| an eval's verdict | the eval artifact's boolean `goal_met` |
+| a goal's progress | status `derived` → `approved` → `active` (intents handed to Aladdin) → `met` · `retired` · `blocked` |
+| a sprint | Aladdin's `plan.created` {sprint: "S<N>"} and `.aladdin/state/sprints.json`; the first sprint planned after a goal was derived is that goal's |
+
+Time is the ms in each harness id, so artifacts order exactly; nothing else is needed.
+
