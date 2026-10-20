@@ -51,6 +51,10 @@ again. Instead:
 4. **Re-validate:** `gate-stage2-complete docs/agents/sprintN` must pass again. Log
    `replan SN-NN complete Tn`.
 5. **Resume** the sprint: dispatch the new tasks (from RED) and continue the loop.
+   Reviewed mode: the re-plan changed the plan, so `gate-dispatch` blocks every dispatch of the
+   sprint until the human approves the new plan: run `events authority … --sprint N` again and
+   relay the `approve SN <code>` line it asks for (ROADMAP M0.9). An autonomous grant for the
+   sprint covers its re-plans.
 
 ### Breach classes (classify before you split)
 

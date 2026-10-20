@@ -6,8 +6,13 @@
 # worker's SubagentStop gate cannot find STORY_DIR and blocks on every stop — a block the worker
 # cannot fix (live e2e run 6: 25 blocks). So the dispatch itself is refused until it is right.
 #
+# Nor is anything of a sprint dispatched before the human approved its plan (ROADMAP M0.9): the
+# sprint's newest grant (`events authority`, the human's typed line) must still cover the plan as it is.
+#
 # Only aloop execution roles, only from the main session (a sub-agent's own Agent calls carry
-# agent_type), only in a repo with aloop state (.agentic/). Exit: 0 allow · 2 deny. SKIP_HOOKS=1.
+# agent_type), only in a repo with aloop state (.agentic/). Every host: Claude Code's Agent/Task
+# (subagent_type, prompt), Codex's spawn_agent (agent_type, message), OpenCode's task and dsh's
+# subagent (both through their plugins). Exit: 0 allow · 2 deny. SKIP_HOOKS=1.
 set -uo pipefail
 GATE_NAME=dispatch
 [ "${SKIP_HOOKS:-}" = "1" ] && exit 0
@@ -15,16 +20,19 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 payload="$(cat 2>/dev/null || true)"
 
 command -v python3 >/dev/null 2>&1 || exit 0
-read -r role tid model < <(printf '%s' "$payload" | python3 -c '
+read -r role tid model tool < <(printf '%s' "$payload" | python3 -c '
 import json, re, sys
 p = json.load(sys.stdin)
 if p.get("agent_type"):
-    print("- - -"); sys.exit()
+    print("- - - -"); sys.exit()
 ti = p.get("tool_input") or {}
-role = (ti.get("subagent_type") or "").split(":")[-1]
-m = re.match(r"\s*TASK_ID:\s*([A-Za-z0-9._-]+)", ti.get("prompt") or "")
+role = str(ti.get("subagent_type") or ti.get("agent_type") or "").split(":")[-1]   # Codex: agent_type
+text = ti.get("prompt") or ti.get("message") or ""                                   # Codex: message (or items)
+if not text and isinstance(ti.get("items"), list):
+    text = "\n".join(str(i.get("text") or "") for i in ti["items"] if isinstance(i, dict))
+m = re.match(r"\s*TASK_ID:\s*([A-Za-z0-9._-]+)", text if isinstance(text, str) else "")
 model = re.sub(r"\s+", "", str(ti.get("model") or "")) or "-"
-print(role or "-", m.group(1) if m else "-", model)' 2>/dev/null) || exit 0
+print(re.sub(r"\s+", "", role) or "-", m.group(1) if m else "-", model, re.sub(r"\s+", "", str(p.get("tool_name") or "")) or "-")' 2>/dev/null) || exit 0
 
 case "$role" in red-worker|scaffolder|green-worker|structural-reviewer|final-gate|planner|intake|standards|archivist) ;;
   market-researcher|product-tester|state-assessor|evaluator|mission-planner|ethics-reviewer) ;;   # mission roles (§4.12)
@@ -40,7 +48,11 @@ case "$role" in red-worker|scaffolder|green-worker|structural-reviewer|final-gat
 # `claude-haiku-5-5` are the same answer; an absent model would fall back to the agent file's
 # default (opus for the planning roles), so it is refused too. An empty resolution (Codex: the
 # session's own model) checks nothing.
-want="$("$HERE/models" resolve "$role" 2>/dev/null)" || want=""
+# Codex's spawn_agent and OpenCode's task name no model per call: the role's agent file `aloop install`
+# wrote from the same routes pins it, so there only a model the call does name is checked.
+host="${AGENTIC_HOST:-}"; [ -z "$host" ] && [ "$tool" = spawn_agent ] && host=codex
+want="$("$HERE/models" resolve "$role" ${host:+--host "$host"} 2>/dev/null)" || want=""
+case "$host:$model" in codex:-|opencode:-) want="" ;; esac
 if [ -n "$want" ]; then
   fam() { case "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" in *haiku*) echo haiku ;; *sonnet*) echo sonnet ;; *opus*) echo opus ;; *) echo "" ;; esac; }
   bad=0
@@ -86,6 +98,14 @@ if [ -z "$sd" ] || [ ! -d "$sd" ]; then
   echo "BLOCK[$GATE_NAME]: the task contract $contract must set STORY_DIR to an existing dir${sd:+ (STORY_DIR=$sd does not exist)}:" >&2
   echo "  the ABSOLUTE path of the story's comms dir, docs/agents/sprintN/sN-NN-<slug>/ (holds init.md + output.md)." >&2
   [ "$role" = structural-reviewer ] && echo "  A structural review of a whole wave has no single story: use the sprint dir, docs/agents/sprintN/, and append its dispatch block to that dir's init.md." >&2
+  exit 2
+fi
+# The plan is the human's (ROADMAP M0.9): the sprint's newest grant must hold now: their approval of
+# exactly this plan (the typed line `approve SN <code>`), or autonomy they granted the sprint (their
+# `autonomous SN <code>`, or an approved autonomous mission for its own sprints). Before this it was a
+# playbook rule, so a supervisor could dispatch workers before the human said go (2026-10-20 fact check).
+if ! why="$("$HERE/events" approval "$tid" 2>&1 >/dev/null)"; then
+  printf 'BLOCK[%s]: dispatch %s of %s: %s\n' "$GATE_NAME" "$role" "$tid" "${why:-the plan approval check failed}" >&2
   exit 2
 fi
 # A manual task worktree (`aloop task-worktree add`, the sanctioned equivalent of isolation:

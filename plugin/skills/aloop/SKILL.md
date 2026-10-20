@@ -271,17 +271,18 @@ sprint at a time: dispatch the planner, review its output, present it for the hu
 approval, then — only on "go" — start that sprint's execution. Do NOT batch-write every
 future sprint's Stage-2 and chain straight into execution.
 
-**Autonomous mode** is explicit, never inferred: the human chooses it at run start
-(`events authority --mode autonomous`, and `AGENTIC_AUTONOMY_MODE=autonomous` for the
-gates). Then the generated plan goes through the deterministic planning checks
-(gate-intake incl. `intent check`, gate-stage2-complete) and straight into execution,
-with no approval step, unless an escalation class is hit: an unanswered `ask` question
-(`intent check` exit 3), a scope change, or the re-plan cap. Reviewed mode stays the default.
+**Autonomous mode** is explicit, never inferred, and per sprint: the human grants it with
+the line `events authority --mode autonomous --sprint N` asks for (or by approving an
+autonomous mission), plus `AGENTIC_AUTONOMY_MODE=autonomous` for the gates. Then the plan
+and its re-plans go through the deterministic planning checks (gate-intake incl. `intent
+check`, gate-stage2-complete) and straight into execution, unless an escalation class is
+hit: an unanswered `ask` question (`intent check` exit 3), a scope change, or the re-plan cap.
 
-**Provenance (on "go", and at every durable boundary).** Record who approved what, once
-per sprint, before the first dispatch:
-`events authority --initiated-by <human> --mode reviewed|autonomous --scope "sprint N as approved"`
-(plus `--override KEY=VALUE` for any limit the human changed). At each split, re-plan,
+**Approval is a gate.** `gate-dispatch` starts no execution role of a sprint until the
+human approved its plan as it is now:
+`events authority --initiated-by <human> --mode reviewed|autonomous --scope "sprint N as approved" --sprint N`
+(`--override KEY=VALUE` too) exits 3 with a line like `approve S1 1a2b3c4d`: relay it, the
+human types it, run it again. Never type it yourself. A reviewed re-plan asks again. At each split, re-plan,
 target or acceptance decision, record ONE line of rationale with its evidence:
 `events decide split|replan|acceptance|… --task SN-NN-Tk --reason "<one line>" --evidence <ref>`.
 No chain-of-thought — a reason, refs and the authority (`events lineage <task>` shows it).
