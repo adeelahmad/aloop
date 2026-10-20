@@ -21,8 +21,8 @@ T = os.path.realpath(tempfile.mkdtemp(prefix="aloop-stop-"))
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 REPO = os.path.join(T, "repo")
 WT = os.path.join(T, "wt")
-AGENT_VARS = ("CLAUDECODE", "AGENTIC_HOST", "SKIP_HOOKS", "AGENTIC_NO_BUDGET", "CODEX_SANDBOX",
-              "OPENCODE", "DSH_SESSION")
+AGENT_VARS = ("CLAUDECODE", "DSH_SHELL", "CODEX_THREAD_ID", "ALOOP_AGENT_SHELL", "AGENTIC_HOST", "SKIP_HOOKS",
+              "AGENTIC_NO_BUDGET")
 ENV = {k: v for k, v in os.environ.items() if k not in AGENT_VARS}
 ENV.update(HOME=os.path.join(T, "home"), PYTHONDONTWRITEBYTECODE="1")
 n = [0]
@@ -115,7 +115,7 @@ assert "the deploy looks wrong" in d["reason"] and "aloop stop --clear" in d["re
 ok("mission tick answers STOPPED (the human's) with the reason while the project is stopped")
 
 # 6) only the human clears it: an agent host's shell is refused, the human's own terminal is not
-for var in ("CLAUDECODE",):
+for var in ("CLAUDECODE", "DSH_SHELL", "CODEX_THREAD_ID", "ALOOP_AGENT_SHELL"):
     r = run(STOP, "--clear", env=dict(ENV, **{var: "1"}))
     assert r.returncode == 2 and "terminal" in r.stderr, r
 assert run(STOP, "--status").returncode == 3
@@ -126,7 +126,7 @@ assert run(STOP, "--status").returncode == 0 and len(events("run.resumed")) == 1
 assert not denied(hook("pre", "Bash", REPO, **SUPERVISOR)) and not denied(hook("pre", "Write", WT, **WORKER))
 r = run(os.path.join(BIN, "mission"), "tick", "--json", "--peek")
 assert json.loads(r.stdout)["action"] != "STOPPED", r.stdout
-ok("`stop --clear` is refused in an agent's shell; from the human's terminal it resumes everything and records run.resumed")
+ok("`stop --clear` is refused in an agent's shell on every host (Claude Code, dsh, Codex, OpenCode); from the human's terminal it resumes everything and records run.resumed")
 
 # 7) the stop records are the human's: `events emit` cannot forge them
 for name in ("run.stopped", "run.resumed"):
