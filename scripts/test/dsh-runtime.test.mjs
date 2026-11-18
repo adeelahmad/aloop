@@ -122,8 +122,11 @@ const script = {
     { tools: [{ name: "write", input: { file_path: join(P, "docs/agents/sprint1/intake.md"), content:
       "# Intake\n## What\nA semver parser.\n## Constraints\nstd only.\n## Failure scenarios\nbad input errors.\n" +
       "## Success scenarios\n1.2.3 parses.\n## Connections\nnone; depends on nothing.\n" } }] },
-    // the Intent Contract, complete but for one question only the human can answer (an `ask`)
-    { tools: [{ name: "bash", input: { description: "contract", command: "f=$(aloop intent new --source prompt --raw 'a semver parser') && " +
+    // the Intent Contract, complete but for one question only the human can answer (an `ask`). Held until the
+    // state-assessor's run has started: an intent `intent new` made before a mission role's start and filled during
+    // its run reads as a change no event of that run explains (ROADMAP M9.41, open), which on a slow runner (macOS)
+    // blocked the state-assessor for intake's write instead of for its missing artifact
+    { after: { role: "state-assessor", step: 0 }, tools: [{ name: "bash", input: { description: "contract", command: "f=$(aloop intent new --source prompt --raw 'a semver parser') && " +
       "python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); d.update(actor=\"dev\", want=\"parse semver\", why=\"releases\", " +
       "constraints=[\"std only\"], success_scenarios=[\"1.2.3 parses\"], failure_scenarios=[\"bad input errors\"], connections=[\"none\"], " +
       "done_looks_like=\"parse() returns a Version\", open_questions=[{\"question\": \"May the parser accept a leading v (v1.2.3)?\", " +
