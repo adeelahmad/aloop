@@ -332,7 +332,7 @@ structural, not luck:
   blocking it from doing the context-heavy work itself.
 
 Live runs: `make smoke-live YES=1` (hook wiring, ~$0.004) and `make e2e-live YES=1` (the whole
-loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci`, which runs Rust fmt/clippy/tests, shellcheck, 56 Python/Node suites plus every `mission-*.test.py`,
+loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci`, which runs Rust fmt/clippy/tests, shellcheck, 57 Python/Node suites plus every `mission-*.test.py`,
 the gate conformance fixtures (`make conformance`) and eval-suite validation. Every ROADMAP
 requirement is tracked with its test in [docs/TRACKING.md](docs/TRACKING.md).
 
