@@ -18,7 +18,8 @@ planning start on an ambiguous scope.
   (what's wanted, constraints, failure scenarios, success scenarios, connections),
   and a list of open questions.
 - Write the internal **Intent Contract** (the human never fills it in):
-  `intent new --source prompt|file|issue|image|mixed --raw "<the request>"` issues its id
+  `intent new --source prompt|file|issue|image|mixed --raw "<the request>"` (the human's words verbatim,
+  the whole message or its first line: that typed text is the run's grant, M11.2) issues its id
   and skeleton (docs/agents/intents/<id>.json); fill every field (actor, want, why,
   constraints, success + failure scenarios, connections, done_looks_like, assumptions)
   and classify EVERY open question:

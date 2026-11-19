@@ -177,10 +177,12 @@ COMMAND = re.compile(r"^/[\w:.-]+\s+")              # `/aladdin <intent>`, `/alo
 
 
 def said(text, raw_sha):
-    """True when a captured prompt is exactly the intent's words: the whole prompt, or the prompt after its slash
-    command, with surrounding quotes and space stripped (the sha256 `intent new --raw` recorded)."""
+    """True when a captured prompt is exactly the intent's words: the whole prompt or its first line, either after
+    an optional slash command, with surrounding quotes and space stripped (the sha256 `intent new --raw` recorded).
+    The first line lets the human add instructions below their intent; every candidate is still their own text."""
     t = text.strip()
-    for c in {t, COMMAND.sub("", t, count=1).strip()}:
+    first = t.splitlines()[0].strip() if t else ""
+    for c in {t, first, COMMAND.sub("", t, count=1).strip(), COMMAND.sub("", first, count=1).strip()}:
         for w in {c, c.strip("\"'`").strip()}:
             if len(w.split()) >= MIN_WORDS and hashlib.sha256(w.encode("utf-8", "surrogatepass")).hexdigest() == raw_sha:
                 return True

@@ -539,6 +539,13 @@ assert g["autonomy_mode"] == "autonomous" and g["grant"]["intent"]["intent_id"] 
 r = dispatch("S1-01-T1", cwd=W)
 assert r.returncode == 0, r.stderr
 assert "typed intent" in run([EV, "approval", "S1-01-T1"], cwd=W).stdout + run([EV, "approval", "S1-01-T1"], cwd=W).stderr
+# the first line of a longer prompt is the human's words too (instructions may follow it)
+say(W, ENV, "make the report export sortable by date\nRun the whole loop and print E2E-DONE.")
+iid4 = typed_intent("make the report export sortable by date", W)
+sprint(4, cwd=W, story="v")
+r = run([EV, "authority", "--initiated-by", "Adeel", "--scope", "s", "--sprint", "4"], cwd=W)
+assert r.returncode == 0, r.stderr
+assert [e for e in events(W) if e["event"] == "human.approval"][-1]["authority"]["grant"]["intent"]["intent_id"] == iid4
 # an intent the human did not type (an agent's paraphrase) asks for the line, as before
 typed_intent("add a csv and pdf export to the report", W)
 sprint(2, cwd=W, story="y")
