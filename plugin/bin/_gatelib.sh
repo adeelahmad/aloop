@@ -381,6 +381,17 @@ assert_no_secrets() {
   fi
 }
 
+# Dependency audit (ROADMAP M10.2b): each manifest that declares a dependency passes its stack's audit
+# tool (`audit run`); a tool that is not installed blocks too. The sprint sign-off runs it.
+assert_dependency_audit() {
+  local out
+  if ! out="$("$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/audit" run --root "$(repo_dir)" 2>&1)"; then
+    fail "dependency audit did not pass:
+$out
+  Fix or update the dependency; an advisory the human accepted goes in the tool's own ignore list (audit.toml, .npmrc, ...)"
+  fi
+}
+
 # True if $1 matches any space-separated glob in $2.
 # Test files by convention: Rust's tests/ and tests/common/, any tests/ dir, and the Python/Go/JS
 # test-file names. RED writes only these; GREEN may touch them besides its scope, to drop shims.
