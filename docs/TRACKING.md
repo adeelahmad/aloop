@@ -102,7 +102,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.53 | The mission loop hands out a goal's commands only when `goal check` passes | NOT_IMPLEMENTED | §4.12 |
 | M9.54 | Scope gate reader residuals (computed cd, failed cd, loop cd accumulation) | NOT_IMPLEMENTED | §4.12 |
 | M9.55 | One goal in flight, picked by one clock | NOT_IMPLEMENTED | §4.12 |
-| M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | NOT_IMPLEMENTED | §4.13 |
+| M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | BLOCKED_HOST | needs bubblewrap and socat on Linux (or macOS Seatbelt) to prove containment; this container has neither (§4.13) |
 | M10.2 | No unplanned dependency (GREEN) and no credential (GREEN, final gate) | IMPLEMENTED_TESTED | `scripts/test/supply-chain.test.py` |
 | M10.2b | The stack's dependency audit (cargo audit, npm audit, pip-audit, govulncheck) passes before sprint sign-off; a missing tool blocks | IMPLEMENTED_TESTED | `scripts/test/dependency-audit.test.py` |
 | M10.3 | Fetched web content is data: the market-researcher fetches only through `research archive` (no WebFetch, no curl/wget, on every host), personas, injected-page eval case | IMPLEMENTED_TESTED | `scripts/test/fetched-data.test.py` |
