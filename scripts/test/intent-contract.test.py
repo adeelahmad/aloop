@@ -225,4 +225,37 @@ r = subprocess.run([I, "open"], cwd=bare, env=ENV, capture_output=True, text=Tru
 assert r.returncode == 0 and r.stdout.strip() == "" and not os.path.exists(os.path.join(bare, "docs")), r
 ok("intent open lists the newest contract's unanswered asks, quoted one per line (exit 3); none open or no contract: 0")
 
+# 11) ROADMAP M11.4, only one-way doors go to the human: in autonomous mode (the default) an `ask` with the
+# intake's `recommended` answer and no `door` is taken and recorded, never asked; one naming a one-way door,
+# or with no recommendation, still stops; reviewed mode (opt-in) asks every one. Generation is cheap: a
+# reversible choice the human dislikes is redone.
+doc["open_questions"] = [
+    {"question": "CSV or TSV?", "class": "ask", "recommended": "CSV"},
+    {"question": "store exports in the shared bucket?", "class": "ask", "recommended": "no", "door": "visibility-or-sharing"}]
+json.dump(doc, open(path, "w"))
+os.utime(path, (os.path.getmtime(newer) + 180,) * 2)
+REV = dict(ENV, AGENTIC_AUTONOMY_MODE="reviewed")
+r = run(I, "check", path)
+assert r.returncode == 3 and "ASK[intent]: store exports in the shared bucket?" in r.stderr, r.stderr
+assert "CSV or TSV?" not in r.stderr.split("ASK[intent]")[1], r.stderr   # the two-way one is not asked
+r = run(I, "open")
+assert r.returncode == 3 and "shared bucket" in r.stdout and "CSV or TSV?" not in r.stdout, r
+r = run(I, "open", env=REV)
+assert r.returncode == 3 and "CSV or TSV?" in r.stdout, r                 # reviewed: every ask is the human's
+doc["open_questions"][1]["answer"] = "no"
+json.dump(doc, open(path, "w"))
+os.utime(path, (os.path.getmtime(newer) + 240,) * 2)
+r = run(I, "check", path)
+assert r.returncode == 0 and "TAKEN (autonomous, two-way): CSV or TSV? -> CSV" in r.stderr, r.stderr
+last = [json.loads(ln) for ln in open(os.path.join(T, ".aladdin", "logs", "events.jsonl"))][-1]
+assert last["event"] == "intent.normalized" and last["data"]["mode"] == "autonomous", last
+assert last["data"]["taken"] == [{"question": "CSV or TSV?", "answer": "CSV"}], last
+assert "TAKEN (autonomous): CSV" in run(I, "summary", path).stdout
+assert run(I, "check", path, "--mode", "reviewed").returncode == 3
+assert run(I, "check", path, env=REV).returncode == 3
+doc["open_questions"][0].pop("recommended")
+json.dump(doc, open(path, "w"))
+assert run(I, "check", path).returncode == 3                              # no recommendation: unknown stays the human's
+ok("autonomous (default) takes a recommended two-way ask and records it; a door or no recommendation asks; reviewed asks all")
+
 print("\n%d checks passed" % PASS[0])

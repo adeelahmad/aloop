@@ -172,16 +172,10 @@ ALOOP_NO_HOST_RERENDER=1 "$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="${WORK
 [ "$HOST" = claude ] || "$PLUGIN/bin/install" "$HOST" --project . >/dev/null
 git add -A && git commit -qm "aloop init" >/dev/null 2>&1 || true
 
-# The approval given up front is the human's own typed line (ROADMAP M0.9): gate-dispatch admits no
-# worker before it. The run is autonomous for sprint 1, so the line names that authority record,
-# whose code is known before the plan exists; the prompt carries it as the human's words.
-AUTH=(--initiated-by "e2e human" --mode autonomous --scope "the e2e run" --sprint 1)
-GRANT="$("$PLUGIN/bin/events" authority "${AUTH[@]}" 2>&1 >/dev/null | sed -n 's/.*they reply  \(autonomous S1 [0-9a-f]\{8\}\)  .*/\1/p')"
-[ -n "$GRANT" ] || { echo "e2e: no autonomy line from aloop events authority" >&2; exit 1; }
-PROMPT="Use the aloop skill. Intent: $INTENT
-I am the human. I approve in advance: accept your recommended answer to every question, approve the plan as you propose it, and do not wait for me. Sprint 1 runs autonomously: before the first dispatch, record my grant with exactly \`aloop events authority --initiated-by \"e2e human\" --mode autonomous --scope \"the e2e run\" --sprint 1\`. My line for it:
-$GRANT
-Run the whole loop without stopping: retrospective (none yet), intake, standards, planner, then execution (RED, SCAFFOLD, GREEN per task, structural review, final gate), merging each passed task into main. Finish with the final gate green. Then print one line: E2E-DONE."
+# Only the intent (ROADMAP M11.9): its first line is the intent, word for word, and that typed line is the
+# sprint's grant (M11.2); nothing else is approved up front and no human answers anything after it.
+PROMPT="$INTENT
+Use the aloop skill on the intent above: its first line, word for word, is the Intent Contract's raw text. Run the whole loop: retrospective (none yet), intake, standards, planner, door-classifier, then execution (RED, SCAFFOLD, GREEN per task, structural review, final gate), merging each passed task into main. Finish with the final gate green. Then print one line: E2E-DONE."
 
 case "$HOST" in
   claude)   CMD=(claude -p --plugin-dir "$PLUGIN" --model "$SUP_MODEL" --output-format stream-json --verbose --max-turns 400

@@ -509,6 +509,71 @@ ok("a grant pins plan text only while it holds: none before the human's grant, t
    "sprint under autonomy, the approved files under review; a forged record or edited per-file hashes pin nothing; an "
    "approval from before intake.md and standards.md were plan files says so")
 
+# M11.2: the human's typed intent is the grant. Autonomous is the default mode (no --mode); a sprint planned
+# from an intent whose words are, word for word, a prompt the human typed runs with no second line. Words an agent
+# made up, a short reply, or reviewed mode (opt-in) still ask; a plan re-pointed at another intent loses the grant.
+INT = os.path.join(BIN, "intent")
+W = project("typed")
+
+
+def typed_intent(raw, cwd):
+    r = run([INT, "new", "--source", "prompt", "--raw", raw], cwd=cwd)
+    assert r.returncode == 0, r.stderr
+    path = r.stdout.strip()
+    doc = json.load(open(path))
+    doc.update(actor="user", want=raw, why="asked", done_looks_like="it works", success_scenarios=["it works"],
+               failure_scenarios=["bad input is refused"], connections=["cli"])
+    json.dump(doc, open(path, "w"))
+    assert run([INT, "check", path], cwd=cwd).returncode == 0
+    return doc["intent_id"]
+
+
+say(W, ENV, "/aladdin add a csv export to the report")
+iid = typed_intent("add a csv export to the report", W)
+sprint(1, cwd=W)
+assert dispatch("S1-01-T1", cwd=W).returncode == 2                       # nothing recorded yet
+r = run([EV, "authority", "--initiated-by", "Adeel", "--scope", "the intent", "--sprint", "1"], cwd=W)
+assert r.returncode == 0, r.stderr
+g = [e for e in events(W) if e["event"] == "human.approval"][-1]["authority"]
+assert g["autonomy_mode"] == "autonomous" and g["grant"]["intent"]["intent_id"] == iid and "prompt" not in g["grant"], g
+r = dispatch("S1-01-T1", cwd=W)
+assert r.returncode == 0, r.stderr
+assert "typed intent" in run([EV, "approval", "S1-01-T1"], cwd=W).stdout + run([EV, "approval", "S1-01-T1"], cwd=W).stderr
+# the first line of a longer prompt is the human's words too (instructions may follow it)
+say(W, ENV, "make the report export sortable by date\nRun the whole loop and print E2E-DONE.")
+iid4 = typed_intent("make the report export sortable by date", W)
+sprint(4, cwd=W, story="v")
+r = run([EV, "authority", "--initiated-by", "Adeel", "--scope", "s", "--sprint", "4"], cwd=W)
+assert r.returncode == 0, r.stderr
+assert [e for e in events(W) if e["event"] == "human.approval"][-1]["authority"]["grant"]["intent"]["intent_id"] == iid4
+# an intent the human did not type (an agent's paraphrase) asks for the line, as before
+typed_intent("add a csv and pdf export to the report", W)
+sprint(2, cwd=W, story="y")
+r = run([EV, "authority", "--initiated-by", "Adeel", "--scope", "the intent", "--sprint", "2"], cwd=W)
+assert asked(r) and asked(r).startswith("autonomous S2 "), r.stderr
+# a short reply is never an intent's words
+say(W, ENV, "yes go on")
+typed_intent("yes go on", W)
+sprint(3, cwd=W, story="z")
+assert asked(run([EV, "authority", "--initiated-by", "Adeel", "--scope", "s", "--sprint", "3"], cwd=W))
+# reviewed is opt-in and asks for the plan line
+REV = dict(ENV, AGENTIC_AUTONOMY_MODE="reviewed")
+r = run([EV, "authority", "--initiated-by", "Adeel", "--scope", "s", "--sprint", "1"], cwd=W, env=REV)
+assert asked(r) and asked(r).startswith("approve S1 "), r.stderr
+# the plan of S1 re-frozen from the untyped intent: the newest grant no longer holds
+typed_intent("add a csv and pdf export to the report", W)
+write("docs/agents/sprint1/stories.md", "---\ntype: stories\nsprint: 1\n---\n# Sprint 1\n\n- S1-01 (s1-01-x)\n"
+      "- S1-02 (s1-02-w)\n", W)
+write("docs/agents/sprint1/s1-02-w/tasks.md", "---\nstory: S1-02\n---\n## T1 — more\n", W)
+for f in ("validate.md", "plan.md"):
+    write("docs/agents/sprint1/s1-02-w/" + f, "---\nstory: S1-02\n---\n## T1 — more\n", W)
+r = run([IDS, "freeze", "docs/agents/sprint1"], cwd=W)
+assert r.returncode == 0, r.stderr
+r = dispatch("S1-01-T1", cwd=W)
+assert r.returncode == 2 and "typed intent" in r.stderr and "no longer grants it" in r.stderr, r.stderr
+ok("M11.2: autonomous by default, the typed intent grants its sprints with no line; an untyped intent, a short reply"
+   " or reviewed mode asks; a plan re-pointed at another intent loses the grant")
+
 shutil.rmtree(mp.dir, ignore_errors=True)
 shutil.rmtree(sp.dir, ignore_errors=True)
 print("%d checks passed" % n[0])

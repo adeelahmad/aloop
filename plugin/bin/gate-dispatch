@@ -81,7 +81,7 @@ if [ "$role" = planner ]; then
   fi
 fi
 # Planning and mission roles have no task contract: the model check is all.
-case "$role" in planner|intake|standards|archivist|market-researcher|product-tester|state-assessor|evaluator|mission-planner|ethics-reviewer) exit 0 ;; esac
+case "$role" in planner|intake|standards|archivist|door-classifier|market-researcher|product-tester|state-assessor|evaluator|mission-planner|ethics-reviewer) exit 0 ;; esac
 
 if [ "$tid" = "-" ]; then
   echo "BLOCK[$GATE_NAME]: start the $role dispatch prompt with the line \`TASK_ID: <id>\` — its gates find the task contract through it." >&2
@@ -121,6 +121,17 @@ if ! why="$("$HERE/events" approval "$tid" --story-dir "$sd" --role "$role" 2>&1
   printf 'BLOCK[%s]: dispatch %s of %s: %s\n' "$GATE_NAME" "$role" "$tid" "${why:-the plan approval check failed}" >&2
   exit 2
 fi
+# A planned one-way door parks only its own task (ROADMAP M11.10): the door-classifier tagged it before
+# execution and the human has not authorized that door yet; the rest of the sprint runs. Untagged and two-way
+# tasks pass (the door gate still checks every tool call).
+case "$role" in
+  red-worker|scaffolder|green-worker)
+    if ! why="$("$HERE/mission" doors plan "${tid%%-*}" --task "$tid" 2>&1 >/dev/null)"; then
+      printf 'BLOCK[%s]: %s is parked on a one-way door the human has not authorized; dispatch the sprint'"'"'s other tasks meanwhile:\n%s\n' \
+        "$GATE_NAME" "$tid" "$why" >&2
+      exit 2
+    fi ;;
+esac
 # A manual task worktree (`aloop task-worktree add`, the sanctioned equivalent of isolation:
 # "worktree" and the Codex/OpenCode route) carries a copy of the contract: `aloop bind` checks it
 # and the host binding needs it. Refreshed on every dispatch, since one task's contract changes role

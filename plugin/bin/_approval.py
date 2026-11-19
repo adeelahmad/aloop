@@ -172,6 +172,47 @@ def mission_autonomy(cwd):
             "by": rec["data"].get("by")}
 
 
+MIN_WORDS = 4                                      # a typed intent, not a reply ("yes", "go on")
+COMMAND = re.compile(r"^/[\w:.-]+\s+")              # `/aladdin <intent>`, `/aloop:aloop <intent>`
+
+
+def said(text, raw_sha):
+    """True when a captured prompt is exactly the intent's words: the whole prompt or its first line, either after
+    an optional slash command, with surrounding quotes and space stripped (the sha256 `intent new --raw` recorded).
+    The first line lets the human add instructions below their intent; every candidate is still their own text."""
+    t = text.strip()
+    first = t.splitlines()[0].strip() if t else ""
+    for c in {t, first, COMMAND.sub("", t, count=1).strip(), COMMAND.sub("", first, count=1).strip()}:
+        for w in {c, c.strip("\"'`").strip()}:
+            if len(w.split()) >= MIN_WORDS and hashlib.sha256(w.encode("utf-8", "surrogatepass")).hexdigest() == raw_sha:
+                return True
+    return False
+
+
+def intent_grant(cwd, sp):
+    """(grant, why_not): the human's typed intent as the sprint's grant of autonomy (ROADMAP M11.2). The sprint's
+    newest plan serves an intent (`ids freeze` names it), that intent was issued by `intent new` from a prompt
+    (not a mission's), and a prompt the UserPromptSubmit hook captured is exactly its words: the human said this
+    and nothing more is asked of them. A contract or raw text an agent wrote cannot make a prompt it did not type."""
+    ps = plans(cwd, sp)
+    iid = data(ps[-1]).get("intent_id") if ps else None
+    if not iid:
+        return None, "its plan names no intent (run intake first)"
+    doc, _ = M.load(os.path.join(_paths.docs(cwd), "intents", iid + ".json"))
+    if not isinstance(doc, dict) or doc.get("intent_id") != iid:
+        return None, "its intent %s has no contract" % iid
+    if doc.get("source") == "mission":
+        return None, "its intent %s is a mission's: the mission's own approval decides" % iid
+    raw = str((doc.get("provenance") or {}).get("raw_sha256") or "")
+    if not re.match(r"^[0-9a-f]{64}$", raw):
+        return None, "its intent %s recorded no raw words (`intent new --raw` with the human's words)" % iid
+    for q in reversed(M.prompts(cwd)):
+        if said(q["text"], raw):
+            return {"intent_id": iid, "raw_sha256": raw, "prompt": {"ts": q["ts"], "sha256": q["sha256"],
+                    "session": q["session"], "line": " ".join(q["text"].split())[:200]}}, ""
+    return None, "its intent %s is not, word for word, a prompt the human typed here" % iid
+
+
 def grant_for(cwd, initiated_by, mode, scope, sprint="", policy="default", overrides=None):
     """(sprint, grant) for a new authority record: the grant cites the human's typed line (or, for
     autonomy, the approved autonomous mission). Raises NeedsHuman until the human has typed it,
@@ -203,8 +244,11 @@ def grant_for(cwd, initiated_by, mode, scope, sprint="", policy="default", overr
         # the mission's autonomy covers only its own sprints: one planned from another intent asks the human
         mission = mission_autonomy(cwd) if mission_intent(cwd, sp) or not plans(cwd, sp) else None
         grant = {"kind": "autonomy", "sha256": sha}
+        typed = intent_grant(cwd, sp)[0] if not mission else None
         if mission:
             grant["mission"] = mission
+        elif typed:
+            grant["intent"] = typed       # the typed intent is the grant: no second line (M11.2)
         else:
             grant["prompt"] = provenance(cwd, sp, VERBS["autonomy"], sha, "Autonomy for %s" % sp)
     grant["prompt_log"] = M.prompt_clock(M.prompts(cwd))
@@ -298,9 +342,10 @@ def check(cwd, task_or_sprint, story_dir="", role=""):
 
 def holds(cwd, sp, plan_sha):
     """(True, why) when the sprint's newest grant holds for its plan as it is now, else (False, problems)."""
-    how = ("show the human the plan of %s; on their go run `aloop events authority --initiated-by \"<their name>\""
-           " --mode reviewed --scope \"%s as approved\" --sprint %s`: it asks for their typed line `approve %s <code>`"
-           " (an autonomous run: `--mode autonomous`, their line `autonomous %s <code>`)" % (sp, sp, sp[1:], sp, sp))
+    how = ("run `aloop events authority --initiated-by \"<their name>\" --scope \"%s\" --sprint %s`: autonomous by"
+           " default, the human's typed intent grants it with no line to type (M11.2); an intent they did not type"
+           " asks for `autonomous %s <code>`, and reviewed mode (`--mode reviewed`, opt-in) for `approve %s <code>`"
+           " once they have seen the plan" % (sp, sp[1:], sp, sp))
     gs = grants(cwd, sp)
     if not gs:
         return False, ["the human has not approved the plan of %s: nothing of it is dispatched before they do." % sp,
@@ -336,6 +381,13 @@ def holds(cwd, sp, plan_sha):
                                " own goals (`aloop mission goal next`); %s" % (sp, how)]
             return True, "%s autonomous under mission %s (approved by %s)" % (sp, g["mission"].get("mission_id"),
                                                                              g["mission"].get("by"))
+        if isinstance(g.get("intent"), dict):
+            typed, why = intent_grant(cwd, sp)
+            if not typed or typed["intent_id"] != g["intent"].get("intent_id"):
+                return False, ["%s's autonomy came from the human's typed intent %s, which no longer grants it (%s); %s"
+                               % (sp, g["intent"].get("intent_id"), why or "its plan now serves intent %s"
+                                  % typed["intent_id"], how)]
+            return True, "%s autonomous on the human's typed intent %s" % (sp, typed["intent_id"])
         bad = cited(cwd, g.get("prompt"), VERBS["autonomy"], g["sha256"], gs[:-1])
         if bad:
             return False, ["the newest autonomy grant of %s is not the human's own words: %s." % (sp, bad[0]), "  " + how]
