@@ -33,6 +33,7 @@ case "$role" in
   planner)             gate=gate-stage2-complete ;;
   intake)              gate=gate-intake ;;
   archivist)           gate=gate-memory ;;
+  door-classifier)     gate=gate-door-plan ;;
   market-researcher|product-tester|state-assessor|evaluator|mission-planner|ethics-reviewer)
                        gate=gate-mission-artifact ;;   # the mission roles (ROADMAP §4.12)
   tooling|preflight)   gate=gate-tooling ;;

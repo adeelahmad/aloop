@@ -1,7 +1,7 @@
 # aloop
 
-A Claude Code plugin that packages **two-stage agile planning** (interactive,
-human-gated) and **two-phase TDD execution** (autonomous, hook-enforced) into one
+A Claude Code plugin that packages **two-stage agile planning** (autonomous from
+your intent; you answer only one-way-door questions) and **two-phase TDD execution** (autonomous, hook-enforced) into one
 install. Determinism comes from hooks, not from model goodwill: every sub-agent
 stop is intercepted by a gate that can block the stop and feed the failure reason
 back to the supervisor.
@@ -140,7 +140,7 @@ export DEEPSEEK_API_KEY=sk-...                     # or DEEPSEEK_API_KEY=... in 
 dsh --profile aloop "Use the aloop skill. Intent: <one line>"
 ```
 
-- **Profile** (`$DSH_HOME/profiles/aloop/`, `DSH_HOME` defaults to `~/.dsh`): the 15 roles as
+- **Profile** (`$DSH_HOME/profiles/aloop/`, `DSH_HOME` defaults to `~/.dsh`): the 16 roles as
   agent presets `aloop-<role>` (each role's prompt is its agent file), `subagent` for the
   execution roles and `subagent_planning` for the planning roles, each with its group's model,
   and the plugin `hosts/dsh/aloop.mjs`, loaded in place. dsh has no project-scoped plugin
@@ -183,8 +183,10 @@ gates; you don't call them directly. Start it either way:
 - **Explicitly** — `/aloop:init` (a thin entry-point alias; the underlying
   skill is also directly invokable as `/aloop:aloop`).
 
-Planning is human-gated: the skill stops for your Stage-2 approval before it begins the
-autonomous RED → SCAFFOLD → GREEN → STRUCTURAL → FINAL execution run.
+Autonomous by default (ROADMAP M11): your typed intent is the grant, a `door-classifier` tags
+each planned task one-way or two-way, and only the one-way ones wait for you, asked together; the
+rest runs RED → SCAFFOLD → GREEN → STRUCTURAL → FINAL. `AGENTIC_AUTONOMY_MODE=reviewed` restores the
+Stage-2 approval (`approve SN <code>`).
 
 ## Targeting your repo
 

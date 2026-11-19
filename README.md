@@ -16,7 +16,7 @@
 # Aladdin: intent is all you need
 
 **aloop** (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified
-code on Claude Code, Codex, OpenCode and DeepSeek Harness. You approve the plan. Cheap workers
+code on Claude Code, Codex, OpenCode and DeepSeek Harness. You give the intent and answer only one-way-door questions. Cheap workers
 build it in isolated git worktrees. Deterministic hooks decide what is accepted, so no model is trusted
 to say "done": a gate has to see it.
 
@@ -359,7 +359,7 @@ change rationale.
 .claude-plugin/marketplace.json   marketplace catalog (source: ./plugin)
 plugin/                           the installable plugin (see plugin/README.md)
   bin/        the tools and gates (aladdin, aloop, gate-*, budget, sweep, targets, events, host, mission …)
-  agents/     the 15 roles (Aladdin's 9 + the mission layer's 6) · skills/ the supervisor playbooks (aloop, aladdin, init, mission)
+  agents/     the 16 roles (Aladdin's 10 + the mission layer's 6) · skills/ the supervisor playbooks (aloop, aladdin, init, mission)
   hooks/      hooks.json (aloop:<role> matchers) · hosts/ capabilities, routes, the OpenCode and dsh plugins
   mission/    the mission layer's areas (journeys, baseline, assess, evaluate …) and their schemas
   schemas/    KDL schemas for the planning artifacts · tools/ ctx-symbols + md-db sources

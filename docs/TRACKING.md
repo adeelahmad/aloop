@@ -108,12 +108,14 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M10.3 | Fetched web content is data: the market-researcher fetches only through `research archive` (no WebFetch, no curl/wget, on every host), personas, injected-page eval case | IMPLEMENTED_TESTED | `scripts/test/fetched-data.test.py` |
 | M10.3b | The same for the ethics-reviewer and product-tester (they still WebFetch: they cannot write research/), and a fetch from an interpreter (`python -c urllib`) | NOT_IMPLEMENTED | §4.13 |
 | M10.4 | `aloop stop` halts a whole project, honoured by `mission tick` | IMPLEMENTED_TESTED | `scripts/test/project-stop.test.py` |
-| M11.1 | Autonomous is the default mode; reviewed is opt-in | NOT_IMPLEMENTED | §4.14 |
-| M11.2 | The typed intent grants its sprints (no `autonomous SN <code>` line) | NOT_IMPLEMENTED | §4.14 |
+| M11.1 | Autonomous is the default mode; reviewed is opt-in | IMPLEMENTED_TESTED | `scripts/test/plan-approval.test.py` |
+| M11.2 | The typed intent grants its sprints (no `autonomous SN <code>` line) | IMPLEMENTED_TESTED | `scripts/test/plan-approval.test.py` |
 | M11.3 | A plan judge plus deterministic plan checks replace the human's plan sign-off | NOT_IMPLEMENTED | §4.14 |
-| M11.4 | An intake `ask` question takes its recommended answer in autonomous mode, unless it is a one-way door | NOT_IMPLEMENTED | §4.14 |
+| M11.4 | An intake `ask` question takes its recommended answer in autonomous mode, unless it is a one-way door | IMPLEMENTED_TESTED | `scripts/test/intent-contract.test.py` |
 | M11.5 | Sprints chain with automatic context rotation until the intent is met | NOT_IMPLEMENTED | §4.14 |
-| M11.6 | Zero-question init (`--ask` restores the questions) | NOT_IMPLEMENTED | §4.14 |
+| M11.6 | Zero-question init (`--ask` restores the questions) | IMPLEMENTED_UNTESTED | init skill applies the defaults with no questions; a live run measures it (M11.9) |
 | M11.7 | A one-way door parks only its own action; the run continues | NOT_IMPLEMENTED | §4.14 |
 | M11.8 | Mission loop without stalls in autonomous mode | NOT_IMPLEMENTED | §4.14 |
 | M11.9 | Live run: one intent to merged code with no human message after it | NOT_IMPLEMENTED | §4.14 |
+| M11.10 | A door-classifier tags every planned task one-way or two-way before execution; only one-way tasks wait, asked together | IMPLEMENTED_TESTED | `scripts/test/mission-door-plan.test.py` |
+| M11.11 | A door is made two-way only by an env var plus the human's typed consent | IMPLEMENTED_TESTED | `scripts/test/mission-doors-reclassify.test.py` |

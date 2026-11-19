@@ -56,6 +56,8 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-stage2-complete\"" } ] },
       { "matcher": "archivist|aloop:archivist", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-memory\"" } ] },
+      { "matcher": "door-classifier|aloop:door-classifier", "hooks": [
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-door-plan\"" } ] },
       { "matcher": "red-worker|aloop:red-worker", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-red-verify\"" } ] },
       { "matcher": "scaffolder|aloop:scaffolder", "hooks": [
@@ -68,7 +70,7 @@
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-final\"" } ] },
       { "matcher": "market-researcher|aloop:market-researcher|product-tester|aloop:product-tester|state-assessor|aloop:state-assessor|evaluator|aloop:evaluator|mission-planner|aloop:mission-planner|ethics-reviewer|aloop:ethics-reviewer", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-mission-artifact\"", "timeout": 600 } ] },
-      { "matcher": "red-worker|aloop:red-worker|scaffolder|aloop:scaffolder|green-worker|aloop:green-worker|intake|aloop:intake|standards|aloop:standards|planner|aloop:planner|archivist|aloop:archivist|structural-reviewer|aloop:structural-reviewer|final-gate|aloop:final-gate|market-researcher|aloop:market-researcher|product-tester|aloop:product-tester|state-assessor|aloop:state-assessor|evaluator|aloop:evaluator|mission-planner|aloop:mission-planner|ethics-reviewer|aloop:ethics-reviewer", "hooks": [
+      { "matcher": "red-worker|aloop:red-worker|scaffolder|aloop:scaffolder|green-worker|aloop:green-worker|intake|aloop:intake|standards|aloop:standards|planner|aloop:planner|archivist|aloop:archivist|door-classifier|aloop:door-classifier|structural-reviewer|aloop:structural-reviewer|final-gate|aloop:final-gate|market-researcher|aloop:market-researcher|product-tester|aloop:product-tester|state-assessor|aloop:state-assessor|evaluator|aloop:evaluator|mission-planner|aloop:mission-planner|ethics-reviewer|aloop:ethics-reviewer", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook stop", "timeout": 15 } ] },
       { "matcher": "*", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/host-adapter\" hook", "timeout": 15 },

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# door-plan gate (ROADMAP M11.10): SubagentStop(door-classifier). The classifier finishes only once every
+# live task of the newest frozen sprint is tagged (a one-way door, or two-way), so the human is asked
+# about the plan's one-way doors all together, before execution, and about nothing else. Open doors are
+# the report, not a block: gate-dispatch parks only those tasks. A planned wall blocks (re-plan it).
+set -uo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GATE_NAME="gate-door-plan"
+# shellcheck source=/dev/null
+. "$HERE/_failclosed.sh"   # a crash blocks, never allows
+# shellcheck source=/dev/null
+. "$HERE/_paths.sh"
+[ "${SKIP_HOOKS:-}" = 1 ] && exit 0
+sd="$(find "$AGENTIC_DOCS" -maxdepth 2 -name ids.json -path '*/sprint[0-9]*/ids.json' 2>/dev/null | sed 's#/ids.json$##' | sort -V | tail -1)"
+if [ -z "$sd" ]; then
+  echo "WARN[$GATE_NAME]: no frozen sprint (ids.json) yet: nothing to classify" >&2
+  exit 0
+fi
+sp="S${sd##*sprint}"
+out="$("$HERE/mission" doors plan "$sp" --json 2>/dev/null)"; rc=$?
+untagged="$(printf '%s' "$out" | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+print(" ".join(r["task"] for r in d.get("rows", []) if r.get("state") == "untagged"))' 2>/dev/null)" \
+  || { echo "BLOCK[$GATE_NAME]: could not read \`aloop mission doors plan $sp\`" >&2; exit 2; }
+if [ -n "$untagged" ]; then
+  echo "BLOCK[$GATE_NAME]: tag every task of $sp before you finish; untagged: $untagged" >&2
+  echo "  aloop mission doors tag <TASK> --door <door-id> --reason \"...\"  or  --two-way --reason \"...\"" >&2
+  exit 2
+fi
+if [ "$rc" = 2 ]; then
+  "$HERE/mission" doors plan "$sp" >/dev/null
+  echo "BLOCK[$GATE_NAME]: $sp plans a wall or an unknown door: report it for a re-plan" >&2
+  exit 2
+fi
+"$HERE/mission" doors plan "$sp" 2>&1 >/dev/null | sed "s/^/[$GATE_NAME] /" >&2
+exit 0

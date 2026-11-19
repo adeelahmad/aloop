@@ -7,8 +7,8 @@ still work as aliases. The 1.0 target is **Aladdin**; see [ROADMAP.md](ROADMAP.m
 ## In one sentence
 
 **aloop is a coding-agent plugin that turns a request into a planned, test-first,
-gate-verified sprint: a human approves the plan, then cheap worker agents build it in
-isolated git worktrees while deterministic hooks decide what is accepted.**
+gate-verified sprint: the human gives the intent and answers only one-way-door questions, then cheap
+worker agents build it in isolated git worktrees while deterministic hooks decide what is accepted.**
 
 > *Models explore. Gates decide.*
 
@@ -26,13 +26,13 @@ The model can ignore a skill; it cannot ignore an exit code.
 
 - Developers using **Claude Code** (reference host), **Codex**, **OpenCode** or **DeepSeek Harness** (`dsh`) who want an
   agent to deliver a multi-story feature or a whole service, not a single edit.
-- People who want to stay in the loop for *what* gets built and be absent for *how*.
+- People who want to say *what* gets built, answer only irreversible questions, and be absent for *how*.
 - Teams that care about cost: most of the work runs on cheaper models in narrow context.
 
 ## How it works
 
 ```
- you ──► INIT ──► PLANNING (human-gated, Opus) ──► approve ──► EXECUTION (autonomous, Sonnet) ──► FINAL-GATE ──► stats + NEXT.md ──► /clear ──► next sprint
+ you ──► INIT ──► PLANNING (from the intent, Opus) ──► one-way doors? ──► EXECUTION (autonomous, Sonnet) ──► FINAL-GATE ──► stats + NEXT.md ──► /clear ──► next sprint
                   retrospective → intake →                     per wave, per task, own worktree:
                   standards → planner                          RED → SCAFFOLD → GREEN → STRUCTURAL-REVIEW
 ```
@@ -47,10 +47,11 @@ The model can ignore a skill; it cannot ignore an exit code.
    - `standards` produces a cited coding standard;
    - `planner` writes the sprint contract and, per story, the semantic plan `targets.json`
      (tasks, tests, change targets) from which `tasks.md` / `validate.md` / `plan.md` are rendered.
-   The supervisor then **stops for approval**, and that stop is a gate: `gate-dispatch` starts no
-   worker until the human types the `approve SN <code>` line naming this exact plan, and a changed plan
-   needs a new line; or they grant the sprint autonomy (`autonomous SN <code>`, or an approved
-   autonomous mission), which covers its re-plans (M0.9).
+   - `door-classifier` tags every planned task as a one-way or two-way door (M11.10).
+   Autonomous is the default (M11): the human's typed intent is the sprint's grant, so `gate-dispatch`
+   starts workers with no approval line; only tasks tagged with a one-way door the human has not
+   authorized are parked, and those questions are asked together. Reviewed mode is opt-in
+   (`AGENTIC_AUTONOMY_MODE=reviewed`): the human types `approve SN <code>` naming this exact plan (M0.9).
 3. **Execution** — human absent. For each task, a worker runs in its own git worktree:
    - **RED** writes tests that must fail *by assertion* and touch no production code;
    - **SCAFFOLD** creates each planned symbol exactly once, as a stub;
@@ -74,10 +75,10 @@ The model can ignore a skill; it cannot ignore an exit code.
 | Part | Where | What it is |
 |---|---|---|
 | Supervisor playbook | [`plugin/skills/aloop/SKILL.md`](../plugin/skills/aloop/SKILL.md) | The skill the main agent runs; `aladdin` and `init` are its entry points |
-| 15 roles | [`plugin/agents/`](../plugin/agents/) | `archivist`, `intake`, `standards`, `planner` (Opus) · `red-worker`, `scaffolder`, `green-worker`, `structural-reviewer`, `final-gate` (Sonnet) · the mission layer's six ([`roles.json`](../plugin/mission/roles.json), §4.12): `market-researcher`, `evaluator`, `mission-planner`, `ethics-reviewer` (planning route) · `product-tester`, `state-assessor` (worker route) |
+| 16 roles | [`plugin/agents/`](../plugin/agents/) | `archivist`, `intake`, `standards`, `planner`, `door-classifier` (Opus) · `red-worker`, `scaffolder`, `green-worker`, `structural-reviewer`, `final-gate` (Sonnet) · the mission layer's six ([`roles.json`](../plugin/mission/roles.json), §4.12): `market-researcher`, `evaluator`, `mission-planner`, `ethics-reviewer` (planning route) · `product-tester`, `state-assessor` (worker route) |
 | Pipeline source | [`plugin/pipeline/`](../plugin/pipeline/) | Per activity: `persona.md`, `init.template.md`, `artifacts.md`, `gate.md` |
 | Hook wiring | [`plugin/hooks/hooks.json`](../plugin/hooks/hooks.json) | SessionStart, PreToolUse, PostToolUse, SubagentStart/Stop, Stop, UserPromptSubmit (transcript capture and the natural-language auto-trigger, `intent-trigger`) |
-| Gates | [`plugin/bin/gate-*`](../plugin/bin/README.md) | 18 gates (15 bash; `gate-commit-author` and the mission layer's `gate-mission-scope` role path guards and `gate-mission-artifact` stop check in Python), 16 wired to hooks (`gate-plan-shape` and `gate-ledger-format` are standalone checkers); exit `0` pass, `2` block with reason |
+| Gates | [`plugin/bin/gate-*`](../plugin/bin/README.md) | 19 gates (16 bash; `gate-commit-author` and the mission layer's `gate-mission-scope` role path guards and `gate-mission-artifact` stop check in Python), 17 wired to hooks (`gate-plan-shape` and `gate-ledger-format` are standalone checkers); exit `0` pass, `2` block with reason |
 | Harness tools | [`plugin/bin/`](../plugin/bin/README.md) | `aladdin` / `aloop` (entry points), `intent`, `budget` (time box, envelope, breach classes; its pre hook also holds the project stop and the fetch rule, M10.3), `stop` (one stop for the whole project, M10.4), `deps`, `secrets` and `audit` (the supply-chain, secret and dependency-audit gates, M10.2), `sweep` (the orchestrator loop), `targets` (semantic plan, shadow workspace, render), `ids`, `events` (audit stream, lineage, trace), `stats` (ledger, metrics, handoff), `models` / `host` / `config` (routes, HostAdapter, portable config), `transcripts`, `intent-trigger` (natural-language auto-trigger), `run-summary` (a live run's measured record for `docs/evidence/`), `install`, `aloop-init`, worktree helpers |
 | Schemas | [`plugin/schemas/*.kdl`](../plugin/schemas/) | What `md-db validate` enforces on every planning and comms artifact |
 | `ctx-symbols` | [`plugin/tools/ctx-symbols/`](../plugin/tools/ctx-symbols/) | Rust, tree-sitter symbol resolver (Rust, Python, JS/TS, Go): count, locate, conflicts |
