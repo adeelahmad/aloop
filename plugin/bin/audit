@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+"""audit — the dependency audit of a sprint's sign-off (ROADMAP M10.2b).
+
+Acceptance proves behaviour, not that the dependencies are safe to ship. For each manifest that
+declares a dependency this runs the stack's own audit tool and blocks on a finding, and on a tool
+that is not installed (an audit that cannot run is no audit: the block names the install command):
+
+  Cargo.toml        cargo audit
+  package.json      npm audit --audit-level=high
+  requirements*.txt pip-audit -r FILE
+  pyproject.toml    pip-audit .
+  go.mod            govulncheck ./...
+
+A manifest that declares no dependency needs no audit. node_modules, vendor and target trees are
+not the project's manifests. Every stack is audited before the answer, so one run lists everything.
+The tool's own ignore list (an advisory the human accepted, `audit.toml`, `.npmrc`) is how a known
+advisory is waived; the gate never waives one itself.
+
+Usage:
+  audit run [--root DIR]     exit 2 if any audit fails or cannot run
+"""
+import importlib.machinery
+import importlib.util
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+TIMEOUT = 900
+TAIL = 25
+INSTALL = {
+    "cargo": "cargo install cargo-audit --locked",
+    "npm": "install Node.js (npm audit ships with npm)",
+    "pip-audit": "pip install pip-audit",
+    "govulncheck": "go install golang.org/x/vuln/cmd/govulncheck@latest",
+}
+
+
+def load_deps():
+    loader = importlib.machinery.SourceFileLoader("deps", os.path.join(HERE, "deps"))
+    spec = importlib.util.spec_from_loader("deps", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def command(path):
+    """(probe, audit command) for one manifest, or None."""
+    base = os.path.basename(path)
+    if base == "Cargo.toml":
+        return ["cargo", "audit", "--version"], ["cargo", "audit"]
+    if base == "package.json":
+        return ["npm", "--version"], ["npm", "audit", "--audit-level=high"]
+    if base == "pyproject.toml":
+        return ["pip-audit", "--version"], ["pip-audit", "."]
+    if base == "go.mod":
+        return ["govulncheck", "--version"], ["govulncheck", "./..."]
+    if base.startswith("requirements") and base.endswith(".txt"):
+        return ["pip-audit", "--version"], ["pip-audit", "-r", base]
+    return None
+
+
+def installed(probe, cwd):
+    try:
+        return subprocess.run(probe, cwd=cwd, capture_output=True, text=True, timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def tail(text):
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    return "\n".join("    " + ln for ln in lines[-TAIL:])
+
+
+def run(root):
+    deps = load_deps()
+    problems, seen, probed = [], set(), {}
+    for rel in deps.manifests(root):
+        cmds = command(rel)
+        if not cmds:
+            continue
+        try:
+            with open(os.path.join(root, rel), encoding="utf-8", errors="replace") as f:
+                declared = deps.parser(rel)(f.read())
+        except OSError:
+            continue
+        if not declared:
+            continue
+        probe, cmd = cmds
+        cwd = os.path.join(root, os.path.dirname(rel))
+        if (tuple(cmd), cwd) in seen:
+            continue
+        seen.add((tuple(cmd), cwd))
+        label = "%s (%s)" % (" ".join(cmd), rel)
+        if probe[0] not in probed or probe[0] == "cargo":
+            probed[probe[0]] = installed(probe, cwd)
+        if not probed[probe[0]]:
+            problems.append("%s: %s is not installed, so the dependencies cannot be audited; install it: %s"
+                            % (label, probe[0], INSTALL[probe[0]]))
+            continue
+        try:
+            r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=TIMEOUT, errors="replace")
+        except subprocess.TimeoutExpired:
+            problems.append("%s: timed out after %d s" % (label, TIMEOUT))
+            continue
+        except OSError as e:
+            problems.append("%s: could not run (%s)" % (label, e))
+            continue
+        if r.returncode != 0:
+            problems.append("%s: exit %d, the audit did not pass\n%s" % (label, r.returncode, tail(r.stdout + "\n" + r.stderr)))
+    return problems
+
+
+def main(argv):
+    if not argv or argv[0] != "run":
+        print(__doc__, file=sys.stderr)
+        return 64
+    opts = dict(zip(argv[1::2], argv[2::2]))
+    problems = run(opts.get("--root") or os.getcwd())
+    for p in problems:
+        print(p, file=sys.stderr)
+    return 2 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
