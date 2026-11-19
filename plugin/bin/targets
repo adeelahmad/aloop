@@ -28,6 +28,19 @@ Usage:
   targets shadow STORY_DIR            the shadow workspace: planned files and symbols
   targets scope TASK STORY_DIR        the task's diff scope (its targets' paths), derived — the
                                       SCOPE_GLOBS gate-green-verify uses when none was given
+  targets diffscope TASK STORY_DIR --base REF --role green|red [--tests GLOBS] [--globs GLOBS]
+                                      judge a worker's diff (base..worktree) against the task's
+                                      planned fileset: its targets' paths and its planned tests,
+                                      literally. A new test file passes; an existing test file
+                                      outside the plan may only gain lines. GREEN may touch a
+                                      production file outside the plan only by declaring it in
+                                      its output.md block under `### Scope exemptions` as
+                                      `- <path>: <reason>` (a literal path, a reason of 4+ words,
+                                      at most ALOOP_SCOPE_EXEMPT_MAX = 3 paths, never a one-way
+                                      path: CI, VCS config, agent settings, secrets, migrations,
+                                      licences, the run's own data). Each one taken is a
+                                      scope.exempted ledger row. --globs (the contract's
+                                      SCOPE_GLOBS) can only narrow the plan, never widen it
   targets context REF STORY_DIR [--budget N]
                                       the code a worker needs for change REF, capped at N tokens
                                       (default 2000; ~4 chars per token)
@@ -253,6 +266,10 @@ def problems(sdir, targets, root, doc=None):
         if not path or os.path.isabs(path) or ".." in path.split("/"):
             p.append("%s: path must be repo-relative" % where)
             continue
+        if GLOB.search(path):
+            # the path is the task's diff scope: a glob would widen it past the plan
+            p.append("%s: path must be one literal file, not a glob (%s)" % (where, path))
+            continue
         if not str(t.get("reason", "")).strip() or "\n" in str(t.get("reason", "")):
             p.append("%s: reason must be one line" % where)
         for k in ("evidence_refs", "constraints"):
@@ -385,7 +402,7 @@ def main(argv):
         else:
             pos.append(a)
     cmd, root = argv[0], tree()
-    need = {"check": 1, "render": 1, "shadow": 1, "scope": 2, "target": 2, "context": 2, "refs": 2, "callers": 2, "callees": 2}
+    need = {"check": 1, "render": 1, "shadow": 1, "scope": 2, "diffscope": 2, "target": 2, "context": 2, "refs": 2, "callers": 2, "callees": 2}
     if cmd not in need or len(pos) < need[cmd]:
         print("targets: unknown or incomplete command (see targets --help)", file=sys.stderr)
         return 64
@@ -443,6 +460,8 @@ def main(argv):
         paths = sorted({t["path"] for t in targets if t.get("task") == pos[0] and t.get("path")})
         print(" ".join(paths))
         return 0 if paths else 1
+    if cmd == "diffscope":
+        return diffscope(doc, sdir, pos[0], opts.get("root") or root, opts)
     if cmd == "target":
         mine = [t for t in targets if t.get("task") == pos[0]]
         for t in mine:
@@ -458,6 +477,143 @@ def main(argv):
         served(sdir, match[0], "context")
         return 0
     return structural(cmd, match[0], root)
+
+
+GLOB = re.compile(r"[*?\[\]]")
+# One-way paths (ROADMAP §4.14): a worker never takes these on its own word, even with a reason.
+ONE_WAY = (".github/*", ".gitlab-ci.yml", ".circleci/*", "Jenkinsfile", "azure-pipelines.yml",
+           ".gitignore", "*/.gitignore", ".gitattributes", ".gitmodules", "CODEOWNERS", "*/CODEOWNERS",
+           "LICENSE*", "COPYING*", ".env", ".env.*", "*/.env", "*/.env.*", "*.pem", "*.key",
+           "migrations/*", "*/migrations/*", ".claude/*", ".codex/*", ".opencode/*", "CLAUDE.md", "AGENTS.md",
+           ".aladdin/*", ".agentic/*", "docs/agents/*", ".git/*")
+EXEMPT_LINE = re.compile(r"^\s*[-*]\s+`?([^`\s]+?)`?\s*(?::|—|–|\s-)\s+(.+?)\s*$")
+
+
+def _git(root, *args):
+    r = subprocess.run(("git", "-C", root, "-c", "core.quotePath=false") + args, capture_output=True)
+    if r.returncode != 0:
+        raise RuntimeError("git %s: %s" % (" ".join(args), r.stderr.decode("utf-8", "replace").strip()))
+    return r.stdout.decode("utf-8", "surrogateescape")
+
+
+def internal(root, path):
+    """The run's own files and build output, never a worker's edit (changed_paths_filter, but anchored:
+    a production file under src/target/ or src/docs/agents/ is judged like any other)."""
+    if re.match(r"^(\.git|\.agentic|\.aladdin|docs/agents|target)/", path) or re.search(r"(^|/)Cargo\.lock$", path):
+        return True
+    m = re.match(r"^(.+?)/target/", path)              # a nested crate's own build dir
+    return bool(m and os.path.isfile(os.path.join(root, m.group(1), "Cargo.toml")))
+
+
+def changes(root, base):
+    """{path: status} for base..worktree (committed, staged, unstaged, untracked); renames split."""
+    out = {}
+    z = _git(root, "diff", "--name-status", "-z", "--no-renames", base).split("\0")
+    for st, path in zip(z[0::2], z[1::2]):
+        if path:
+            out[path] = st[:1]
+    for path in _git(root, "ls-files", "--others", "--exclude-standard", "-z").split("\0"):
+        if path:
+            out[path] = "A"
+    return {p: s for p, s in out.items() if not internal(root, p)}
+
+
+def exemptions(sdir, task_id):
+    """`### Scope exemptions` of the latest output.md block (validate_comms checked it is this role's)."""
+    try:
+        text = open(os.path.join(sdir, "output.md"), encoding="utf-8").read()
+    except OSError:
+        return {}, []
+    blocks = re.split(r"(?m)^(?=## )", text)
+    block = blocks[-1] if blocks else ""
+    if task_id and task_id not in block.split("\n", 1)[0]:
+        return {}, []
+    m = re.search(r"(?ms)^###\s*Scope exemptions?\s*\n(.*?)(?=^##|\Z)", block)
+    got, bad = {}, []
+    for ln in (m.group(1).splitlines() if m else []):
+        if not ln.strip():
+            continue
+        x = EXEMPT_LINE.match(ln)
+        if not x:
+            bad.append("%r is not `- <path>: <reason>`" % ln.strip())
+        else:
+            got[x.group(1)[2:] if x.group(1).startswith("./") else x.group(1)] = x.group(2)
+    return got, bad
+
+
+def diffscope(doc, sdir, task, root, opts):
+    import fnmatch
+    role = opts.get("role", "green")
+    base = opts.get("base") or ""
+    if not base:
+        print("BLOCK[targets]: diffscope needs --base (where the task's branch left main)", file=sys.stderr)
+        return 2
+    tests = (opts.get("tests") or "").split()
+    narrow = (opts.get("globs") or "").split()
+    task_id = opts.get("task-id") or ""
+    planned = {t["path"] for t in doc["targets"] if t.get("task") == task and t.get("path")}
+    for d in doc.get("tasks") or []:
+        if str(d.get("id")) == task:
+            planned |= {x.get("path") for x in d.get("tests") or [] if x.get("path")}
+    try:
+        changed = changes(root, base)
+    except RuntimeError as e:
+        print("BLOCK[targets]: cannot read the diff (%s)" % e, file=sys.stderr)
+        return 2
+    match = lambda p, globs: any(fnmatch.fnmatchcase(p, g) for g in globs)  # bash `case` semantics: * spans /
+    declared, malformed = exemptions(sdir, task_id) if role == "green" else ({}, [])
+    cap = int(os.environ.get("ALOOP_SCOPE_EXEMPT_MAX", "3") or 3)
+    blocks, taken = [], []
+    for path in sorted(changed):
+        st = changed[path]
+        if path in planned and (not narrow or match(path, narrow)):
+            continue
+        if match(path, tests):
+            if st == "A":
+                continue                                  # a new test file weakens nothing
+            if st == "D":
+                blocks.append("%s: deletes an existing test file outside this task's plan (a test is never "
+                              "removed to get green; if it is obsolete, the planner names it in a re-plan)" % path)
+                continue
+            n = _git(root, "diff", "--numstat", base, "--", path).split()
+            if n and n[1] != "0":                          # "-": a binary test file, unreadable: refuse
+                blocks.append("%s: removes or changes %s line(s) of an existing test outside this task's plan "
+                              "(only adding to it is allowed; a changed assertion needs a re-plan that names it)"
+                              % (path, n[1]))
+            continue
+        if role != "green":
+            continue                                      # RED's non-test paths: gate-red-verify blocks those
+        why = declared.get(path)
+        if why is None:
+            blocks.append("%s: outside this task's planned fileset (%s)" % (path, " ".join(sorted(planned)) or "none"))
+        elif match(path, ONE_WAY):
+            blocks.append("%s: a one-way path (CI, VCS config, agent settings, secrets, migrations, licence or run "
+                          "data) is never exempted by a worker; it needs a re-plan" % path)
+        elif len(why.split()) < 4:
+            blocks.append("%s: the exemption's reason %r is too thin (4+ words: why the plan missed it)" % (path, why))
+        else:
+            taken.append((path, why))
+    if len(taken) > cap:
+        blocks.append("%d exemptions (%s) exceed the cap of %d: this task's plan is wrong, not its edges; "
+                      "report it in ### Next for a re-plan" % (len(taken), ", ".join(p for p, _ in taken), cap))
+    for p in declared:
+        if GLOB.search(p):
+            blocks.append("%s: an exemption names one literal path, never a glob" % p)
+    if blocks:
+        for b in blocks + malformed:
+            print("BLOCK[targets]: %s" % b, file=sys.stderr)
+        print("  A file the plan missed: undo it (git checkout %s -- <path>; a new file: git rm <path>) or, for a "
+              "two-way production file the change truly needs, declare it in your output.md block:\n"
+              "    ### Scope exemptions\n    - <path>: <why the plan missed it, 4+ words>" % base[:12], file=sys.stderr)
+        return 2
+    for path, why in taken:
+        print("scope exemption taken: %s: %s" % (path, why))
+        try:
+            _events.emit(os.getcwd(), "scope.exempted", task=task_id, role=opts.get("agent-role") or "",
+                         refs={"targets": os.path.join(sdir, "targets.json")}, path=path, reason=why)
+        except Exception:  # noqa: BLE001 — the ledger row is telemetry; the gate's verdict stands
+            pass
+    return 0
 
 
 def structural(cmd, t, root):

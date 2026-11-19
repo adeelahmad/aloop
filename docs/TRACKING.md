@@ -119,3 +119,4 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M11.9 | Live run: one intent to merged code with no human message after it | IMPLEMENTED_UNTESTED | run 54 (docs/evidence/README.md): one sprint, intent only, 12/12; the two-sprint chain waits on M11.5 |
 | M11.10 | A door-classifier tags every planned task one-way or two-way before execution; only one-way tasks wait, asked together | IMPLEMENTED_TESTED | `scripts/test/mission-door-plan.test.py` |
 | M11.11 | A door is made two-way only by an env var plus the human's typed consent | IMPLEMENTED_TESTED | `scripts/test/mission-doors-reclassify.test.py` |
+| M11.12 | A task's diff stays in its planned fileset; a worker steps out only by a declared, reasoned two-way exemption the gate decides and records | IMPLEMENTED_TESTED | `scripts/test/task-scope.test.py` |
