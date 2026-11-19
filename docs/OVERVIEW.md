@@ -120,7 +120,7 @@ The model can ignore a skill; it cannot ignore an exit code.
   metrics, config, the aladdin CLI, the site).
 - The north-star run, `make e2e-live YES=1 [INTENT=<intent>] [HOST=codex|opencode|dsh]`: a one-line intent becomes
   planned, test-first, gate-verified, merged code in a real Claude Code session with the
-  approval given up front. Eight intents pass every check: a Rust semver parser, a two-story
+  approval given up front (since M11, run 54: the intent alone, no approval line). Eight intents pass every check: a Rust semver parser, a two-story
   word-frequency tool, Python `slugify`, Go `roman`, JS `camel`, two brownfield changes to a
   tested crate (`extend`, `modify`) and a `cli` binary. The latest passing run of each took
   6m45s–15m19s and $0.56–1.04 (runs 34–47), with every merged commit traced to its task by
