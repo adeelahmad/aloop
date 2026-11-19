@@ -16,7 +16,7 @@ Usage:
                                        its recorded decisions and the intent, never model prose
   events graph [--format json|dot]     the stream as a graph (events, tasks, commits, intents;
                                        parent / caused_by / about edges); rebuildable, downstream
-  events authority --initiated-by WHO --mode reviewed|autonomous --scope "..." [--sprint N]
+  events authority --initiated-by WHO [--mode autonomous|reviewed] --scope "..." [--sprint N]
                    [--policy P] [--override key=value ...]
                                        the run's authority record (human.approval);
                                        decisions default to it. With a sprint (reviewed: the
@@ -24,7 +24,10 @@ Usage:
                                        and counts only in their own typed line: until a captured
                                        prompt says `approve SN <code>` (autonomous: `autonomous
                                        SN <code>`) it asks with that line (exit 3). An approved
-                                       autonomous mission is that word for its own sprints
+                                       autonomous mission is that word for its own sprints, and
+                                       so is the human's typed intent for the sprints planned from
+                                       it (M11.2). --mode defaults to autonomous (reviewed is
+                                       opt-in: AGENTIC_AUTONOMY_MODE=reviewed, M11.1)
   events approval SPRINT|TASK_ID [--story-dir DIR] [--role ROLE]
                                        may an execution role of that sprint be dispatched now, on
                                        that STORY_DIR? (gate-dispatch asks): exit 0 yes, 2 no and why
@@ -263,7 +266,9 @@ def main(argv):
     if cmd in ("authority", "decide"):
         try:
             if cmd == "authority":
-                who, mode, scope = opts.get("initiated_by", ""), opts.get("mode", ""), opts.get("scope", "")
+                who, scope = opts.get("initiated_by", ""), opts.get("scope", "")
+                # autonomous unless the human opted into reviewed mode (ROADMAP M11.1)
+                mode = opts.get("mode") or ("reviewed" if _paths.env("AUTONOMY_MODE") == "reviewed" else "autonomous")
                 if mode not in _events.AUTONOMY or not who or not scope:
                     raise ValueError("need --initiated-by WHO --mode %s --scope \"...\"" % "|".join(_events.AUTONOMY))
                 policy = opts.get("policy", "default")
