@@ -227,6 +227,19 @@ def hook(stdin, *extra, cwd=T):
                           capture_output=True, text=True)
 
 
+def tree(d):   # every path and its content under d: the hook must leave the project exactly as session-start left it
+    out = {}
+    for root, dirs, files in os.walk(d):
+        dirs[:] = [x for x in dirs if x != ".git"]
+        for f in files:
+            with open(os.path.join(root, f), "rb") as fh:
+                out[os.path.relpath(os.path.join(root, f), d)] = fh.read()
+        for x in dirs:
+            out[os.path.relpath(os.path.join(root, x), d) + "/"] = None
+    return out
+
+
+before = tree(proj)
 start = {"hook_event_name": "SubagentStart", "session_id": "s1", "agent_id": "a1", "agent_type": "aloop:red-worker"}
 r = hook(json.dumps(dict(start, cwd=proj)))
 assert r.returncode == 0 and r.stderr == "", r.stderr
@@ -250,7 +263,8 @@ check_variant(text.replace(ev, "- evidence: Claim only what a test or a source s
 r = hook(json.dumps(dict(start, cwd=proj)), "--file", draft)                      # --file: a draft's block, as show
 assert r.returncode == 0 and json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] == \
     run(MI, "principles", "show", "--core", "--file", draft).stdout != core, r.stdout
-assert not os.path.exists(os.path.join(proj, ".aladdin")) and not os.path.exists(os.path.join(proj, ".agentic"))
+assert tree(proj) == before, sorted(set(tree(proj)) ^ set(before))   # the hook writes nothing (session-start's
+assert not os.path.exists(os.path.join(proj, ".agentic"))               # M12 user space may; the hook may not add to it)
 ok("principles hook: the core block as SubagentStart additionalContext in an aloop project; silent and exit 0 otherwise")
 
 # 7) the area is discovered (no shared list edited) and `mission principles --help` is its docstring
