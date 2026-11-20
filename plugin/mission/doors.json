@@ -842,7 +842,8 @@
    "cp \"$OUT/bundle.js\" ./",
    "mv \"$tmp\" .",
    "cp \"$f\" ~/",
-   "rsync -a package.json .claude/settings.json host:/bak/ -z"
+   "rsync -a package.json .claude/settings.json host:/bak/ -z",
+   "dropdb -p 55440 app_test_1"
   ],
   "tools": [
    "Read",

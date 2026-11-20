@@ -9,7 +9,9 @@ ASK[door] <id>, and the agent asks one question with a recommended option. A wal
 run is live (an approved autonomous mission or an autonomous run, or a sprint whose plan is
 approved, for the session holding its lock), a question to the human must name a one-way door
 the gate stopped and the human has not authorized: a two-way question is decided, not asked.
-Anything the catalogue does not list is two-way.
+Anything the catalogue does not list is two-way, and so is a drop of test-named databases on a local
+server (test_scoped; logged as door.two_way). The human consents to one stopped action in one step from
+the agent's chat: the line `allow DOOR <code>` the ASK prints (M11.15), read from the captured prompts.
 
 Usage:
   mission doors list [--json]
@@ -1308,6 +1310,81 @@ def bash_hits(d, v, ctx, default):
     return False
 
 
+# ── test resources (M11.15): a drop of test-named databases on a local server is two-way ──────────
+TEST_SCOPED = ("destructive-db",)
+TEST_NAME = re.compile(r"(?i)(?:^|[_-])tests?(?:[_-]|$)")
+PLAIN = re.compile(r"^[A-Za-z0-9_-]+$")
+LOCAL_HOSTS = ("", "localhost", "127.0.0.1", "::1")
+DB_VALUED = {"-h", "--host", "-p", "--port", "-U", "--username", "-u", "--user", "--maintenance-db", "-c", "--command",
+             "-e", "--execute", "-d", "--dbname", "-D", "--database", "-f", "--file", "-v", "--set", "--variable",
+             "-o", "--output", "-L", "--log-file", "-P", "--pset", "-F", "-R", "-T", "-S", "--socket"}
+SQL_FLAGS = {"-c", "--command", "-e", "--execute"}
+DB_FLAGS = {"-d", "--dbname", "-D", "--database"}
+DROP_DB = re.compile(r"(?is)^\s*drop\s+database\s+(?:if\s+exists\s+)?[`\"]?([^\s`\";]+)[`\"]?\s*(?:with\s*\(\s*force\s*\)\s*)?$")
+DESTRUCTIVE_SQL = re.compile(r"(?i)\b(?:drop|truncate|delete|alter)\b")
+
+
+def test_name(n):
+    return bool(n and PLAIN.match(n) and TEST_NAME.search(n))
+
+
+def local_host(h):
+    return h in LOCAL_HOSTS or h.startswith("/")
+
+
+def test_scoped(v):
+    """True when a database command touches only test-named databases on a local server: `dropdb` of test
+    names, or psql/mysql whose every DROP DATABASE names a test database and whose other destructive SQL runs in
+    a test-named database it connects to. Test data is rebuilt by the tests, so dropping it is a two-way door.
+    A remote host (a flag, PGHOST/MYSQL_HOST), a connection URI, SQL from a file and a name the gate cannot read
+    (a variable) are not test-scoped."""
+    prog, args = v.get("prog") or "", list(v.get("args") or [])
+    if prog not in ("dropdb", "psql", "mysql", "mariadb"):
+        return False
+    env = dict(e.split("=", 1) for e in v.get("env") or [] if "=" in e)
+    hostvar = "PGHOST" if prog in ("dropdb", "psql") else "MYSQL_HOST"
+    hosts = [env.get(hostvar, os.environ.get(hostvar, ""))]
+    names, sql, dbs, i = [], [], [], 0
+    while i < len(args):
+        a = args[i]
+        flag, val = (a.split("=", 1) + [None])[:2] if a.startswith("--") else (a, None)
+        if a.startswith("-") and not a.startswith("--") and len(a) > 2 and a[:2] in ("-h", "-c", "-e", "-d", "-D"):
+            flag, val = a[:2], a[2:]        # -hHOST, -cSQL (attached)
+        if flag in DB_VALUED or (flag.startswith("--") and val is not None):
+            if val is None:
+                i += 1
+                val = args[i] if i < len(args) else ""
+            if flag in ("-h", "--host"):
+                hosts.append(val)
+            elif flag in SQL_FLAGS:
+                sql.append(val)
+            elif flag in DB_FLAGS:
+                dbs.append(val)
+            elif flag in ("-f", "--file"):
+                return False                # SQL the gate does not read
+        elif not a.startswith("-"):
+            if "://" in a or "=" in a:
+                return False                # a connection URI or conninfo string names its own host
+            names.append(a)
+        i += 1
+    if not all(local_host(h) for h in hosts):
+        return False
+    if prog == "dropdb":
+        return bool(names) and all(test_name(n) for n in names)
+    dbs += names[:1]                        # psql/mysql: the first operand is the database
+    stmts = [x for q in sql for x in q.split(";") if x.strip()]
+    if not stmts:
+        return False
+    for st in stmts:
+        m = DROP_DB.match(st)
+        if m:
+            if not test_name(m.group(1)):
+                return False
+        elif DESTRUCTIVE_SQL.search(st) and not (dbs and all(test_name(d) for d in dbs)):
+            return False
+    return True
+
+
 def rel_path(cwd, path):
     """(the forms a project path pattern is matched against, the path relative to the plugin or None): a
     path relative to the project (else to this checkout, a linked worktree), and the absolute path as
@@ -1383,8 +1460,9 @@ def workdir(inp, cwd):
     return wd if os.path.isdir(wd) else UNKNOWN
 
 
-def classify(cwd, tool, inp, cat=None, assume_when=False):
-    """[door] the action crosses, in catalogue order (none: two-way)."""
+def classify(cwd, tool, inp, cat=None, assume_when=False, exempt=None):
+    """[door] the action crosses, in catalogue order (none: two-way). A door a command crosses only on test
+    resources (test_scoped) is left out and, when `exempt` is a list, appended to it."""
     cat = cat or catalogue()
     default = re.compile("(?:%s)" % cat.get("default_branch", "main|master"))
     ctx = contexts(cwd, assume_when)
@@ -1399,7 +1477,12 @@ def classify(cwd, tool, inp, cat=None, assume_when=False):
     for d in cat["doors"]:
         if d["grant"] == "command":
             continue
-        hit = any(bash_hits(d, v, ctx, default) for v in vs)
+        hv = [v for v in vs if bash_hits(d, v, ctx, default)]
+        if hv and d["id"] in TEST_SCOPED and all(test_scoped(v) for v in hv):
+            if exempt is not None:
+                exempt.append(d)          # a test resource on a local server: two-way, logged (M11.15)
+            hv = []
+        hit = bool(hv)
         hit = hit or any(t["tool"].search(tool) and all(isinstance(inp.get(k), str) and r.fullmatch(inp[k])
                                                         for k, r in t["input"].items()) for t in d["_tools"])
         hit = hit or any(r.search(x) for r in d["_paths"] for x in proj_rel)
@@ -1475,6 +1558,8 @@ def _authorization(cwd, d, sha, now=None):
             continue
         if r["event"] != "door.authorized" or (r["data"].get("until") and r["data"]["until"] < now):
             continue
+        if r["data"].get("via") == "typed" and not typed_row_holds(r, d["id"]):
+            continue                         # a typed consent counts only with the human's line that grants it
         if r["data"].get("action_sha256"):
             if r["data"]["action_sha256"] == sha and r["event_id"] not in used:
                 return opens(r)
@@ -1484,12 +1569,61 @@ def _authorization(cwd, d, sha, now=None):
     return None
 
 
-def ask_text(d, sha):
-    once = " --once %s" % sha if d["grant"] == "once" else ""
-    return ("ASK[door] %s: %s (one-way: %s). Ask the human one question with a recommended option, tagged "
-            "[door:%s]; they authorize it in their own terminal: aloop mission doors authorize %s --by NAME "
-            "--reason TEXT%s. Until then take the two-way path (a branch, a draft PR)."
-            % (d["id"], d["title"], d["why"], d["id"], d["id"], once))
+ALLOW = "allow"     # the human's one-step consent in chat: `allow DOOR <code>` (M11.15)
+
+
+def allow_sha(did, sha):
+    """What the human's `allow DOOR <code>` line grants: this door, for this one action."""
+    return M.digest({"door": did, "action": sha}, drop=())
+
+
+def typed_row_holds(r, did):
+    """A typed consent row cites a line that says `allow` and the code of this door and its action."""
+    dd, c = r["data"], r["data"].get("prompt")
+    a = dd.get("action_sha256") or ""
+    return bool(a) and dd.get("sha256") == allow_sha(did, a) and isinstance(c, dict) \
+        and isinstance(c.get("line"), str) and M.grants(c["line"], ALLOW, dd["sha256"])
+
+
+def typed_consent(cwd, d, sha):
+    """The human's captured prompt line `allow DOOR <code>` for this action, not yet used, as a `prompt`
+    citation; None when there is none. The UserPromptSubmit hook captures only what the human typed
+    (M9.17), so an agent cannot write one; each line opens the door once."""
+    if d["grant"] not in ("standing", "once"):
+        return None
+    asha = allow_sha(d["id"], sha)
+    used = {(r["data"].get("prompt") or {}).get("sha256", "") + "\0" + str((r["data"].get("prompt") or {}).get("line"))
+            for r in M.records(cwd, "door.authorized", subject(d["id"])) if r["data"].get("via") == "typed"}
+    for q in reversed(M.prompts(cwd)):
+        for line in q["text"].splitlines():
+            line = line.strip()[:200]
+            if M.grants(line, ALLOW, asha) and q["sha256"] + "\0" + line not in used:
+                return {"ts": q["ts"], "sha256": q["sha256"], "session": q["session"], "line": line}
+    return None
+
+
+def human_name(cwd):
+    try:
+        n = subprocess.run(["git", "config", "user.name"], cwd=cwd, capture_output=True, text=True, timeout=3).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        n = ""
+    return n or "<your name>"
+
+
+def terminal_cmd(cwd, did, by="", reason="", once=""):
+    """The whole `doors authorize` command, flags filled in, to paste into the human's own terminal."""
+    q = lambda x: x if re.match(r"^[\w.@:/+-]+$", x) else '"%s"' % x.replace('"', "'")   # noqa: E731
+    return "cd %s && aloop mission doors authorize %s --by %s --reason %s%s" % (
+        _paths.project(cwd), did, q(by or human_name(cwd)), q(reason or "<why>"), " --once " + once if once else "")
+
+
+def ask_text(d, sha, cwd="."):
+    once = sha if d["grant"] == "once" else ""
+    return ("ASK[door] %s: %s (one-way: %s). Ask the human one question with a recommended option, tagged [door:%s]. "
+            "They consent in one step by replying in chat:  %s %s %s  (this exact action, once); then retry it. Or, "
+            "in their own terminal (not the agent's `!` shell): %s. Until then take the two-way path (a branch, a "
+            "draft PR)." % (d["id"], d["title"], d["why"], d["id"], ALLOW, d["id"], M.code(allow_sha(d["id"], sha)),
+                            terminal_cmd(cwd, d["id"], reason=d["title"].lower(), once=once)))
 
 
 def wall_text(d):
@@ -1516,7 +1650,7 @@ def verdict(cwd, tool, inp, cat=None, hits=None):
                          % (d["id"], row["data"].get("by"), "two-way by consent" if row["event"] == "door.reclassified"
                             else "once" if row["data"].get("action_sha256") else "standing", row["event_id"][:12]))
         else:
-            lines.append(ask_text(d, sha))
+            lines.append(ask_text(d, sha, cwd))
             rc = rc or 3
     if rc == 3 and broken:
         lines.append("The mission ledger is broken, so no authorization counts until it is restored (%s; git checkout "
@@ -1623,14 +1757,37 @@ def hook(cwd_default):
         if tool in QUESTIONS:
             why = question_problem(cwd, inp, session, cat) if live_run(cwd, session) else None
             return deny(why) if why else 0
-        hits = classify(cwd, tool, inp, cat)
+        exempt = []
+        hits = classify(cwd, tool, inp, cat, exempt=exempt)
+        sha = action_sha(tool, inp)
         if not hits:
+            disarm()                     # decided: the records below are written whole, never cut by the alarm
+            for d in exempt:             # crossed with no question, and logged (M11.15)
+                M.emit(cwd, "door.two_way", role="gate", door=d["id"], reason="test-scoped",
+                       action_sha256=sha, tool=tool, session_id=session, **who)
             return 0
         with serialized(cwd, end):       # check, then record: a once-authorization is crossed once
             rc, lines, crossings = verdict(cwd, tool, inp, cat, hits)
-            sha = action_sha(tool, inp)
+            consents = []
+            if rc == 3:                  # the human's one-step consent typed in chat (M11.15)
+                for d in hits:
+                    if d["grant"] in ("standing", "once") and not authorization(cwd, d, sha):
+                        said = typed_consent(cwd, d, sha)
+                        if said and not M.ledger_problems(cwd):
+                            consents.append((d, said))
             asked = [d for d in hits if d["grant"] in ("standing", "once") and not authorization(cwd, d, sha)] if rc else []
             disarm()                     # decided: the records below are written whole, never cut by the alarm
+            for d in exempt:
+                M.emit(cwd, "door.two_way", role="gate", door=d["id"], reason="test-scoped",
+                       action_sha256=sha, tool=tool, session_id=session, **who)
+            if consents:
+                for d, said in consents:
+                    M.record(cwd, "door.authorized", subject(d["id"]), "human", by="human (typed in chat)",
+                             reason="typed: " + said["line"], grant="once", via="typed", action_sha256=sha,
+                             sha256=allow_sha(d["id"], sha), prompt=said,
+                             until=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 86400)))
+                rc, lines, crossings = verdict(cwd, tool, inp, cat, hits)
+                asked = [d for d in hits if d["grant"] in ("standing", "once") and not authorization(cwd, d, sha)] if rc else []
             if rc:
                 for d in asked:
                     M.emit(cwd, "door.denied", role="gate", door=d["id"], grant=d["grant"], action_sha256=sha, tool=tool,
@@ -1807,22 +1964,27 @@ def cmd_authorize(cwd, did, o, revoke=False):
         print("BLOCK[doors]: %s is answered by its own command: %s" % (did, d["answer"]), file=sys.stderr)
         return 2
     by, reason = (o.get("by") or "").strip(), (o.get("reason") or "").strip()
-    if not by or not reason:
-        print("mission doors %s DOOR --by NAME --reason TEXT" % verb, file=sys.stderr)
+    once = (o.get("once") or "").strip() or (last_denied(cwd, did) if d["grant"] == "once" and not revoke else "")
+    full = terminal_cmd(cwd, did, by, reason, once).replace("authorize", verb, 1)
+    if not by or not reason or (d["grant"] == "once" and not revoke and not (o.get("once") or "").strip()):
+        missing = [f for f, x in (("--by", by), ("--reason", reason)) if not x] + (
+            ["--once"] if d["grant"] == "once" and not revoke and not (o.get("once") or "").strip() else [])
+        print("mission doors %s: missing %s. The full command (in your own terminal):\n  %s%s"
+              % (verb, ", ".join(missing), full, "" if once or revoke or d["grant"] != "once" else
+                 "\n  (--once is the digest the ASK printed; no action of this door was stopped yet)"), file=sys.stderr)
         return 64
     if any(os.environ.get(k) for k in AGENT_SHELL):
-        print("BLOCK[doors]: this shell belongs to an agent session (%s is set): the human %ss a door in their own "
-              "terminal" % (" ".join(k for k in AGENT_SHELL if os.environ.get(k)), verb), file=sys.stderr)
+        chat = ("\n  Or, in one step from where you are, reply in the agent's chat:  %s %s %s"
+                % (ALLOW, did, M.code(allow_sha(did, once))) if once and not revoke else "")
+        print("BLOCK[doors]: this shell belongs to an agent session (%s is set; the `!` prefix runs inside it), so it "
+              "cannot %s a door: an agent never authorizes itself.\n  Paste this into your own terminal (a separate terminal window):\n  %s%s"
+              % (" ".join(k for k in AGENT_SHELL if os.environ.get(k)), verb, full, chat), file=sys.stderr)
         return 2
     if M.ledger_block(cwd, "doors"):
         return 2
     data = {}
     if not revoke:
-        once = o.get("once") or ""
-        if d["grant"] == "once" and not once:
-            print("mission doors authorize: %s is a once-door: --once SHA256 (the action digest its ASK printed)" % did,
-                  file=sys.stderr)
-            return 64
+        once = (o.get("once") or "").strip()
         if once and not SHA.match(once):
             print("mission doors authorize: --once is the 64-hex digest the ASK printed", file=sys.stderr)
             return 64
@@ -1848,6 +2010,15 @@ def cmd_authorize(cwd, did, o, revoke=False):
                                                                                    if data["until"] else ""), eid[:12]),
           file=sys.stderr)
     return 0
+
+
+def last_denied(cwd, did):
+    """The action digest of the newest stop of this door (door.denied), or ""."""
+    for e in reversed(list(_events.read(cwd))):
+        dd = e.get("data") if isinstance(e.get("data"), dict) else {}
+        if e.get("event") == "door.denied" and dd.get("door") == did and SHA.match(str(dd.get("action_sha256") or "")):
+            return dd["action_sha256"]
+    return ""
 
 
 def cmd_reclassify(cwd, did, o):
@@ -2025,7 +2196,9 @@ def main(argv, cwd):
             return cmd_classify(cwd, o)
         if cmd in ("authorize", "revoke"):
             if not pos:
-                print("mission doors %s DOOR --by NAME --reason TEXT" % cmd, file=sys.stderr)
+                print("mission doors %s DOOR --by NAME --reason TEXT [--once SHA256]: DOOR is one of `aloop mission "
+                      "doors list`, e.g.\n  %s" % (cmd, terminal_cmd(cwd, "destructive-db", once="<digest the ASK printed>")
+                                                   .replace("authorize", cmd, 1)), file=sys.stderr)
                 return 64
             return cmd_authorize(cwd, pos[0], o, revoke=cmd == "revoke")
         if cmd in ("tag", "plan"):

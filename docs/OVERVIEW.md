@@ -134,7 +134,10 @@ The model can ignore a skill; it cannot ignore an exit code.
 - The door rule (ROADMAP §4.12, M9.30, M9.31): every agent on every host (Claude Code, Codex, OpenCode,
   dsh) and every dispatched role gets the core principles, and a PreToolUse gate stops a one-way door (a
   push to the default branch, a release, a deploy, a secret, …) until the human records an
-  authorization; two-way doors pass without a question.
+  authorization; two-way doors pass without a question. The human consents
+  in one step from the agent's chat by typing the `allow <door> <code>` line the stop prints (or runs
+  `doors authorize` in their own terminal), and dropping test-named databases on a local server is
+  two-way, logged as `door.two_way` (M11.15).
 - One measured real run (*TheNoteBook*, a Go backend): ~17K LOC, 322 tests, 74 commits in 6
   sprints for ~1.55M output tokens, 76% of it on Sonnet. See the
   [README](../README.md#evidence).
