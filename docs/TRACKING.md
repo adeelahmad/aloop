@@ -126,5 +126,6 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M12.4 | User space cannot replace a gate or add an ungated role; dispatch uses the customized copy | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
 | M12.5 | No agent, worker or live-sprint supervisor rewrites user space | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
 | M12.6 | User space is tracked in git; run docs stay ignored | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
-| M12.7 | Kernel extensions: hash-pinned, add-only gate checks from ~/.aloop/kernel/ | NOT_IMPLEMENTED | §4.15 |
-| M12.8 | Profiles and domain packs (software = the default TDD profile) | NOT_IMPLEMENTED | §4.15 |
+| M12.7 | Modules: hash-pinned, add-only gate checks from ~/.aloop/modules/ | IMPLEMENTED_TESTED | `scripts/test/modules.test.py` |
+| M12.8 | Distros and modules anyone builds: scaffold, check, install (software = the default TDD distro) | IMPLEMENTED_TESTED | `scripts/test/modules.test.py` |
+| M12.12 | Modules run on OpenCode and dsh too | NOT_IMPLEMENTED | §4.15 |

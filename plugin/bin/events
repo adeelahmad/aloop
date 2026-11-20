@@ -63,7 +63,7 @@ GATE_OWNED |= {"human.approval", "plan.approved", "plan.gated"}
 # the project stop (ROADMAP M10.4): only `aloop stop` writes it
 GATE_OWNED |= {"run.stopped", "run.resumed"}
 # which user-space copies a run loaded (ROADMAP M12): only `aloop userspace apply` writes it
-GATE_OWNED |= {"userspace.applied"}
+GATE_OWNED |= {"userspace.applied", "module.run"}
 
 
 def parse(argv):

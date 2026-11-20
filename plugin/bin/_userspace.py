@@ -6,7 +6,7 @@ aloop is split like an operating system:
               what a project declares runs and is logged. It lives in the plugin and is never
               overridden: a project copy of a gate is reference only.
   user space  the loop's opinions: the agents (roles and prompts) and the skills. TDD is one opinion
-              (the default "software" profile). A project ejects them into git and changes them freely.
+              (the default "software" distro). A project ejects them into git and changes them freely.
 
 Layers, highest first (the first that holds a file wins; every apply logs which one was used):
 
@@ -152,7 +152,10 @@ Change anything under `agents/` and `skills/`: it takes effect on the next sessi
 
 What you cannot change from here is the **kernel**: the gates, the audit log and the
 hooks that run them. `reference/` holds a copy of them to read; editing it does nothing.
-Add checks of your own with your host's hooks (for Claude Code, `.claude/settings.json`).
+Add checks of your own as modules: `~/.aloop/modules/<name>/`, run once this project adds them to
+`distro.json` (`aloop module add <name>`). They add checks; they never remove a gate. A distro bundles
+a domain's modules, roles and skills (`aloop distro`; `software` is the default). See
+docs/BUILD-A-MODULE.md in the aloop repo.
 
 Layers, highest first: your home copy (`aloop userspace path --home`), this folder, the plugin.
 
