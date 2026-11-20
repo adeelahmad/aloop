@@ -2,29 +2,37 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/brand/banner-dark.png">
-  <img alt="aloop, Aladdin's Loop: intent is all you need. Models explore, gates decide. Runs on Claude Code, Codex and OpenCode." src="docs/brand/banner-light.png" width="100%">
+  <img alt="Aladdin: intent is all you need. Models explore. Gates decide. aloop, Aladdin's Loop, runs on Claude Code, Codex and OpenCode." src="docs/brand/banner-light.png" width="100%">
 </picture>
 
 [![CI](https://github.com/adeelahmad/aloop/actions/workflows/ci.yml/badge.svg)](https://github.com/adeelahmad/aloop/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/adeelahmad/aloop?color=d9a441&label=release)](https://github.com/adeelahmad/aloop/releases)
+[![Release](https://img.shields.io/github/v/release/adeelahmad/aloop?color=1A73E8&label=release)](https://github.com/adeelahmad/aloop/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Runs on Claude Code, Codex, OpenCode and DeepSeek Harness](https://img.shields.io/badge/runs_on-Claude_Code_%C2%B7_Codex_%C2%B7_OpenCode_%C2%B7_DeepSeek_Harness-1d1d1b)](#supported-harnesses)
+[![Runs on Claude Code, Codex, OpenCode and DeepSeek Harness](https://img.shields.io/badge/runs_on-Claude_Code_%C2%B7_Codex_%C2%B7_OpenCode_%C2%B7_DeepSeek_Harness-202124)](#supported-harnesses)
 [![Stars](https://img.shields.io/github/stars/adeelahmad/aloop?style=social)](https://github.com/adeelahmad/aloop/stargazers)
 
 </div>
 
-# Aladdin: intent is all you need
+# aloop is a kernel for your harness
 
-**aloop** (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified
-code on Claude Code, Codex, OpenCode and DeepSeek Harness. You give the intent and answer only one-way-door questions. Cheap workers
+**Intent is all you need. Models explore. Gates decide.**
+
+Your harness (Claude Code, Codex, OpenCode or DeepSeek Harness) is the hardware. **aloop** (Aladdin's loop) is the
+kernel: its gates decide what is accepted, **modules** plug in checks your project needs, and a **distro**
+(the software distro: the TDD loop) is the user space you run and change. One line of intent becomes planned,
+test-first, gate-verified code. You give the intent and answer only one-way-door questions. Cheap workers
 build it in isolated git worktrees. Deterministic hooks decide what is accepted, so no model is trusted
 to say "done": a gate has to see it.
 
 ```console
 /plugin marketplace add adeelahmad/aloop          # inside Claude Code
 /plugin install aloop@aloop-marketplace
-/aladdin add CSV export to the report             # or just ask in your own words
+/aladdin Add rate limiting to the API             # or just say it in your own words
 ```
+
+<p align="center">
+  <img src="docs/diagrams/aladdins-loop.webp" alt="Aladdin's loop (aloop): turn intent into working software with test-driven agents. 0 Retrospective, 1 Intake, Standards and Planning, 2 Red (write failing tests), 3 Scaffold (create stubs), 4 Green (make tests pass), 5 Review per wave and the Final Gate per sprint. Runs on OpenCode, Codex and Claude Code; powered by ctx-symbols, md-db and budget and stats." width="100%">
+</p>
 
 About a dollar and ten minutes per tested feature in [measured runs](#demo), on Rust, Python, Go and JS.
 
@@ -37,16 +45,16 @@ About a dollar and ten minutes per tested feature in [measured runs](#demo), on 
   <a href="docs/ROADMAP.md"><b>Roadmap</b></a>
 </p>
 
-| 🔴 → 🟢 **Test-first by construction** | 🚦 **Models explore. Gates decide.** | 🪙 **Cheap by design** |
+| **Test-first by construction** | **Models explore. Gates decide.** | **Cheap by design** |
 |---|---|---|
 | Every task starts with a failing test (RED) that a hook proves fails. GREEN is a claim a gate checks, not a sentence a model says. | Deterministic hook gates block a stop or a tool call and hand the reason back. A gate that crashes blocks; a BLOCK is never downgraded. | Workers get their task's contract and tests, never the whole repo, so most of the work runs on the cheapest model. A whole sprint costs about a dollar. |
 
 *Formerly **agentic-agile**; the old names keep working ([upgrading](#upgrading-from-agentic-agile)).*
-**New here?** [What this project is](docs/OVERVIEW.md) · [Roadmap](docs/ROADMAP.md) · [Operator playbook](plugin/skills/aloop/SKILL.md) · [The site](https://adeelahmad.github.io/aloop/)
+**New here?** [What this project is](docs/OVERVIEW.md) · [Roadmap](docs/ROADMAP.md) · [Operator playbook](plugin/skills/aloop/SKILL.md) · [The site](https://aloop.adeelahmad.net/)
 
 ## What's new
 
-- **🧭 The mission layer (M9, in progress).** Set a *mission* ("the world's best to-do app"),
+- **The mission layer (M9, in progress).** Set a *mission* ("the world's best to-do app"),
   a budget and a cadence, confirm the baseline once, and walk away. Fixed roles research the
   market, turn user journeys into a reproducible evaluation, derive the next goal from the gap
   list and hand it to Aladdin as intents. Shipped: `aloop mission` init, approval, journeys,
@@ -54,15 +62,15 @@ About a dollar and ten minutes per tested feature in [measured runs](#demo), on 
   handoff, the six fixed roles with their path-guard gates, the `tick` loop with its cron line,
   the `/aloop:mission` skill and opt-in GA4 telemetry. Next: the end-to-end mission run.
   [More below](#the-mission-layer).
-- **🚪 One-way and two-way doors (draft, [#86](https://github.com/adeelahmad/aloop/pull/86)).** Core principles for every agent, inspired by
+- **One-way and two-way doors (draft, [#86](https://github.com/adeelahmad/aloop/pull/86)).** Core principles for every agent, inspired by
   Amazon's Leadership Principles: a reversible decision is the agent's to make and record; an
   irreversible one is stopped by a gate until the human authorizes it. [More below](#agent-principles).
-- **🐋 A fourth host: DeepSeek Harness.** The same gates and roles, the mission layer's included, on
+- **A fourth host: DeepSeek Harness.** The same gates and roles, the mission layer's included, on
   the official DeepSeek Harness (`dsh`), next to Claude Code, Codex and OpenCode, tested in CI on
   dsh's real runtime. A measured live run is next (it needs a DeepSeek key).
-- **🌐 Any language.** RED is verified on Rust, Python, Go and JS (live runs 21 and 37 to 41), and on
+- **Any language.** RED is verified on Rust, Python, Go and JS (live runs 21 and 37 to 41), and on
   existing code: runs 42 and 43 extend and change a tested library without touching its seed tests.
-- **🔁 Renamed.** agentic-agile is now **aloop** (Aladdin's Loop), on the way to **Aladdin 1.0**.
+- **Renamed.** agentic-agile is now **aloop** (Aladdin's Loop), on the way to **Aladdin 1.0**.
 
 ## Demo
 
@@ -94,24 +102,23 @@ stop and hand the reason back:
 
 | Step | What the agent does | What the gate checks |
 |---|---|---|
-| 🔴 **RED** | writes the tests the plan named | they fail by assertion, and no production code changed (`gate-red-verify`) |
-| 🟡 **SCAFFOLD** | declares the symbols the tests need | each exists exactly once, as a `SUB-AGENT-TODO` panic stub (`gate-scaffold-verify`) |
-| 🟢 **GREEN** | makes the tests pass | inside the task's files only, with zero suppressions (`gate-green-verify`) |
-| 🔍 **STRUCTURAL-REVIEW** | looks for duplicates and orphans | symbol uniqueness from `ctx-symbols` |
-| ✅ **FINAL-GATE** | runs the sprint's whole matrix once | every planned test is on main |
+| **RED** | writes the tests the plan named | they fail by assertion, and no production code changed (`gate-red-verify`) |
+| **SCAFFOLD** | declares the symbols the tests need | each exists exactly once, as a `SUB-AGENT-TODO` panic stub (`gate-scaffold-verify`) |
+| **GREEN** | makes the tests pass | inside the task's files only, with zero suppressions (`gate-green-verify`) |
+| **STRUCTURAL-REVIEW** | looks for duplicates and orphans | symbol uniqueness from `ctx-symbols` |
+| ✓ **FINAL-GATE** | runs the sprint's whole matrix once | every planned test is on main |
 
 ## How the loop works
 
-<div align="center">
-  <img src="docs/diagrams/workflow.svg" alt="aloop sprint loop: init, human-gated planning, an orchestrator dispatching time-boxed TDD workers (RED, SCAFFOLD, GREEN, REVIEW) in isolated worktrees with hook-enforced gates, a final gate with harness-written stats and a NEXT.md handoff, then clear and repeat." width="960">
-  <br><sub>Generated by <code>docs/diagrams/gen_workflow.py</code> · older architecture view: <a href="docs/diagrams/architecture.png">architecture.png</a></sub>
-</div>
+The loop as drawn above, step by step (the generated engineering view is
+[`docs/diagrams/workflow.svg`](docs/diagrams/workflow.svg), from `docs/diagrams/gen_workflow.py`):
 
 1. **Intent → contract.** `intake` turns your words into an internal Intent Contract
    (success *and* failure scenarios, open questions classed assume / default / ask / spike).
 2. **Planning, with you.** `standards` then `planner` produce the sprint contract and, per story,
    `tasks.md` / `validate.md` / `plan.md`, or a single semantic plan (`targets.json`) they are
-   rendered from. The supervisor **stops for your approval**; nothing is built before Stage 2 is approved.
+   rendered from. Your typed intent is the approval (M11): the plan runs on without another stop,
+   and only a one-way door (a push to the default branch, a release, a secret) waits for you.
 3. **Execution, without you.** One worktree-isolated worker per task through the chain above;
    the supervisor spends no tokens watching (`sweep wait` wakes on events) and acts on facts:
    accept, retry, re-plan, roll over, spawn.
@@ -158,7 +165,7 @@ base (`docs/agents/mission/`):
 
 ```mermaid
 flowchart TB
-  M["🧭 Mission<br/>set once by you"] --> R["Research<br/>market and rivals"]
+  M["Mission<br/>set once by you"] --> R["Research<br/>market and rivals"]
   R --> J["User journeys<br/>scripted, sourced"]
   J --> B["Baseline<br/>measured twice, you confirm"]
   B --> A["Assess<br/>current state"]
@@ -185,15 +192,15 @@ opt-in) informs goals and is never a gate.
 
 | Track | What | Status |
 |---|---|---|
-| Core | `aloop mission init / approve / check / status`, the sealed mission, the ledger | ✅ shipped |
-| Journeys, baseline, assess, evaluate | user journeys as the evaluation, a frozen baseline, the gap list | ✅ shipped |
-| Research and judges | sourced claims with archived snapshots; LLM judges on pinned models and a frozen rubric, decided by majority | ✅ shipped |
-| Ethics and principles | clear / gray / hard-line review of every goal, consent bound to its sha256; the principles below | ✅ shipped |
-| Telemetry | GA4 set up by the agents through its API, opt-in, minimum-sample rule | ✅ shipped |
-| Roles and gates | the six fixed roles, their model routes, and two gates (role path guards, artifact checks) | ✅ shipped |
-| Goals → intents | the top gaps become a goal, one Intent Contract per gap, handed to Aladdin | ✅ shipped |
-| Loop and skill | `tick`, a zero-token `due`, the cron line, budget caps, `/aloop:mission` | ✅ shipped |
-| End to end | an offline scripted mission cycle in CI, then a live one | ⏳ next |
+| Core | `aloop mission init / approve / check / status`, the sealed mission, the ledger | ✓ shipped |
+| Journeys, baseline, assess, evaluate | user journeys as the evaluation, a frozen baseline, the gap list | ✓ shipped |
+| Research and judges | sourced claims with archived snapshots; LLM judges on pinned models and a frozen rubric, decided by majority | ✓ shipped |
+| Ethics and principles | clear / gray / hard-line review of every goal, consent bound to its sha256; the principles below | ✓ shipped |
+| Telemetry | GA4 set up by the agents through its API, opt-in, minimum-sample rule | ✓ shipped |
+| Roles and gates | the six fixed roles, their model routes, and two gates (role path guards, artifact checks) | ✓ shipped |
+| Goals → intents | the top gaps become a goal, one Intent Contract per gap, handed to Aladdin | ✓ shipped |
+| Loop and skill | `tick`, a zero-token `due`, the cron line, budget caps, `/aloop:mission` | ✓ shipped |
+| End to end | an offline scripted mission cycle in CI, then a live one | → next |
 
 ## Agent principles
 
@@ -208,7 +215,7 @@ Agents that drive goals follow a short set of principles inspired by Amazon's Le
 Principles, chosen because they pull against each other and so keep the flywheel turning.
 No principle can relax an invariant.
 
-> **🚪 Is the door one-way or two-way?**
+> **◆ Is the door one-way or two-way?**
 > A **two-way door** is reversible: a branch, a draft PR, a file, a retry, a re-plan. The agent
 > decides, records the call with a one-line reason, and keeps going.
 > A **one-way door** cannot be walked back by the time anyone reads about it: a production change,
@@ -247,7 +254,7 @@ deliver results, grow adoption vs keep it simple.
 #    (for local dev, point marketplace add at your checkout instead: ./path/to/repo)
 
 # 3) Say what you want
-/aladdin add CSV export to the report
+/aladdin Add rate limiting to the API
 ```
 
 **Codex:** from a clone, `plugin/bin/aloop install codex` (agent TOMLs and `aloop` on PATH), then
@@ -297,10 +304,10 @@ Nothing in your project changes: `.agentic/`, `docs/agents/` and the `AGENTIC_*`
 
 | Host | Install | Gates | Isolation | Status |
 |---|---|---|---|---|
-| **Claude Code** | `/plugin install aloop@aloop-marketplace` | native hooks | host worktrees (`isolation: "worktree"`) | ✅ reference host, every measured run |
-| **Codex** | `aloop install codex` + `codex plugin add aloop@aloop-marketplace` (trust in `/hooks`) | native hooks | `task-worktree` + `aloop bind` | ✅ hooks emulated in CI; live run pending |
-| **OpenCode** | `aloop install opencode` | outer (the plugin wraps every tool call) | `task-worktree` + `aloop bind` | ✅ plugin end to end in CI; live run pending |
-| **DeepSeek Harness** (`dsh`) | `aloop install dsh`, then `dsh --profile aloop` | native (a plugin on dsh's own deny, block and steer points) | `task-worktree` + `aloop bind` (denial) | ✅ plugin end to end in CI, also on the real dsh runtime; live run pending (needs a DeepSeek key) |
+| **Claude Code** | `/plugin install aloop@aloop-marketplace` | native hooks | host worktrees (`isolation: "worktree"`) | ✓ reference host, every measured run |
+| **Codex** | `aloop install codex` + `codex plugin add aloop@aloop-marketplace` (trust in `/hooks`) | native hooks | `task-worktree` + `aloop bind` | ✓ hooks emulated in CI; live run pending |
+| **OpenCode** | `aloop install opencode` | outer (the plugin wraps every tool call) | `task-worktree` + `aloop bind` | ✓ plugin end to end in CI; live run pending |
+| **DeepSeek Harness** (`dsh`) | `aloop install dsh`, then `dsh --profile aloop` | native (a plugin on dsh's own deny, block and steer points) | `task-worktree` + `aloop bind` (denial) | ✓ plugin end to end in CI, also on the real dsh runtime; live run pending (needs a DeepSeek key) |
 
 One `HostAdapter` interface behind every host (`aloop host describe`); the same conformance suite
 runs on each (`make test-hosts`), and a sprint can move between them from portable state.
@@ -436,10 +443,13 @@ enforce this. Tag releases `vMAJOR.MINOR.PATCH`.
 
 | Milestone | What | Status |
 |---|---|---|
-| M0 to M7 | hygiene, trustworthy state, budgets that plan, clean boundaries, intent contracts, narrow context, audit, any host | ✅ shipped in v0.12.0 |
-| M8, Aladdin 1.0 | `/aladdin` and the CLI, the site, measured public runs on every host | 🔄 in progress |
-| M9, mission layer | Missionary Aladdin Genie: missions, journeys, baseline, goals | 🔄 in progress |
-| Next | the door gate ([#86](https://github.com/adeelahmad/aloop/pull/86)), Codex, OpenCode and DeepSeek Harness public runs | 🔄 in progress |
+| M0 to M7 | hygiene, trustworthy state, budgets that plan, clean boundaries, intent contracts, narrow context, audit, any host | ✓ shipped in v0.12.0 |
+| M0.9 | plan approval is a gate | ✓ merged |
+| M8, Aladdin 1.0 | `/aladdin` and the CLI, the site, measured public runs on every host | ● in progress |
+| M9, mission layer | Missionary Aladdin Genie: missions, journeys, baseline, goals | ● in progress |
+| M10, agent habitat | contained workers, supply-chain gate, fetched content as data, one project stop | ● in progress |
+| M11, autonomous by default | the typed intent is the grant; only one-way doors ask | ● in progress |
+| M12, kernel and user space | gates stay in the kernel; modules plug into the kernel; distros (software: TDD) are user space you eject and change | ● in progress |
 
 The full spec, every requirement's status and the reason behind each call: [docs/ROADMAP.md](docs/ROADMAP.md)
 and [docs/TRACKING.md](docs/TRACKING.md).
@@ -480,5 +490,5 @@ binary the gates shell out to (the MIT plugin code links to none of it), but any
 redistributing this repository must honor AGPL-3.0 terms for that subtree.
 
 <div align="center">
-<sub>The mark is a loop that goes into the gate red and comes out green. Brand assets and rules: <a href="docs/brand/README.md">docs/brand</a>.</sub>
+<sub>Blue is intent, red is proof something is missing, green is proof it holds, gold is the gate. Brand: the <a href="docs/brand/README.md">Aladdin design system</a>.</sub>
 </div>

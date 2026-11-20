@@ -1,0 +1,22 @@
+:root{
+--font-sans:'DM Sans',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+--font-display:var(--font-sans);
+--font-mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
+--font-hand:'Caveat','Segoe Print',cursive;
+--font-brand:'Aladin','DM Sans',cursive;
+--fw-regular:400/* @kind font */;--fw-medium:500/* @kind font */;--fw-bold:700/* @kind font */;--fw-black:800/* @kind font */;
+/* Scale (px) */
+--fs-display:64px;--fs-h1:44px;--fs-h2:32px;--fs-h3:22px;--fs-h4:18px;--fs-body:16px;--fs-small:14px;--fs-caption:12px;--fs-micro:11px;
+--lh-tight:1.08/* @kind font */;--lh-snug:1.25/* @kind font */;--lh-body:1.55/* @kind font */;--lh-code:1.6/* @kind font */;
+--ls-display:-0.03em/* @kind font */;--ls-heading:-0.015em/* @kind font */;--ls-body:0/* @kind font */;--ls-label:0.06em/* @kind font */;
+/* Semantic roles */
+--type-display:var(--fw-black) var(--fs-display)/var(--lh-tight) var(--font-display);
+--type-h1:var(--fw-bold) var(--fs-h1)/var(--lh-tight) var(--font-display);
+--type-h2:var(--fw-bold) var(--fs-h2)/var(--lh-snug) var(--font-display);
+--type-h3:var(--fw-bold) var(--fs-h3)/var(--lh-snug) var(--font-sans);
+--type-body:var(--fw-regular) var(--fs-body)/var(--lh-body) var(--font-sans);
+--type-small:var(--fw-regular) var(--fs-small)/var(--lh-body) var(--font-sans);
+--type-label:var(--fw-bold) var(--fs-micro)/1.2 var(--font-sans);
+--type-code:var(--fw-regular) var(--fs-small)/var(--lh-code) var(--font-mono);
+--type-hand:var(--fw-medium) 24px/1.1 var(--font-hand);
+}

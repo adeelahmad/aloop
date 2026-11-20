@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """ROADMAP §4.11: the site (docs/index.html, served by GitHub Pages from /docs). It is one
-self-contained page: no external script, style or image; an original inline lamp mark; the
-RED explainer; the audit tree; and every public number in it is one that ROADMAP §0 records.
+self-contained page: no external script, style or image; the owner's brand (the Aladdin
+wordmark and the Aladdin's loop infographic, the owner's call of 2026-11-20); a quick start
+whose commands are the real install lines and skill; the roadmap; the RED explainer; the audit tree; and every public number in it is one that ROADMAP §0 records.
     python3 scripts/test/site.test.py
 """
 import os
@@ -40,14 +41,64 @@ class P(HTMLParser):
 
 
 html = open(PAGE).read()
+roadmap_text = open(os.path.join(ROOT, "docs", "ROADMAP.md")).read()
 p = P()
 p.feed(html)
-assert not p.ext, "external resources: %r" % p.ext
+# allowed: the GTM no-script iframe, and the canonical link to the site's own domain (docs/CNAME)
+cname = open(os.path.join(ROOT, "docs", "CNAME")).read().strip()
+ext = [(t, u) for t, u in p.ext if not (t == "link" and u == "https://%s/" % cname)]
+assert all(u.startswith("https://www.googletagmanager.com/ns.html?id=GTM-") for _, u in ext), "external resources: %r" % ext
 assert not p.bad and not p.stack, (p.bad, p.stack)
 ok("docs/index.html is self-contained and well-formed")
 
-assert "lamp" in p.ids and "<svg" in html and 'aria-label="Aladdin' in html and "Disney" not in html
-ok("an original inline lamp mark (no borrowed visual language)")
+# analytics (owner's ask, 2026-11-20): GA4 loads only from the ids in its meta tag, one config per id,
+# and only Google's gtag host; with no id the page loads nothing from outside
+ga = re.search(r'<meta name="ga4-measurement-ids" content="([^"]*)">', html)
+assert ga, "the GA4 id list is on the page"
+assert all(re.match(r"^G-[A-Z0-9]{4,}$", x.strip()) for x in ga.group(1).split(",") if x.strip()), ga.group(1)
+hosts = set(re.findall(r"https://([a-z0-9.-]+)/[^\"' ]*\.js|https://([a-z0-9.-]+)/gtag", html))
+assert {h for pair in hosts for h in pair if h} <= {"www.googletagmanager.com"}, hosts
+assert 'gtag("config", id' in html, "one GA4 config per id"
+gtm = re.search(r'<meta name="gtm-container-ids" content="([^"]*)">', html)
+assert gtm and "GTM-NTRH49WJ" in gtm.group(1), "the owner's GTM container"
+assert all(re.match(r"^GTM-[A-Z0-9]{4,}$", x.strip()) for x in gtm.group(1).split(",") if x.strip())
+ok("GTM and GA4 run only for the listed ids, from Google's tag host alone")
+
+assert 'src="diagrams/aladdins-loop.webp"' in html and os.path.isfile(os.path.join(ROOT, "docs", "diagrams", "aladdins-loop.webp"))
+# the wordmark is the design system's option D: "Aladdin" over the blue, red, green, gold loop bar
+assert re.search(r'class="word"[^>]*>Aladdin<span class="bar"><span class="b"></span><span class="r"></span><span class="g"></span><span class="y"></span>', html)
+ok("the owner's brand: the Aladdin wordmark and the Aladdin's loop infographic, both shipped in docs/")
+
+# the quick start is what a user types: the marketplace and plugin are the real ones, the intent goes to a
+# skill that exists, and a shell `aladdin "..."` (which only records an intent) is never the run command
+import json
+mk = json.load(open(os.path.join(ROOT, ".claude-plugin", "marketplace.json")))
+plugin = mk["plugins"][0]["name"]
+assert "/plugin marketplace add adeelahmad/aloop" in html
+assert "/plugin install %s@%s" % (plugin, mk["name"]) in html
+pres = [re.sub(r"<[^>]+>", "", x) for x in re.findall(r"<pre[^>]*>(.*?)</pre>", html, re.S)]
+starts = [x for x in pres if "/plugin install" in x]
+assert starts, "a quick-start block"
+skills = os.listdir(os.path.join(ROOT, "plugin", "skills"))
+for start in starts:
+    for cmd in re.findall(r"^/(\w[\w:-]*)", start, re.M):
+        name = cmd.split(":")[-1]
+        assert cmd in ("plugin", "reload-plugins") or name in skills, "unknown slash command /%s" % cmd
+    assert re.search(r"^/aladdin \S", start, re.M), "the quick start says /aladdin <intent>"
+assert not any(re.search(r'^\s*(\$ )?aladdin "', x, re.M) for x in pres), "a shell `aladdin \"...\"` only records an intent"
+# the design system's fonts are vendored, so the page stays self-contained
+for font in re.findall(r"url\((brand/fonts/[^)]+)\)", html):
+    assert os.path.isfile(os.path.join(ROOT, "docs", font)), font
+for cost in re.findall(r"\$\d+\.\d\d", html):
+    assert cost in roadmap_text, "unsourced cost %s (not in ROADMAP)" % cost
+assert {"start", "roadmap", "modules"} <= p.ids
+# build your own Module (M12): harness, kernel, modules, user space, with the real commands; no one module marketed
+for w in ("Build your own Module.", "~/.aloop/modules/", "module.json", "docs/agents/userspace/distro.json",
+          "aloop module new", "aloop module add", "aloop userspace eject", "aloop distro new", "aloop distro install"):
+    assert w in html, w
+for gone in (r"kernel extension", r"aloop kernel", r"extension\.json", r"profile\.json", r"\bpacks?\b"):
+    assert not re.search(gone, html, re.I), "old M12 name on the page: %r" % gone
+ok("the quick start is the real install lines and skill, and the roadmap is on the page")
 
 assert {"red", "gates", "audit", "evidence"} <= p.ids
 assert "Give the agent something to make false." in html and "aloop events trace" in html

@@ -3,100 +3,442 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aladdin — intent is all you need</title>
-<meta name="description" content="aloop (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. Models explore. Gates decide.">
+<title>aloop — a kernel for your harness</title>
+<meta name="description" content="aloop (Aladdin's loop) turns one line of intent into planned, test-first, gate-verified software on Claude Code, Codex, OpenCode and DeepSeek Harness. Models explore. Gates decide.">
 <link rel="icon" href="brand/favicon.svg" type="image/svg+xml" />
 <link rel="icon" href="brand/favicon-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="brand/app-icon-180.png" />
-<meta property="og:title" content="aloop: intent is all you need">
-<meta property="og:description" content="One line of intent becomes planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. Models explore. Gates decide.">
+<meta property="og:title" content="aloop is a kernel for your harness">
+<meta property="og:description" content="One line of intent becomes planned, test-first, gate-verified software on Claude Code, Codex, OpenCode and DeepSeek Harness. Models explore. Gates decide.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://github.com/adeelahmad/aloop">
+<meta property="og:url" content="https://aloop.adeelahmad.net/">
+<link rel="canonical" href="https://aloop.adeelahmad.net/" />
 <meta property="og:image" content="https://raw.githubusercontent.com/adeelahmad/aloop/master/docs/brand/og-card.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://raw.githubusercontent.com/adeelahmad/aloop/master/docs/brand/og-card.png">
-<meta name="theme-color" content="#0f1117">
+<meta name="theme-color" content="#1A73E8">
+<meta name="color-scheme" content="light">
+<!-- Analytics (owner's, 2026-11-20). Google Tag Manager containers and GA4 measurement ids, each a
+     comma-separated list, so a second account can sit beside the first. Empty = nothing loads. -->
+<meta name="gtm-container-ids" content="GTM-NTRH49WJ">
+<meta name="ga4-measurement-ids" content="">
+<script>
+(function () {
+  function ids(name, re) {
+    var m = document.querySelector('meta[name="' + name + '"]');
+    return ((m && m.content) || "").split(",").map(function (x) { return x.trim(); })
+      .filter(function (x) { return re.test(x); });
+  }
+  function load(src) {
+    var s = document.createElement("script"); s.async = true; s.src = src; document.head.appendChild(s);
+  }
+  var gtm = ids("gtm-container-ids", /^GTM-[A-Z0-9]{4,}$/), ga = ids("ga4-measurement-ids", /^G-[A-Z0-9]{4,}$/);
+  if (!gtm.length && !ga.length) return;
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = function () { dataLayer.push(arguments); };
+  gtag("js", new Date());
+  gtm.forEach(function (id) {
+    dataLayer.push({ "gtm.start": new Date().getTime(), event: "gtm.js" });
+    load("https://www.googletagmanager.com/gtm.js?id=" + id);
+  });
+  ga.forEach(function (id) { gtag("config", id, { anonymize_ip: true }); });
+  if (ga.length) load("https://www.googletagmanager.com/gtag/js?id=" + ga[0]);
+})();
+</script>
 <style>
-  :root { --bg:#0f1117; --panel:#171a23; --ink:#e8e6df; --muted:#9a9890; --gold:#d9a441; --red:#dc5a56; --green:#5cb85c; --line:#2a2e3a; }
-  @media (prefers-color-scheme: light) { :root { --bg:#faf8f2; --panel:#ffffff; --ink:#1d1d1b; --muted:#5f5e58; --gold:#8a5a12; --red:#c0392b; --green:#2e7d32; --line:#e2dfd4; } }
-  * { box-sizing:border-box }
-  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,sans-serif }
-  main { max-width:880px; margin:0 auto; padding:0 16px 64px }
-  header { text-align:center; padding:56px 0 24px }
-  h1 { font-size:2.4rem; margin:16px 0 8px; letter-spacing:-.01em }
-  h2 { margin-top:48px; border-top:1px solid var(--line); padding-top:24px }
-  .tag { color:var(--gold); font-weight:600; letter-spacing:.08em; text-transform:uppercase; font-size:.8rem }
-  .lead { color:var(--muted); font-size:1.15rem; max-width:640px; margin:0 auto }
-  pre, code { font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace }
-  pre { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow:auto }
-  .red { color:var(--red) } .green { color:var(--green) } .gold { color:var(--gold) }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px }
-  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px }
-  .tree { white-space:pre }
-  a { color:var(--gold) }
-  footer { color:var(--muted); font-size:.9rem; margin-top:48px; border-top:1px solid var(--line); padding-top:16px }
-  table { border-collapse:collapse; width:100% } td, th { border-bottom:1px solid var(--line); padding:8px 6px; text-align:left }
+/* The Aladdin design system (docs/brand/design-system/), applied as given: tokens, type, radii,
+   tinted panels, phase dots, the loop stepper, gate verdicts, agent chips and the terminal.
+   Fonts are vendored (docs/brand/fonts/, SIL OFL), so the page loads nothing from outside. */
+@font-face { font-family:'DM Sans'; font-weight:100 1000; font-display:swap; src:url(brand/fonts/dm-sans-latin-wght-normal.woff2) format('woff2') }
+@font-face { font-family:'JetBrains Mono'; font-weight:100 800; font-display:swap; src:url(brand/fonts/jetbrains-mono-latin-wght-normal.woff2) format('woff2') }
+@font-face { font-family:'Caveat'; font-weight:500; font-display:swap; src:url(brand/fonts/caveat-latin-500-normal.woff2) format('woff2') }
+:root{
+  --aladdin-blue:#1A73E8; --aladdin-green:#34A853; --aladdin-red:#EA4335; --aladdin-gold:#F9AB00;
+  --blue-dark:#1558B0; --red-dark:#C5221F; --green-dark:#1E7E43; --gold-dark:#B06000;
+  --text-primary:#202124; --text-strong:#3C4043; --text-secondary:#5F6368; --text-muted:#80868B;
+  --background:#FFFFFF; --surface:#F8F9FA; --surface-neutral:#F1F3F4;
+  --intent-surface:#E8F0FE; --red-surface:#FCE8E6; --green-surface:#E6F4EA; --gate-surface:#FEF7E0;
+  --border:#DADCE0; --graph-edge:#A8C7FA;
+  --intent-border:#A8C7FA; --red-border:#F6AEA9; --green-border:#A8DAB5; --gate-border:#FDE293;
+  --term-bg:#202124; --term-fg:#E8EAED; --term-muted:#9AA0A6; --term-blue:#8AB4F8; --term-green:#81C995; --term-red:#F28B82; --term-gold:#FDD663;
+  --font-sans:'DM Sans',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,monospace;
+  --font-hand:'Caveat','Segoe Print',cursive;
+  --radius-sm:8px; --radius-md:12px; --radius-lg:16px; --radius-xl:24px; --radius-pill:999px;
+  --shadow-1:0 1px 2px rgba(60,64,67,.12),0 1px 3px 1px rgba(60,64,67,.08);
+  --ease:cubic-bezier(.2,0,0,1);
+}
+*{ box-sizing:border-box }
+html{ scroll-behavior:smooth }
+body{ margin:0; background:var(--surface); color:var(--text-primary); font:400 16px/1.55 var(--font-sans); -webkit-font-smoothing:antialiased }
+a{ color:var(--aladdin-blue); text-decoration:none } a:hover{ color:var(--blue-dark); text-decoration:underline }
+code, pre{ font-family:var(--font-mono) }
+code{ font-size:.875em; background:var(--surface-neutral); border-radius:4px; padding:1px 5px }
+.wrap{ max-width:1200px; margin:0 auto; padding:0 24px }
+
+/* top bar */
+.top{ position:sticky; top:0; z-index:5; background:var(--background); border-bottom:1px solid var(--border) }
+.top .wrap{ display:flex; align-items:center; gap:16px; height:60px }
+.word{ display:inline-flex; flex-direction:column; font:800 22px/1 var(--font-sans); letter-spacing:-.03em; color:var(--aladdin-blue) }
+.word:hover{ text-decoration:none; color:var(--aladdin-blue) }
+.bar{ display:flex; height:3px; border-radius:2px; overflow:hidden; margin-top:4px }
+.bar span{ flex:1 } .b{ background:var(--aladdin-blue) } .r{ background:var(--aladdin-red) } .g{ background:var(--aladdin-green) } .y{ background:var(--aladdin-gold) }
+.top .path{ font:500 13px/1 var(--font-mono); color:var(--text-muted) }
+.top nav{ margin-left:auto; display:flex; gap:20px; font:500 14px/1 var(--font-sans) }
+.top nav a{ color:var(--text-secondary) } .top nav a:hover{ color:var(--aladdin-blue) }
+
+/* buttons, badges, dots */
+.btn{ display:inline-flex; align-items:center; gap:8px; height:48px; padding:0 24px; border-radius:var(--radius-pill); font:700 16px/1 var(--font-sans); border:1px solid transparent; transition:background .2s var(--ease) }
+.btn:hover{ text-decoration:none } .btn:active{ transform:scale(.98) }
+.btn.primary{ background:var(--aladdin-blue); color:#fff } .btn.primary:hover{ background:var(--blue-dark); color:#fff }
+.btn.secondary{ background:var(--background); color:var(--aladdin-blue); border-color:var(--border) } .btn.secondary:hover{ background:var(--intent-surface) }
+.badge{ display:inline-flex; align-items:center; gap:6px; height:24px; padding:0 10px; border-radius:var(--radius-pill); font:700 12px/1 var(--font-sans); white-space:nowrap }
+.badge::before{ content:""; width:6px; height:6px; border-radius:50% ; background:currentColor }
+.badge.green{ background:var(--green-surface); color:var(--green-dark) } .badge.intent{ background:var(--intent-surface); color:var(--blue-dark) }
+.badge.gate{ background:var(--gate-surface); color:var(--gold-dark) } .badge.neutral{ background:var(--surface-neutral); color:var(--text-strong) }
+.sig{ display:inline-flex; gap:8px; vertical-align:middle } .sig i{ width:12px; height:12px; border-radius:50% } .sig i.d{ border-radius:2px; transform:rotate(45deg); width:10px; height:10px; margin:1px }
+.label{ font:700 11px/1.2 var(--font-sans); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted) }
+.hand{ font:500 26px/1.1 var(--font-hand); color:var(--aladdin-blue); transform:rotate(-2deg); display:inline-block }
+
+/* hero */
+.hero{ background:var(--background); border-bottom:1px solid var(--border) }
+.hero .wrap{ display:grid; grid-template-columns:1.05fr 1fr; gap:48px; align-items:center; padding-top:64px; padding-bottom:64px }
+.kicker{ display:flex; align-items:center; gap:12px; margin-bottom:20px }
+h1{ font:800 64px/1.08 var(--font-sans); letter-spacing:-.03em; margin:0 0 16px }
+h1 .blue{ color:var(--aladdin-blue) }
+.lead{ font:400 19px/1.5 var(--font-sans); color:var(--text-secondary); margin:0 0 24px; max-width:560px }
+.cta{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:20px }
+.pairs{ font:700 16px/1.4 var(--font-sans); color:var(--text-strong) }
+.pairs .gold{ color:var(--gold-dark) }
+
+/* terminal */
+.term{ background:var(--term-bg); border-radius:var(--radius-md); overflow:hidden; color:var(--term-fg); font:400 14px/1.6 var(--font-mono); box-shadow:var(--shadow-1) }
+.term .tb{ display:flex; align-items:center; gap:6px; padding:10px 14px; border-bottom:1px solid rgba(255,255,255,.08) }
+.term .tb i{ width:10px; height:10px; border-radius:50%; opacity:.85 }
+.term .tb span{ margin-left:8px; color:var(--term-muted); font-size:12px }
+.term pre{ margin:0; padding:14px 18px; white-space:pre-wrap; overflow-x:auto; font:inherit }
+.t-cmd{ color:var(--term-fg) } .t-p{ color:var(--term-blue) } .t-out{ color:var(--term-muted) } .t-ok{ color:var(--term-green) } .t-fail{ color:var(--term-red) } .t-gate{ color:var(--term-gold) }
+.term pre.tree{ white-space:pre; font-size:13px }
+
+/* sections */
+section.s{ padding:72px 0 }
+section.s.white{ background:var(--background); border-top:1px solid var(--border); border-bottom:1px solid var(--border) }
+h2{ font:700 40px/1.15 var(--font-sans); letter-spacing:-.02em; margin:8px 0 12px }
+h3{ font:700 18px/1.25 var(--font-sans); letter-spacing:-.01em; margin:0 }
+.sub{ color:var(--text-secondary); font-size:17px; max-width:760px; margin:0 0 32px }
+.grid2{ display:grid; grid-template-columns:1fr 1fr; gap:20px }
+.grid3{ display:grid; grid-template-columns:repeat(3,1fr); gap:20px }
+.grid4{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px }
+
+/* the infographic */
+.figure{ background:var(--background); border:1px solid var(--border); border-radius:var(--radius-xl); padding:16px; margin:0 }
+.figure img{ display:block; width:100%; height:auto; border-radius:var(--radius-md) }
+.figure figcaption{ display:flex; justify-content:space-between; gap:16px; align-items:center; padding:14px 8px 4px; color:var(--text-secondary); font-size:14px; flex-wrap:wrap }
+
+/* loop stepper */
+.stepper{ background:var(--background); border:1px solid var(--border); border-radius:var(--radius-lg); padding:20px 24px; margin-bottom:24px }
+.steps{ display:flex; align-items:flex-start; margin-top:14px }
+.step{ display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center; min-width:72px }
+.step .dot{ width:24px; height:24px; border-radius:50% }
+.step .dot.final{ box-shadow:0 0 0 3px var(--background),0 0 0 5px var(--aladdin-gold) }
+.step b{ font:700 14px/1.2 var(--font-sans) } .step small{ font:400 12px/1.2 var(--font-sans); color:var(--text-muted) }
+.steps .line{ flex:1; height:1px; background:var(--text-muted); margin-top:12px; opacity:.6 }
+
+/* panels */
+.panel{ border:1px solid var(--border); border-radius:var(--radius-lg); padding:20px; display:flex; flex-direction:column; gap:12px; background:var(--background) }
+.panel header{ display:flex; align-items:center; gap:12px }
+.panel .num{ width:32px; height:32px; border-radius:50%; display:grid; place-items:center; font:800 16px/1 var(--font-sans); color:#fff; flex:none }
+.panel .t{ flex:1; min-width:0 } .panel .t div{ font:400 13px/1.4 var(--font-sans); color:var(--text-secondary); margin-top:2px }
+.panel ul{ margin:0; padding-left:18px; font-size:15px } .panel li{ margin:2px 0 } .panel li::marker{ color:var(--m) }
+.panel.intent{ background:var(--intent-surface); border-color:var(--intent-border); --m:var(--aladdin-blue) } .panel.intent h3{ color:var(--blue-dark) } .panel.intent .num{ background:var(--aladdin-blue) }
+.panel.red{ background:var(--red-surface); border-color:var(--red-border); --m:var(--aladdin-red) } .panel.red h3{ color:var(--red-dark) } .panel.red .num{ background:var(--aladdin-red) }
+.panel.green{ background:var(--green-surface); border-color:var(--green-border); --m:var(--aladdin-green) } .panel.green h3{ color:var(--green-dark) } .panel.green .num{ background:var(--aladdin-green) }
+.panel.gate{ background:var(--gate-surface); border-color:var(--gate-border); --m:var(--aladdin-gold) } .panel.gate h3{ color:var(--gold-dark) } .panel.gate .num{ background:var(--aladdin-gold); color:var(--text-primary) }
+.panel.neutral{ background:var(--surface-neutral); border-color:var(--border); --m:var(--text-muted) } .panel.neutral .num{ background:var(--text-secondary) }
+.arts{ background:rgba(255,255,255,.7); border:1px solid var(--border); border-radius:var(--radius-md); padding:10px 14px; font:400 13px/1.7 var(--font-mono); color:var(--text-strong) }
+.chip{ display:inline-flex; align-items:center; gap:8px; height:32px; padding:0 12px 0 4px; border-radius:var(--radius-pill); border:1px solid var(--border); background:var(--background); font:700 14px/1 var(--font-sans); white-space:nowrap }
+.chip i{ width:24px; height:24px; border-radius:50%; display:grid; place-items:center; color:#fff; font:700 11px/1 var(--font-mono); font-style:normal }
+.chip em{ font-style:normal; font-weight:400; color:var(--text-muted) }
+.chips{ display:flex; flex-wrap:wrap; gap:8px }
+
+/* gate verdicts */
+.verdict{ display:flex; gap:14px; align-items:flex-start; border-radius:var(--radius-lg); padding:16px; border:1px solid }
+.verdict .ic{ width:28px; height:28px; border-radius:50%; display:grid; place-items:center; color:#fff; font:700 15px/1 var(--font-sans); flex:none }
+.verdict b{ font:700 16px/1.3 var(--font-sans) } .verdict code{ background:none; color:var(--text-secondary); padding:0 0 0 6px }
+.verdict p{ margin:2px 0 0; font-size:14px; color:var(--text-strong) }
+.verdict.blocked{ background:var(--red-surface); border-color:var(--red-border) } .verdict.blocked .ic{ background:var(--aladdin-red) }
+.verdict.passed{ background:var(--green-surface); border-color:var(--green-border) } .verdict.passed .ic{ background:var(--aladdin-green) }
+.verdict.waiting{ background:var(--gate-surface); border-color:var(--gate-border) } .verdict.waiting .ic{ background:none } .verdict.waiting .ic::before{ content:""; width:18px; height:18px; background:var(--aladdin-gold); transform:rotate(45deg); border-radius:3px }
+
+/* feature tiles */
+.tile{ background:var(--background); border:1px solid var(--border); border-radius:var(--radius-lg); padding:18px; display:flex; gap:12px }
+.tile .sig i{ margin-top:6px } .tile p{ margin:4px 0 0; color:var(--text-secondary); font-size:14px }
+
+/* tables */
+.table{ background:var(--background); border:1px solid var(--border); border-radius:var(--radius-lg); overflow-x:auto }
+table{ border-collapse:collapse; width:100%; font-size:15px }
+th{ text-align:left; padding:12px 16px; border-bottom:1px solid var(--border); background:var(--surface) } th{ font:700 11px/1.2 var(--font-sans); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted) }
+td{ padding:12px 16px; border-bottom:1px solid var(--border); vertical-align:top } tr:last-child td{ border-bottom:0 }
+td.num{ font-family:var(--font-mono); font-size:14px; white-space:nowrap }
+
+/* footer strip */
+.strip{ background:var(--background); border-top:1px solid var(--border) }
+.strip .wrap{ display:grid; grid-template-columns:auto 1fr auto; gap:32px; align-items:center; padding-top:28px; padding-bottom:28px }
+.strip .row{ display:flex; gap:20px; align-items:center; flex-wrap:wrap; font:700 16px/1 var(--font-sans) }
+.strip .row code{ background:none; padding:0; font-weight:500; color:var(--text-strong) }
+.close{ text-align:center; padding:56px 0 24px; font:800 40px/1.15 var(--font-sans); letter-spacing:-.02em }
+.close .gold{ color:var(--gold-dark) }
+footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; padding:0 24px 48px }
+
+@media (max-width:960px){
+  .hero .wrap, .grid2{ grid-template-columns:1fr } .grid3, .grid4{ grid-template-columns:1fr 1fr }
+  h1{ font-size:48px } h2{ font-size:32px } .top nav{ display:none } .strip .wrap{ grid-template-columns:1fr }
+}
+@media (max-width:600px){
+  .wrap{ padding:0 16px } .grid3, .grid4{ grid-template-columns:1fr } h1{ font-size:40px } .close{ font-size:30px }
+  .steps{ overflow-x:auto } .step{ min-width:64px } .top .path{ display:none } section.s{ padding:48px 0 }
+}
 </style>
 </head>
 <body>
-<main>
-<header>
-  <!-- the lamp: an original motif (a lantern of gates), no borrowed visual language -->
-  <svg id="lamp" width="140" height="140" viewBox="0 0 140 140" role="img" aria-label="Aladdin's loop: a lamp whose flame is a passing gate">
-    <defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f3cf6c"/><stop offset="1" stop-color="#b47a1e"/></linearGradient></defs>
-    <path d="M22 86 q48 30 96 0 l-6 18 q-42 22 -84 0 z" fill="url(#g)"/>
-    <path d="M30 84 q40 -22 80 0 l-4 -16 q-36 -14 -72 0 z" fill="url(#g)" opacity=".9"/>
-    <path d="M112 76 q18 -6 16 -22 q-2 -10 -12 -8" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/>
-    <path d="M28 74 q-16 2 -18 14 q-1 8 8 10" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round"/>
-    <ellipse cx="70" cy="62" rx="10" ry="4" fill="#b47a1e"/>
-    <!-- the flame is a loop: red (failing) → green (passing) -->
-    <path d="M70 58 q-14 -14 -4 -30 q2 10 10 12 q8 -8 2 -22 q18 14 8 36 q-6 8 -16 4 z" fill="#dc5a56"/>
-    <path d="M70 56 q-8 -10 -2 -20 q2 6 7 8 q5 -6 2 -14 q10 10 4 24 q-4 5 -11 2 z" fill="#5cb85c"/>
-  </svg>
-  <div class="tag">aloop · Aladdin's Loop</div>
-  <h1>Intent is all you need.</h1>
-  <p class="lead">One line of intent becomes planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. A human gives the intent and answers only one-way-door questions; cheap workers build it in isolated worktrees; deterministic hooks decide what is accepted.</p>
-  <pre>aladdin "add CSV export to the report"</pre>
-  <p><a href="https://github.com/adeelahmad/aloop">GitHub</a> · <a href="https://github.com/adeelahmad/aloop#install--run">Install</a> · <a href="https://github.com/adeelahmad/aloop/blob/master/docs/ROADMAP.md">Roadmap</a></p>
-</header>
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-NTRH49WJ" height="0" width="0" style="display:none;visibility:hidden" title="Google Tag Manager"></iframe></noscript>
 
-<h2 id="red">Give the agent something to make false.</h2>
-<p>Do not merely give an agent a goal. Give it a <span class="red">failing proof of what is missing</span>, then make it earn <span class="green">GREEN</span>. A test written after the code proves the code does what the code does. A test written before it proves the code is <em>missing</em> — and "done" becomes a claim a gate can check, not a sentence a model can say.</p>
-<div class="grid">
-  <div class="card"><strong class="red">RED</strong><br>writes the tests the plan named — and must fail them. <code>gate-red-verify</code></div>
-  <div class="card"><strong class="gold">SCAFFOLD</strong><br>declares the symbols the tests need; no bodies. <code>gate-scaffold-verify</code></div>
-  <div class="card"><strong class="green">GREEN</strong><br>makes the tests pass, touching only the task's files. <code>gate-green-verify</code></div>
-  <div class="card"><strong>REVIEW · FINAL</strong><br>symbol uniqueness, duplicates, orphans; then the sprint's whole matrix once. Every planned test must be on main.</div>
-</div>
-<p>Each step is a sub-agent whose <em>stop</em> is intercepted by a hook. The hook can block the stop and hand the reason back. A gate that crashes blocks. A host that cannot block natively is wrapped from outside. A BLOCK is never downgraded to a warning.</p>
+<div class="top"><div class="wrap">
+  <a class="word" href="#" aria-label="Aladdin">Aladdin<span class="bar"><span class="b"></span><span class="r"></span><span class="g"></span><span class="y"></span></span></a>
+  <span class="path">aloop · Aladdin's loop</span>
+  <nav><a href="#start">Quick start</a><a href="#loop">The loop</a><a href="#gates">Gates</a><a href="#evidence">Evidence</a><a href="#modules">Build a Module</a><a href="#roadmap">Roadmap</a><a href="https://github.com/adeelahmad/aloop">GitHub</a></nav>
+</div></div>
 
-<h2 id="gates">Models explore. Gates decide.</h2>
-<table>
-  <tr><th>The model may</th><th>The gate decides</th></tr>
-  <tr><td>plan, split, pick a route (<code>strongest · strong · economical</code>)</td><td>whether the plan has tests for every task and targets that exist or are declared</td></tr>
-  <tr><td>write tests, scaffolds, code, reviews</td><td>whether RED fails, SCAFFOLD has no bodies, GREEN passes inside its scope</td></tr>
-  <tr><td>say it is done</td><td>nothing — done is a passing gate verdict in the event stream</td></tr>
-  <tr><td>spend tokens and minutes</td><td>within a box: soft warning, hard stop, breach classified and re-planned, never retried as-is</td></tr>
-</table>
+<header class="hero"><div class="wrap">
+  <div>
+    <div class="kicker"><span class="sig"><i class="b"></i><i class="r"></i><i class="g"></i><i class="y d"></i></span><span class="label">Intent is all you need</span></div>
+    <h1>aloop is a kernel for <span class="blue">your harness.</span></h1>
+    <p class="lead">Your harness is the hardware. aloop is the kernel: its gates decide what is accepted, modules plug in the checks your project needs, and a distro (software: the TDD loop) is the user space you run and change. You give one line of intent; cheap workers build it, test first, in isolated worktrees.</p>
+    <div class="cta"><a class="btn primary" href="#start">Quick start →</a><a class="btn secondary" href="https://github.com/adeelahmad/aloop">GitHub</a></div>
+    <div class="pairs">Plan. Test. Build. Improve. Repeat. &nbsp;·&nbsp; Models explore. <span class="gold">Gates decide.</span></div>
+  </div>
+  <div>
+    <div class="term" id="start-term"><div class="tb"><i style="background:#EA4335"></i><i style="background:#F9AB00"></i><i style="background:#34A853"></i><span>claude · your project</span></div>
+<pre><span class="t-out"># add the marketplace and install the plugin</span>
+<span class="t-cmd">/plugin marketplace add adeelahmad/aloop</span>
+<span class="t-cmd">/plugin install aloop@aloop-marketplace</span>
+<span class="t-cmd">/reload-plugins</span>
 
-<h2 id="audit">The audit tree</h2>
-<p>Every run leaves an <code>aladdin.event/1</code> stream. One command walks a commit back to the human who approved it, with no transcript archaeology:</p>
-<pre class="tree"><span class="gold">aloop events trace 3e555af</span>
-commit 3e555af   feat: csv export (built from the task's rationale)
-└─ task S1-01-T2  "wire the export"              worktree merged --no-ff
-   └─ attempt 2   green-worker · economical       gate-green-verify: PASS
-      ├─ attempt 1   gate-green-verify: BLOCK      scope: touched src/report.py outside targets
-      └─ targets C2  modify src/report.py:4 render  reason: render offers the export
-         └─ plan S1-01  approved                   human.approval · autonomy: reviewed
-            └─ intent int_01a14d9f…  "add CSV export to the report"   received 2026-10-18T06:07Z</pre>
-<p>Decisions carry a one-line reason, evidence refs and an authority ref. Usage is reported by class (fresh input, cache read, cache write, output, context) and marked <em>estimated</em> where a host does not report it.</p>
+<span class="t-out"># say what you want</span>
+<span class="t-cmd">/aladdin Add rate limiting to the API</span>
+<span class="t-out">intake → standards → planner</span>
+<span class="t-fail">✕ 3 tests fail (RED proves what is missing)</span>
+<span class="t-ok">✓ 3/3 pass in the task worktree (GREEN)</span>
+<span class="t-gate">◆ FINAL-GATE pass · merged, authored by you</span></pre></div>
+    <p style="margin:14px 0 0"><span class="hand">Your intent summons possibility.</span></p>
+  </div>
+</div></header>
 
-<h2 id="evidence">Evidence, not claims</h2>
-<p>Every public number comes from the harness's own <code>stats.md</code> and is reproducible with <code>make e2e-live YES=1</code>: a one-line intent through intake, standards, planning, RED/SCAFFOLD/GREEN per task, structural review and the final gate, to merged and tested code in a real session. The semver intent ran end to end in 11m10s for $0.65 (run 6); a two-story word-frequency tool in 19m42s for $1.56 (run 9), and in 10m58s for $0.76 with no gate block once every dispatch ran on the project's model (run 23), and in 9m54s for $0.70 on today's master (run 27). Every number here is a row in <a href="https://github.com/adeelahmad/aloop/blob/master/docs/evidence/README.md">docs/evidence/README.md</a> with the command that reproduces it, and every requirement on the roadmap is tracked with the test that proves it in <a href="https://github.com/adeelahmad/aloop/blob/master/docs/TRACKING.md">docs/TRACKING.md</a>.</p>
+<section class="s" id="infographic"><div class="wrap">
+  <figure class="figure">
+    <img src="diagrams/aladdins-loop.webp" width="1536" height="1024" alt="Aladdin's loop (aloop): turn intent into working software with test-driven agents. 0 Retrospective, 1 Intake, Standards and Planning, 2 Red (write failing tests), 3 Scaffold (create stubs), 4 Green (make tests pass), 5 Review per wave and the Final Gate per sprint. Runs on OpenCode, Codex and Claude Code; powered by ctx-symbols, md-db and budget and stats." />
+    <figcaption><span><b>Aladdin's loop (aloop).</b> Many agents. One goal. Better software.</span><span class="hand" style="font-size:22px">More progress every loop.</span></figcaption>
+  </figure>
+</div></section>
 
-<footer>MIT. <code>md-db</code> is vendored under AGPL-3.0. Formerly <em>agentic-agile</em>; the old names keep working. Brand assets and their usage rules: <a href="https://github.com/adeelahmad/aloop/tree/master/docs/brand">docs/brand</a>. The lamp is an original drawing: a lantern whose flame is a red-to-green loop.</footer>
-</main>
+<section class="s white" id="start"><div class="wrap">
+  <div class="label">Quick start</div>
+  <h2>Three lines, then say what you want.</h2>
+  <p class="sub">Inside Claude Code. A Rust toolchain 1.85+ lets the plugin build its gate backends (<code>ctx-symbols</code>, <code>md-db</code>) on first start; without it the gates degrade to grep.</p>
+  <div class="grid2">
+    <div class="term"><div class="tb"><i style="background:#EA4335"></i><i style="background:#F9AB00"></i><i style="background:#34A853"></i><span>Claude Code</span></div>
+<pre><span class="t-out"># add the marketplace and install the plugin</span>
+/plugin marketplace add adeelahmad/aloop
+/plugin install aloop@aloop-marketplace
+/reload-plugins
+
+<span class="t-out"># say what you want</span>
+/aladdin Add rate limiting to the API</pre></div>
+    <div class="panel">
+      <h3>Or just ask</h3>
+      <p style="margin:0">The skill triggers on any build, fix or change request in your own words. <code>/aloop:aladdin</code> is the same skill.</p>
+      <h3>From a shell</h3>
+      <p style="margin:0"><code>aladdin "Add rate limiting to the API"</code> records the intent and prints the line to say in your host. It does not start a run on its own. Follow a run with <code>aladdin status</code>; pick it up in a fresh session with <code>aladdin resume</code>.</p>
+      <h3>Other hosts</h3>
+      <p style="margin:0">Codex, OpenCode and DeepSeek Harness install with <code>aloop install codex|opencode|dsh</code>: the <a href="https://github.com/adeelahmad/aloop#install--run">install guide</a>.</p>
+    </div>
+  </div>
+</div></section>
+
+<section class="s" id="loop"><div class="wrap">
+  <div class="label">The loop, per wave</div>
+  <h2>Plan. Test. Build. Improve. Repeat.</h2>
+  <p class="sub">Each step is a sub-agent in its own git worktree, and a hook intercepts its stop. Waves run in parallel across tasks; the final gate runs once per sprint.</p>
+  <div class="stepper">
+    <div class="label">Repeat per wave (parallel across tasks)</div>
+    <div class="steps">
+      <div class="step"><span class="dot g"></span><b>Plan</b></div><span class="line"></span>
+      <div class="step"><span class="dot r"></span><b>Red</b><small>failing tests</small></div><span class="line"></span>
+      <div class="step"><span class="dot b"></span><b>Scaffold</b><small>stubs</small></div><span class="line"></span>
+      <div class="step"><span class="dot g"></span><b>Green</b><small>pass tests</small></div><span class="line"></span>
+      <div class="step"><span class="dot y"></span><b>Review</b><small>structure</small></div><span class="line"></span>
+      <div class="step"><span class="dot y final"></span><b>Final Gate</b><small>end of sprint</small></div>
+    </div>
+  </div>
+  <div class="grid3">
+    <div class="panel intent" id="red-intake"><header><span class="num">1</span><div class="t"><h3>Intake → Standards → Planning</h3><div>planning agents</div></div></header>
+      <ul><li>Understand intent</li><li>Load context (<code>ctx-symbols</code>)</li><li>Apply standards (<code>md-db</code>)</li><li>Create detailed plan</li></ul>
+      <div class="arts">stories.md · plan.md · tasks.md<br>acceptance criteria</div>
+      <div class="chips"><span class="chip"><i style="background:var(--aladdin-blue)">in</i>intake</span><span class="chip"><i style="background:var(--aladdin-blue)">st</i>standards</span><span class="chip"><i style="background:var(--aladdin-blue)">pl</i>planner</span></div></div>
+    <div class="panel red" id="red"><header><span class="num">2</span><div class="t"><h3>Red — Write failing tests</h3><div>give the agent something to make false</div></div></header>
+      <ul><li>Write test(s) for the task</li><li>Run and verify they fail</li><li>A compile error is not a real failure</li></ul>
+      <div class="arts">tests/*.test.* · test report<br>failure evidence</div>
+      <div class="chips"><span class="chip"><i style="background:var(--aladdin-red)">rw</i>red-worker <em>gate-red-verify</em></span></div></div>
+    <div class="panel intent"><header><span class="num">3</span><div class="t"><h3>Scaffold — Create stubs</h3><div>just enough for the tests to run</div></div></header>
+      <ul><li>Create minimal code stubs</li><li>No business logic</li><li>Own task worktree</li></ul>
+      <div class="arts">created files (task worktree)<br>execution.log · output.md</div>
+      <div class="chips"><span class="chip"><i style="background:var(--aladdin-blue)">sc</i>scaffolder <em>gate-scaffold-verify</em></span></div></div>
+    <div class="panel green"><header><span class="num">4</span><div class="t"><h3>Green — Make tests pass</h3><div>touching only the task's files</div></div></header>
+      <ul><li>Write minimal code to make tests pass</li><li>Keep it simple</li><li>No extra features</li></ul>
+      <div class="arts">implemented code · execution.log<br>passing test report</div>
+      <div class="chips"><span class="chip"><i style="background:var(--aladdin-green)">gr</i>green-worker <em>gate-green-verify</em></span></div></div>
+    <div class="panel gate"><header><span class="num">5</span><div class="t"><h3>Review → Final Gate</h3><div>per wave, then once per sprint</div></div></header>
+      <ul><li>Check structure, find duplication</li><li>Validate docs (<code>md-db</code>), all tests pass</li><li>Every planned test is on main</li></ul>
+      <div class="arts">gate report · updated docs</div>
+      <div class="chips"><span class="chip"><i style="background:var(--aladdin-gold);color:var(--text-primary)">sr</i>structural-reviewer</span><span class="chip"><i style="background:var(--aladdin-gold);color:var(--text-primary)">fg</i>final-gate</span></div></div>
+    <div class="panel neutral"><header><span class="num">0</span><div class="t"><h3>Retrospective</h3><div>start the next sprint</div></div></header>
+      <ul><li>Read stats.md and NEXT.md</li><li>Update memory.md, capture learnings</li><li>Context cleared → resume</li></ul>
+      <div class="arts">stats.md + NEXT.md written<br>memory.md (updated)</div>
+      <div class="chips"><span class="chip"><i style="background:var(--text-secondary)">ar</i>archivist</span></div></div>
+  </div>
+</div></section>
+
+<section class="s white" id="gates"><div class="wrap">
+  <div class="label">Deterministic hooks</div>
+  <h2>Models explore. <span style="color:var(--gold-dark)">Gates decide.</span></h2>
+  <p class="sub"><b>Give the agent something to make false.</b> A test written after the code proves the code does what the code does. A test written before it proves the code is <em>missing</em>, so "done" becomes a claim a gate can check, not a sentence a model can say. A gate that crashes blocks; a BLOCK is never downgraded to a warning.</p>
+  <div class="grid2" style="margin-bottom:24px">
+    <div class="verdict blocked"><span class="ic">✕</span><div><b>Gate blocked</b><code>gate-red-verify</code><p>Tests passed on the first run: RED needs failing proof.</p></div></div>
+    <div class="verdict passed"><span class="ic">✓</span><div><b>Gate passed</b><code>gate-green-verify</code><p>3/3 tests pass in the task worktree, inside its scope.</p></div></div>
+    <div class="verdict blocked"><span class="ic">✕</span><div><b>Gate blocked</b><code>gate-green-verify</code><p>Scope: touched src/app.py outside the task's targets.</p></div></div>
+    <div class="verdict waiting"><span class="ic"></span><div><b>One-way door</b><code>gate-door-plan</code><p>A push to the default branch waits for your typed authorization.</p></div></div>
+  </div>
+  <div class="table"><table>
+    <tr><th>The model may</th><th>The gate decides</th></tr>
+    <tr><td>plan, split, pick a route (<code>strongest · strong · economical</code>)</td><td>whether the plan has tests for every task and targets that exist or are declared</td></tr>
+    <tr><td>write tests, scaffolds, code, reviews</td><td>whether RED fails, SCAFFOLD has no bodies, GREEN passes inside its scope</td></tr>
+    <tr><td>say it is done</td><td>nothing: done is a passing gate verdict in the event stream</td></tr>
+    <tr><td>spend tokens and minutes</td><td>within a box: soft warning, hard stop, breach classified and re-planned, never retried as is</td></tr>
+  </table></div>
+  <div class="grid3" style="margin-top:24px">
+    <div class="tile"><span class="sig"><i class="r"></i></span><div><h3>Isolated worktrees</h3><p>Each task in its own git worktree.</p></div></div>
+    <div class="tile"><span class="sig"><i class="b"></i></span><div><h3>Parallel waves</h3><p>Multiple agents run in parallel.</p></div></div>
+    <div class="tile"><span class="sig"><i class="y"></i></span><div><h3>Time &amp; token box</h3><p>Every attempt boxed; auto re-plan on a hard limit.</p></div></div>
+    <div class="tile"><span class="sig"><i class="y d"></i></span><div><h3>Deterministic hooks</h3><p>Enforce tool usage, file scope, test protection, commit author.</p></div></div>
+    <div class="tile"><span class="sig"><i class="g"></i></span><div><h3>Your commits</h3><p>Merges authored by you.</p></div></div>
+    <div class="tile"><span class="sig"><i class="b"></i></span><div><h3>Clear sprint boundary</h3><p>Ends with stats.md and NEXT.md; context cleared.</p></div></div>
+  </div>
+</div></section>
+
+<section class="s" id="audit"><div class="wrap">
+  <div class="label">Audit</div>
+  <h2>Every commit walks back to your intent.</h2>
+  <p class="sub">Every run leaves an <code>aladdin.event/1</code> stream. Decisions carry a one-line reason, evidence refs and an authority ref; usage is reported by class and marked <em>estimated</em> where a host does not report it.</p>
+  <div class="term"><div class="tb"><i style="background:#EA4335"></i><i style="background:#F9AB00"></i><i style="background:#34A853"></i><span>aloop events trace</span></div>
+<pre class="tree"><span class="t-p">$ </span><span class="t-cmd">aloop events trace 3e555af</span>
+<span class="t-out">commit 3e555af   feat: rate limiting (built from the task's rationale)</span>
+<span class="t-out">└─ task S1-01-T2  "wire the limiter"            worktree merged --no-ff</span>
+<span class="t-ok">   └─ attempt 2   green-worker · economical      gate-green-verify: PASS</span>
+<span class="t-fail">      ├─ attempt 1   gate-green-verify: BLOCK     scope: touched src/app.py outside targets</span>
+<span class="t-out">      └─ targets C2  modify src/api.py:12 handle  reason: handle checks the limit</span>
+<span class="t-gate">         └─ plan S1-01  granted by the typed intent  autonomy: autonomous (M11)</span>
+<span class="t-p">            └─ intent int_01a14d9f…  "Add rate limiting to the API"</span></pre></div>
+</div></section>
+
+<section class="s white" id="evidence"><div class="wrap">
+  <div class="label">Evidence, not claims</div>
+  <h2>About a dollar and ten minutes per tested feature.</h2>
+  <p class="sub">A one-line intent, start to merged code, in a real Claude Code session. Every row is in the <a href="https://github.com/adeelahmad/aloop/blob/master/docs/evidence/README.md">evidence ledger</a> with the command that reproduces it: <code>make e2e-live YES=1 INTENT=&lt;intent&gt;</code>.</p>
+  <div class="table"><table>
+    <tr><th>Intent</th><th>Result</th><th>Time</th><th>Cost</th></tr>
+    <tr><td>a Rust semver parser (run 21)</td><td>12/12 checks</td><td class="num">8m17s</td><td class="num">$0.66</td></tr>
+    <tr><td>a Rust word-frequency tool, two dependent stories (run 27)</td><td>13/13 checks</td><td class="num">9m54s</td><td class="num">$0.70</td></tr>
+    <tr><td>a Python slugify package, pytest (run 37)</td><td>12/12 checks</td><td class="num">9m42s</td><td class="num">$0.69</td></tr>
+    <tr><td>a Go Roman-numeral package, <code>go test</code> (run 39)</td><td>12/12 checks</td><td class="num">7m52s</td><td class="num">$0.56</td></tr>
+    <tr><td>a JS camelCase module, <code>node --test</code> (run 41)</td><td>12/12 checks</td><td class="num">6m45s</td><td class="num">$0.56</td></tr>
+    <tr><td>extend an existing crate, brownfield (run 42)</td><td>13/13 checks, seed tests untouched</td><td class="num">7m11s</td><td class="num">$0.67</td></tr>
+    <tr><td>a wc-like CLI app, tested by running it (run 46)</td><td>13/13 checks, the merged binary works</td><td class="num">15m19s</td><td class="num">$0.99</td></tr>
+  </table></div>
+</div></section>
+
+<section class="s white" id="modules"><div class="wrap">
+  <div class="label">Harness · kernel · modules · distros (M12)</div>
+  <h2>Build your own Module.</h2>
+  <p class="sub">Think of it as a computer. The <b>harness</b> (Claude Code, Codex, OpenCode, DeepSeek Harness) is the hardware. <b>aloop is the kernel</b>: the gate engine, its gates and the audit log, never overridden. <b>Modules</b> plug into the kernel: use an existing one, or build one for what your project needs. Above them runs a <b>distro</b>: the user space (agents, prompts, skills) that shapes the loop, yours to eject and change in git. The <b>software</b> distro, the TDD loop, ships today.</p>
+  <div class="grid3" style="margin-bottom:24px">
+    <div class="panel gate"><header><span class="num">◆</span><div class="t"><h3>Kernel</h3><div>the plugin · a release changes it</div></div></header>
+      <ul><li>Gate engine and core gates</li><li>The audit log (<code>aladdin.event/1</code>)</li><li>What a project declares runs, and is logged</li></ul>
+      <div class="arts">bin/gate-* · hooks/hooks.json</div></div>
+    <div class="panel red"><header><span class="num">+</span><div class="t"><h3>Modules</h3><div>use one or build one · add-only</div></div></header>
+      <ul><li>Run beside the core gates on <code>SubagentStop</code> or <code>Stop</code></li><li>Exit 2 blocks with your reason; a pass decides only itself</li><li>Added by sha256: changed, missing or crashing blocks</li></ul>
+      <div class="arts">~/.aloop/modules/&lt;name&gt;/module.json<br>check (exit 2 blocks)</div></div>
+    <div class="panel intent"><header><span class="num">✎</span><div class="t"><h3>Distros</h3><div>user space · fully overridable</div></div></header>
+      <ul><li>A distro = modules + agents + skills; <code>software</code> (TDD) by default</li><li>Agents, prompts and skills, ejected on the first run</li><li>Layers: home &gt; repo &gt; plugin, per file</li><li>Upgrades never clobber an edit</li></ul>
+      <div class="arts">docs/agents/userspace/distro.json (in git)<br>~/.aloop/projects/ (personal)</div></div>
+  </div>
+  <div class="grid2">
+    <div class="term"><div class="tb"><i style="background:#EA4335"></i><i style="background:#F9AB00"></i><i style="background:#34A853"></i><span>~/.aloop/modules/no-todo</span></div>
+<pre><span class="t-out"># 1. scaffold a module: module.json + an executable check</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop module new no-todo --on Stop</span>
+<span class="t-ok">created ~/.aloop/modules/no-todo</span>
+
+<span class="t-out"># module.json</span>
+<span class="t-cmd">{"name": "no-todo", "on": ["Stop"],</span>
+<span class="t-cmd"> "command": "./check", "timeout": 120}</span>
+
+<span class="t-out"># check: exit 2 blocks, stderr is the reason</span>
+<span class="t-cmd">grep -rn TODO "$ALOOP_PROJECT/src" &amp;&amp; {</span>
+<span class="t-cmd">  echo "TODO left in src/" &gt;&amp;2; exit 2; }</span>
+<span class="t-cmd">exit 0</span></pre></div>
+    <div class="term"><div class="tb"><i style="background:#EA4335"></i><i style="background:#F9AB00"></i><i style="background:#34A853"></i><span>your project</span></div>
+<pre><span class="t-out"># 2. add it: its sha256 goes in distro.json, in git</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop module add no-todo</span>
+<span class="t-ok">added no-todo 0b4d8588bc1c</span>
+
+<span class="t-out"># 3. shape the loop: eject the distro's user space, edit, apply</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop userspace eject</span>
+<span class="t-ok">ejected 78 file(s) into docs/agents/userspace</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop userspace apply</span>
+
+<span class="t-out"># 4. or bundle modules + user space as a distro</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop distro new my-distro</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop distro install ./my-distro</span>
+
+<span class="t-out"># at the sprint's stop, beside the core gates</span>
+<span class="t-gate">◆ module no-todo blocked: TODO left in src/</span></pre></div>
+  </div>
+  <p class="sub" style="margin:20px 0 0">Every command above ran as shown. A check sees <code>ALOOP_EVENT</code>, <code>ALOOP_ROLE</code>, <code>ALOOP_PROJECT</code>, <code>ALOOP_DISTRO</code> and <code>ALOOP_MODULE</code>; a crash, a timeout, or a module missing or changed since it was added blocks too, and every run is a <code>module.run</code> audit event. The full how-to: <a href="https://github.com/adeelahmad/aloop/blob/master/docs/BUILD-A-MODULE.md">Build your own module</a>. The rules: <a href="https://github.com/adeelahmad/aloop/blob/master/docs/ROADMAP.md#415-kernel-and-user-space-m12">ROADMAP §4.15</a>.</p>
+</div></section>
+
+<section class="s" id="roadmap"><div class="wrap">
+  <div class="label">Roadmap</div>
+  <h2>Heading for Aladdin 1.0.</h2>
+  <p class="sub">Every requirement, its status and the test that proves it: <a href="https://github.com/adeelahmad/aloop/blob/master/docs/ROADMAP.md">ROADMAP.md</a> · <a href="https://github.com/adeelahmad/aloop/blob/master/docs/TRACKING.md">TRACKING.md</a>.</p>
+  <div class="table"><table>
+    <tr><th>Milestone</th><th>What</th><th>Status</th></tr>
+    <tr><td><b>M0 to M7</b></td><td>hygiene, trustworthy state, budgets that plan, clean boundaries, intent contracts, narrow context, audit, any host</td><td><span class="badge green">Shipped v0.12.0</span></td></tr>
+    <tr><td><b>M8, Aladdin 1.0</b></td><td><code>/aladdin</code> and the CLI, this site, measured public runs on every host</td><td><span class="badge intent">In progress</span></td></tr>
+    <tr><td><b>M9, mission layer</b></td><td>missions, journeys, baseline, goals: the loop picks its next goal</td><td><span class="badge intent">In progress</span></td></tr>
+    <tr><td><b>M10, agent habitat</b></td><td>contained workers, a supply-chain gate, fetched content as data, one project stop</td><td><span class="badge intent">In progress</span></td></tr>
+    <tr><td><b>M11, autonomous by default</b></td><td>the typed intent is the grant; only one-way doors ask</td><td><span class="badge intent">In progress</span></td></tr>
+    <tr><td><b>M12, kernel and user space</b></td><td>aloop is a kernel for your harness: <a href="#modules">modules</a> plug in, distros (software: TDD) are yours to eject and change</td><td><span class="badge intent">In progress</span></td></tr>
+  </table></div>
+</div></section>
+
+<div class="strip"><div class="wrap">
+  <div><div class="label" style="margin-bottom:10px">Runs on your tools</div><div class="row"><span>OpenCode</span><span>Codex</span><span>Claude Code</span><span>DeepSeek Harness</span></div></div>
+  <div><div class="label" style="margin-bottom:10px">Powered by</div><div class="row"><code>ctx-symbols</code><code>md-db</code><code>budget &amp; stats</code></div></div>
+  <span class="sig"><i class="b"></i><i class="r"></i><i class="g"></i><i class="y d"></i></span>
+</div></div>
+
+<div class="close">Models explore. <span class="gold">Gates decide.</span></div>
+<footer class="f">MIT. <code>md-db</code> is vendored under AGPL-3.0. Formerly <em>agentic-agile</em>; the old names keep working. Brand: the owner's Aladdin design system and the Aladdin's loop infographic; usage rules in <a href="https://github.com/adeelahmad/aloop/tree/master/docs/brand">docs/brand</a>.</footer>
 </body>
 </html>

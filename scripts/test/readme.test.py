@@ -5,7 +5,8 @@ Checks the section order, that every `aladdin` / `aloop <tool>` command it names
 plugin/bin, that the install lines name the real marketplace and plugin, that every relative
 link resolves, that every demo time/cost figure is one ROADMAP §0 records, and that every CI job
 running the host tests installs the pinned dsh and requires it, with nothing that skips or overrides
-that (so its runtime test cannot skip), and that the ci.yml header and the README name every CI job.
+that (so its runtime test cannot skip), and that the ci.yml header and the README name every CI job. It also checks the README
+carries no emoji (the brand's design system replaces them with ● ◆ ✓ ✕ →).
 """
 import json
 import os
@@ -28,9 +29,15 @@ h2 = re.findall(r"^## (.+)$", readme, re.M)
 want = ["Demo", "Test-driven agents", "How the loop works", "Why failing first matters", "Models explore. Gates decide.",
         "Install / run", "Supported harnesses", "Evidence", "Audit", "Architecture", "Limitations"]
 assert [h for h in h2 if h in want] == want, h2
-assert re.search(r"^# .*intent is all you need", readme, re.M | re.I), "the title states the thesis"
-assert readme.index("# Aladdin") < readme.index("## Demo") < readme.index("### Quick start"), "intent before demo before install"
+assert re.search(r"^# aloop is a kernel for your harness", readme, re.M), "the title states the positioning (the owner's, 2026-11-20)"
+assert "Intent is all you need" in readme and "Models explore. Gates decide." in readme
+assert readme.index("# aloop") < readme.index("## Demo") < readme.index("### Quick start"), "intent before demo before install"
 ok("sections run product-first in the §4.11 order")
+
+# 1b) the owner's brand leads: the Aladdin's loop infographic is on the page and ships in docs/
+assert 'src="docs/diagrams/aladdins-loop.webp"' in readme and os.path.isfile(os.path.join(ROOT, "docs", "diagrams", "aladdins-loop.webp"))
+assert readme.index("aladdins-loop.webp") < readme.index("## Demo"), "the infographic sits above the fold"
+ok("the owner's Aladdin's loop infographic leads the README")
 
 # 2) every command the README names exists: `aladdin <sub>` (bin/aladdin) and `aloop <tool>` (bin/<tool>)
 tools = set(os.listdir(BIN))
@@ -158,5 +165,15 @@ section = readme[sec.end():nxt.start() if nxt else len(readme)]
 unnamed = [k for k in jobs if "\n- **%s**:" % k not in section]
 assert not unnamed, "README's CI list (section %r) does not name job(s) %r" % (m.group(1), unnamed)
 ok("the ci.yml header counts and names its %d jobs and points to the README section that lists each" % len(jobs))
+
+# 8) no emoji: the Aladdin design system (docs/brand/README.md) uses the glyphs ● ◆ ✓ ✕ → instead.
+# Emoji_Presentation code points: everything from U+1F000 up, the BMP ones listed here, and U+FE0F.
+BMP_EMOJI = ("\u231a\u231b\u23e9-\u23ec\u23f0\u23f3\u25fd\u25fe\u2614\u2615\u2648-\u2653\u267f\u2693\u26a1"
+             "\u26aa\u26ab\u26bd\u26be\u26c4\u26c5\u26ce\u26d4\u26ea\u26f2\u26f3\u26f5\u26fa\u26fd\u2705"
+             "\u270a\u270b\u2728\u274c\u274e\u2753-\u2755\u2757\u2795-\u2797\u27b0\u27bf\u2b1b\u2b1c\u2b50\u2b55")
+emoji = [(i, c) for i, l in enumerate(readme.splitlines(), 1)
+         for c in re.findall("[\U0001F000-\U0010FFFF%s\ufe0f]" % BMP_EMOJI, l)]
+assert not emoji, "emoji in README.md (line, char): %r" % emoji
+ok("no emoji (brand surfaces use the design system's glyphs)")
 
 print("\n%d checks passed" % PASS[0])
