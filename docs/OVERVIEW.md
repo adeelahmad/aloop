@@ -86,6 +86,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 | `md-db` | [`plugin/tools/md-db/`](../plugin/tools/md-db/) | Vendored Rust markdown-as-database validator (AGPL-3.0 subtree) |
 | Other hosts | [`plugin/hosts/opencode/`](../plugin/hosts/opencode/), [`plugin/hosts/dsh/`](../plugin/hosts/dsh/), `bin/install` | Generates agents/skills for Codex and OpenCode, and the `aloop` profile (role presets, delegation tools, the native plugin) for DeepSeek Harness; same gates via `host-adapter` |
 | User space | [`plugin/bin/userspace`](../plugin/bin/userspace), [`_userspace.py`](../plugin/bin/_userspace.py) | The loop's opinions (roles, prompts, skills) ejected into the project's git on the first run and changed freely; home > repo > plugin; upgrades never overwrite an edit; the kernel (gates, hooks, audit log) is never overridden (M12, ROADMAP §4.15) |
+| Kernel extensions | [`plugin/bin/kernel`](../plugin/bin/kernel), [`_kernel.py`](../plugin/bin/_kernel.py) | Add-only checks from `~/.aloop/kernel/<name>/` (a fact check, a brand-voice check), loaded only when the project pins their sha256 in `docs/agents/userspace/profile.json`; they run beside the core gates and never replace one (M12.7) |
 | Evals | [`plugin/evals/`](../plugin/evals/), [`scripts/eval/`](../scripts/eval/) | Per-agent eval suites + grader/aggregator |
 
 ## What it leaves on disk

@@ -120,6 +120,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and
 	python3 scripts/test/targets-scope.test.py
 	python3 scripts/test/task-scope.test.py
 	python3 scripts/test/userspace.test.py
+	python3 scripts/test/kernel-extensions.test.py
 	python3 scripts/test/plan-render.test.py
 	python3 scripts/test/persona-shapes.test.py
 	python3 scripts/check-tracking.py

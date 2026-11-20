@@ -152,7 +152,8 @@ Change anything under `agents/` and `skills/`: it takes effect on the next sessi
 
 What you cannot change from here is the **kernel**: the gates, the audit log and the
 hooks that run them. `reference/` holds a copy of them to read; editing it does nothing.
-Add checks of your own with your host's hooks (for Claude Code, `.claude/settings.json`).
+Add checks of your own as kernel extensions: `~/.aloop/kernel/<name>/`, loaded when this project pins
+them in `profile.json` (`aloop kernel pin <name>`). They add checks; they never remove a gate.
 
 Layers, highest first: your home copy (`aloop userspace path --home`), this folder, the plugin.
 
