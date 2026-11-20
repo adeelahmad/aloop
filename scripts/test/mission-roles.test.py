@@ -357,6 +357,7 @@ ok("the mission CLI: builders run only read-only commands; no dispatched agent a
 
 patch = "*** Begin Patch\n*** Update File: %s\n@@\n-a\n+b\n*** End Patch" % os.path.join(P, "src", "x.py")
 assert blocked(scope("apply_patch", E, command=patch), "source")
+assert blocked(scope("apply_patch", E, command=patch.replace("*** Update File: ", "  ***\tUpdate File:")), "source")
 assert allowed(scope("apply_patch", E, command=patch.replace(os.path.join(P, "src", "x.py"), os.path.join(MD, "eval", "e.json"))))
 assert blocked(scope("write", E, filePath="src/x.py"), "source")                        # OpenCode-shaped
 assert blocked(scope("NotebookEdit", E, notebook_path=os.path.join(P, "src", "n.ipynb")))

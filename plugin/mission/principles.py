@@ -8,13 +8,17 @@ so a goal names the exact principles it was derived under.
 
 The `## Core` section is separate: the core principles every aloop agent carries on every turn,
 the one-way / two-way door rule first (M9.30). They render apart from the goal blocks, so editing
-them never stales a goal's stamp, and the SessionStart hook injects them into an aloop project.
+them never stales a goal's stamp, and the SessionStart hook injects them into an aloop project;
+`principles hook` hands the same block to every dispatched role (M9.31).
 
 Usage:
   mission principles show [--mode autonomous|spoon-fed] [--json] [--file PATH]
         the block for a mode (default: the mission's own mode); --json adds sha256 and ids
   mission principles show --core [--file PATH]
         the core principles block (every agent, every turn)
+  mission principles hook [--file PATH]
+        the SubagentStart hook (the payload on stdin): in an aloop project, the core block as the
+        role's additionalContext; silent outside one. Always exit 0: it never blocks a dispatch
   mission principles hash [--mode autonomous|spoon-fed] [--file PATH]
         the sha256 of exactly that block (what a goal's stamp records)
   mission principles check [--file PATH]
@@ -36,6 +40,7 @@ import unicodedata
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "bin"))
 import _mission as M  # noqa: E402
+import _paths  # noqa: E402
 
 SOURCE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "principles.md")
 MODES = ("autonomous", "spoon-fed")
@@ -275,8 +280,30 @@ def parse_args(argv):
     return opts, pos
 
 
+def hook(cwd_default, path=None):
+    """SubagentStart (Claude Code and Codex read hooks.json): a dispatched role carries the core block too,
+    as the main session does from session-start. Raises on any problem; main() keeps it silent."""
+    payload = json.loads(sys.stdin.read() or "{}")
+    if not isinstance(payload, dict):
+        raise ValueError("the hook payload is not an object")
+    cwd = payload.get("cwd") or cwd_default
+    if not isinstance(cwd, str) or not os.path.isdir(cwd) or not os.path.isdir(_paths.docs(cwd)):
+        return 0      # not an aloop project
+    if path and not os.path.isfile(path):
+        raise ValueError("no such file %s" % path)
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": render_core(path)}}))
+    return 0
+
+
 def main(argv, cwd):
     cmd, (o, _) = argv[0], parse_args(argv[1:])
+    if cmd == "hook":
+        try:
+            return hook(cwd, o.get("file") or None)
+        except Exception as e:  # noqa: BLE001 — context, not a gate: a failure never blocks the dispatch
+            print("mission principles hook: no core principles for this role (%s: %s)" % (type(e).__name__, e),
+                  file=sys.stderr)
+            return 0
     for k in ("file", "mode"):
         if k in o and not o[k]:
             print("mission principles: --%s needs a value" % k, file=sys.stderr)
@@ -294,7 +321,7 @@ def main(argv, cwd):
                   % len(load(path)["principles"]), file=sys.stderr)
         return 2 if bad else 0
     if cmd not in ("show", "hash"):
-        print("mission principles: unknown command %r (show, hash, check)" % cmd, file=sys.stderr)
+        print("mission principles: unknown command %r (show, hash, check, hook)" % cmd, file=sys.stderr)
         return 64
     if o.get("core"):
         if cmd != "show" or o.get("mode"):

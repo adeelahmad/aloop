@@ -76,12 +76,12 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+import _patch  # noqa: E402
 import _shellread as SR  # noqa: E402
 
 GATE = "mission-scope"
 EDIT_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit", "write", "edit")
 SHELL_TOOLS = ("Bash", "bash", "shell")
-PATCH_PATHS = re.compile(r"^\*\*\* (?:Add|Update|Delete) File: (.+)$|^\*\*\* Move to: (.+)$", re.M)
 GIT_WRITES = {"commit", "push", "pull", "merge", "rebase", "cherry-pick", "am", "apply", "reset", "restore",
               "checkout", "switch", "stash", "rm", "mv", "add", "revert", "clean", "tag", "worktree", "notes",
               "update-ref", "branch", "config", "submodule", "sparse-checkout", "filter-branch", "replace",
@@ -1810,8 +1810,8 @@ def main(state):
         if target:
             s.path(target, cwd, tool)
     elif tool == "apply_patch":
-        for a, b in PATCH_PATHS.findall(ti.get("command") or ti.get("patchText") or ""):
-            s.path((a or b).strip(), cwd, "apply_patch")
+        for path in _patch.paths(ti.get("command") or ti.get("patchText") or ""):
+            s.path(path, cwd, "apply_patch")
     else:
         s.shell(ti.get("command") or "", ti.get("workdir") or cwd)
     return 0
