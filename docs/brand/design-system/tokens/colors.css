@@ -1,0 +1,26 @@
+/* ALADDIN — Intent-driven, test-driven software engineering. Models explore. Gates decide.
+   BLUE = intent/orchestration · RED = proof something is missing · GREEN = proof it now holds
+   GOLD = deterministic decision/gate/boundary · GRAY = evidence/history/provenance */
+:root{
+/* Core brand */
+--aladdin-blue:#1A73E8;--aladdin-green:#34A853;--aladdin-red:#EA4335;--aladdin-gold:#F9AB00;
+/* Semantic */
+--intent:#1A73E8;--red-proof:#EA4335;--green-proof:#34A853;--gate:#F9AB00;
+/* Strong / hover variants */
+--blue-dark:#1558B0;--red-dark:#C5221F;--green-dark:#1E7E43;--gold-dark:#B06000;
+/* Text */
+--text-primary:#202124;--text-strong:#3C4043;--text-secondary:#5F6368;--text-muted:#80868B;--text-on-color:#FFFFFF;
+/* Surfaces */
+--background:#FFFFFF;--surface:#F8F9FA;--surface-neutral:#F1F3F4;
+--intent-surface:#E8F0FE;--red-surface:#FCE8E6;--green-surface:#E6F4EA;--gate-surface:#FEF7E0;
+/* Structure */
+--border:#DADCE0;--graph-edge:#A8C7FA;
+/* Tinted borders for semantic panels */
+--intent-border:#A8C7FA;--red-border:#F6AEA9;--green-border:#A8DAB5;--gate-border:#FDE293;
+/* Aliases */
+--fg-1:var(--text-primary);--fg-2:var(--text-strong);--fg-3:var(--text-secondary);--fg-4:var(--text-muted);
+--bg-page:var(--surface);--bg-canvas:var(--background);--surface-card:var(--background);--surface-evidence:var(--surface-neutral);
+--text-body:var(--text-primary);--text-link:var(--aladdin-blue);--focus-ring:var(--graph-edge);
+/* Terminal */
+--term-bg:#202124;--term-fg:#E8EAED;--term-muted:#9AA0A6;--term-blue:#8AB4F8;--term-green:#81C995;--term-red:#F28B82;--term-gold:#FDD663;
+}
