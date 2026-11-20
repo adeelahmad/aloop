@@ -120,3 +120,11 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M11.10 | A door-classifier tags every planned task one-way or two-way before execution; only one-way tasks wait, asked together | IMPLEMENTED_TESTED | `scripts/test/mission-door-plan.test.py` |
 | M11.11 | A door is made two-way only by an env var plus the human's typed consent | IMPLEMENTED_TESTED | `scripts/test/mission-doors-reclassify.test.py` |
 | M11.12 | A task's diff stays in its planned fileset; a worker steps out only by a declared, reasoned two-way exemption the gate decides and records | IMPLEMENTED_TESTED | `scripts/test/task-scope.test.py` |
+| M12.1 | The first run ejects the loop's user space (roles, skills, kernel reference) into docs/agents/userspace/ | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
+| M12.2 | home > repo > plugin per file; customized roles rendered for every host; each run logs the copy used | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
+| M12.3 | A plugin upgrade never overwrites an edit: three-way diff/merge/accept/reset | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
+| M12.4 | User space cannot replace a gate or add an ungated role; dispatch uses the customized copy | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
+| M12.5 | No agent, worker or live-sprint supervisor rewrites user space | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
+| M12.6 | User space is tracked in git; run docs stay ignored | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
+| M12.7 | Kernel extensions: hash-pinned, add-only gate checks from ~/.aloop/kernel/ | NOT_IMPLEMENTED | §4.15 |
+| M12.8 | Profiles and domain packs (software = the default TDD profile) | NOT_IMPLEMENTED | §4.15 |

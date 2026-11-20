@@ -86,8 +86,13 @@ def current(cwd):
 def ignore_lines(vals):
     lines = [".agentic/", ".transcripts/"]
     if str(vals["TRACK_DOCS"]).lower() != "yes":
-        lines.append("docs/agents/")
+        # the run's planning docs stay out of git; the project's user space (ROADMAP M12) is in it
+        lines += ["docs/agents/*", "!docs/agents/userspace/"]
     return lines
+
+
+# the managed line before M12: a directory ignore, which git cannot re-include a child of
+OLD_DOCS_LINES = ("docs/agents/", "/docs/agents/")
 
 
 def ensure_gitignore(cwd, vals, quiet=False):
@@ -99,7 +104,19 @@ def ensure_gitignore(cwd, vals, quiet=False):
     except OSError:
         existing = []
     have = {l.strip() for l in existing}
-    missing = [l for l in ignore_lines(vals) if l not in have and "/" + l not in have]
+    want = ignore_lines(vals)
+    if "!docs/agents/userspace/" in want and MANAGED_HEADER in have and have & set(OLD_DOCS_LINES):
+        # our own pre-M12 `docs/agents/` line under our header: rewritten in place to the pair (it is ours;
+        # a line the user wrote elsewhere, above the header, is left alone)
+        at = existing.index(MANAGED_HEADER)
+        for i in range(at + 1, len(existing)):
+            if existing[i].strip() in OLD_DOCS_LINES:
+                existing[i] = "docs/agents/*"
+                with open(gi, "w") as f:
+                    f.write("\n".join(existing) + "\n")
+                have = {l.strip() for l in existing}
+                break
+    missing = [l for l in want if l not in have and "/" + l not in have]
     if not missing:
         return []
     lock = os.path.join(_paths.home(cwd, "state"), "gitignore.lock")
@@ -238,6 +255,12 @@ def apply(cwd, pairs):
             git(cwd, "config", "--local", cfg, vals[key])
             print("  git config --local %s %s" % (cfg, vals[key]))
     _paths.home(cwd)                                 # create the run-data dir (its own .gitignore guards .aladdin/)
+    if not (os.environ.get("AGENTIC_NO_EJECT") or os.environ.get("ALADDIN_NO_EJECT")):
+        import _userspace                            # first init ejects the loop's user space (ROADMAP M12)
+        if _userspace.manifest(cwd) is None:
+            n = len(_userspace.eject(cwd))
+            print("ejected %d user-space file(s) into %s (customize the loop there)" % (
+                n, os.path.relpath(_userspace.repo_dir(cwd), _paths.project(cwd))))
     if os.environ.get("ALOOP_NO_HOST_RERENDER") == "1":
         return 0                                     # the caller renders the hosts itself (e2e-live)
     try:                                             # keep Codex / OpenCode agents in step
