@@ -207,6 +207,28 @@ case "$file" in /*) abs="$file" ;; *) abs="$cwd_f/$file" ;; esac
 real="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$abs" 2>/dev/null)"
 [ -n "$real" ] || real="$file"
 
+# The loop's user space and the personal layers (ROADMAP M12): docs/agents/userspace/ and $ALOOP_HOME
+# (~/.aloop: the home user space and the kernel extensions). They change between runs, by the human:
+# never by a dispatched agent (it would be re-writing its own role or checks), and not by the supervisor
+# while a sprint is live. Outside a sprint the main session is the human's hands, so it may edit them.
+ah="${ALOOP_HOME:-$HOME/.aloop}"
+ah="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$ah" 2>/dev/null || printf '%s' "$ah")"
+us=0
+case "$real" in docs/agents/userspace/*|*/docs/agents/userspace/*|"$ah"/*) us=1 ;; esac
+if [ "$us" = 1 ]; then
+  if [ -n "$agent_type" ]; then
+    echo "BLOCK[$GATE_NAME]: $file is the loop's user space (or a personal aloop layer); a dispatched agent never edits it." >&2
+    echo "  The human changes the loop's agents, skills and checks between runs. Report the change you want in your output.md." >&2
+    exit 2
+  fi
+  if [ -f "$lock" ] && { [ "$(head -1 "$lock" 2>/dev/null)" = "$session" ] || lock_recent; }; then
+    echo "BLOCK[$GATE_NAME]: $file is the loop's user space; it does not change while a sprint is live." >&2
+    echo "  Finish or stop the sprint first (the human edits it between runs: \`aloop userspace status\`)." >&2
+    exit 2
+  fi
+  exit 0
+fi
+
 # Dispatched sub-agent (planner / intake / standards / red / scaffolder / green / …):
 # agent_type is present ⇒ it is doing its designated job; its own SubagentStop gate
 # constrains it. Never block a sub-agent here.
