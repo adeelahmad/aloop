@@ -189,17 +189,20 @@ def load(path):
         return None, str(e)
 
 
-def cmd_check(cwd, path, mode=None):
-    explicit = mode     # a mission intent is checked in its goal's mode; any other in the project's (M11.1)
+def verdict(cwd, path, mode=None):
+    """`intent check` without its event: (exit 0 · 2 · 3, the contract, the mode it was checked in), the reasons on
+    stderr. `mission tick` and `due` ask it in process, so a decision that records nothing emits no
+    `intent.normalized`. A mission intent is checked in its goal's mode; any other in the project's (M11.1)."""
+    explicit = mode
     doc, err = load(path)
     if doc is None:
         print("BLOCK[intent]: cannot read %s: %s" % (path, err), file=sys.stderr)
-        return 2
+        return 2, None, mode
     bad = problems(doc, path)
     for b in bad:
         print("BLOCK[intent]: %s" % b, file=sys.stderr)
     if bad:
-        return 2
+        return 2, doc, mode
     if doc.get("source") == "mission":
         prov = doc["provenance"]
         rec = [e for e in _events.read(cwd) if e.get("event") == "intent.received"
@@ -208,10 +211,10 @@ def cmd_check(cwd, path, mode=None):
         if d.get("source") != "mission" or (d.get("goal_id"), d.get("gap_id")) != (prov["goal_id"], prov.get("gap_id")):
             print("BLOCK[intent]: provenance (goal %s, gap %s) is not what its intent.received recorded (goal %s, gap %s)"
                   % (prov["goal_id"], prov.get("gap_id"), d.get("goal_id"), d.get("gap_id")), file=sys.stderr)
-            return 2
+            return 2, doc, mode
         rc = mission_gate(cwd, prov["goal_id"], prov.get("gap_id"), explicit)
         if rc:
-            return rc
+            return rc, doc, mode
     mode = explicit or mode_of(doc)
     asks = unanswered(doc, mode)
     if asks:
@@ -219,7 +222,14 @@ def cmd_check(cwd, path, mode=None):
             print("ASK[intent]: %s" % one_line(q), file=sys.stderr)
         print("intent: %d question(s) need the human (irreversible, security-sensitive or intent-changing) — "
               "%s mode does not proceed past them." % (len(asks), mode), file=sys.stderr)
-        return 3
+        return 3, doc, mode
+    return 0, doc, mode
+
+
+def cmd_check(cwd, path, mode=None):
+    rc, doc, mode = verdict(cwd, path, mode)
+    if rc:
+        return rc
     took = [q for q in doc.get("open_questions") or [] if taken(q, mode)]
     for q in took:
         print("[intent] TAKEN (autonomous, two-way): %s -> %s" % (one_line(q["question"]), one_line(q["recommended"])),

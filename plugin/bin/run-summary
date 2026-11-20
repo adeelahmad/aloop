@@ -10,11 +10,17 @@ row for docs/evidence/README.md. Numbers come from the harness, never from the m
   cost_usd / supervisor_turns  the LAST `result` line (a resumed session reports again);
                                Codex and OpenCode print none, so the cost is null and the row
                                says — (unmeasured), never $0.00
-  cost_usd / cost_by_model     dsh prints none either, but its plugin logs every call's exact
-    (--host dsh)               usage (<repo>/.aladdin/host/dsh: the supervisor and each role), so
-                               each call is priced from the dated table in _prices.py; a model it
-                               has no price for keeps its tokens with usd null, and then the run's
-                               cost is null too (never a partial sum)
+  cost_usd / cost_by_model     dsh prints none either, but its plugin logs each completed call's
+    (--host dsh)               exact usage (<repo>/.aladdin/host/dsh: the supervisor and each role,
+                               dsh's compaction and session-title calls too), so each call is priced
+                               from the dated table in _prices.py; a model it has no price for keeps
+                               its tokens with usd null, and then the run's cost is null too (never
+                               a partial sum). Kept to the micro-dollar (a short DeepSeek run costs a
+                               fraction of a cent), shown to four places, <$0.0001 below that (read
+                               before rounding), so a measured nonzero cost never reads $0.00 or
+                               $0.0000; scripts/test/evidence.test.py takes exactly these cells (and
+                               Claude's $N.NN). Not in it: a retried attempt and server-side
+                               Search/Fetch (ROADMAP §4.9)
   wakes                        how many `result` lines: one per supervisor wake
   plugin_reads                 sub-agent tool calls naming a plugin path, except a
                                `<plugin>/schemas/…` file (md-db's schema: a legitimate use,
@@ -133,7 +139,7 @@ def main():
         version = ""
     intent = arg("--intent") or ""
     s = {"run_dir": run, "intent": intent, "host": host, "plugin_version": version, "checks": arg("--checks") or "",
-         "wall": wall(secs or 0), "cost_usd": None if cost is None else round(float(cost), 2),
+         "wall": wall(secs or 0), "cost_usd": None if cost is None else round(float(cost), 6 if host == "dsh" else 2),
          "supervisor_turns": turns, "wakes": wakes,
          "plugin_reads": reads, "gate_verdicts": verdicts, "gate_blocks": blocks,
          "selfcheck_blocks": self_blocks, "run_repo_head": head,
@@ -142,6 +148,9 @@ def main():
     if by is not None:
         s.update(cost_by_model=by, prices=_prices.SOURCE)
     cost_cell = "—" if s["cost_usd"] is None else "$%.2f" % s["cost_usd"]
+    if host == "dsh" and s["cost_usd"] is not None:     # DeepSeek bills 20-100x below Claude: cents would read a run as free
+        # judged on the unrounded total: one under half a micro-dollar is stored as 0.0 but was measured
+        cost_cell = "<$0.0001" if 0 < cost < 0.0001 else "$%.4f" % s["cost_usd"]
     label = (intent or "?") + ("" if host == "claude" else " (%s)" % host)
     row = "| %s | %s | v%s | %s | %s | %s | %s | %s | %s | `%s` |" % (
         os.path.basename(run), label, version, s["checks"] or "?", s["wall"], cost_cell, wakes, reads, blocks, s["reproduce"])

@@ -486,6 +486,9 @@ ONE_WAY = (".github/*", ".gitlab-ci.yml", ".circleci/*", "Jenkinsfile", "azure-p
            "LICENSE*", "COPYING*", ".env", ".env.*", "*/.env", "*/.env.*", "*.pem", "*.key",
            "migrations/*", "*/migrations/*", ".claude/*", ".codex/*", ".opencode/*", "CLAUDE.md", "AGENTS.md",
            ".aladdin/*", ".agentic/*", "docs/agents/*", ".git/*")
+# The loop's user space (ROADMAP M12): its opinions change between runs, by the human, never by a worker
+# inside one (a worker that rewrote its own role's prompt or gate reference would be grading itself).
+USERSPACE = "docs/agents/userspace/"
 EXEMPT_LINE = re.compile(r"^\s*[-*]\s+`?([^`\s]+?)`?\s*(?::|—|–|\s-)\s+(.+?)\s*$")
 
 
@@ -499,6 +502,8 @@ def _git(root, *args):
 def internal(root, path):
     """The run's own files and build output, never a worker's edit (changed_paths_filter, but anchored:
     a production file under src/target/ or src/docs/agents/ is judged like any other)."""
+    if path.startswith(USERSPACE):
+        return False                                   # the project's user space is in git: judged, never hidden
     if re.match(r"^(\.git|\.agentic|\.aladdin|docs/agents|target)/", path) or re.search(r"(^|/)Cargo\.lock$", path):
         return True
     m = re.match(r"^(.+?)/target/", path)              # a nested crate's own build dir
@@ -566,6 +571,10 @@ def diffscope(doc, sdir, task, root, opts):
     blocks, taken = [], []
     for path in sorted(changed):
         st = changed[path]
+        if path.startswith(USERSPACE):
+            blocks.append("%s: the loop's user space (agents, skills, the kernel reference) is changed by the human "
+                          "between runs, never by a worker; revert it (report the change you want in ### Next)" % path)
+            continue
         if path in planned and (not narrow or match(path, narrow)):
             continue
         if match(path, tests):

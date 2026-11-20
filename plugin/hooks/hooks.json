@@ -46,7 +46,8 @@
     "Stop": [
       { "matcher": "*", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" snapshot" },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/stats\" hook", "timeout": 60 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/stats\" hook", "timeout": 60 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/module\" hook", "timeout": 600 } ] }
     ],
     "SubagentStop": [
       { "matcher": "intake|aloop:intake", "hooks": [
@@ -76,7 +77,8 @@
       { "matcher": "*", "hooks": [
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/host-adapter\" hook", "timeout": 15 },
         { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" stop" },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/stats\" hook", "timeout": 60 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/stats\" hook", "timeout": 60 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/module\" hook", "timeout": 600 } ] }
     ]
   }
 }
