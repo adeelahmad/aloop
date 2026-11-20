@@ -22,6 +22,14 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-20
+
+Highlights: **autonomous by default** (your typed intent is the grant; no `approve SN <code>` line),
+**one-way doors cost one step** (reply `allow <door> <code>` in chat; test-scoped DB drops just run, logged),
+and **kernel and user space** (the loop's opinions are ejected into your repo and yours to change; modules
+and distros extend the kernel, never weaken it). Also: mission layer (M9), agent habitat (M10), DeepSeek
+Harness host. Upgrade: `claude plugin marketplace update aloop-marketplace && claude plugin update aloop@aloop-marketplace`.
+
 ### Added
 - **Kernel and user space (M12).** The loop's opinions (16 roles, skills, a kernel reference) are
   ejected into `docs/agents/userspace/` (tracked in git) on the first session or `aloop init --apply`,
