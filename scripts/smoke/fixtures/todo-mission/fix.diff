@@ -1,0 +1,13 @@
+diff --git a/todo/__init__.py b/todo/__init__.py
+index 81de592..c73e23c 100644
+--- a/todo/__init__.py
++++ b/todo/__init__.py
+@@ -9,7 +9,7 @@ class TodoList:
+ 
+     def add(self, text):
+         """Add a task to the list."""
+-        pass
++        self._items.append(text)
+ 
+     def tasks(self):
+         """The tasks in the list, oldest first."""

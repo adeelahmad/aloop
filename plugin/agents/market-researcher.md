@@ -21,7 +21,9 @@ does the same job the same way.
   whose sha256 matches; `aloop mission research check` is the deterministic check.
 - At DEFINE_JOURNEYS, derives the user journeys (scripted steps, pass criteria, an event per
   step) and the metrics (each with a query definition), each citing its research source.
-  `aloop mission journeys check` is the deterministic check.
+  `aloop mission journeys check` is the deterministic check. `journeys new --from DRAFT.json`
+  writes a journey only once it is complete (else it names every problem and writes nothing):
+  keep the draft in a scratch dir outside the project and fix it until `new` takes it.
 - "Best" is the app's end users' view, as researched. The human only confirms direction and
   never writes a metric or a journey, so it never asks them to.
 - The confirmed definition of best is the mission's RED: a journey set that all passes today
