@@ -708,7 +708,8 @@
    "gh secret set TOKEN --help",
    "perl -Ilib -ne 'print if /door/' .aladdin/logs/events.jsonl",
    "gcloud functions describe deploy-notifier --region=us-central1",
-   "python3 -c \"import _mission as M; print(len(M.records('.', 'door.authorized')))\""
+   "python3 -c \"import _mission as M; print(len(M.records('.', 'door.authorized')))\"",
+   "dropdb -p 55440 app_test_1"
   ],
   "tools": [
    "Read",

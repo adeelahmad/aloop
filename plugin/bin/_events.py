@@ -39,6 +39,7 @@ EVENT_TYPES = {
     "judge.run",
     "scope.exempted",
     "door.authorized", "door.revoked", "door.reclassified", "door.tagged", "door.denied", "door.crossed",
+    "door.two_way",
 }
 ENVELOPE = ("schema", "event_id", "ts", "event", "ids", "parent_event_id", "caused_by", "role", "host",
             "model", "authority", "decision", "refs", "data")
