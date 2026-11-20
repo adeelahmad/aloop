@@ -19,22 +19,31 @@
 <meta name="twitter:image" content="https://raw.githubusercontent.com/adeelahmad/aloop/master/docs/brand/og-card.png">
 <meta name="theme-color" content="#1A73E8">
 <meta name="color-scheme" content="light">
-<!-- Google Analytics 4: list measurement ids, comma-separated (one tag per id, so a second GA account
-     can be added beside the first). Empty = nothing loads and nothing is tracked. -->
+<!-- Analytics (owner's, 2026-11-20). Google Tag Manager containers and GA4 measurement ids, each a
+     comma-separated list, so a second account can sit beside the first. Empty = nothing loads. -->
+<meta name="gtm-container-ids" content="GTM-NTRH49WJ">
 <meta name="ga4-measurement-ids" content="">
 <script>
 (function () {
-  var m = document.querySelector('meta[name="ga4-measurement-ids"]');
-  var ids = ((m && m.content) || "").split(",").map(function (x) { return x.trim(); })
-    .filter(function (x) { return /^G-[A-Z0-9]{4,}$/.test(x); });
-  if (!ids.length) return;
+  function ids(name, re) {
+    var m = document.querySelector('meta[name="' + name + '"]');
+    return ((m && m.content) || "").split(",").map(function (x) { return x.trim(); })
+      .filter(function (x) { return re.test(x); });
+  }
+  function load(src) {
+    var s = document.createElement("script"); s.async = true; s.src = src; document.head.appendChild(s);
+  }
+  var gtm = ids("gtm-container-ids", /^GTM-[A-Z0-9]{4,}$/), ga = ids("ga4-measurement-ids", /^G-[A-Z0-9]{4,}$/);
+  if (!gtm.length && !ga.length) return;
   window.dataLayer = window.dataLayer || [];
   window.gtag = function () { dataLayer.push(arguments); };
   gtag("js", new Date());
-  ids.forEach(function (id) { gtag("config", id, { anonymize_ip: true }); });
-  var s = document.createElement("script");
-  s.async = true; s.src = "https://www.googletagmanager.com/gtag/js?id=" + ids[0];
-  document.head.appendChild(s);
+  gtm.forEach(function (id) {
+    dataLayer.push({ "gtm.start": new Date().getTime(), event: "gtm.js" });
+    load("https://www.googletagmanager.com/gtm.js?id=" + id);
+  });
+  ga.forEach(function (id) { gtag("config", id, { anonymize_ip: true }); });
+  if (ga.length) load("https://www.googletagmanager.com/gtag/js?id=" + ga[0]);
 })();
 </script>
 <style>
@@ -193,6 +202,7 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
 </style>
 </head>
 <body>
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-NTRH49WJ" height="0" width="0" style="display:none;visibility:hidden" title="Google Tag Manager"></iframe></noscript>
 
 <div class="top"><div class="wrap">
   <a class="word" href="#" aria-label="Aladdin">Aladdin<span class="bar"><span class="b"></span><span class="r"></span><span class="g"></span><span class="y"></span></span></a>

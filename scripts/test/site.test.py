@@ -44,7 +44,7 @@ html = open(PAGE).read()
 roadmap_text = open(os.path.join(ROOT, "docs", "ROADMAP.md")).read()
 p = P()
 p.feed(html)
-assert not p.ext, "external resources: %r" % p.ext
+assert all(u.startswith("https://www.googletagmanager.com/ns.html?id=GTM-") for _, u in p.ext), "external resources: %r" % p.ext
 assert not p.bad and not p.stack, (p.bad, p.stack)
 ok("docs/index.html is self-contained and well-formed")
 
@@ -56,7 +56,10 @@ assert all(re.match(r"^G-[A-Z0-9]{4,}$", x.strip()) for x in ga.group(1).split("
 hosts = set(re.findall(r"https://([a-z0-9.-]+)/[^\"' ]*\.js|https://([a-z0-9.-]+)/gtag", html))
 assert {h for pair in hosts for h in pair if h} <= {"www.googletagmanager.com"}, hosts
 assert 'gtag("config", id' in html, "one GA4 config per id"
-ok("GA4 runs only for the listed measurement ids, from Google's tag host alone")
+gtm = re.search(r'<meta name="gtm-container-ids" content="([^"]*)">', html)
+assert gtm and "GTM-NTRH49WJ" in gtm.group(1), "the owner's GTM container"
+assert all(re.match(r"^GTM-[A-Z0-9]{4,}$", x.strip()) for x in gtm.group(1).split(",") if x.strip())
+ok("GTM and GA4 run only for the listed ids, from Google's tag host alone")
 
 assert 'src="diagrams/aladdins-loop.webp"' in html and os.path.isfile(os.path.join(ROOT, "docs", "diagrams", "aladdins-loop.webp"))
 # the wordmark is the design system's option D: "Aladdin" over the blue, red, green, gold loop bar
