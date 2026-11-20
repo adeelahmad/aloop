@@ -75,7 +75,11 @@ for font in re.findall(r"url\((brand/fonts/[^)]+)\)", html):
     assert os.path.isfile(os.path.join(ROOT, "docs", font)), font
 for cost in re.findall(r"\$\d+\.\d\d", html):
     assert cost in roadmap_text, "unsourced cost %s (not in ROADMAP)" % cost
-assert {"start", "roadmap"} <= p.ids
+assert {"start", "roadmap", "packs"} <= p.ids
+# build your own pack (M12): the three layers and the real commands, not one pack marketed
+for w in ("Build your own pack.", "~/.aloop/kernel/", "extension.json", "docs/agents/userspace/",
+          "aloop kernel pin", "aloop userspace eject", "aloop kernel profile"):
+    assert w in html, w
 ok("the quick start is the real install lines and skill, and the roadmap is on the page")
 
 assert {"red", "gates", "audit", "evidence"} <= p.ids
