@@ -65,6 +65,16 @@ case "$cmd" in
     [ -n "$branch" ] && git -C "$AGENTIC_PROJECT" rev-parse -q --verify "$branch^{commit}" >/dev/null 2>&1 \
       || { echo "task-worktree merge: need an existing branch: task-worktree merge <TASK_ID> <BRANCH>" >&2; exit 64; }
     before="$(git -C "$AGENTIC_PROJECT" rev-parse HEAD)"
+    # the loop's user space (ROADMAP M12) is the human's to change between runs: a task branch that touches
+    # it is never merged, whatever its gates said (the backstop for every worker role)
+    mb="$(git -C "$AGENTIC_PROJECT" merge-base HEAD "$branch" 2>/dev/null)"
+    us="$(git -C "$AGENTIC_PROJECT" -c core.quotePath=false diff --name-only "${mb:-HEAD}" "$branch" -- docs/agents/userspace 2>/dev/null)"
+    if [ -n "$us" ]; then
+      echo "BLOCK[task-worktree]: $branch changes the loop's user space, which only the human changes (between runs):" >&2
+      printf '%s\n' "$us" | sed 's/^/    /' >&2
+      echo "  re-dispatch the task with feedback to revert those files; the change it wants goes in its ### Next." >&2
+      exit 2
+    fi
     git -C "$AGENTIC_PROJECT" merge --no-ff -m "Merge $task ($branch)" "$branch" >&2 || exit $?
     mid="$("$HERE/events" emit worktree.merged --task "$task" --data "branch=$branch" 2>/dev/null)"
     # every commit the merge brought in, oldest first, traces back to the task
