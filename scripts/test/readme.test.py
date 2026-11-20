@@ -27,8 +27,9 @@ h2 = re.findall(r"^## (.+)$", readme, re.M)
 want = ["Demo", "Test-driven agents", "How the loop works", "Why failing first matters", "Models explore. Gates decide.",
         "Install / run", "Supported harnesses", "Evidence", "Audit", "Architecture", "Limitations"]
 assert [h for h in h2 if h in want] == want, h2
-assert re.search(r"^# .*intent is all you need", readme, re.M | re.I), "the title states the thesis"
-assert readme.index("# Aladdin") < readme.index("## Demo") < readme.index("### Quick start"), "intent before demo before install"
+assert re.search(r"^# aloop is a kernel for your harness", readme, re.M), "the title states the positioning (the owner's, 2026-11-20)"
+assert "Intent is all you need" in readme and "Models explore. Gates decide." in readme
+assert readme.index("# aloop") < readme.index("## Demo") < readme.index("### Quick start"), "intent before demo before install"
 ok("sections run product-first in the §4.11 order")
 
 # 1b) the owner's brand leads: the Aladdin's loop infographic is on the page and ships in docs/

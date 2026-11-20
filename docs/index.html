@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Aladdin — intent is all you need</title>
+<title>aloop — a kernel for your harness</title>
 <meta name="description" content="aloop (Aladdin's loop) turns one line of intent into planned, test-first, gate-verified software on Claude Code, Codex, OpenCode and DeepSeek Harness. Models explore. Gates decide.">
 <link rel="icon" href="brand/favicon.svg" type="image/svg+xml" />
 <link rel="icon" href="brand/favicon-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="brand/app-icon-180.png" />
-<meta property="og:title" content="aloop: intent is all you need">
+<meta property="og:title" content="aloop is a kernel for your harness">
 <meta property="og:description" content="One line of intent becomes planned, test-first, gate-verified software on Claude Code, Codex, OpenCode and DeepSeek Harness. Models explore. Gates decide.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://adeelahmad.github.io/aloop/">
@@ -184,9 +184,9 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
 
 <header class="hero"><div class="wrap">
   <div>
-    <div class="kicker"><span class="sig"><i class="b"></i><i class="r"></i><i class="g"></i><i class="y d"></i></span><span class="label">Intent → RED → GREEN → Gate</span></div>
-    <h1>Intent is all <span class="blue">you need.</span></h1>
-    <p class="lead">Turn intent into working software, with test-driven agents. One line of intent becomes planned, test-first, gate-verified code on Claude Code, Codex, OpenCode and DeepSeek Harness. You give the intent and answer only one-way-door questions; cheap workers build it in isolated worktrees; deterministic hooks decide what is accepted.</p>
+    <div class="kicker"><span class="sig"><i class="b"></i><i class="r"></i><i class="g"></i><i class="y d"></i></span><span class="label">Intent is all you need</span></div>
+    <h1>aloop is a kernel for <span class="blue">your harness.</span></h1>
+    <p class="lead">Your harness is the hardware; aloop is the kernel: its gates decide what is accepted, modules plug in the checks your project needs, and a distro (software: the TDD loop) is the user space you run and change. One line of intent becomes planned, test-first, gate-verified code on Claude Code, Codex, OpenCode and DeepSeek Harness. You give the intent and answer only one-way-door questions; cheap workers build it in isolated worktrees; deterministic hooks decide what is accepted.</p>
     <div class="cta"><a class="btn primary" href="#start">Quick start →</a><a class="btn secondary" href="https://github.com/adeelahmad/aloop">GitHub</a></div>
     <div class="pairs">Plan. Test. Build. Improve. Repeat. &nbsp;·&nbsp; Models explore. <span class="gold">Gates decide.</span></div>
   </div>
@@ -340,9 +340,9 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
 </div></section>
 
 <section class="s white" id="packs"><div class="wrap">
-  <div class="label">Harness · kernel · modules (M12)</div>
+  <div class="label">Harness · kernel · modules · distros (M12)</div>
   <h2>Build your own Module.</h2>
-  <p class="sub">Think of it as a computer. The <b>harness</b> (Claude Code, Codex, OpenCode, DeepSeek Harness) is the hardware. <b>aloop is the kernel</b>: the gate engine, its gates and the audit log, never overridden. <b>Modules</b> plug into the kernel: use an existing one, or build one for what your project needs. Above them is <b>user space</b>: the agents, prompts, skills and the TDD loop itself, yours to eject and change in git.</p>
+  <p class="sub">Think of it as a computer. The <b>harness</b> (Claude Code, Codex, OpenCode, DeepSeek Harness) is the hardware. <b>aloop is the kernel</b>: the gate engine, its gates and the audit log, never overridden. <b>Modules</b> plug into the kernel: use an existing one, or build one for what your project needs. Above them runs a <b>distro</b>: the user space (agents, prompts, skills) that shapes the loop, yours to eject and change in git. The <b>software</b> distro, the TDD loop, ships today.</p>
   <div class="grid3" style="margin-bottom:24px">
     <div class="panel gate"><header><span class="num">◆</span><div class="t"><h3>Kernel</h3><div>the plugin · a release changes it</div></div></header>
       <ul><li>Gate engine and core gates</li><li>The audit log (<code>aladdin.event/1</code>)</li><li>What a project declares runs, and is logged</li></ul>
@@ -350,7 +350,7 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
     <div class="panel red"><header><span class="num">+</span><div class="t"><h3>Modules</h3><div>use one or build one · add-only</div></div></header>
       <ul><li>Run beside the core gates on <code>SubagentStop</code> or <code>Stop</code></li><li>Exit 2 blocks with your reason; a pass decides only itself</li><li>Pinned by sha256: changed, missing or crashing blocks</li></ul>
       <div class="arts">~/.aloop/kernel/&lt;name&gt;/extension.json</div></div>
-    <div class="panel intent"><header><span class="num">✎</span><div class="t"><h3>User space</h3><div>yours · fully overridable</div></div></header>
+    <div class="panel intent"><header><span class="num">✎</span><div class="t"><h3>Distros</h3><div>user space · fully overridable</div></div></header>
       <ul><li>Agents, prompts and skills, ejected on the first run</li><li>Layers: home &gt; repo &gt; plugin, per file</li><li>Upgrades never clobber an edit</li></ul>
       <div class="arts">docs/agents/userspace/ (in git)<br>~/.aloop/projects/ (personal)</div></div>
   </div>
@@ -375,7 +375,7 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
 <span class="t-ok">ejected 78 file(s) into docs/agents/userspace</span>
 <span class="t-p">$ </span><span class="t-cmd">aloop userspace apply</span>
 
-<span class="t-out"># 4. name the profile your modules serve</span>
+<span class="t-out"># 4. pick the distro (software, the TDD loop, by default)</span>
 <span class="t-p">$ </span><span class="t-cmd">aloop kernel profile &lt;your-pack&gt;</span>
 
 <span class="t-out"># at the sprint's stop, beside the core gates</span>
@@ -395,7 +395,7 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
     <tr><td><b>M9, mission layer</b></td><td>missions, journeys, baseline, goals: the loop picks its next goal</td><td><span class="badge intent">In progress</span></td></tr>
     <tr><td><b>M10, agent habitat</b></td><td>contained workers, a supply-chain gate, fetched content as data, one project stop</td><td><span class="badge intent">In progress</span></td></tr>
     <tr><td><b>M11, autonomous by default</b></td><td>the typed intent is the grant; only one-way doors ask</td><td><span class="badge intent">In progress</span></td></tr>
-    <tr><td><b>M12, kernel and user space</b></td><td>gates stay in the kernel; agents, prompts and the TDD profile are yours to eject and override; anyone can <a href="#packs">build a Module</a></td><td><span class="badge intent">In progress</span></td></tr>
+    <tr><td><b>M12, kernel and user space</b></td><td>aloop is a kernel for your harness: <a href="#packs">modules</a> plug in, distros (software: TDD) are yours to eject and change</td><td><span class="badge intent">In progress</span></td></tr>
   </table></div>
 </div></section>
 

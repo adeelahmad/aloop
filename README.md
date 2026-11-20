@@ -13,10 +13,14 @@
 
 </div>
 
-# Aladdin: intent is all you need
+# aloop is a kernel for your harness
 
-**aloop** (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified
-code on Claude Code, Codex, OpenCode and DeepSeek Harness. You give the intent and answer only one-way-door questions. Cheap workers
+**Intent is all you need. Models explore. Gates decide.**
+
+Your harness (Claude Code, Codex, OpenCode or DeepSeek Harness) is the hardware. **aloop** (Aladdin's loop) is the
+kernel: its gates decide what is accepted, **modules** plug in checks your project needs, and a **distro**
+(the software distro: the TDD loop) is the user space you run and change. One line of intent becomes planned,
+test-first, gate-verified code. You give the intent and answer only one-way-door questions. Cheap workers
 build it in isolated git worktrees. Deterministic hooks decide what is accepted, so no model is trusted
 to say "done": a gate has to see it.
 
@@ -445,7 +449,7 @@ enforce this. Tag releases `vMAJOR.MINOR.PATCH`.
 | M9, mission layer | Missionary Aladdin Genie: missions, journeys, baseline, goals | ● in progress |
 | M10, agent habitat | contained workers, supply-chain gate, fetched content as data, one project stop | ● in progress |
 | M11, autonomous by default | the typed intent is the grant; only one-way doors ask | ● in progress |
-| M12, kernel and user space | gates stay in the kernel; agents, prompts and the TDD profile are yours to eject and override; anyone can use or build a Module for the kernel | ● in progress |
+| M12, kernel and user space | gates stay in the kernel; agents, prompts and the TDD profile are yours to eject and override; modules plug into the kernel; distros (software: TDD) are user space you eject and change | ● in progress |
 
 The full spec, every requirement's status and the reason behind each call: [docs/ROADMAP.md](docs/ROADMAP.md)
 and [docs/TRACKING.md](docs/TRACKING.md).
