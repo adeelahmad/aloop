@@ -339,6 +339,51 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
   </table></div>
 </div></section>
 
+<section class="s white" id="packs"><div class="wrap">
+  <div class="label">Kernel and user space (M12)</div>
+  <h2>Build your own pack.</h2>
+  <p class="sub">aloop is built like an operating system. The <b>kernel</b> (the gate engine, its gates, the audit log) ships in the plugin and is never overridden. Everything else is <b>user space</b>: the agents, prompts, skills and the TDD loop itself are yours to eject and change, in git. A <b>pack</b> is a profile, its kernel extensions and its user-space agents and skills, so any domain can have a loop with checks that suit it, in the same loop and the same brand.</p>
+  <div class="grid3" style="margin-bottom:24px">
+    <div class="panel gate"><header><span class="num">◆</span><div class="t"><h3>Kernel</h3><div>the plugin · a release changes it</div></div></header>
+      <ul><li>Gate engine and core gates</li><li>The audit log (<code>aladdin.event/1</code>)</li><li>What a project declares runs, and is logged</li></ul>
+      <div class="arts">bin/gate-* · hooks/hooks.json</div></div>
+    <div class="panel red"><header><span class="num">+</span><div class="t"><h3>Kernel extensions</h3><div>yours · add-only</div></div></header>
+      <ul><li>Run beside the core gates on <code>SubagentStop</code> or <code>Stop</code></li><li>Exit 2 blocks with your reason; a pass decides only itself</li><li>Pinned by sha256: changed, missing or crashing blocks</li></ul>
+      <div class="arts">~/.aloop/kernel/&lt;name&gt;/extension.json</div></div>
+    <div class="panel intent"><header><span class="num">✎</span><div class="t"><h3>User space</h3><div>yours · fully overridable</div></div></header>
+      <ul><li>Agents, prompts and skills, ejected on the first run</li><li>Layers: home &gt; repo &gt; plugin, per file</li><li>Upgrades never clobber an edit</li></ul>
+      <div class="arts">docs/agents/userspace/ (in git)<br>~/.aloop/projects/ (personal)</div></div>
+  </div>
+  <div class="grid2">
+    <div class="term"><div class="tb"><i style="background:#EA4335"></i><i style="background:#F9AB00"></i><i style="background:#34A853"></i><span>~/.aloop/kernel/no-todo</span></div>
+<pre><span class="t-out"># 1. an extension: extension.json and the command it names</span>
+<span class="t-cmd">{"name": "no-todo",</span>
+<span class="t-cmd"> "description": "A sprint never signs off with a TODO in src/",</span>
+<span class="t-cmd"> "on": ["Stop"], "command": "./check", "timeout": 60}</span>
+
+<span class="t-out"># check: exit 2 blocks, stderr is the reason</span>
+<span class="t-cmd">grep -rn TODO "$ALOOP_PROJECT/src" &amp;&amp; {</span>
+<span class="t-cmd">  echo "TODO left in src/" &gt;&amp;2; exit 2; }</span>
+<span class="t-cmd">exit 0</span></pre></div>
+    <div class="term"><div class="tb"><i style="background:#EA4335"></i><i style="background:#F9AB00"></i><i style="background:#34A853"></i><span>your project</span></div>
+<pre><span class="t-out"># 2. pin it: the sha256 goes in profile.json, in git</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop kernel pin no-todo</span>
+<span class="t-ok">pinned no-todo 1dde0abdd374</span>
+
+<span class="t-out"># 3. shape the loop: eject, edit, apply</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop userspace eject</span>
+<span class="t-ok">ejected 78 file(s) into docs/agents/userspace</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop userspace apply</span>
+
+<span class="t-out"># 4. name the profile your pack stands for</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop kernel profile &lt;your-pack&gt;</span>
+
+<span class="t-out"># at the sprint's stop, beside the core gates</span>
+<span class="t-gate">◆ kernel extension no-todo blocked: TODO left in src/</span></pre></div>
+  </div>
+  <p class="sub" style="margin:20px 0 0">Every command above ran as shown on the M12 branch. User space and its layers are merged; kernel extensions and profiles are in review (<a href="https://github.com/adeelahmad/aloop/pull/127">#127</a>), and a pack format with <code>aloop pack install</code> comes next. The rules: <a href="https://github.com/adeelahmad/aloop/blob/master/docs/ROADMAP.md#415-kernel-and-user-space-m12">ROADMAP §4.15</a>.</p>
+</div></section>
+
 <section class="s" id="roadmap"><div class="wrap">
   <div class="label">Roadmap</div>
   <h2>Heading for Aladdin 1.0.</h2>
@@ -350,7 +395,7 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
     <tr><td><b>M9, mission layer</b></td><td>missions, journeys, baseline, goals: the loop picks its next goal</td><td><span class="badge intent">In progress</span></td></tr>
     <tr><td><b>M10, agent habitat</b></td><td>contained workers, a supply-chain gate, fetched content as data, one project stop</td><td><span class="badge intent">In progress</span></td></tr>
     <tr><td><b>M11, autonomous by default</b></td><td>the typed intent is the grant; only one-way doors ask</td><td><span class="badge intent">In progress</span></td></tr>
-    <tr><td><b>M12, kernel and user space</b></td><td>gates stay in the kernel; agents, prompts and the TDD profile are yours to eject and override</td><td><span class="badge gate">Next</span></td></tr>
+    <tr><td><b>M12, kernel and user space</b></td><td>gates stay in the kernel; agents, prompts and the TDD profile are yours to eject and override; anyone can <a href="#packs">build a pack</a></td><td><span class="badge intent">In progress</span></td></tr>
   </table></div>
 </div></section>
 
