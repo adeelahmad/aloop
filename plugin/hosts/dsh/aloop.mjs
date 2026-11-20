@@ -8,7 +8,8 @@
 //   SessionStart       agent/created of a root agent → ensure-tools, session-start; the context is
 //                      injected into the session (its first step claims it). dsh compacts a session
 //                      in place (near its context limit, or /compact), so its compaction/end runs
-//                      them again as source `compact`: context.compacted, and the handoff returns
+//                      them again as source `compact`: context.compacted, and the handoff joins the
+//                      first request after it (agent/request; the overflow retry included)
 //   UserPromptSubmit   agent/pre-step of a root agent with a user message → transcripts prompt,
 //                      intent-trigger; exit 2 rejects the step, context joins it
 //   PreToolUse         tools/pre-execute → host-adapter, gate-supervisor-scope, gate-mission-scope,
@@ -32,7 +33,8 @@
 // <role>` in the session's project, the answer gate-dispatch checks), so one install serves every project.
 // Token usage: every assistant/message session event is appended, Claude-shaped, to
 // <run-data>/host/dsh/<root>.jsonl (children: <root>/subagents/agent-<id>.jsonl), so the ledger
-// and the time box read it like any Claude transcript.
+// and the time box read it like any Claude transcript; so is each call dsh makes outside the agent
+// loop (llm/stream with a `purpose`: a compaction's summary, the session title), marked `aux`.
 // Self-contained (node: built-ins only): a module outside the dsh profile cannot import dsh packages.
 import { spawn } from "node:child_process"
 import { randomUUID } from "node:crypto"
@@ -147,7 +149,7 @@ export function apply(ctx, config = {}) {
       const cwd0 = h.cwd || process.cwd()
       s = { id, parent, child: !!parent, root: ps ? ps.root : (parent || id), cwd0,
             role: String(h.agentPreset || "").replace(/^aloop-/, ""), project: ps ? ps.project : projectOf(cwd0),
-            agent: null, blocks: 0, verdict: null, released: false, toolingOk: false }
+            agent: null, blocks: 0, verdict: null, released: false, toolingOk: false, compact: null }
       sessions.set(id, s)
     }
     if (x?.session) s.agent = x
@@ -366,8 +368,8 @@ export function apply(ctx, config = {}) {
     }
     s.blocks = 0
   }
-  // SessionStart of a root agent: the context joins the session's next step
-  async function sessionStart(s, agent, source) {
+  // SessionStart of a root agent: the context the session's next request carries
+  async function sessionStart(s, source) {
     const start = { hook_event_name: "SessionStart", session_id: s.id, transcript_path: transcriptOf(s), cwd: s.project, source }
     const parts = [TOOLS_NOTE]
     // the one dsh profile was installed for another project (`aloop install dsh` records which): its
@@ -383,14 +385,38 @@ export function apply(ctx, config = {}) {
       const c = (await run(script, [], start, s.project)).json?.hookSpecificOutput?.additionalContext
       if (c) parts.push(c)
     }
-    agent.inject(msg(parts.join("\n\n")))
+    return parts.join("\n\n")
+  }
+  // A compaction's SessionStart(compact) context joins the FIRST request after it: dsh admits inbox input
+  // only on a step's first attempt and compacts inside agent/pre-step (pressure) or agent/request-error
+  // (an overflow, then a retry of the same step), so an inject would reach the model one step late.
+  // Appended to the log before dsh builds the request, as dsh's own compaction appends its checkpoint.
+  async function handoff(s, agent, signal) {
+    const pending = s.compact
+    if (!pending) return
+    s.compact = null
+    const m = msg(await pending)
+    if (signal?.aborted) return agent.inject(m)          // the request will not be sent: the next step claims it
+    try { agent.session.append("user/message", m, { surfaceOp: "append" }) } catch { agent.inject(m) }
+  }
+  // One Claude-shaped usage record: a class the host did not report stays absent (named as unreported), never a silent zero
+  function logUsage(s, id, model, u, time, aux) {
+    const usage = { input_tokens: u.inputTokens || 0, output_tokens: u.outputTokens || 0 }
+    if (u.cacheReadTokens !== undefined) usage.cache_read_input_tokens = u.cacheReadTokens
+    if (u.cacheWriteTokens !== undefined) usage.cache_creation_input_tokens = u.cacheWriteTokens
+    const file = transcriptOf(s)
+    mkdirSync(dirname(file), { recursive: true })
+    homeGuard(s)
+    appendFileSync(file, JSON.stringify({ timestamp: new Date(time || Date.now()).toISOString(), ...(aux ? { aux } : {}),
+      message: { id, model, usage } }) + "\n")
+    if (s.child) writeFileSync(file.replace(/\.jsonl$/, ".meta.json"), JSON.stringify({ agentType: s.role }))
   }
 
   ctx.on("agent/created", async ({ agent, source }) => {
     try {
       const s = info(agent)
       if (!active(s)) return
-      if (!s.child) await sessionStart(s, agent, source || "startup")
+      if (!s.child) agent.inject(msg(await sessionStart(s, source || "startup")))
       else {
         // dsh adds "send your result to the parent with send_message" to a child's task whenever
         // the child can see send_message (dsh-subagent startLocal, right after this event); a role
@@ -431,10 +457,12 @@ export function apply(ctx, config = {}) {
 
   // A role's every request goes to its project's model (the tool started it on the profile's); "" is the
   // route a child inherits, its parent's latest. A new route takes its own default effort, as on a dsh switch.
+  // The supervisor's first request after a compaction carries the handoff (handoff above).
   ctx.on("agent/request", async (req, next) => {
     const proposed = await next()
     const s = info(req.agent)
-    if (!s.child || !GATES[s.role] || !active(s)) return proposed
+    if (!s.child) { try { await handoff(s, req.agent, req.signal) } catch {} return proposed }
+    if (!GATES[s.role] || !active(s)) return proposed
     s.model ??= await modelOf(s, s.role)          // once per child; an unresolved one is tried again
     let route = s.model ? routeOf(s.model) : null
     if (s.model === "") {
@@ -491,23 +519,34 @@ export function apply(ctx, config = {}) {
       // a compaction that committed (a failed one ends with `error`): Claude Code's SessionStart(compact)
       if (event?.type === "compaction/end") {
         const s = info(session)
-        if (!s.child && s.agent && active(s) && !event.data?.error) sessionStart(s, s.agent, "compact").catch(() => {})
+        // runs now (it records context.compacted); the context waits for the next request (handoff)
+        if (!s.child && s.agent && active(s) && !event.data?.error) s.compact = sessionStart(s, "compact").catch(() => TOOLS_NOTE)
         return
       }
       if (event?.type !== "assistant/message" || !event.data?.usage) return
       const s = info(session)
       if (!active(s)) return
-      const u = event.data.usage, m = event.data.message || {}
-      const usage = { input_tokens: u.inputTokens || 0, output_tokens: u.outputTokens || 0 }
-      // a class the host did not report stays absent (named as unreported), never a silent zero
-      if (u.cacheReadTokens !== undefined) usage.cache_read_input_tokens = u.cacheReadTokens
-      if (u.cacheWriteTokens !== undefined) usage.cache_creation_input_tokens = u.cacheWriteTokens
-      const file = transcriptOf(s)
-      mkdirSync(dirname(file), { recursive: true })
-      homeGuard(s)
-      appendFileSync(file, JSON.stringify({ timestamp: new Date(event.time || Date.now()).toISOString(),
-        message: { id: m.id || `${s.id}:${event.seq}`, model: m.source?.model || "", usage } }) + "\n")
-      if (s.child) writeFileSync(file.replace(/\.jsonl$/, ".meta.json"), JSON.stringify({ agentType: s.role }))
+      const m = event.data.message || {}
+      logUsage(s, m.id || `${s.id}:${event.seq}`, m.source?.model || "", event.data.usage, event.time)
     } catch {}
+  })
+
+  // dsh's own calls outside the agent loop carry a `purpose` (a loop request has none) and reach no
+  // assistant/message, yet DeepSeek bills them: a compaction's summary (its compaction/summary event keeps
+  // only the committed attempt's usage, and a truncated or too-long summary is billed too) and the session
+  // title (dsh records no usage for it). Each one's usage is read from its own stream: the last usage chunk,
+  // as dsh's BlockAssembler reads it; a stream cut off before one is a retried attempt's gap (ROADMAP §4.9).
+  ctx.on("llm/stream", (options, next) => {
+    const s = options?.purpose && options.sessionId ? sessions.get(options.sessionId) : null
+    if (!s || !active(s)) return next()
+    const id = `${s.id}:${options.purpose}:${randomUUID()}`
+    return (async function* () {
+      let usage = null
+      try {
+        for await (const c of next()) { if (c?.type === "usage" && c.usage) usage = c.usage; yield c }
+      } finally {
+        if (usage) try { logUsage(s, id, options.model || "", usage, Date.now(), options.purpose) } catch {}
+      }
+    })()
   })
 }

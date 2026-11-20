@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""distro (aloop distro) — distros: a full user-space bundle for a domain (ROADMAP M12.8).
+
+The host harness is the hardware, aloop is the kernel, modules plug into the kernel, and a **distro**
+is everything a domain runs on top: its roles, skills and modules. `software` (the TDD loop) is the
+default; anyone builds and publishes others (marketing, writing, research...). See docs/BUILD-A-MODULE.md.
+
+A distro is a folder (a git repo, a tarball):
+
+    <distro>/
+      distro.json          {"name": "...", "description": "..."}
+      modules/<name>/      its modules: module.json + its command (add-only checks)
+      userspace/agents/<role>.md, userspace/skills/<skill>/SKILL.md
+                           its roles and skills (optional): re-shape the plugin's, never add a role
+      README.md
+
+  aloop distro                      the project's distro and the modules it runs
+  aloop distro use <name>           set the project's distro name (docs/agents/userspace/distro.json)
+  aloop distro new <name> [--dir D] scaffold a distro (one working example module, the layout, a README)
+  aloop distro check <dir>          validate a distro without installing it
+  aloop distro install <dir> [--force]
+                                    copy its modules into ~/.aloop/modules/ and add them, copy its roles
+                                    and skills into docs/agents/userspace/ (a file you customized is
+                                    kept), and make it the project's distro
+
+A distro cannot add a role (the kernel's gates match role names) or touch the kernel: what it installs
+runs beside the core gates, never instead of one.
+"""
+import json
+import os
+import shutil
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, HERE)
+import _kernel as K  # noqa: E402
+import _userspace as U  # noqa: E402
+
+README = """# %(name)s: an aloop distro
+
+A distro for [aloop](https://github.com/adeelahmad/aloop): the roles, skills and modules that suit
+%(name)s work. Scaffolded by `aloop distro new %(name)s`.
+
+    aloop distro check .            # validate
+    aloop distro install .          # in a project: installs and adds the modules, copies the roles,
+                                    # makes this the project's distro
+
+## What is in it
+
+- `modules/%(name)s-check/`: a module, an add-only check the kernel runs beside its own gates. Edit
+  `check` (exit 0 passes, exit 2 blocks with stderr as the reason) and `module.json` (`on`:
+  `SubagentStop`, `SubagentStop:<role>`, `Stop`).
+- `userspace/`: optional roles and skills. Copy a role from a project's
+  `docs/agents/userspace/agents/<role>.md` here and re-shape it (its name stays, so its gates stay).
+- `distro.json`: the distro's name.
+"""
+
+
+def problems(d):
+    """[str] of what is wrong with the distro at d (empty when it installs)."""
+    out = []
+    try:
+        meta = json.load(open(os.path.join(d, "distro.json")))
+    except (OSError, ValueError) as e:
+        return ["no readable distro.json (%s)" % e]
+    if not isinstance(meta, dict) or not K.NAME.match(str(meta.get("name", ""))):
+        out.append("distro.json needs a \"name\" (lowercase letters, digits, . _ -)")
+    md = os.path.join(d, "modules")
+    for name in sorted(os.listdir(md)) if os.path.isdir(md) else []:
+        if not K.NAME.match(name):
+            out.append("modules/%s: bad module name" % name)
+            continue
+        try:
+            K.module_at(os.path.join(md, name), name)
+        except ValueError as e:
+            out.append("modules/%s" % e)
+    for rel in userspace_files(d):
+        if rel.startswith("agents/") and rel[7:-3] not in U.roles():
+            out.append("userspace/%s: names no kernel role (a distro re-shapes %s, never adds one)" % (
+                rel, ", ".join(U.roles())))
+        elif rel not in U.plugin_files() or U.plugin_files()[rel][1] != "effective":
+            out.append("userspace/%s: not a user-space file (agents/<role>.md, skills/<skill>/<file>)" % rel)
+    return out
+
+
+def userspace_files(d):
+    """The distro's user-space files, as rels (its userspace/README.md is its own note)."""
+    base = os.path.join(d, "userspace")
+    out = []
+    for dp, _, fns in os.walk(base):
+        for fn in fns:
+            rel = os.path.relpath(os.path.join(dp, fn), base).replace(os.sep, "/")
+            if rel != "README.md":
+                out.append(rel)
+    return sorted(out)
+
+
+def install(cwd, d, force=False):
+    bad = problems(d)
+    if bad:
+        raise ValueError("not a valid distro:\n  " + "\n  ".join(bad))
+    meta = json.load(open(os.path.join(d, "distro.json")))
+    notes = []
+    md = os.path.join(d, "modules")
+    mods = sorted(os.listdir(md)) if os.path.isdir(md) else []
+    for name in mods:
+        src, dst = os.path.join(md, name), K.module_dir(name)
+        if os.path.exists(dst) and os.path.realpath(dst) != os.path.realpath(src):
+            if K.module_sha(name) != K.dir_sha(src) and not force:
+                raise ValueError("%s is installed and differs from this distro's: --force replaces it" % dst)
+            shutil.rmtree(dst)
+        if not os.path.exists(dst):
+            shutil.copytree(src, dst)
+    if U.manifest(cwd) is None:
+        U.eject(cwd)
+    for rel in userspace_files(d):
+        src = U.read(os.path.join(d, "userspace", rel))
+        tgt = os.path.join(U.repo_dir(cwd), rel)
+        cur = U.read(tgt)
+        plug = U.read(U.plugin_files()[rel][0])
+        if cur is not None and cur not in (plug, src) and not force:
+            notes.append("kept your customized %s (the distro's is %s; --force takes it)" % (
+                rel, os.path.join(d, "userspace", rel)))
+            continue
+        U.write(tgt, src)
+    p = K.distro(cwd)
+    p["distro"] = meta["name"]
+    K.save_distro(cwd, p)
+    for name in mods:
+        K.add(cwd, name)
+    return mods, notes
+
+
+def main(argv):
+    cwd = os.getcwd()
+    if argv and argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    cmd, rest = (argv[0], argv[1:]) if argv else ("show", [])
+    try:
+        if cmd == "show":
+            d = K.distro(cwd)
+            print(d["distro"])
+            for n, s in sorted(d["modules"].items()):
+                print("  module %s %s" % (n, s[:12]))
+            return 0
+        if cmd == "use":
+            if len(rest) != 1 or not K.NAME.match(rest[0]):
+                print("usage: aloop distro use <name>", file=sys.stderr)
+                return 64
+            d = K.distro(cwd)
+            d["distro"] = rest[0]
+            K.save_distro(cwd, d)
+            print(rest[0])
+            return 0
+        if cmd == "new":
+            if not rest:
+                print("usage: aloop distro new <name> [--dir D]", file=sys.stderr)
+                return 64
+            name = rest[0]
+            if not K.NAME.match(name):
+                raise ValueError("bad distro name %r" % name)
+            root = rest[rest.index("--dir") + 1] if "--dir" in rest[:-1] else cwd
+            d = os.path.join(root, name)
+            if os.path.exists(d):
+                raise ValueError("%s already exists" % d)
+            U.write(os.path.join(d, "distro.json"), json.dumps(
+                {"name": name, "description": "the roles, skills and modules for %s work" % name}, indent=2) + "\n")
+            K.scaffold(name + "-check", root=os.path.join(d, "modules"))
+            U.write(os.path.join(d, "userspace", "README.md"),
+                    "Optional: re-shaped roles and skills, at the paths a project's docs/agents/userspace/ uses\n"
+                    "(agents/<role>.md, skills/<skill>/SKILL.md). A distro re-shapes roles; it never adds one.\n")
+            U.write(os.path.join(d, "README.md"), README % {"name": name})
+            print("created %s (edit modules/%s-check/check, then `aloop distro check %s`)" % (d, name, d))
+            return 0
+        if cmd == "check":
+            d = rest[0] if rest else cwd
+            bad = problems(d)
+            for b in bad:
+                print("problem: " + b)
+            print("ok" if not bad else "%d problem(s)" % len(bad))
+            return 1 if bad else 0
+        if cmd == "install":
+            if not rest:
+                print("usage: aloop distro install <dir> [--force]", file=sys.stderr)
+                return 64
+            mods, notes = install(cwd, rest[0], force="--force" in rest)
+            print("installed %s; modules added: %s; distro %s" % (
+                rest[0], ", ".join(mods) or "none", K.distro(cwd)["distro"]))
+            for n in notes:
+                print("note: " + n)
+            return 0
+    except ValueError as e:
+        print("distro: %s" % e, file=sys.stderr)
+        return 64
+    print("distro: unknown command %r (aloop distro --help)" % cmd, file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

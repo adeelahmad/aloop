@@ -159,18 +159,21 @@ dsh --profile aloop "Use the aloop skill. Intent: <one line>"
 - **Messages and compaction**: a role is not offered `send_message` (the plugin scopes it out of
   the role's tools at its start), so its result reaches the supervisor through its stop gate and
   dsh's settlement notice; the supervisor's `send_message` reaches a running role at its next step.
-  dsh compacts a session in place, and the plugin records `context.compacted` and injects the
-  handoff again.
-- **Cost**: `run-summary --host dsh` prices each logged call from the dated DeepSeek table in
-  `bin/_prices.py`; a model with no published price leaves the cost unmeasured.
+  dsh compacts a session in place, and the plugin records `context.compacted` and adds the
+  handoff to the first request after it (the retry of an overflowed step included).
+- **Cost**: `run-summary --host dsh` prices each logged call (dsh's compaction and session-title
+  calls included) from the dated DeepSeek table in `bin/_prices.py`, to the micro-dollar (the
+  evidence row to four places, `<$0.0001` below); a model with no published price leaves the cost
+  unmeasured. A retried attempt and DeepSeek's server-side
+  Search/Fetch are not in it (ROADMAP §4.9).
 - **Unattended runs**: dsh asks before commands unless `DSH_PERMISSION_MODE=danger-full-access`
   (no sandbox, no approvals); use that only in a throw-away repo, as `make e2e-live HOST=dsh` does.
   The profile disables dsh's session-log upload (`session-log-deepseek`); set
   `DSH_TELEMETRY_DISABLED=1` to stop its telemetry too.
 
-Covered in CI by `make test-hosts`: `dsh-plugin.test.mjs` (the plugin against an emulated
-dsh context) and `dsh-runtime.test.mjs` (the real dsh runtime, pinned, driven by a scripted
-model: no network, no tokens).
+Covered in CI by `make test-hosts` on Linux and macOS: `dsh-plugin.test.mjs` (the plugin
+against an emulated dsh context) and `dsh-runtime.test.mjs` (the real dsh runtime, pinned,
+driven by a scripted model: no network, no tokens).
 
 ## Invoking it
 
