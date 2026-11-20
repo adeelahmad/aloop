@@ -9,7 +9,9 @@
                 reasoning). One row per increase of the running total.
   OpenCode      the aloop OpenCode plugin writes Claude-shaped usage records
                 (.agentic/host/opencode/…), so they read as Claude.
-  dsh           the aloop DeepSeek Harness plugin does the same (.aladdin/host/dsh/…).
+  dsh           the aloop DeepSeek Harness plugin does the same (.aladdin/host/dsh/…); a call
+                dsh makes outside the conversation (its compaction summary, the session
+                title) carries `aux`: charged like any call, never the context in use.
 
 Row: {ts, id, model, in, cache_read, cache_write, out}  (in = uncached input).
 """
@@ -64,7 +66,8 @@ def rows(path):
                            "in": u.get("input_tokens") or 0, "cache_read": u.get("cache_read_input_tokens") or 0,
                            "cache_write": u.get("cache_creation_input_tokens") or 0, "out": u.get("output_tokens") or 0,
                            "_unreported": [k for k, f in (("cache_read", "cache_read_input_tokens"),
-                                                          ("cache_write", "cache_creation_input_tokens")) if f not in u]}
+                                                          ("cache_write", "cache_creation_input_tokens")) if f not in u],
+                           "_aux": bool(rec.get("aux"))}
             continue
         p = rec.get("payload") if isinstance(rec.get("payload"), dict) else None
         if not p:
@@ -100,7 +103,7 @@ def classes(path):
     rs = rows(path)
     if not rs:
         return None
-    last = rs[-1]
+    last = _latest(rs)
     # every count is read from the host's own log (exact); a class the host never reports is
     # named, never estimated or silently zero (ROADMAP §4.9 usage reporting, conformance 12)
     return {"in": sum(r["in"] for r in rs), "cache_read": sum(r["cache_read"] for r in rs),
@@ -117,12 +120,18 @@ def charge(c, meter="fresh"):
     return c["context"] + c["out"] if meter == "context" else c["in"] + c["out"]
 
 
+def _latest(rs):
+    """The latest call of the conversation itself: an aux call (dsh's title, a compaction summary) sends
+    another prompt, so the context in use stays the last real call's (an aux-only log has only those)."""
+    return next((r for r in reversed(rs) if not r.get("_aux")), rs[-1])
+
+
 def context_plus_output(path):
     """Budget metric: context in use on the latest call + every output token so far."""
     rs = rows(path)
     if not rs:
         return None
-    last = rs[-1]
+    last = _latest(rs)
     ctx = last.get("_ctx") or (last["in"] + last["cache_read"] + last["cache_write"])
     return ctx + sum(r["out"] for r in rs)
 

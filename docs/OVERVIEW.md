@@ -86,6 +86,7 @@ The model can ignore a skill; it cannot ignore an exit code.
 | `md-db` | [`plugin/tools/md-db/`](../plugin/tools/md-db/) | Vendored Rust markdown-as-database validator (AGPL-3.0 subtree) |
 | Other hosts | [`plugin/hosts/opencode/`](../plugin/hosts/opencode/), [`plugin/hosts/dsh/`](../plugin/hosts/dsh/), `bin/install` | Generates agents/skills for Codex and OpenCode, and the `aloop` profile (role presets, delegation tools, the native plugin) for DeepSeek Harness; same gates via `host-adapter` |
 | User space | [`plugin/bin/userspace`](../plugin/bin/userspace), [`_userspace.py`](../plugin/bin/_userspace.py) | The loop's opinions (roles, prompts, skills) ejected into the project's git on the first run and changed freely; home > repo > plugin; upgrades never overwrite an edit; the kernel (gates, hooks, audit log) is never overridden (M12, ROADMAP §4.15) |
+| Modules and distros | [`plugin/bin/module`](../plugin/bin/module), [`plugin/bin/distro`](../plugin/bin/distro), [`_kernel.py`](../plugin/bin/_kernel.py) | The host harness is the hardware and aloop the kernel; **modules** (`~/.aloop/modules/<name>/`) plug in add-only checks (a fact check, a brand-voice check) once the project adds them to `docs/agents/userspace/distro.json`, and never replace a gate (M12.7). A **distro** bundles a domain's modules, roles and skills (`software` is the default); anyone builds both ([Build your own module](BUILD-A-MODULE.md)) |
 | Evals | [`plugin/evals/`](../plugin/evals/), [`scripts/eval/`](../scripts/eval/) | Per-agent eval suites + grader/aggregator |
 
 ## What it leaves on disk
@@ -117,7 +118,7 @@ The model can ignore a skill; it cannot ignore an exit code.
   ROADMAP §6 conformance suite (real gates on a fixture crate, plus the focused tests that hold
   the tool-level items: 19 of the 20 items, 82 checks; §6.15 is measured by live runs), the host tests
   (budget/worktree, Codex hooks emulation, supervisor scope, hook matchers, dispatch,
-  ensure-tools, fail-closed: 85 checks; OpenCode end-to-end: 31; dsh plugin: 46, on the real dsh runtime: 50, dsh install: 10), `claude plugin validate
+  ensure-tools, fail-closed: 106 checks; OpenCode end-to-end: 40; dsh plugin: 48, on the real dsh runtime: 53, dsh install: 10), `claude plugin validate
   --strict`, eval-suite and version-lockstep checks,
   the tracking check and `host check`, plus the newer suites (targets render, host swap,
   metrics, config, the aladdin CLI, the site).

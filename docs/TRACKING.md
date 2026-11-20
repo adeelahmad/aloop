@@ -99,7 +99,7 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.50 | A goal sprinted with gaps still open gets a next step | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py` |
 | M9.51 | Lifting a mission block is the human's typed line, kept in the ledger | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.52 | The mission loop reads a gap list only when it still recomputes | NOT_IMPLEMENTED | §4.12 |
-| M9.53 | The mission loop hands out a goal's commands only when `goal check` passes | NOT_IMPLEMENTED | §4.12 |
+| M9.53 | The mission loop hands out a goal's commands only when `goal check` passes | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.54 | Scope gate reader residuals (computed cd, failed cd, loop cd accumulation) | NOT_IMPLEMENTED | §4.12 |
 | M9.55 | One goal in flight, picked by one clock | NOT_IMPLEMENTED | §4.12 |
 | M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | BLOCKED_HOST | needs bubblewrap and socat on Linux (or macOS Seatbelt) to prove containment; this container has neither (§4.13) |
@@ -126,5 +126,6 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M12.4 | User space cannot replace a gate or add an ungated role; dispatch uses the customized copy | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
 | M12.5 | No agent, worker or live-sprint supervisor rewrites user space | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
 | M12.6 | User space is tracked in git; run docs stay ignored | IMPLEMENTED_TESTED | `scripts/test/userspace.test.py` |
-| M12.7 | Kernel extensions: hash-pinned, add-only gate checks from ~/.aloop/kernel/ | NOT_IMPLEMENTED | §4.15 |
-| M12.8 | Profiles and domain packs (software = the default TDD profile) | NOT_IMPLEMENTED | §4.15 |
+| M12.7 | Modules: hash-pinned, add-only gate checks from ~/.aloop/modules/ | IMPLEMENTED_TESTED | `scripts/test/modules.test.py` |
+| M12.8 | Distros and modules anyone builds: scaffold, check, install (software = the default TDD distro) | IMPLEMENTED_TESTED | `scripts/test/modules.test.py` |
+| M12.12 | Modules run on OpenCode and dsh too | NOT_IMPLEMENTED | §4.15 |

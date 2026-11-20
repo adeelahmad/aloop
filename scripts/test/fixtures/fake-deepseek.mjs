@@ -8,7 +8,8 @@
 // {"tools": [{"name", "input"}, ...]}; past the end of a role's steps the reply is "<role> done"
 // (the supervisor's is "E2E-DONE"). Every request is logged with its model and the text it
 // carried, so a test can assert which model ran and what it was shown (a deny reason, an
-// injected gate verdict, the handoff).
+// injected gate verdict, the handoff); dsh's own compaction and session-title calls are logged
+// too (role `compaction` / `title`), so a test can count every reply it served.
 // A step may also: hold its reply until another role's request reached a step
 // ({"after": {"role", "step"}}, so a message can reach a role mid-turn); name a child in its inputs
 // as `$CHILD<n>` (the n-th id the request's "started subagent <id>" results name); or fail once
@@ -73,7 +74,10 @@ const server = createServer((req, res) => {
       appendFileSync(LOG, JSON.stringify({ role: "compaction", of: role, replaced, model: j.model }) + "\n")
       return sse(res, [{ text: `aloop-fake checkpoint: replaced ${replaced} assistant messages of ${role}.` }], "end_turn")
     }
-    if (!tools.length) return sse(res, [{ text: "aloop session" }], "end_turn")     // dsh's session-title call
+    if (!tools.length) {      // dsh's session-title call
+      appendFileSync(LOG, JSON.stringify({ role: "title", model: j.model }) + "\n")
+      return sse(res, [{ text: "aloop session" }], "end_turn")
+    }
     const s = (SCRIPT[role] || [])[step]
     const key = `${role}:${step}`
     const overflow = !!s?.overflow && !failed.has(key)

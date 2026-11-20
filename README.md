@@ -339,7 +339,7 @@ structural, not luck:
   blocking it from doing the context-heavy work itself.
 
 Live runs: `make smoke-live YES=1` (hook wiring, ~$0.004) and `make e2e-live YES=1` (the whole
-loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci`, which runs Rust fmt/clippy/tests, shellcheck, 60 Python/Node suites plus every `mission-*.test.py`,
+loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci`, which runs Rust fmt/clippy/tests, shellcheck, 61 Python/Node suites plus every `mission-*.test.py`,
 the gate conformance fixtures (`make conformance`) and eval-suite validation. Every ROADMAP
 requirement is tracked with its test in [docs/TRACKING.md](docs/TRACKING.md).
 
@@ -432,8 +432,8 @@ enforce this. Tag releases `vMAJOR.MINOR.PATCH`.
 - **hosts**: byte-compiles the Python hooks, then Codex hooks emulation + the OpenCode
   and dsh plugins end-to-end, the dsh one also on the real (pinned) dsh runtime against a
   scripted model (no network, no tokens).
-- **macos**: the same host tests and the conformance fixtures on macOS, where temp dirs sit
-  behind a symlink and the userland is BSD.
+- **macos**: the same host tests (the real dsh runtime included) and the conformance fixtures
+  on macOS, where temp dirs sit behind a symlink and the userland is BSD.
 - **plugin**: JSON sanity on the manifest + marketplace, eval-suite validation, version
   lockstep, then `claude plugin validate ./plugin --strict`.
 
