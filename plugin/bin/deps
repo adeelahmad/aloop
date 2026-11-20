@@ -16,6 +16,10 @@ Usage:
                                                      (tasks.md, targets.json, plan.md,
                                                      validate.md, the sprint's stories.md);
                                                      exit 2 if any
+
+Plan text is only what the human's grant pins (ROADMAP M0.9, `_approval.pinned`): the files of the plan
+they approved, or under their autonomy grant of the plan as the planner's gate passed it, as they were
+then (a kept copy once the file changes). Text added since, or outside the plan's files, names nothing.
 """
 import json
 import os
@@ -142,19 +146,30 @@ def added(root, base):
     return out
 
 
-def plan_text(story):
-    parts = []
-    for f in ("tasks.md", "targets.json", "plan.md", "validate.md"):
-        try:
-            parts.append(open(os.path.join(story, f)).read())
-        except OSError:
-            pass
-    try:
-        parts.append(open(os.path.join(os.path.dirname(os.path.abspath(story)), "stories.md")).read())
-    except OSError:
-        pass
-    return "\n".join(parts)
-
+def plan_text(story, cwd):
+    """(the story's plan text as the human's grant pins it, notes on plan text that does not count)."""
+    sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+    import _approval
+    import _mission
+    story = os.path.realpath(story)
+    sprint_dir = os.path.dirname(story)
+    sp = _approval.sprint_of(os.path.basename(sprint_dir))
+    pins, why = _approval.pinned(cwd, sp) if sp else ({}, "%s is no story of a sprint" % story)
+    parts, changed = [], []
+    for p in [os.path.join(story, f) for f in ("tasks.md", "targets.json", "plan.md", "validate.md")] + \
+            [os.path.join(sprint_dir, "stories.md")]:
+        rel = _mission.rel(cwd, p)
+        if rel not in pins:
+            continue
+        text = _approval.pinned_text(cwd, rel, pins[rel])
+        if text is not None:
+            parts.append(text)
+        if not os.path.isfile(p) or _approval.file_sha(p) != pins[rel]:
+            changed.append(rel)
+    notes = ["no plan text counts: %s" % why] if why else []
+    if changed:
+        notes.append("text changed since the human's grant pinned it names nothing: %s" % ", ".join(changed))
+    return "\n".join(parts), notes
 
 def named(name, text):
     return re.search(r"(?<![A-Za-z0-9_\-])%s(?![A-Za-z0-9_\-])" % re.escape(name), text, re.I) is not None
@@ -177,10 +192,12 @@ def main(argv):
     if not opts.get("--story"):
         print("deps: unplanned needs --story DIR", file=sys.stderr)
         return 64
-    text = plan_text(opts["--story"])
+    text, notes = plan_text(opts["--story"], root)
     bad = [(p, n) for p, n in new if not named(n, text)]
     for p, n in bad:
         print("%s\t%s" % (p, n))
+    if bad and notes:
+        print("(%s)" % "; ".join(notes), file=sys.stderr)
     return 2 if bad else 0
 
 

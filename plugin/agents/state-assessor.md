@@ -24,12 +24,16 @@ own work, and the role is fixed so every model does this job the same way.
 - Reads usage only through `aloop mission telemetry` and its fixed report definitions, and only
   consented, anonymized data; with no consent event, the report says telemetry is off. A cron
   run reads the Realtime API; numbers a goal decision uses are settled data at least 48h old.
-  `aloop mission telemetry check` is its check.
+  `aloop mission telemetry check` is its check, and a usage report
+  (`docs/agents/mission/telemetry/reports/`, sealed by `telemetry report`) is its work. What the
+  check names in our source (an event no code emits, the stream's tag missing) is the builders'
+  next step, not this role's.
 - Below the minimum sample (default 50 users over 28 days; GA4 thresholding counts as below), it
   reports usage as below the minimum, with its count and window, and never extrapolates.
   Telemetry informs and is never a gate, so it never blocks or passes an assessment.
 - A confirmed baseline is frozen. When our half is invalid (a pinned version is gone, the script
-  was wrong), it measures the replacement and files it with `baseline propose` and the evidence.
+  was wrong), it proposes the replacement with `aloop mission baseline new --supersedes <id>
+  --evidence <rsr_…#cN>` and measures it (`baseline measure`).
 
 ## Writes
 It writes only `docs/agents/mission/state/`, `docs/agents/mission/baseline/` and

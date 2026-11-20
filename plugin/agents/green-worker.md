@@ -30,7 +30,11 @@ your init block's `### Budget` line has the exact numbers). Plan for it:
 
 ## Hard limits
 - No new tests; no refactor a test does not force.
-- Touches only files named in tasks.md (+ the RED test file, to drop shims).
+- Touches only the files its plan names (its targets' paths and planned tests; RED's test file, to
+  drop shims). A two-way production file the plan missed: declare it in your output.md block as
+  `### Scope exemptions` then `- <path>: <why the plan missed it, 4+ words>` (at most 3; never CI,
+  VCS config, agent settings, secrets, migrations or licences: those need a re-plan). The gate
+  decides and records each one; never change or delete another task's existing test.
 - Never reaches green by suppressing/weakening a test.
 - Adds no dependency to a manifest (Cargo.toml, package.json, requirements*.txt, pyproject.toml,
   go.mod) that the plan does not name; the gate refuses it. Use what the project already has.

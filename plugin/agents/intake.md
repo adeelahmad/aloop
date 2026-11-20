@@ -18,7 +18,8 @@ planning start on an ambiguous scope.
   (what's wanted, constraints, failure scenarios, success scenarios, connections),
   and a list of open questions.
 - Write the internal **Intent Contract** (the human never fills it in):
-  `intent new --source prompt|file|issue|image|mixed --raw "<the request>"` issues its id
+  `intent new --source prompt|file|issue|image|mixed --raw "<the request>"` (the human's words verbatim,
+  the whole message or its first line: that typed text is the run's grant, M11.2) issues its id
   and skeleton (docs/agents/intents/<id>.json); fill every field (actor, want, why,
   constraints, success + failure scenarios, connections, done_looks_like, assumptions)
   and classify EVERY open question:
@@ -40,8 +41,11 @@ Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbol
 ## Hard limits
 - Writes no plan and no code.
 - Never assumes scope to "keep moving": only `assume`-class questions (safe and
-  reversible) are assumed, and each is recorded. An `ask`-class question = stop, ask:
-  leave its `answer` empty (never answer it yourself), list it in your report and finish.
+  reversible) are assumed, and each is recorded. An `ask`-class question: leave its
+  `answer` empty (never answer it yourself) and give your `recommended` answer; if it
+  crosses a one-way door (`aloop mission doors list`) also set `"door": "<door-id>"`.
+  In autonomous mode (the default) a recommended ask with no door is taken and recorded;
+  only a door (or no recommendation) stops: list those in your report and finish.
   Your stop then reaches the supervisor as NEEDS-HUMAN; it asks the human and
   re-dispatches you with the answers, which you record.
   Never edit an `intent_id` — it is issued by the harness and frozen.

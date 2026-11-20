@@ -18,14 +18,22 @@ validate_comms
 # 2) No suppression anywhere (RED is cleared by GREEN, never by skipping).
 assert_no_suppression
 
-# 3) Diff scope: only files this task may touch (tasks.md scope) + its RED test file.
-#    No SCOPE_GLOBS given but the planner wrote change targets? Derive it (ROADMAP §4.6).
-if [ -z "${SCOPE_GLOBS:-}" ] && [ -n "${STORY_DIR:-}" ] && [ -f "$STORY_DIR/targets.json" ]; then
-  SCOPE_GLOBS="$("$HERE/targets" scope "${TASK_ID##*-}" "$STORY_DIR" 2>/dev/null)"
-  [ -n "$SCOPE_GLOBS" ] && note "SCOPE_GLOBS derived from targets.json: $SCOPE_GLOBS"
-fi
-if [ -n "${SCOPE_GLOBS:-}" ]; then
-  : "${TEST_GLOBS:=$DEFAULT_TEST_GLOBS}"   # its RED test files, to drop shims (any language)
+# 3) Diff scope: only the files this task's plan names. With the planner's targets.json that is
+#    its targets' paths and its planned tests, literally (ROADMAP §4.6, M11.12): a new test file
+#    passes, an existing test outside the plan may only gain lines, and a production file the plan
+#    missed passes only as a declared, reasoned two-way exemption (`targets diffscope`, a ledger
+#    row each). The contract's SCOPE_GLOBS can only narrow that. No targets.json: SCOPE_GLOBS.
+: "${TEST_GLOBS:=$DEFAULT_TEST_GLOBS}"   # its RED test files, to drop shims (any language)
+if [ -n "${STORY_DIR:-}" ] && [ -f "$STORY_DIR/targets.json" ]; then
+  scope_base="$(diff_base)"
+  [ -n "$scope_base" ] || fail "cannot find where this task's branch left main (BASE_REF unset, no merge-base): the diff scope cannot be judged"
+  if ! scope_out="$("$HERE/targets" diffscope "${TASK_ID##*-}" "$STORY_DIR" --base "$scope_base" --root "$(repo_dir)" \
+        --role green --task-id "${TASK_ID:-}" --agent-role "${AGENT_ROLE:-}" --tests "$TEST_GLOBS" --globs "${SCOPE_GLOBS:-}" 2>&1)"; then
+    fail "GREEN diff is outside this task's plan:
+$scope_out"
+  fi
+  note "diff in this task's planned fileset${scope_out:+ ($scope_out)}"
+elif [ -n "${SCOPE_GLOBS:-}" ]; then
   allow="$SCOPE_GLOBS $TEST_GLOBS"
   while IFS= read -r p; do
     [ -z "$p" ] && continue
@@ -33,7 +41,7 @@ if [ -n "${SCOPE_GLOBS:-}" ]; then
       || fail "GREEN diff touches out-of-scope path: $p (allowed: $allow)"
   done < <(changed_paths)
 else
-  warn "SCOPE_GLOBS unset; tasks.md diff-scope check skipped (set it to enforce R2)"
+  warn "SCOPE_GLOBS unset and no targets.json; tasks.md diff-scope check skipped (set it to enforce R2)"
 fi
 
 # 3b) Supply chain: no dependency the approved plan does not name (ROADMAP M10.2).

@@ -112,5 +112,12 @@ else
   echo "WARN[$GATE_NAME]: md-db absent; structural validation limited to dir/frontmatter checks" >&2
 fi
 
+# 7) The plan as the planner's stop passed it, file by file (a verdict, not a self-check): under the human's
+#    autonomy grant it is the plan text GREEN's dependency check reads (ROADMAP M0.9).
+if [ "${AGENTIC_SELFCHECK:-}" != 1 ]; then
+  printf '%s' "$GATE_PAYLOAD" | "$BIN_DIR/ids" gated "$sprint_dir" \
+    || echo "WARN[$GATE_NAME]: could not record the gated plan of $sprint_dir (see above)" >&2
+fi
+
 echo "[$GATE_NAME] Stage-2 complete for all stories in $sprint_dir" >&2
 exit 0

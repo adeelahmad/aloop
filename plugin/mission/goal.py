@@ -555,7 +555,7 @@ def next_intent(cwd, gid):
         err = io.StringIO()
         try:
             with contextlib.redirect_stderr(err):
-                rc, _ = tool.verdict(cwd, p, facts["autonomy"])
+                rc, _, _ = tool.verdict(cwd, p, facts["autonomy"])
         except (Exception, SystemExit) as e:     # a contract of the wrong shape: the check names it, never "all planned"
             rc = 2
             err.write("BLOCK[intent]: `intent check` fails on it: %s: %s\n" % (type(e).__name__, e))

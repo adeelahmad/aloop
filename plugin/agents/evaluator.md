@@ -60,8 +60,9 @@ plugin's own files (its bin/, schemas/, mission/ code, skills): `aloop mission <
 
 ## Report
 Finish in this order: write the artifact(s) with the area command, run the area's check
-(`aloop mission evaluate check`, and `aloop mission judge check` for a rubric), then run
-`aloop selfcheck evaluator` and fix anything it names. The SubagentStop gate
+(`aloop mission evaluate check`, and `aloop mission judge check <rub_id>` for a rubric or a
+judge run, whose record `docs/agents/mission/judges/runs/<rub_id>.jsonl` is its work too), then
+run `aloop selfcheck evaluator` and fix anything it names. The SubagentStop gate
 (gate-mission-artifact) BLOCKS unless this run wrote at least one artifact in its own paths and
 every artifact it wrote passes the core contract (harness id matching the file name, a known
 status, a sha256 that matches its content, the kind's schema) and its area's check. End with a

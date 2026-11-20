@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""ROADMAP M10.2: GREEN refuses a dependency added to a manifest that the approved plan does not
-name, and a credential committed to the project blocks GREEN (in the lines it added) and the
-final gate (anywhere). Package installs are the usual supply-chain entry, and acceptance proved
-behaviour, not where the code came from. `deps added` lists the new names per manifest
-(Cargo.toml, package.json, requirements*.txt, pyproject.toml, go.mod); gate-green-verify blocks
-on any the story's plan (tasks.md, targets.json, plan.md, validate.md, stories.md) leaves out.
-`secrets scan` finds fixed-shape credentials and prints where, never the text.
+"""ROADMAP M10.2: GREEN refuses a dependency added to a manifest that the approved plan does not name
+(only plan text the human's grant pins counts, M0.9: the plan they approved, or under their autonomy
+grant the plan as the planner's gate passed it), and a credential committed to the project blocks
+GREEN (in the lines it added) and the final gate (anywhere). Package installs are the usual
+supply-chain entry, and acceptance proved behaviour, not where the code came from. `deps added`
+lists the new names per manifest (Cargo.toml, package.json, requirements*.txt, pyproject.toml,
+go.mod); gate-green-verify blocks on any the story's plan (tasks.md, targets.json, plan.md,
+validate.md, stories.md) leaves out. `secrets scan` finds fixed-shape credentials and prints where,
+never the text.
     python3 scripts/test/supply-chain.test.py
 """
 import atexit
+import json
 import os
 import shutil
 import subprocess
@@ -16,6 +19,9 @@ import sys
 import tempfile
 
 sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
+from plan_fixture import approve_plan  # noqa: E402
+
 BIN = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin"))
 T = os.path.realpath(tempfile.mkdtemp(prefix="aloop-deps-"))
 atexit.register(shutil.rmtree, T, ignore_errors=True)
@@ -102,12 +108,90 @@ def green():
                           capture_output=True, text=True, input="")
 
 
+TASKS = "---\ntype: tasks\nstory: S1-01\n---\n## T1 — fetch a page\n%s\n"
 r = green()
 assert r.returncode == 2 and "leftpadx" in r.stderr and "requirements.txt" in r.stderr and "plan" in r.stderr, r.stderr
-write(os.path.join(STORY, "tasks.md"), "---\ntype: tasks\nstory: S1-01\n---\n## T1 — fetch a page\nAdds `leftpadx` for padding.\n")
+approve_plan(MAIN, ENV)  # the human approves the plan as it is: it does not name leftpadx
+r = green()
+assert r.returncode == 2 and "leftpadx" in r.stderr, r.stderr
+ok("GREEN refuses a dependency the approved plan does not name")
+
+# 2b) plan text counts only as the human approved it: naming the dependency after their approval does
+#     not cover it (the changed file is named); their approval of the plan that names it does
+write(os.path.join(STORY, "tasks.md"), TASKS % "Adds `leftpadx` for padding.")
+r = green()
+assert r.returncode == 2 and "leftpadx" in r.stderr and "s1-01-fetch/tasks.md" in r.stderr and "changed since" in r.stderr, r.stderr
+approve_plan(MAIN, ENV)
+assert green().returncode == 0
+ok("a dependency named after the human's approval is refused; their approval of the plan that names it admits it")
+
+# 2c) a re-plan after the approval leaves the approved text standing: another story's change, or this story's
+#     tasks.md growing a task, does not undo the approved dependency; a dependency only the new text names is refused
+write(os.path.join(os.path.dirname(STORY), "s1-02-other", "tasks.md"), "---\ntype: tasks\nstory: S1-02\n---\n## T1 — other\nlater\n")
+assert green().returncode == 0
+write(os.path.join(STORY, "tasks.md"), TASKS % "Adds `leftpadx` for padding.\n\n## T2 — more\nAdds `padx9` too.")
 r = green()
 assert r.returncode == 0, r.stderr
-ok("GREEN refuses a dependency the approved plan does not name, and accepts it once the plan names it")
+write(os.path.join(wt, "requirements.txt"), "# pinned\nrequests==2.31\nleftpadx==0.1\npadx9==1.0\n")
+sh("git", "commit", "-qam", "green: padx9", cwd=wt)
+r = green()
+assert r.returncode == 2 and "padx9" in r.stderr and "s1-01-fetch/tasks.md" in r.stderr and "changed since" in r.stderr, r.stderr
+sh("git", "reset", "-q", "--hard", "HEAD~1", cwd=wt)
+write(os.path.join(STORY, "tasks.md"), TASKS % "Adds `leftpadx` for padding.")
+ok("a re-plan after the approval keeps the approved text: its dependency stands, one only the new text names does not")
+
+# 2d) only the files the approval pins are plan text: a STORY_DIR that is the sprint dir reads none of them
+write(os.path.join(os.path.dirname(STORY), "tasks.md"), TASKS % "Adds `leftpadx` for padding.")
+r = subprocess.run([DEPS, "unplanned", "--base", "main", "--story", os.path.dirname(STORY), "--root", wt],
+                   env=ENV, capture_output=True, text=True)
+assert r.returncode == 2 and "requirements.txt\tleftpadx" in r.stdout, r
+os.remove(os.path.join(os.path.dirname(STORY), "tasks.md"))
+ok("text outside the approved plan's files names no dependency (a sprint-dir STORY_DIR, an unpinned tasks.md)")
+
+# 2e) under the human's autonomy grant the plan counts as the planner's gate passed it (gate-stage2-complete
+#     records it on the planner's stop): before a pass nothing counts, and says so; a dependency named after the
+#     pass is refused; neither a bare `ids gated`, a self-check nor `events emit` records the plan; the planner's
+#     next pass (here naming it in stories.md) admits it
+SPRINT = os.path.dirname(STORY)
+PLANNER_STOP = json.dumps({"hook_event_name": "SubagentStop", "agent_type": "aloop:planner", "agent_id": "planner-1"})
+
+
+def stage2(selfcheck=False):
+    env = dict(ENV, AGENTIC_SELFCHECK="1") if selfcheck else ENV
+    r = subprocess.run([os.path.join(BIN, "gate-stage2-complete"), SPRINT], cwd=MAIN, env=env,
+                       capture_output=True, text=True, input=PLANNER_STOP)
+    assert r.returncode == 0, r.stderr
+
+
+write(os.path.join(SPRINT, "stories.md"), "---\ntype: stories\nsprint: 1\n---\n# Sprint 1\n\n- S1-01 (s1-01-fetch)\n- S1-02 (s1-02-other)\n")
+write(os.path.join(SPRINT, "plan.md"), "---\ntype: sprint-plan\nsprint: 1\nstage: \"2\"\n---\n# Waves\n")
+for sid, k in (("s1-01-fetch", 1), ("s1-02-other", 2)):
+    write(os.path.join(SPRINT, sid, "validate.md"), "---\ntype: validate\nstory: S1-0%d\n---\n## T1\npytest -q\n" % k)
+    write(os.path.join(SPRINT, sid, "plan.md"), "---\ntype: plan\nstory: S1-0%d\nstage: \"2\"\n---\n# Plan\n" % k)
+approve_plan(MAIN, ENV, mode="autonomous")
+r = green()
+assert r.returncode == 2 and "leftpadx" in r.stderr and "S1 is autonomous, but no plan of it has passed the planner's gate yet" in r.stderr, r.stderr
+stage2()
+assert green().returncode == 0
+write(os.path.join(wt, "requirements.txt"), "# pinned\nrequests==2.31\nleftpadx==0.1\npadx2==1.0\n")
+sh("git", "commit", "-qam", "green: padx2", cwd=wt)
+write(os.path.join(STORY, "tasks.md"), TASKS % "Adds `leftpadx` for padding and `padx2` for more.")
+r = green()
+assert r.returncode == 2 and "padx2" in r.stderr and "s1-01-fetch/tasks.md" in r.stderr and "changed since" in r.stderr, r.stderr
+IDS = os.path.join(BIN, "ids")
+for args, inp in ((["gated", SPRINT], ""), (["gated", SPRINT], json.dumps({"agent_type": "aloop:green-worker"}))):
+    assert subprocess.run([IDS] + args, cwd=MAIN, env=ENV, input=inp, capture_output=True, text=True).returncode == 64
+stage2(selfcheck=True)                                             # the supervisor's self-check is no verdict
+forged = subprocess.run([os.path.join(BIN, "events"), "emit", "plan.gated", "--data", "sprint=S1"], cwd=MAIN, env=ENV,
+                        capture_output=True, text=True)
+assert forged.returncode != 0 and green().returncode == 2, forged
+write(os.path.join(STORY, "tasks.md"), TASKS % "Adds `leftpadx` for padding.")
+write(os.path.join(SPRINT, "stories.md"), "---\ntype: stories\nsprint: 1\n---\n# Sprint 1\n\n- S1-01 (s1-01-fetch), "
+      "with `padx2`\n- S1-02 (s1-02-other)\n")
+stage2()
+r = green()
+assert r.returncode == 0, r.stderr
+ok("under an autonomy grant a dependency counts once the planner's gate passed the plan that names it, and only then")
 
 # Fake credentials are assembled at run time so this file never holds one (push protection).
 SECRETS = os.path.join(BIN, "secrets")

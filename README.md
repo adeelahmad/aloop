@@ -16,7 +16,7 @@
 # Aladdin: intent is all you need
 
 **aloop** (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified
-code on Claude Code, Codex, OpenCode and DeepSeek Harness. You approve the plan. Cheap workers
+code on Claude Code, Codex, OpenCode and DeepSeek Harness. You give the intent and answer only one-way-door questions. Cheap workers
 build it in isolated git worktrees. Deterministic hooks decide what is accepted, so no model is trusted
 to say "done": a gate has to see it.
 
@@ -177,8 +177,9 @@ approval of that exact content: `aloop mission approve` records only when a prom
 first 8 hex of the content's sha256, so an agent cannot approve its own change (M9.17). The records the
 gates decide from (approvals, measurements, assessments, retirements, goals) are rows in a
 hash-chained, committed ledger, so an edited or backdated row, or one removed before the newest,
-fails the check. The ethics verdicts, the `tick --force` grant and `mission.budget_exhausted` are
-still run-log events, and a removed newest row is caught only where the run log survives (M9.24). The confirmed definition of "best" is the
+fails the check. The ethics verdicts, the `tick --force` grant, `mission.budget_exhausted` and the
+project's stop (`aloop stop`) are ledger rows too, so a clone decides the same; a removed newest row is
+caught only where the run log survives (M9.24, M10.4). The confirmed definition of "best" is the
 mission's RED: a baseline whose journeys all pass already is refused. Usage telemetry (GA4,
 opt-in) informs goals and is never a gate.
 
@@ -331,7 +332,7 @@ structural, not luck:
   blocking it from doing the context-heavy work itself.
 
 Live runs: `make smoke-live YES=1` (hook wiring, ~$0.004) and `make e2e-live YES=1` (the whole
-loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci`, which runs Rust fmt/clippy/tests, shellcheck, 56 Python/Node suites plus every `mission-*.test.py`,
+loop, ~$1; each run writes `summary.json` and a row for [docs/evidence/](docs/evidence/README.md)). Offline: `make ci`, which runs Rust fmt/clippy/tests, shellcheck, 59 Python/Node suites plus every `mission-*.test.py`,
 the gate conformance fixtures (`make conformance`) and eval-suite validation. Every ROADMAP
 requirement is tracked with its test in [docs/TRACKING.md](docs/TRACKING.md).
 
@@ -358,7 +359,7 @@ change rationale.
 .claude-plugin/marketplace.json   marketplace catalog (source: ./plugin)
 plugin/                           the installable plugin (see plugin/README.md)
   bin/        the tools and gates (aladdin, aloop, gate-*, budget, sweep, targets, events, host, mission …)
-  agents/     the 15 roles (Aladdin's 9 + the mission layer's 6) · skills/ the supervisor playbooks (aloop, aladdin, init, mission)
+  agents/     the 16 roles (Aladdin's 10 + the mission layer's 6) · skills/ the supervisor playbooks (aloop, aladdin, init, mission)
   hooks/      hooks.json (aloop:<role> matchers) · hosts/ capabilities, routes, the OpenCode and dsh plugins
   mission/    the mission layer's areas (journeys, baseline, assess, evaluate …) and their schemas
   schemas/    KDL schemas for the planning artifacts · tools/ ctx-symbols + md-db sources

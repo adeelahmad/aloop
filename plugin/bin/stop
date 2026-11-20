@@ -8,6 +8,9 @@
   aloop stop --status      exit 0 running, 3 stopped (with the reason)
   aloop stop --clear       resume. Only the human, from their own terminal: a shell an agent host
                            runs is refused. Records run.resumed.
+
+With a mission ledger (docs/agents/mission/ledger.jsonl) both records are ledger rows too, so a
+fresh clone stays stopped until the human clears it there.
 """
 import json
 import os
@@ -17,6 +20,7 @@ import time
 sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import _events  # noqa: E402
+import _mission  # noqa: E402
 import _paths  # noqa: E402
 import _stop  # noqa: E402
 
@@ -28,6 +32,22 @@ AGENT_SHELL = ("CLAUDECODE", "DSH_SHELL", "CODEX_THREAD_ID", "ALOOP_AGENT_SHELL"
 
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def record(cwd, event, role, **data):
+    """The stop or resume as a mission ledger row when the project has a ledger (its event comes with
+    it), else as an event. A broken ledger takes no row: say so (BLOCK) and return False."""
+    if not os.path.exists(_mission.ledger(cwd)):
+        _events.emit(cwd, event, role=role, **data)
+        return True
+    try:
+        _mission.record(cwd, event, "project", role, **data)
+        return True
+    except _mission.LedgerBroken as e:
+        print("BLOCK[stop]: the mission ledger is broken (%s), so it cannot record %s: restore it "
+              "(git checkout -- %s) and run this again" % (e, event, _mission.rel(cwd, _mission.ledger(cwd))),
+              file=sys.stderr)
+        return False
 
 
 def main(argv):
@@ -52,8 +72,14 @@ def main(argv):
         if not rec:
             print("running (nothing to clear)")
             return 0
-        os.remove(_stop.path(cwd))
-        _events.emit(cwd, "run.resumed", role="human", stopped_at=rec.get("at"), reason=rec.get("reason"))
+        info = dict(stopped_at=rec.get("at"), reason=rec.get("reason"))
+        if _stop.ledger_stop(cwd):                    # the ledger's stop holds every clone: clear it there too
+            if not record(cwd, "run.resumed", "human", **info):
+                return 2
+        else:
+            _events.emit(cwd, "run.resumed", role="human", **info)
+        if os.path.exists(_stop.path(cwd)):
+            os.remove(_stop.path(cwd))
         print("running: the stop of %s is cleared" % (rec.get("at") or "?"))
         return 0
     if argv[:1] and argv[0].startswith("-"):
@@ -69,7 +95,7 @@ def main(argv):
     _paths.home(cwd)                                          # writes .aladdin/.gitignore if missing
     with open(_stop.path(cwd), "w") as f:
         json.dump(rec, f)
-    _events.emit(cwd, "run.stopped", role=by, reason=reason)
+    record(cwd, "run.stopped", by, reason=reason)      # the flag holds here even when the ledger cannot
     print("stopped: every agent of %s is refused from its next tool call; `aloop stop --clear` in your "
           "own terminal resumes" % _paths.project(cwd))
     return 0

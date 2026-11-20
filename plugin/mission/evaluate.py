@@ -175,6 +175,8 @@ def load_state(cwd, sid):
 
 
 def cmd_evaluate(cwd, sid, o):
+    if M.ledger_block(cwd, "evaluate"):                  # nothing is evaluated from a broken ledger, nor a gap list left
+        return 2
     spath, state = load_state(cwd, sid)
     if not isinstance(state, dict):
         print("BLOCK[evaluate]: no state report%s" % (" " + sid if sid else " yet (mission assess)"), file=sys.stderr)

@@ -90,19 +90,33 @@ Status of every requirement in [ROADMAP.md](ROADMAP.md), in the four states §8 
 | M9.30 | Core agent principles; one-way / two-way door rule enforced by a gate | IMPLEMENTED_TESTED | `scripts/test/mission-doors.test.py` |
 | M9.40 | Artifact provenance in the mission loop | NOT_IMPLEMENTED | §4.12 |
 | M9.41 | Concurrent mission role runs are serialized | NOT_IMPLEMENTED | §4.12 |
-| M9.42 | Shared mission role dirs, judge run records and the judge command | NOT_IMPLEMENTED | §4.12 |
+| M9.42 | Shared mission role dirs and judge run records | IMPLEMENTED_TESTED | `scripts/test/mission-roles.test.py` |
 | M9.43 | A goal binds the mission's direction, not its budget | NOT_IMPLEMENTED | §4.12 |
 | M9.44 | A goal is re-measured between its sprints | NOT_IMPLEMENTED | §4.12 |
 | M9.45 | A journey's runner has a named author | NOT_IMPLEMENTED | §4.12 |
 | M9.46 | `mission due` is the supervisor's, not a role's | NOT_IMPLEMENTED | §4.12 |
+| M9.48 | Mission area follow-ups of the role gates' review (telemetry check split, measuring role, intent field shape, ledger repair advice, judge command) | NOT_IMPLEMENTED | §4.12 |
 | M9.50 | A goal sprinted with gaps still open gets a next step | IMPLEMENTED_TESTED | `scripts/test/mission-goal.test.py` |
 | M9.51 | Lifting a mission block is the human's typed line, kept in the ledger | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.52 | The mission loop reads a gap list only when it still recomputes | NOT_IMPLEMENTED | §4.12 |
 | M9.53 | The mission loop hands out a goal's commands only when `goal check` passes | IMPLEMENTED_TESTED | `scripts/test/mission-tick.test.py` |
 | M9.54 | Scope gate reader residuals (computed cd, failed cd, loop cd accumulation) | NOT_IMPLEMENTED | §4.12 |
 | M9.55 | One goal in flight, picked by one clock | NOT_IMPLEMENTED | §4.12 |
-| M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | NOT_IMPLEMENTED | §4.13 |
+| M10.1 | Workers run with the network off and writes confined to their worktree, via the host sandbox | BLOCKED_HOST | needs bubblewrap and socat on Linux (or macOS Seatbelt) to prove containment; this container has neither (§4.13) |
 | M10.2 | No unplanned dependency (GREEN) and no credential (GREEN, final gate) | IMPLEMENTED_TESTED | `scripts/test/supply-chain.test.py` |
-| M10.2b | The stack's dependency audit in the final gate's matrix | NOT_IMPLEMENTED | §4.13 |
-| M10.3 | Fetched web content is data (no shell for fetching roles, injection eval case) | NOT_IMPLEMENTED | §4.13 |
+| M10.2b | The stack's dependency audit (cargo audit, npm audit, pip-audit, govulncheck) passes before sprint sign-off; a missing tool blocks | IMPLEMENTED_TESTED | `scripts/test/dependency-audit.test.py` |
+| M10.3 | Fetched web content is data: the market-researcher fetches only through `research archive` (no WebFetch, no curl/wget, on every host), personas, injected-page eval case | IMPLEMENTED_TESTED | `scripts/test/fetched-data.test.py` |
+| M10.3b | The same for the ethics-reviewer and product-tester (they still WebFetch: they cannot write research/), and a fetch from an interpreter (`python -c urllib`) | NOT_IMPLEMENTED | §4.13 |
 | M10.4 | `aloop stop` halts a whole project, honoured by `mission tick` | IMPLEMENTED_TESTED | `scripts/test/project-stop.test.py` |
+| M11.1 | Autonomous is the default mode; reviewed is opt-in | IMPLEMENTED_TESTED | `scripts/test/plan-approval.test.py` |
+| M11.2 | The typed intent grants its sprints (no `autonomous SN <code>` line) | IMPLEMENTED_TESTED | `scripts/test/plan-approval.test.py` |
+| M11.3 | A plan judge plus deterministic plan checks replace the human's plan sign-off | NOT_IMPLEMENTED | §4.14 |
+| M11.4 | An intake `ask` question takes its recommended answer in autonomous mode, unless it is a one-way door | IMPLEMENTED_TESTED | `scripts/test/intent-contract.test.py` |
+| M11.5 | Sprints chain with automatic context rotation until the intent is met | NOT_IMPLEMENTED | §4.14 |
+| M11.6 | Zero-question init (`--ask` restores the questions) | IMPLEMENTED_UNTESTED | init skill applies the defaults with no questions; a live run measures it (M11.9) |
+| M11.7 | A one-way door parks only its own action; the run continues | NOT_IMPLEMENTED | §4.14 |
+| M11.8 | Mission loop without stalls in autonomous mode | NOT_IMPLEMENTED | §4.14 |
+| M11.9 | Live run: one intent to merged code with no human message after it | IMPLEMENTED_UNTESTED | run 54 (docs/evidence/README.md): one sprint, intent only, 12/12; the two-sprint chain waits on M11.5 |
+| M11.10 | A door-classifier tags every planned task one-way or two-way before execution; only one-way tasks wait, asked together | IMPLEMENTED_TESTED | `scripts/test/mission-door-plan.test.py` |
+| M11.11 | A door is made two-way only by an env var plus the human's typed consent | IMPLEMENTED_TESTED | `scripts/test/mission-doors-reclassify.test.py` |
+| M11.12 | A task's diff stays in its planned fileset; a worker steps out only by a declared, reasoned two-way exemption the gate decides and records | IMPLEMENTED_TESTED | `scripts/test/task-scope.test.py` |
