@@ -55,7 +55,8 @@ The model can ignore a skill; it cannot ignore an exit code.
 3. **Execution** — human absent. For each task, a worker runs in its own git worktree:
    - **RED** writes tests that must fail *by assertion* and touch no production code;
    - **SCAFFOLD** creates each planned symbol exactly once, as a stub;
-   - **GREEN** makes the tests pass inside the task's scope, with zero suppressions;
+   - **GREEN** makes the tests pass inside the task's planned fileset (a production file the plan
+     missed only as a declared, reasoned, recorded exemption), with zero suppressions;
    - **STRUCTURAL-REVIEW** looks for orphan, parallel or duplicate code.
    Work merges only on a passing gate. A failed gate re-prompts the worker; repeated
    failure goes to the supervisor, who acts on facts from `sweep` (accept, retry, re-plan,
