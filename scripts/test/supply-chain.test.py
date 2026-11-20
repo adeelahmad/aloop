@@ -163,11 +163,17 @@ def stage2(selfcheck=False):
     assert r.returncode == 0, r.stderr
 
 
-write(os.path.join(SPRINT, "stories.md"), "---\ntype: stories\nsprint: 1\n---\n# Sprint 1\n\n- S1-01 (s1-01-fetch)\n- S1-02 (s1-02-other)\n")
-write(os.path.join(SPRINT, "plan.md"), "---\ntype: sprint-plan\nsprint: 1\nstage: \"2\"\n---\n# Waves\n")
+# The planning docs pass md-db's schema (schemas/planning-artifacts.kdl), so the gate judges the same plan
+# with md-db installed (a user's machine) as without it (CI's host jobs, which run the fallback)
+STORIES = ("---\ntype: stories\nsprint: 1\n---\n# Sprint 1\n\n## Sprint goal\nFetch.\n\n## Sprint demo\nA fetch.\n\n"
+           "## Definition of Done\nTests pass.\n\n## Out of scope\nNone.\n\n## User stories\n\n%s\n\n## Story dependency graph\nS1-01 then S1-02.\n")
+write(os.path.join(SPRINT, "stories.md"), STORIES % "- S1-01 (s1-01-fetch)\n- S1-02 (s1-02-other)")
+write(os.path.join(SPRINT, "plan.md"), "---\ntype: sprint-plan\nsprint: 1\nstage: \"2\"\n---\n# Waves\n\n## Sprint goal\nFetch.\n\n"
+      "## Critical path\nS1-01.\n\n## Cross-cutting gates\nNone.\n")
 for sid, k in (("s1-01-fetch", 1), ("s1-02-other", 2)):
-    write(os.path.join(SPRINT, sid, "validate.md"), "---\ntype: validate\nstory: S1-0%d\n---\n## T1\npytest -q\n" % k)
-    write(os.path.join(SPRINT, sid, "plan.md"), "---\ntype: plan\nstory: S1-0%d\nstage: \"2\"\n---\n# Plan\n" % k)
+    write(os.path.join(SPRINT, sid, "validate.md"), "---\ntype: validate\nstory: S1-0%d\n---\n## Pre-flight\nNone.\n\n## T1\npytest -q\n\n"
+          "## Final sign-off\npytest -q\n" % k)
+    write(os.path.join(SPRINT, sid, "plan.md"), "---\ntype: plan\nstory: S1-0%d\nscope: tests only\nstage: \"2\"\n---\n# Plan\n" % k)
 approve_plan(MAIN, ENV, mode="autonomous")
 r = green()
 assert r.returncode == 2 and "leftpadx" in r.stderr and "S1 is autonomous, but no plan of it has passed the planner's gate yet" in r.stderr, r.stderr
@@ -186,8 +192,7 @@ forged = subprocess.run([os.path.join(BIN, "events"), "emit", "plan.gated", "--d
                         capture_output=True, text=True)
 assert forged.returncode != 0 and green().returncode == 2, forged
 write(os.path.join(STORY, "tasks.md"), TASKS % "Adds `leftpadx` for padding.")
-write(os.path.join(SPRINT, "stories.md"), "---\ntype: stories\nsprint: 1\n---\n# Sprint 1\n\n- S1-01 (s1-01-fetch), "
-      "with `padx2`\n- S1-02 (s1-02-other)\n")
+write(os.path.join(SPRINT, "stories.md"), STORIES % "- S1-01 (s1-01-fetch), with `padx2`\n- S1-02 (s1-02-other)")
 stage2()
 r = green()
 assert r.returncode == 0, r.stderr

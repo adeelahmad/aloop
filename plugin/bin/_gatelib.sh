@@ -285,7 +285,7 @@ validate_comms() {
   local block; block="$(awk -v s="$last" 'NR>=s' "$out")"
   # Here-strings, never `printf "$block" | grep -q`: grep -q exits at its match, the printf still
   # writing the rest dies of SIGPIPE (141), and pipefail read a well-formed block as missing a
-  # section (conformance §6.6 flaked on "missing '### Next'"; a block past what a pipe holds always did).
+  # section (conformance §6.6 flaked on "missing '### Next'"; a block past what a pipe holds almost always did).
   if [ -n "${AGENT_ROLE:-}" ]; then
     grep -q "$AGENT_ROLE" <<<"${block%%$'\n'*}" \
       || fail "the latest output.md block is not from '$AGENT_ROLE' — append YOUR report block for this dispatch (one block per attempt, append-only). How: $how"
