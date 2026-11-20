@@ -37,7 +37,7 @@ const WRITERS = new Set(["red-worker", "scaffolder", "green-worker"])
 const GATES = {
   "red-worker": "gate-red-verify", scaffolder: "gate-scaffold-verify", "green-worker": "gate-green-verify",
   "structural-reviewer": "gate-structural-integrity", "final-gate": "gate-final",
-  intake: "gate-intake", standards: "gate-standards-cited", planner: "gate-stage2-complete", archivist: "gate-memory",
+  intake: "gate-intake", standards: "gate-standards-cited", planner: "gate-stage2-complete", archivist: "gate-memory", "door-classifier": "gate-door-plan",
   // the mission roles (ROADMAP §4.12): each one's artifacts are checked when it stops
   "market-researcher": "gate-mission-artifact", "product-tester": "gate-mission-artifact",
   "state-assessor": "gate-mission-artifact", "evaluator": "gate-mission-artifact",

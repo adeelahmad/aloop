@@ -62,6 +62,8 @@ the cost cell reads — and the intent cell names the host (an unmeasured cost i
 | run 50 | cli (Rust binary), under the plan approval gate | v0.12.0 + #99 (575d95a) | 13/13 | 10m17s | $0.84 | 2 | 0 | 1 | `make e2e-live YES=1 INTENT=cli` |
 | run 51 | cli (Rust binary), under the supply-chain and secret gates | v0.12.0 + #99, #106, #107 (fdda5d9) | 13/13 | 14m24s | $0.94 | 1 | 0 | 3 | `make e2e-live YES=1 INTENT=cli` |
 | run 52 | slugify (Python), under the M0.9, M10.2 and M10.4 gates | v0.12.0 + #110 (f11f5b4) | 12/12 | 8m26s | $0.56 | 1 | 0 | 2 | `make e2e-live YES=1 INTENT=slugify` |
+| run 53 | cli (Rust binary), under the dependency audit gate | v0.12.0 + #119 (f26a9fe) | 13/13 | 9m16s | $0.84 | 1 | 0 | 2 | `make e2e-live YES=1 INTENT=cli` |
+| run 54 | slugify (Python), intent only: no approval line; the typed intent was the grant (M11.2), one door-classifier tag, 1 human prompt | v0.12.0 + #122 (2fdb591) | 12/12 | 7m26s | $0.82 | 2 | 0 | 6 | `make e2e-live YES=1 INTENT=slugify` |
 
 Columns: *checks* are the e2e script's own assertions (12 for `semver`, 13 for `wordfreq` since
 the commit-trace check); *wakes* are supervisor turns that ended and resumed (each re-reads
@@ -119,3 +121,9 @@ Run 52 is the first Python run under the plan approval, dependency, secret and s
 $0.56 and 8m26s, the cheapest `slugify` run (run 37: $0.69, 9m42s). None of the new gates refused
 anything; its 2 blocks were self-checks (SCAFFOLD's `black --check`, and a `targets` create with no
 `planned_symbol` caught before execution).
+
+Run 53 is the first run with the final gate's dependency audit (M10.2b, `bin/audit`): 13/13, $0.84 and
+9m16s, level with run 50 (the same `cli` intent, $0.84). The audit had nothing to run: the `minwc`
+crate declares no dependency, so `gate-final` passed with no audit tool installed (this host has no
+`cargo-audit`). Its 2 blocks were not the audit's (the run log has no "dependency audit" line). What is still
+unmeasured: a run whose plan adds a dependency, which needs `cargo audit` (or `pip-audit`, `npm`) on the host.

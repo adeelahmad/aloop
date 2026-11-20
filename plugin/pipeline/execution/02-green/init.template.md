@@ -14,7 +14,9 @@ Make task T<k>'s tests pass by filling the scaffolded SUB-AGENT-TODO bodies.
 
 # Scope
 ## May
-Edit production files named in tasks.md; delete obsolete shims in the test file.
+Edit production files named in tasks.md; delete obsolete shims in the test file;
+touch a two-way production file the plan missed by declaring it under `### Scope exemptions`
+in your output.md block (`- <path>: <reason>`, at most 3).
 ## May Not
 Add tests; refactor unforced code; touch out-of-scope files; suppress a test.
 

@@ -49,7 +49,8 @@ echo "[$GATE_NAME] five-part intent present in $f" >&2
 # The internal Intent Contract (ROADMAP §4.1), when intake wrote one: newest wins.
 ic="$(ls -t "$(dirname "$f")"/../intents/int_*.json "$(dirname "$f")"/intents/int_*.json 2>/dev/null | head -1)"
 if [ -n "$ic" ]; then
-  "$BIN_DIR/intent" check "$ic" --mode "${AGENTIC_AUTONOMY_MODE:-reviewed}"; rc=$?
+  # no AGENTIC_AUTONOMY_MODE: the project's mode, autonomous by default (ROADMAP M11.1)
+  "$BIN_DIR/intent" check "$ic" ${AGENTIC_AUTONOMY_MODE:+--mode "$AGENTIC_AUTONOMY_MODE"}; rc=$?
   if [ "$rc" = 3 ]; then
     # NEEDS-HUMAN release (ROADMAP §4.9), as a STUCK release: questions only the human can answer are not
     # the intake's to fix, so blocking its stop buys fix rounds it cannot use (or an answer it made up). A

@@ -49,6 +49,15 @@ while IFS= read -r p; do
     || fail "RED diff touches a non-test path: $p (allowed: $TEST_GLOBS). RED writes tests only: put shims in tests/common/mod.rs (marked // agentic:shim), then undo the change and commit: git checkout ${BASE_REF:-<base>} -- '$p' (a new file: git rm '$p'), then git commit -am 'RED: tests only'"
 done < <(changed_paths)
 
+# 3a) An existing test outside this task's plan may only gain lines: RED never deletes or rewrites
+#     another task's proof (targets diffscope; new test files pass).
+if [ -n "${STORY_DIR:-}" ] && [ -f "$STORY_DIR/targets.json" ] && red_base="$(diff_base)" && [ -n "$red_base" ]; then
+  red_out="$("$HERE/targets" diffscope "${TASK_ID##*-}" "$STORY_DIR" --base "$red_base" --root "$(repo_dir)" \
+      --role red --task-id "${TASK_ID:-}" --tests "$TEST_GLOBS" 2>&1)" \
+    || fail "RED changes a test outside this task's plan:
+$red_out"
+fi
+
 # 3b) Format: RED's files must pass the matrix's format check (GREEN may not reformat them).
 run_format_checks
 

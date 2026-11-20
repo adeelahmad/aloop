@@ -51,7 +51,7 @@ const EXECUTION = new Set([...WRITERS, "structural-reviewer", "final-gate"])
 const GATES = {
   "red-worker": "gate-red-verify", scaffolder: "gate-scaffold-verify", "green-worker": "gate-green-verify",
   "structural-reviewer": "gate-structural-integrity", "final-gate": "gate-final",
-  intake: "gate-intake", standards: "gate-standards-cited", planner: "gate-stage2-complete", archivist: "gate-memory",
+  intake: "gate-intake", standards: "gate-standards-cited", planner: "gate-stage2-complete", archivist: "gate-memory", "door-classifier": "gate-door-plan",
   // the mission roles (ROADMAP §4.12): each one's artifacts are checked when it stops
   "market-researcher": "gate-mission-artifact", "product-tester": "gate-mission-artifact",
   "state-assessor": "gate-mission-artifact", evaluator: "gate-mission-artifact",
@@ -268,7 +268,7 @@ export function apply(ctx, config = {}) {
       return "aloop: a role does not message the supervisor: your result reaches it when your stop gate passes. Write your report in your output.md block, then finish."
     if (DISPATCH.has(tool)) {
       if (s.child) return "aloop: a role does not delegate. Finish your own task and report back to the supervisor."
-      if (!a.agent_preset) return "aloop: dispatch an aloop role: pass agent_preset: \"aloop-<role>\" (subagent: red-worker, scaffolder, green-worker, structural-reviewer, final-gate, product-tester, state-assessor; subagent_planning: intake, standards, planner, archivist, market-researcher, evaluator, mission-planner, ethics-reviewer)."
+      if (!a.agent_preset) return "aloop: dispatch an aloop role: pass agent_preset: \"aloop-<role>\" (subagent: red-worker, scaffolder, green-worker, structural-reviewer, final-gate, product-tester, state-assessor; subagent_planning: intake, standards, planner, archivist, door-classifier, market-researcher, evaluator, mission-planner, ethics-reviewer)."
       const role = String(a.agent_preset).replace(/^aloop-/, ""), m = await modelOf(s, role)
       if (m === null) return `aloop: could not resolve ${role}'s model in ${s.project} (\`aloop models resolve ${role}\`)`
       dispatched.set(exec.callId, m)

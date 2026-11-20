@@ -22,6 +22,20 @@ Usage:
         action whose digest the ASK printed (required for a once-door; it expires in 24 hours
         and its first crossing uses it up). A wall or a question-only door is refused (2)
   mission doors revoke DOOR --by NAME --reason TEXT
+  mission doors reclassify DOOR --by NAME --reason TEXT
+        the human's consent to treat a listed one-way door as two-way (ROADMAP M11.11). It counts only in
+        their own typed line `two-way door:DOOR <code>` (M9.17; until then it asks, exit 3) and only while
+        ALOOP_DOORS_TWO_WAY (AGENTIC_/ALADDIN_ too) lists the door: an agent may set the variable and run
+        this, never consent. A wall or a question-only door is refused; `revoke` closes it
+  mission doors tag TASK_ID (--door DOOR | --two-way) --reason TEXT
+        the door-classifier's call (ROADMAP M11.10), before execution: one planned task crosses this one-way
+        door, or none. Tags only add: a task's doors are every door ever tagged for it, so a later two-way tag
+        never removes one, and the catalogue's own gate still runs at every tool call (the backstop)
+  mission doors plan SPRINT [--task TASK_ID] [--json]
+        the sprint's planned one-way doors, all together: each tagged task, its doors and whether the human
+        authorized them (an `authorize` row; a once-door's --once is the task's digest it prints). Exit 0 none
+        open · 3 ASK (each line to relay, one message) · 2 a planned wall. gate-dispatch parks only the tasks
+        with an open door; the rest of the sprint runs. Untagged tasks are listed (two-way, backstopped)
   mission doors check [--file PATH] [--json]
         the catalogue is valid and proves itself (every example classifies to its own door,
         every two-way example to none) and the ledger is intact. Exit 0 · 2
@@ -753,6 +767,19 @@ def decisions(cwd, did):
             if r["data"].get("subject") == subject(did)]
 
 
+TWO_WAY_ENV = ("ALOOP_DOORS_TWO_WAY", "AGENTIC_DOORS_TWO_WAY", "ALADDIN_DOORS_TWO_WAY")
+
+
+def two_way_listed(did):
+    """The override's first half (M11.11): a door named in ALOOP_DOORS_TWO_WAY (comma-separated ids)."""
+    return any(did in [x.strip() for x in (os.environ.get(k) or "").split(",")] for k in TWO_WAY_ENV)
+
+
+def reclass_sha(did):
+    """What the human's `two-way door:DOOR <code>` line grants: this door, as two-way."""
+    return M.digest({"door": did, "as": "two-way"}, drop=())
+
+
 def _authorization(cwd, d, sha, now=None):
     if d is None or d["grant"] not in ("standing", "once"):
         return None
@@ -772,6 +799,10 @@ def _authorization(cwd, d, sha, now=None):
             continue
         if r["event"] == "door.revoked":
             return None
+        if r["event"] == "door.reclassified":   # the human's consent, live only while the variable names the door
+            if two_way_listed(d["id"]) and r["data"].get("sha256") == reclass_sha(d["id"]) and M.cites(r):
+                return opens(r)
+            continue
         if r["event"] != "door.authorized" or (r["data"].get("until") and r["data"]["until"] < now):
             continue
         if r["data"].get("action_sha256"):
@@ -812,8 +843,8 @@ def verdict(cwd, tool, inp, cat=None, hits=None):
         if row:
             crossings.append((d, row))
             lines.append("[door] %s: authorized by %s (%s, ledger row %s)"
-                         % (d["id"], row["data"].get("by"), "once" if row["data"].get("action_sha256") else "standing",
-                            row["event_id"][:12]))
+                         % (d["id"], row["data"].get("by"), "two-way by consent" if row["event"] == "door.reclassified"
+                            else "once" if row["data"].get("action_sha256") else "standing", row["event_id"][:12]))
         else:
             lines.append(ask_text(d, sha))
             rc = rc or 3
@@ -1112,13 +1143,154 @@ def cmd_authorize(cwd, did, o, revoke=False):
     return 0
 
 
+def cmd_reclassify(cwd, did, o):
+    d = door(cwd, did)
+    if d is None:
+        print("mission doors reclassify: unknown door %r (aloop mission doors list)" % did, file=sys.stderr)
+        return 64
+    if d["grant"] not in ("standing", "once"):
+        print("BLOCK[doors]: %s is a %s: no consent makes it two-way" % (did, "wall" if d["grant"] == "never"
+                                                                        else "question-only door"), file=sys.stderr)
+        return 2
+    by, reason = (o.get("by") or "").strip(), (o.get("reason") or "").strip()
+    if not by or not reason:
+        print("mission doors reclassify DOOR --by NAME --reason TEXT", file=sys.stderr)
+        return 64
+    if M.ledger_block(cwd, "doors"):
+        return 2
+    try:
+        eid = M.record_human(cwd, "door.reclassified", subject(did), by, reason, sha256=reclass_sha(did), door=did)
+    except M.NeedsHuman as e:
+        print("ASK[doors]: %s" % e, file=sys.stderr)
+        return 3
+    except M.LedgerBroken as e:
+        print("BLOCK[doors]: the ledger is broken (%s); restore it: git checkout -- %s" % (e, M.rel(cwd, M.ledger(cwd))),
+              file=sys.stderr)
+        return 2
+    except ValueError as e:
+        print("mission doors reclassify: %s" % e, file=sys.stderr)
+        return 64
+    print("[door] %s is two-way by %s's consent (ledger row %s)%s" % (
+        did, by, eid[:12], "" if two_way_listed(did) else "; it takes effect once ALOOP_DOORS_TWO_WAY names it"),
+        file=sys.stderr)
+    return 0
+
+
+# ── planned doors (M11.10): the door-classifier tags tasks before execution ────────────────
+TASK_ID = re.compile(r"^S(\d+)-(\d+)-T\d+$")
+
+
+def task_sha(tid):
+    """The digest a once-door authorization names for one planned task."""
+    return hashlib.sha256(("task:" + tid).encode()).hexdigest()
+
+
+def planned(cwd):
+    """{task: {"doors": {door: reason}, "two_way": bool}} from every door.tagged event (tags only add)."""
+    out = {}
+    for e in _events.read(cwd):
+        d = e.get("data") if e.get("event") == "door.tagged" and isinstance(e.get("data"), dict) else None
+        tid = str(e.get("task") or "") if d is not None else ""
+        if not TASK_ID.match(tid):
+            continue
+        t = out.setdefault(tid, {"doors": {}, "two_way": False})
+        if d.get("door"):
+            t["doors"].setdefault(d["door"], str(d.get("reason") or ""))
+        else:
+            t["two_way"] = True
+    return out
+
+
+def sprint_tasks(cwd, sp):
+    """The live task ids of sprint SN (its frozen ids.json)."""
+    m = re.match(r"^S?(\d+)$", str(sp), re.I)
+    if not m:
+        raise ValueError("a sprint is N or SN (got %r)" % sp)
+    try:
+        with open(os.path.join(_paths.docs(cwd), "sprint" + m.group(1), "ids.json")) as f:
+            ids = json.load(f).get("ids", {})
+    except (OSError, ValueError):
+        ids = {}
+    return sorted(a for a, e in ids.items() if isinstance(e, dict) and e.get("kind") == "task" and not e.get("retired")
+                  and TASK_ID.match(a))
+
+
+def plan_verdict(cwd, sp, only=None, cat=None):
+    """(exit, lines, rows): 0 no open one-way door in the plan, 3 some wait for the human, 2 a planned wall."""
+    cat = cat or catalogue()
+    byid = {d["id"]: d for d in cat["doors"]}
+    tags, rc, lines, rows = planned(cwd), 0, [], []
+    tasks = [only] if only else sprint_tasks(cwd, sp)
+    for tid in tasks:
+        t = tags.get(tid) or {"doors": {}, "two_way": False}
+        if not t["doors"]:
+            rows.append({"task": tid, "door": None, "state": "two-way" if t["two_way"] else "untagged"})
+            continue
+        for did, why in sorted(t["doors"].items()):
+            d, sha = byid.get(did), task_sha(tid)
+            if d is None:
+                state, line = "unknown", "BLOCK[door] %s: tagged with %r, not a door of the catalogue" % (tid, did)
+                rc = 2
+            elif d["grant"] == "never":
+                state, line = "wall", "BLOCK[door] %s plans %s, a wall: re-plan it (%s)" % (tid, did, d["why"])
+                rc = 2
+            elif d["grant"] == "command":
+                state, line = "ask", "ASK[door] %s for %s: %s (%s) — the human answers: %s" % (did, tid, d["title"], why,
+                                                                                         d["answer"])
+                rc = rc or 3
+            elif authorization(cwd, d, sha):
+                state, line = "authorized", "[door] %s for %s: authorized" % (did, tid)
+            else:
+                once = " --once %s" % sha if d["grant"] == "once" else ""
+                state = "ask"
+                line = ("ASK[door] %s for %s: %s (one-way: %s; the classifier: %s). The human authorizes it in their own "
+                        "terminal: aloop mission doors authorize %s --by NAME --reason TEXT%s"
+                        % (did, tid, d["title"], d["why"], why, did, once))
+                rc = rc or 3
+            rows.append({"task": tid, "door": did, "state": state})
+            lines.append(line)
+    if rc == 3 and not only:
+        lines.insert(0, "%d one-way door(s) in %s's plan wait for the human: relay them in ONE message, each with a "
+                        "recommended option; only these tasks wait, the rest of the sprint runs."
+                     % (sum(1 for r in rows if r["state"] == "ask"), "S" + str(sp).lstrip("Ss")))
+    untagged = [r["task"] for r in rows if r["state"] == "untagged"]
+    if untagged and not only:
+        lines.append("[door] untagged (two-way; the door gate still checks every action): %s" % ", ".join(untagged))
+    return rc, lines, rows
+
+
+def cmd_tag(cwd, tid, o):
+    did, reason, two = (o.get("door") or "").strip(), (o.get("reason") or "").strip(), "two_way" in o
+    if not TASK_ID.match(tid or "") or bool(did) == two or not reason:
+        print("mission doors tag SN-NN-Tk (--door DOOR | --two-way) --reason TEXT", file=sys.stderr)
+        return 64
+    if did and door(cwd, did) is None:
+        print("mission doors tag: unknown door %r (aloop mission doors list)" % did, file=sys.stderr)
+        return 64
+    if "\n" in reason or len(reason) > 200:
+        print("mission doors tag: a reason is one line of at most 200 characters", file=sys.stderr)
+        return 64
+    _events.emit(cwd, "door.tagged", role="door-classifier", task=tid, door=did, reason=reason)
+    print("[door] %s: %s" % (tid, "crosses " + did if did else "two-way"), file=sys.stderr)
+    return 0
+
+
+def cmd_plan(cwd, sp, o):
+    rc, lines, rows = plan_verdict(cwd, sp, o.get("task") or None)
+    if o.get("json"):
+        print(json.dumps({"exit": rc, "rows": rows}, indent=1))
+    for ln in lines:
+        print(ln, file=sys.stderr)
+    return rc
+
+
 def parse_args(argv):
     opts, pos, k = {}, [], None
     for a in argv:
         if k:
             opts[k], k = a, None
-        elif a == "--json":
-            opts["json"] = True
+        elif a in ("--json", "--two-way"):
+            opts[a[2:].replace("-", "_")] = True
         elif a.startswith("--"):
             k = a[2:].replace("-", "_")
         else:
@@ -1149,8 +1321,19 @@ def main(argv, cwd):
                 print("mission doors %s DOOR --by NAME --reason TEXT" % cmd, file=sys.stderr)
                 return 64
             return cmd_authorize(cwd, pos[0], o, revoke=cmd == "revoke")
+        if cmd in ("tag", "plan"):
+            if not pos:
+                print("mission doors %s %s" % (cmd, "TASK_ID (--door DOOR | --two-way) --reason TEXT" if cmd == "tag"
+                                               else "SPRINT [--task TASK_ID]"), file=sys.stderr)
+                return 64
+            return cmd_tag(cwd, pos[0], o) if cmd == "tag" else cmd_plan(cwd, pos[0], o)
+        if cmd == "reclassify":
+            if not pos:
+                print("mission doors reclassify DOOR --by NAME --reason TEXT", file=sys.stderr)
+                return 64
+            return cmd_reclassify(cwd, pos[0], o)
     except ValueError as e:
         print("BLOCK[doors]: %s" % e, file=sys.stderr)
         return 2
-    print("mission doors: unknown command %r (list, classify, authorize, revoke, check, hook)" % cmd, file=sys.stderr)
+    print("mission doors: unknown command %r (list, classify, authorize, revoke, reclassify, tag, plan, check, hook)" % cmd, file=sys.stderr)
     return 64
