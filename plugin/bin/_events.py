@@ -40,6 +40,8 @@ EVENT_TYPES = {
     "scope.exempted",
     "door.authorized", "door.revoked", "door.reclassified", "door.tagged", "door.denied", "door.crossed",
     "door.two_way",
+    # user space (ROADMAP M12): which copy of each customized opinion a run loaded
+    "userspace.applied",
 }
 ENVELOPE = ("schema", "event_id", "ts", "event", "ids", "parent_event_id", "caused_by", "role", "host",
             "model", "authority", "decision", "refs", "data")

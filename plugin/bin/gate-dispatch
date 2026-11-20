@@ -42,6 +42,17 @@ case "$role" in red-worker|scaffolder|green-worker|structural-reviewer|final-gat
 . "$HERE/_paths.sh"
 [ -d "$AGENTIC_HOME" ] || exit 0
 
+# User space (ROADMAP M12): a role this project customized is rendered as .claude/agents/<role>.md, so a
+# dispatch of the plugin's `aloop:<role>` would silently run the uncustomized copy. Steer it to the project's.
+raw="$(printf '%s' "$payload" | python3 -c 'import json,sys; print(str((json.load(sys.stdin).get("tool_input") or {}).get("subagent_type") or ""))' 2>/dev/null)"
+case "$raw" in
+  *:"$role")
+    if [ -f "$AGENTIC_PROJECT/.claude/agents/$role.md" ] && grep -q 'aloop-userspace (rendered by' "$AGENTIC_PROJECT/.claude/agents/$role.md" 2>/dev/null; then
+      echo "BLOCK[$GATE_NAME]: this project customizes $role (docs/agents/userspace/agents/$role.md, \`aloop userspace which agents/$role.md\`): dispatch subagent_type \`$role\`, not \`$raw\`." >&2
+      exit 2
+    fi ;;
+esac
+
 # The model is the project's confirmed one (docs/agents/defaults.md → `aloop models resolve <role>`,
 # ROADMAP §3.6), never the supervisor's pick: live e2e run 20 dispatched planners on opus and
 # workers on sonnet with defaults.md saying haiku for both, and cost $2.79 instead of $0.99. A

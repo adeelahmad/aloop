@@ -5,7 +5,8 @@
 #   2. loads docs/agents/NEXT.md — the orchestrator handoff the harness wrote when the last
 #      sprint closed — into the fresh context. This is how the supervisor resumes after
 #      /clear: from the file, not from memory;
-#   3. in an aloop project, adds the core principles (`mission principles show --core`).
+#   3. in an aloop project, adds the core principles (`mission principles show --core`);
+#   4. runs `userspace auto` (ROADMAP M12): first-run eject, plugin-upgrade follow, render, log.
 # Never blocks (always exit 0).
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,6 +46,13 @@ fi
 # project gets them on every start, resume, clear and compact, so they survive a compaction
 core=""
 if [ -d "$AGENTIC_DOCS" ]; then core="$("$HERE/mission" principles show --core 2>/dev/null || true)"; fi
+# user space (ROADMAP M12): the first session ejects the loop's opinions into docs/agents/userspace/,
+# later ones follow a plugin upgrade without overwriting an edit, render the winning copies and log them
+uspace=""
+if [ -d "$AGENTIC_DOCS" ]; then uspace="$("$HERE/userspace" auto 2>/dev/null || true)"; fi
+[ -n "$uspace" ] && core="${core:+$core
+
+}$uspace"
 [ -f "$AGENTIC_NEXT" ] || [ -n "$swapped" ] || [ -n "$core" ] || exit 0
 ctx=""
 if [ -f "$AGENTIC_NEXT" ] || [ -n "$swapped" ]; then

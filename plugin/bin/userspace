@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""userspace (aloop userspace) — the loop's user space: the opinions a project ejects and changes (ROADMAP M12).
+
+  aloop userspace eject           copy the plugin's agents, skills and a kernel reference into
+                                  docs/agents/userspace/ (never overwrites; first init does this)
+  aloop userspace status [--json] each file: default | customized | stale | conflict | removed |
+                                  orphan | ignored, and the layer that wins (home > repo > plugin)
+  aloop userspace upgrade         follow a plugin upgrade: untouched files update, an edited file is
+                                  kept and the new plugin text is written beside it (<rel>.plugin-new)
+  aloop userspace diff <rel>      the plugin's change since your base, and your copy against it
+  aloop userspace merge <rel>     three-way merge the plugin's change into your copy (exit 1 on a
+                                  conflict: <rel>.merge holds the markers, your copy is untouched)
+  aloop userspace accept <rel>    your copy stands against the plugin's current text
+  aloop userspace reset <rel>     back to the plugin's copy
+  aloop userspace which <rel>     the layer and path that win for <rel>
+  aloop userspace path [--home]   the repo layer (or the personal home layer)
+  aloop userspace apply           render what the host loads and log the copies used
+  aloop userspace auto            SessionStart: first-run eject, upgrade, apply; prints context lines
+
+The kernel (gates, audit log, hooks) is not in user space: `reference/` copies of it change nothing.
+AGENTIC_NO_EJECT=1 (or ALADDIN_NO_EJECT=1) skips the first-run eject.
+"""
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, HERE)
+import _paths  # noqa: E402
+import _userspace as U  # noqa: E402
+
+
+def main(argv):
+    cwd = os.getcwd()
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        print(__doc__.strip())
+        return 0
+    cmd, rest = argv[0], argv[1:]
+    try:
+        if cmd == "eject":
+            done = U.eject(cwd)
+            print("ejected %d file(s) into %s" % (len(done), os.path.relpath(U.repo_dir(cwd), _paths.project(cwd))))
+            return 0
+        if cmd == "status":
+            rows = U.status(cwd)
+            if "--json" in rest:
+                print(json.dumps([dict(zip(("rel", "kind", "state", "layer"), r)) for r in rows], indent=2))
+                return 0
+            if U.manifest(cwd) is None:
+                print("not ejected (aloop userspace eject)")
+            for rel, kind, state, layer in rows:
+                if state != "default" or layer == "home":
+                    print("%-10s %-9s %-6s %s" % (state, kind, layer, rel))
+            n = sum(1 for r in rows if r[2] == "default" and r[3] != "home")
+            print("%d file(s) at the plugin default" % n)
+            return 0
+        if cmd == "upgrade":
+            up, conf = U.upgrade(cwd)
+            for r in up:
+                print("updated  " + r)
+            for r in conf:
+                print("conflict " + r + "  (aloop userspace diff|merge|accept|reset " + r + ")")
+            return 0
+        if cmd in ("diff", "merge", "accept", "reset", "which"):
+            if len(rest) != 1:
+                print("usage: aloop userspace %s <rel>" % cmd, file=sys.stderr)
+                return 64
+            rel = rest[0]
+            if cmd == "diff":
+                sys.stdout.write(U.diff(cwd, rel))
+                return 0
+            if cmd == "merge":
+                rc = U.merge(cwd, rel)
+                print("merged " + rel if rc == 0 else
+                      "conflict: resolve %s%s, copy it over %s, then `aloop userspace accept %s`" % (rel, U.MERGE, rel, rel))
+                return rc
+            if cmd == "accept":
+                U.accept(cwd, rel)
+                print("accepted " + rel)
+                return 0
+            if cmd == "reset":
+                U.reset(cwd, rel)
+                print("reset " + rel)
+                return 0
+            layer, path = U.resolve(cwd, rel)
+            print("%s %s" % (layer, path))
+            return 0
+        if cmd == "path":
+            print(U.home_dir(cwd) if "--home" in rest else U.repo_dir(cwd))
+            return 0
+        if cmd == "apply":
+            ov, notes = U.apply(cwd)
+            for r, l, s in ov:
+                print("%-5s %s %s" % (l, s[:12], r))
+            for n in notes:
+                print("note: " + n)
+            return 0
+        if cmd == "auto":
+            if not os.path.isdir(_paths.docs(cwd)):
+                return 0                      # not an aloop project
+            if U.manifest(cwd) is None:
+                if os.environ.get("AGENTIC_NO_EJECT") or os.environ.get("ALADDIN_NO_EJECT"):
+                    ov, notes = U.apply(cwd)
+                    print(U.context_note(cwd, ov, [], notes))
+                    return 0
+                U.eject(cwd)
+                conf = []
+            else:
+                _, conf = U.upgrade(cwd)
+            ov, notes = U.apply(cwd)
+            print(U.context_note(cwd, ov, conf, notes))
+            return 0
+    except ValueError as e:
+        print("userspace: %s" % e, file=sys.stderr)
+        return 64
+    print("userspace: unknown command %r (aloop userspace --help)" % cmd, file=sys.stderr)
+    return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
