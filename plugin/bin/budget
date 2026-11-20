@@ -67,6 +67,7 @@ import _usage  # noqa: E402  (token usage from any host's session log)
 import _events  # noqa: E402  (the aladdin.event/1 stream)
 import _timebox  # noqa: E402  (AGENTIC_TIME_MODE=auto)
 import _stop  # noqa: E402  (the project stop flag, M10.4)
+import _fetched  # noqa: E402  (fetched web content is data, M10.3)
 
 BUDGET_KEYS = ("TOKENS_SOFT", "TOKENS_HARD", "TIME_SOFT_MIN", "TIME_HARD_MIN", "MAX_REPLANS")
 WORKERS = ("red-worker", "scaffolder", "green-worker")
@@ -386,6 +387,21 @@ def save_state(path, st):
 
 
 # ── hook mode ─────────────────────────────────────────────────────────
+def fetch_rule(mode, raw):
+    """A role that reads the web through the archive fetches nothing itself (ROADMAP M10.3). True when
+    this call is refused."""
+    if mode != "pre" or not any(r in raw for r in _fetched.archive_roles()):   # cheap exit
+        return False
+    try:
+        payload = json.loads(raw)
+    except ValueError:
+        return False
+    why = _fetched.refusal(payload)
+    if why:
+        emit("PreToolUse", deny=why)
+    return bool(why)
+
+
 def project_stop(mode, raw):
     """The human stopped the project (`aloop stop`, ROADMAP M10.4): refuse every acting call of every
     agent, and end it at its next read. True when the stop decided this call."""
@@ -612,6 +628,8 @@ def observe(mode, payload, agent_id, role):
 def hook(mode):
     raw = sys.stdin.read()
     if project_stop(mode, raw):                  # before every opt-out: a stop holds for all (M10.4)
+        return
+    if os.environ.get("SKIP_HOOKS") != "1" and fetch_rule(mode, raw):   # a gate: not the budget opt-out's
         return
     if os.environ.get("SKIP_HOOKS") == "1" or os.environ.get("AGENTIC_NO_BUDGET") == "1":
         return

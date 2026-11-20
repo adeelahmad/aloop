@@ -99,6 +99,8 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and
 	python3 scripts/test/semantic-targets.test.py
 	python3 scripts/test/supply-chain.test.py
 	python3 scripts/test/project-stop.test.py
+	python3 scripts/test/fetched-data.test.py
+	python3 scripts/test/dependency-audit.test.py
 	python3 scripts/test/commit-trace.test.py
 	python3 scripts/test/impact-provider.test.py
 	python3 scripts/test/timebox-auto.test.py
@@ -117,6 +119,7 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and
 	plugin/bin/layout check
 	plugin/bin/host check
 	python3 scripts/test/targets-scope.test.py
+	python3 scripts/test/task-scope.test.py
 	python3 scripts/test/plan-render.test.py
 	python3 scripts/test/persona-shapes.test.py
 	python3 scripts/check-tracking.py

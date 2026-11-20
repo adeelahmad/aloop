@@ -13,8 +13,9 @@ Usage:
         validate the contract: required fields, enums, ≥1 success and ≥1 failure scenario,
         and the clarification policy; a mission intent also passes its goal's gate, matches its
         intent.received, and is checked in the goal's autonomy. Exit 0 ok (emits
-        intent.normalized) · 2 invalid · 3 needs the human (an `ask` question is unanswered —
-        in BOTH modes)
+        intent.normalized) · 2 invalid · 3 needs the human (an unanswered `ask`: in reviewed mode
+        every one; in autonomous mode, the default (M11.1), one that names a one-way `door` or has no
+        `recommended` answer, while a recommended two-way one is taken and recorded, M11.4)
   intent summary FILE
         the approval summary lines: defaults picked, assumptions recorded, spikes created
   intent release FILE   (stdin: the host's hook payload; run by gate-intake on `check` exit 3)
@@ -32,7 +33,8 @@ Usage:
 Clarification policy — every open question carries a class:
   assume   safe and reversible        → the planner assumes; `assumption` recorded
   default  material but recoverable   → a `default` is picked and surfaced for approval
-  ask      irreversible / security-sensitive / changes intent → the human answers (`answer`)
+  ask      irreversible / security-sensitive / changes intent → the human answers (`answer`); the
+           intake gives its `recommended` answer and the `door` it crosses, if any
   spike    unknown but testable       → a spike task is created (`spike_task`)
 """
 import hashlib
@@ -152,9 +154,31 @@ def problems(doc, path):
     return p
 
 
-def unanswered(doc):
+def default_mode():
+    """Autonomous unless the human opted into reviewed mode (ROADMAP M11.1: only one-way doors go to the human)."""
+    return "reviewed" if _paths.env("AUTONOMY_MODE") == "reviewed" else "autonomous"
+
+
+def mode_of(doc):
+    """The mode a contract's questions are judged in when no --mode is given: a mission intent's as before (its
+    goal's gate judges it), any other the project's."""
+    return "reviewed" if doc.get("source") == "mission" else default_mode()
+
+
+def taken(q, mode):
+    """An unanswered `ask` that autonomous mode answers itself (M11.4): it carries the intake's `recommended`
+    answer and names no one-way `door`. Generation is cheap: a reversible choice the human dislikes is redone."""
+    return mode == "autonomous" and isinstance(q, dict) and q.get("class") == "ask" \
+        and not str(q.get("answer", "")).strip() and bool(str(q.get("recommended", "")).strip()) \
+        and not str(q.get("door", "")).strip()
+
+
+def unanswered(doc, mode="reviewed"):
+    """The `ask` questions only the human can answer in this mode: every unanswered one in reviewed mode; in
+    autonomous mode those naming a one-way `door`, or with no `recommended` answer (unknown stays the human's)."""
     return [q["question"] for q in doc.get("open_questions") or []
-            if isinstance(q, dict) and q.get("class") == "ask" and not str(q.get("answer", "")).strip()]
+            if isinstance(q, dict) and q.get("class") == "ask" and not str(q.get("answer", "")).strip()
+            and not taken(q, mode)]
 
 
 def load(path):
@@ -165,7 +189,8 @@ def load(path):
         return None, str(e)
 
 
-def cmd_check(cwd, path, mode="reviewed"):
+def cmd_check(cwd, path, mode=None):
+    explicit = mode     # a mission intent is checked in its goal's mode; any other in the project's (M11.1)
     doc, err = load(path)
     if doc is None:
         print("BLOCK[intent]: cannot read %s: %s" % (path, err), file=sys.stderr)
@@ -184,17 +209,23 @@ def cmd_check(cwd, path, mode="reviewed"):
             print("BLOCK[intent]: provenance (goal %s, gap %s) is not what its intent.received recorded (goal %s, gap %s)"
                   % (prov["goal_id"], prov.get("gap_id"), d.get("goal_id"), d.get("gap_id")), file=sys.stderr)
             return 2
-        rc = mission_gate(cwd, prov["goal_id"], prov.get("gap_id"), mode)
+        rc = mission_gate(cwd, prov["goal_id"], prov.get("gap_id"), explicit)
         if rc:
             return rc
-    asks = unanswered(doc)
+    mode = explicit or mode_of(doc)
+    asks = unanswered(doc, mode)
     if asks:
         for q in asks:
             print("ASK[intent]: %s" % one_line(q), file=sys.stderr)
         print("intent: %d question(s) need the human (irreversible, security-sensitive or intent-changing) — "
               "%s mode does not proceed past them." % (len(asks), mode), file=sys.stderr)
         return 3
-    _events.emit(cwd, "intent.normalized", role="intake", refs={"intent": path}, intent_id=doc["intent_id"], mode=mode)
+    took = [q for q in doc.get("open_questions") or [] if taken(q, mode)]
+    for q in took:
+        print("[intent] TAKEN (autonomous, two-way): %s -> %s" % (one_line(q["question"]), one_line(q["recommended"])),
+              file=sys.stderr)
+    _events.emit(cwd, "intent.normalized", role="intake", refs={"intent": path}, intent_id=doc["intent_id"], mode=mode,
+                 **({"taken": [{"question": q["question"], "answer": q["recommended"]} for q in took]} if took else {}))
     print("[intent] %s ok (%s mode)" % (doc["intent_id"], mode), file=sys.stderr)
     return 0
 
@@ -248,7 +279,7 @@ def cmd_open(cwd):
     intake's stop unverified, and the notice can reach the supervisor after it dispatched the planner."""
     path = newest(cwd)
     doc, _ = load(path) if path else (None, None)
-    asks = unanswered(doc) if isinstance(doc, dict) else []   # no contract (an older project), or none open
+    asks = unanswered(doc, mode_of(doc)) if isinstance(doc, dict) else []   # no contract (an older project), or none open
     if asks:
         print("the newest Intent Contract %s has %d question(s) only the human can answer (the intake's words, quoted):\n%s"
               % (path, len(asks), quoted(asks)))
@@ -267,7 +298,7 @@ def cmd_release(cwd, path, raw):
             e for e in _events.read(cwd) if e.get("event") == "intent.received"
             and (e.get("data") or {}).get("intent_id") == doc["intent_id"]]:
         return 1                                     # a contract `intent new` issued, in its place: never one a role made up
-    asks = unanswered(doc)
+    asks = unanswered(doc, mode_of(doc))
     if not asks:
         return 1                                     # exit 3 from a mission goal's own questions: not this release
     agent = str(p.get("agent_id") or "")
@@ -306,7 +337,7 @@ def cmd_hook(raw):
         if not ID.match(iid) or not contract_of(cwd, path, iid) or not judged or not os.path.samefile(path, judged):
             continue                                 # not a contract in its place, or a newer one superseded it
         doc, _ = load(path)
-        asks = unanswered(doc) if isinstance(doc, dict) else []   # answered since (a re-dispatch): nothing to tell
+        asks = unanswered(doc, mode_of(doc)) if isinstance(doc, dict) else []   # answered since (a re-dispatch): nothing to tell
         if asks:
             out.append(notice(rec, asks))
     if out:
@@ -329,7 +360,8 @@ def cmd_summary(path):
         elif c == "spike":
             out.append("- SPIKE: %s → %s" % (q["question"], q.get("spike_task")))
         elif c == "ask":
-            out.append("- ASKED: %s → %s" % (q["question"], q.get("answer") or "UNANSWERED"))
+            out.append("- ASKED: %s → %s" % (q["question"], q.get("answer") or (q.get("recommended") and not q.get("door")
+                                                                       and "TAKEN (autonomous): " + q["recommended"]) or "UNANSWERED"))
     out += ["- assumption: %s" % a for a in doc.get("assumptions") or []]
     print("\n".join(out) if out else "- no assumptions, defaults or spikes")
     return 0
@@ -352,7 +384,7 @@ def main(argv):
         return cmd_new(cwd, opts.get("source", ""), opts.get("raw", ""), opts.get("raw_ref", ""), opts.get("goal", ""),
                        opts.get("gap", ""))
     if argv[0] == "check" and pos:
-        return cmd_check(cwd, pos[0], opts.get("mode", "reviewed"))
+        return cmd_check(cwd, pos[0], opts.get("mode"))
     if argv[0] == "open":
         return cmd_open(cwd)
     if argv[0] == "summary" and pos:

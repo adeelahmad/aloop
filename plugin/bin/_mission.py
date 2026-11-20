@@ -66,7 +66,7 @@ APPROVAL_EVENTS = {"mission.approved": "mission", "baseline.confirmed": "baselin
 # the content it grants (the first 8 hex of its sha256). A veto needs none: refusing is always safe.
 GRANT_VERBS = {"mission.approved": "approve", "baseline.confirmed": "confirm", "journey.approved": "approve",
                "goal.approved": "approve", "ethics.consent": "consent", "telemetry.consent": "consent",
-               "mission.lifted": "lift"}
+               "mission.lifted": "lift", "door.reclassified": "two-way"}
 ACTION_VERBS = ("restore", "retire")    # a grant whose data.action is one of these says that verb
 SUPERSEDE_ACROSS = ("baseline.confirmed",)     # the newest confirmation of any version is the current one
 NEGATION = re.compile(r"\b(?:not|no|never|don'?t|veto\w*|reject\w*|cancel\w*|stop|wait|undo)\b")
@@ -240,7 +240,8 @@ def emit(cwd, event, role="", refs=None, event_id=None, **data):
 
 
 # a human decision that is not an approval: a veto, an opt-out, a door opened or closed (M9.30)
-HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed", "telemetry.revoked", "door.authorized", "door.revoked")
+HUMAN_EVENTS = tuple(APPROVAL_EVENTS) + ("baseline.vetoed", "telemetry.revoked", "door.authorized", "door.revoked",
+                                         "door.reclassified")
 # every record a mission gate decides from: the human decisions, plus what the harness measured,
 # assessed, evaluated (a clone trusts the same gap lists), retired (a journey, a goal), reviewed (a hard ethics line stays
 # blocked on a fresh checkout), derived, the loop's own stop at a spend cap (a clone stays stopped),
