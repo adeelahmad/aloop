@@ -44,7 +44,10 @@ html = open(PAGE).read()
 roadmap_text = open(os.path.join(ROOT, "docs", "ROADMAP.md")).read()
 p = P()
 p.feed(html)
-assert all(u.startswith("https://www.googletagmanager.com/ns.html?id=GTM-") for _, u in p.ext), "external resources: %r" % p.ext
+# allowed: the GTM no-script iframe, and the canonical link to the site's own domain (docs/CNAME)
+cname = open(os.path.join(ROOT, "docs", "CNAME")).read().strip()
+ext = [(t, u) for t, u in p.ext if not (t == "link" and u == "https://%s/" % cname)]
+assert all(u.startswith("https://www.googletagmanager.com/ns.html?id=GTM-") for _, u in ext), "external resources: %r" % ext
 assert not p.bad and not p.stack, (p.bad, p.stack)
 ok("docs/index.html is self-contained and well-formed")
 
