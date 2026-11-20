@@ -449,7 +449,7 @@ enforce this. Tag releases `vMAJOR.MINOR.PATCH`.
 | M9, mission layer | Missionary Aladdin Genie: missions, journeys, baseline, goals | ● in progress |
 | M10, agent habitat | contained workers, supply-chain gate, fetched content as data, one project stop | ● in progress |
 | M11, autonomous by default | the typed intent is the grant; only one-way doors ask | ● in progress |
-| M12, kernel and user space | gates stay in the kernel; agents, prompts and the TDD profile are yours to eject and override; modules plug into the kernel; distros (software: TDD) are user space you eject and change | ● in progress |
+| M12, kernel and user space | gates stay in the kernel; modules plug into the kernel; distros (software: TDD) are user space you eject and change | ● in progress |
 
 The full spec, every requirement's status and the reason behind each call: [docs/ROADMAP.md](docs/ROADMAP.md)
 and [docs/TRACKING.md](docs/TRACKING.md).

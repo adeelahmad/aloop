@@ -179,7 +179,7 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
 <div class="top"><div class="wrap">
   <a class="word" href="#" aria-label="Aladdin">Aladdin<span class="bar"><span class="b"></span><span class="r"></span><span class="g"></span><span class="y"></span></span></a>
   <span class="path">aloop · Aladdin's loop</span>
-  <nav><a href="#start">Quick start</a><a href="#loop">The loop</a><a href="#gates">Gates</a><a href="#evidence">Evidence</a><a href="#packs">Build a Module</a><a href="#roadmap">Roadmap</a><a href="https://github.com/adeelahmad/aloop">GitHub</a></nav>
+  <nav><a href="#start">Quick start</a><a href="#loop">The loop</a><a href="#gates">Gates</a><a href="#evidence">Evidence</a><a href="#modules">Build a Module</a><a href="#roadmap">Roadmap</a><a href="https://github.com/adeelahmad/aloop">GitHub</a></nav>
 </div></div>
 
 <header class="hero"><div class="wrap">
@@ -339,7 +339,7 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
   </table></div>
 </div></section>
 
-<section class="s white" id="packs"><div class="wrap">
+<section class="s white" id="modules"><div class="wrap">
   <div class="label">Harness · kernel · modules · distros (M12)</div>
   <h2>Build your own Module.</h2>
   <p class="sub">Think of it as a computer. The <b>harness</b> (Claude Code, Codex, OpenCode, DeepSeek Harness) is the hardware. <b>aloop is the kernel</b>: the gate engine, its gates and the audit log, never overridden. <b>Modules</b> plug into the kernel: use an existing one, or build one for what your project needs. Above them runs a <b>distro</b>: the user space (agents, prompts, skills) that shapes the loop, yours to eject and change in git. The <b>software</b> distro, the TDD loop, ships today.</p>
@@ -348,40 +348,44 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
       <ul><li>Gate engine and core gates</li><li>The audit log (<code>aladdin.event/1</code>)</li><li>What a project declares runs, and is logged</li></ul>
       <div class="arts">bin/gate-* · hooks/hooks.json</div></div>
     <div class="panel red"><header><span class="num">+</span><div class="t"><h3>Modules</h3><div>use one or build one · add-only</div></div></header>
-      <ul><li>Run beside the core gates on <code>SubagentStop</code> or <code>Stop</code></li><li>Exit 2 blocks with your reason; a pass decides only itself</li><li>Pinned by sha256: changed, missing or crashing blocks</li></ul>
-      <div class="arts">~/.aloop/kernel/&lt;name&gt;/extension.json</div></div>
+      <ul><li>Run beside the core gates on <code>SubagentStop</code> or <code>Stop</code></li><li>Exit 2 blocks with your reason; a pass decides only itself</li><li>Added by sha256: changed, missing or crashing blocks</li></ul>
+      <div class="arts">~/.aloop/modules/&lt;name&gt;/module.json<br>check (exit 2 blocks)</div></div>
     <div class="panel intent"><header><span class="num">✎</span><div class="t"><h3>Distros</h3><div>user space · fully overridable</div></div></header>
-      <ul><li>Agents, prompts and skills, ejected on the first run</li><li>Layers: home &gt; repo &gt; plugin, per file</li><li>Upgrades never clobber an edit</li></ul>
-      <div class="arts">docs/agents/userspace/ (in git)<br>~/.aloop/projects/ (personal)</div></div>
+      <ul><li>A distro = modules + agents + skills; <code>software</code> (TDD) by default</li><li>Agents, prompts and skills, ejected on the first run</li><li>Layers: home &gt; repo &gt; plugin, per file</li><li>Upgrades never clobber an edit</li></ul>
+      <div class="arts">docs/agents/userspace/distro.json (in git)<br>~/.aloop/projects/ (personal)</div></div>
   </div>
   <div class="grid2">
-    <div class="term"><div class="tb"><i style="background:#EA4335"></i><i style="background:#F9AB00"></i><i style="background:#34A853"></i><span>your module: no-todo</span></div>
-<pre><span class="t-out"># 1. a module: its manifest and the command it names</span>
-<span class="t-cmd">{"name": "no-todo",</span>
-<span class="t-cmd"> "description": "A sprint never signs off with a TODO in src/",</span>
-<span class="t-cmd"> "on": ["Stop"], "command": "./check", "timeout": 60}</span>
+    <div class="term"><div class="tb"><i style="background:#EA4335"></i><i style="background:#F9AB00"></i><i style="background:#34A853"></i><span>~/.aloop/modules/no-todo</span></div>
+<pre><span class="t-out"># 1. scaffold a module: module.json + an executable check</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop module new no-todo --on Stop</span>
+<span class="t-ok">created ~/.aloop/modules/no-todo</span>
+
+<span class="t-out"># module.json</span>
+<span class="t-cmd">{"name": "no-todo", "on": ["Stop"],</span>
+<span class="t-cmd"> "command": "./check", "timeout": 120}</span>
 
 <span class="t-out"># check: exit 2 blocks, stderr is the reason</span>
 <span class="t-cmd">grep -rn TODO "$ALOOP_PROJECT/src" &amp;&amp; {</span>
 <span class="t-cmd">  echo "TODO left in src/" &gt;&amp;2; exit 2; }</span>
 <span class="t-cmd">exit 0</span></pre></div>
     <div class="term"><div class="tb"><i style="background:#EA4335"></i><i style="background:#F9AB00"></i><i style="background:#34A853"></i><span>your project</span></div>
-<pre><span class="t-out"># 2. pin it: the sha256 goes in profile.json, in git</span>
-<span class="t-p">$ </span><span class="t-cmd">aloop kernel pin no-todo</span>
-<span class="t-ok">pinned no-todo 1dde0abdd374</span>
+<pre><span class="t-out"># 2. add it: its sha256 goes in distro.json, in git</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop module add no-todo</span>
+<span class="t-ok">added no-todo 0b4d8588bc1c</span>
 
-<span class="t-out"># 3. shape the loop: eject, edit, apply</span>
+<span class="t-out"># 3. shape the loop: eject the distro's user space, edit, apply</span>
 <span class="t-p">$ </span><span class="t-cmd">aloop userspace eject</span>
 <span class="t-ok">ejected 78 file(s) into docs/agents/userspace</span>
 <span class="t-p">$ </span><span class="t-cmd">aloop userspace apply</span>
 
-<span class="t-out"># 4. pick the distro (software, the TDD loop, by default)</span>
-<span class="t-p">$ </span><span class="t-cmd">aloop kernel profile &lt;your-pack&gt;</span>
+<span class="t-out"># 4. or bundle modules + user space as a distro</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop distro new my-distro</span>
+<span class="t-p">$ </span><span class="t-cmd">aloop distro install ./my-distro</span>
 
 <span class="t-out"># at the sprint's stop, beside the core gates</span>
 <span class="t-gate">◆ module no-todo blocked: TODO left in src/</span></pre></div>
   </div>
-  <p class="sub" style="margin:20px 0 0">Every command above ran as shown on the M12 branch. User space and its layers are merged; modules and profiles are in review (<a href="https://github.com/adeelahmad/aloop/pull/127">#127</a>), and installing a shared module comes next. The rules: <a href="https://github.com/adeelahmad/aloop/blob/master/docs/ROADMAP.md#415-kernel-and-user-space-m12">ROADMAP §4.15</a>.</p>
+  <p class="sub" style="margin:20px 0 0">Every command above ran as shown on the M12 branch. A check sees <code>ALOOP_EVENT</code>, <code>ALOOP_ROLE</code>, <code>ALOOP_PROJECT</code>, <code>ALOOP_DISTRO</code> and <code>ALOOP_MODULE</code>; a crash, a timeout, or a module missing or changed since it was added blocks too, and every run is a <code>module.run</code> audit event. User space is merged; modules and distros are in review (<a href="https://github.com/adeelahmad/aloop/pull/127">#127</a>, with the full how-to, <code>docs/BUILD-A-MODULE.md</code>). The rules: <a href="https://github.com/adeelahmad/aloop/blob/master/docs/ROADMAP.md#415-kernel-and-user-space-m12">ROADMAP §4.15</a>.</p>
 </div></section>
 
 <section class="s" id="roadmap"><div class="wrap">
@@ -395,7 +399,7 @@ footer.f{ color:var(--text-secondary); font-size:14px; text-align:center; paddin
     <tr><td><b>M9, mission layer</b></td><td>missions, journeys, baseline, goals: the loop picks its next goal</td><td><span class="badge intent">In progress</span></td></tr>
     <tr><td><b>M10, agent habitat</b></td><td>contained workers, a supply-chain gate, fetched content as data, one project stop</td><td><span class="badge intent">In progress</span></td></tr>
     <tr><td><b>M11, autonomous by default</b></td><td>the typed intent is the grant; only one-way doors ask</td><td><span class="badge intent">In progress</span></td></tr>
-    <tr><td><b>M12, kernel and user space</b></td><td>aloop is a kernel for your harness: <a href="#packs">modules</a> plug in, distros (software: TDD) are yours to eject and change</td><td><span class="badge intent">In progress</span></td></tr>
+    <tr><td><b>M12, kernel and user space</b></td><td>aloop is a kernel for your harness: <a href="#modules">modules</a> plug in, distros (software: TDD) are yours to eject and change</td><td><span class="badge intent">In progress</span></td></tr>
   </table></div>
 </div></section>
 

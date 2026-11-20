@@ -75,11 +75,13 @@ for font in re.findall(r"url\((brand/fonts/[^)]+)\)", html):
     assert os.path.isfile(os.path.join(ROOT, "docs", font)), font
 for cost in re.findall(r"\$\d+\.\d\d", html):
     assert cost in roadmap_text, "unsourced cost %s (not in ROADMAP)" % cost
-assert {"start", "roadmap", "packs"} <= p.ids
+assert {"start", "roadmap", "modules"} <= p.ids
 # build your own Module (M12): harness, kernel, modules, user space, with the real commands; no one module marketed
-for w in ("Build your own Module.", "~/.aloop/kernel/", "extension.json", "docs/agents/userspace/",
-          "aloop kernel pin", "aloop userspace eject", "aloop kernel profile"):
+for w in ("Build your own Module.", "~/.aloop/modules/", "module.json", "docs/agents/userspace/distro.json",
+          "aloop module new", "aloop module add", "aloop userspace eject", "aloop distro new", "aloop distro install"):
     assert w in html, w
+for gone in (r"kernel extension", r"aloop kernel", r"extension\.json", r"profile\.json", r"\bpacks?\b"):
+    assert not re.search(gone, html, re.I), "old M12 name on the page: %r" % gone
 ok("the quick start is the real install lines and skill, and the roadmap is on the page")
 
 assert {"red", "gates", "audit", "evidence"} <= p.ids
