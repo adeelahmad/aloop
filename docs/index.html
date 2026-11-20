@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aladdin — intent is all you need</title>
-<meta name="description" content="aloop (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. Models explore. Gates decide.">
+<meta name="description" content="aloop (Aladdin's Loop) turns one line of intent into planned, test-first, gate-verified software on Claude Code, Codex, OpenCode and DeepSeek Harness. Models explore. Gates decide.">
 <link rel="icon" href="brand/favicon.svg" type="image/svg+xml" />
 <link rel="icon" href="brand/favicon-32.png" sizes="32x32" type="image/png" />
 <link rel="apple-touch-icon" href="brand/app-icon-180.png" />
 <meta property="og:title" content="aloop: intent is all you need">
-<meta property="og:description" content="One line of intent becomes planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. Models explore. Gates decide.">
+<meta property="og:description" content="One line of intent becomes planned, test-first, gate-verified software on Claude Code, Codex, OpenCode and DeepSeek Harness. Models explore. Gates decide.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://github.com/adeelahmad/aloop">
 <meta property="og:image" content="https://raw.githubusercontent.com/adeelahmad/aloop/master/docs/brand/og-card.png">
@@ -25,7 +25,7 @@
   @media (prefers-color-scheme: dark) { :root { --bg:#202124; --panel:#28292C; --ink:#E8EAED; --muted:#9AA0A6; --blue:#8AB4F8; --gold:#FDD663; --red:#F28B82; --green:#81C995; --line:#3C4043; --term:#17181A; } }
   * { box-sizing:border-box }
   body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 'DM Sans',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif }
-  main { max-width:880px; margin:0 auto; padding:0 16px 64px }
+  main { max-width:1040px; margin:0 auto; padding:0 16px 64px }
   header { text-align:center; padding:56px 0 24px }
   h1 { font-size:2.75rem; font-weight:800; margin:16px 0 8px; letter-spacing:-.03em; line-height:1.08 }
   h2 { margin-top:48px; border-top:1px solid var(--line); padding-top:24px; font-weight:700; letter-spacing:-.015em }
@@ -34,11 +34,14 @@
   pre, code { font:14px/1.6 'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace }
   pre { background:var(--term); color:#E8EAED; border:1px solid var(--line); border-radius:12px; padding:14px 16px; overflow:auto }
   pre .gold { color:#FDD663 }
-  .red { color:var(--red) } .green { color:var(--green) } .gold { color:var(--gold) }
+  .blue { color:var(--blue) } .red { color:var(--red) } .green { color:var(--green) } .gold { color:var(--gold) }
   .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px }
   .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:16px }
   .tree { white-space:pre }
   a { color:var(--blue) }
+  .hero { margin:8px 0 0 } .hero img { width:100%; height:auto; border-radius:16px; border:1px solid var(--line); background:#fff }
+  .hand { font-family:'Caveat',cursive; color:var(--blue); font-size:1.5rem; margin:8px 0 }
+  pre .dim { color:#9AA0A6 }
   footer { color:var(--muted); font-size:.9rem; margin-top:48px; border-top:1px solid var(--line); padding-top:16px }
   table { border-collapse:collapse; width:100% } td, th { border-bottom:1px solid var(--line); padding:8px 6px; text-align:left }
 </style>
@@ -46,25 +49,29 @@
 <body>
 <main>
 <header>
-  <!-- the lamp: an original motif (a lantern of gates), no borrowed visual language; flat design-system
-       colours, no gradient: the lamp is gold (the gate) and its flame goes red to green -->
-  <svg id="lamp" width="112" height="112" viewBox="0 0 140 140" role="img" aria-label="Aladdin's loop: a lamp whose flame is a passing gate">
-    <path d="M22 86 q48 30 96 0 l-6 18 q-42 22 -84 0 z" fill="#F9AB00"/>
-    <path d="M30 84 q40 -22 80 0 l-4 -16 q-36 -14 -72 0 z" fill="#FDD663"/>
-    <path d="M112 76 q18 -6 16 -22 q-2 -10 -12 -8" fill="none" stroke="#F9AB00" stroke-width="5" stroke-linecap="round"/>
-    <path d="M28 74 q-16 2 -18 14 q-1 8 8 10" fill="none" stroke="#F9AB00" stroke-width="5" stroke-linecap="round"/>
-    <ellipse cx="70" cy="62" rx="10" ry="4" fill="#B06000"/>
-    <!-- the flame is a loop: red (failing) → green (passing) -->
-    <path d="M70 58 q-14 -14 -4 -30 q2 10 10 12 q8 -8 2 -22 q18 14 8 36 q-6 8 -16 4 z" fill="#EA4335"/>
-    <path d="M70 56 q-8 -10 -2 -20 q2 6 7 8 q5 -6 2 -14 q10 10 4 24 q-4 5 -11 2 z" fill="#34A853"/>
-  </svg>
   <div><img src="brand/wordmark.svg" alt="Aladdin" width="232" style="max-width:70%;height:auto" /></div>
-  <div class="tag">aloop · Aladdin's Loop</div>
+  <div class="tag">aloop · Aladdin's loop</div>
   <h1>Intent is all you need.</h1>
-  <p class="lead">One line of intent becomes planned, test-first, gate-verified software on Claude Code, Codex and OpenCode. A human gives the intent and answers only one-way-door questions; cheap workers build it in isolated worktrees; deterministic hooks decide what is accepted.</p>
-  <pre>aladdin "add CSV export to the report"</pre>
-  <p><a href="https://github.com/adeelahmad/aloop">GitHub</a> · <a href="https://github.com/adeelahmad/aloop#install--run">Install</a> · <a href="https://github.com/adeelahmad/aloop/blob/master/docs/ROADMAP.md">Roadmap</a></p>
+  <p class="lead">Turn intent into working software, with test-driven agents. One line of intent becomes planned, test-first, gate-verified code on Claude Code, Codex, OpenCode and DeepSeek Harness. You give the intent and answer only one-way-door questions; cheap workers build it in isolated worktrees; deterministic hooks decide what is accepted.</p>
+  <p class="hand">Plan. Test. Build. Improve. Repeat.</p>
+  <p><a href="#start"><b>Quick start</b></a> · <a href="https://github.com/adeelahmad/aloop">GitHub</a> · <a href="#roadmap">Roadmap</a> · <a href="https://github.com/adeelahmad/aloop/blob/master/docs/OVERVIEW.md">Overview</a></p>
 </header>
+
+<figure class="hero">
+  <img src="diagrams/aladdins-loop.webp" width="1536" height="1024" alt="Aladdin's loop (aloop): turn intent into working software with test-driven agents. 0 Retrospective, 1 Intake, Standards and Planning, 2 Red (write failing tests), 3 Scaffold (create stubs), 4 Green (make tests pass), 5 Review per wave and the Final Gate per sprint. Runs on OpenCode, Codex and Claude Code; powered by ctx-symbols, md-db and budget and stats." />
+</figure>
+
+<h2 id="start">Quick start</h2>
+<p>Inside Claude Code (a Rust toolchain 1.85+ lets the plugin build its gate backends on first start):</p>
+<pre><span class="dim"># add the marketplace and install the plugin</span>
+/plugin marketplace add adeelahmad/aloop
+/plugin install aloop@aloop-marketplace
+/reload-plugins
+
+<span class="dim"># say what you want</span>
+/aladdin Add rate limiting to the API</pre>
+<p>Or just say it in your own words: the skill triggers on any build, fix or change request (<code>/aloop:aladdin</code> is the same skill). From a shell, <code>aladdin "Add rate limiting to the API"</code> records the intent and prints the line to say in your host; it does not start a run on its own. Codex, OpenCode and DeepSeek Harness install with <code>aloop install codex|opencode|dsh</code>: <a href="https://github.com/adeelahmad/aloop#install--run">install guide</a>.</p>
+
 
 <h2 id="red">Give the agent something to make false.</h2>
 <p>Do not merely give an agent a goal. Give it a <span class="red">failing proof of what is missing</span>, then make it earn <span class="green">GREEN</span>. A test written after the code proves the code does what the code does. A test written before it proves the code is <em>missing</em> — and "done" becomes a claim a gate can check, not a sentence a model can say.</p>
@@ -86,21 +93,33 @@
 </table>
 
 <h2 id="audit">The audit tree</h2>
-<p>Every run leaves an <code>aladdin.event/1</code> stream. One command walks a commit back to the human who approved it, with no transcript archaeology:</p>
+<p>Every run leaves an <code>aladdin.event/1</code> stream. One command walks a commit back to the human who asked for it, with no transcript archaeology:</p>
 <pre class="tree"><span class="gold">aloop events trace 3e555af</span>
-commit 3e555af   feat: csv export (built from the task's rationale)
-└─ task S1-01-T2  "wire the export"              worktree merged --no-ff
+commit 3e555af   feat: rate limiting (built from the task's rationale)
+└─ task S1-01-T2  "wire the limiter"             worktree merged --no-ff
    └─ attempt 2   green-worker · economical       gate-green-verify: PASS
-      ├─ attempt 1   gate-green-verify: BLOCK      scope: touched src/report.py outside targets
-      └─ targets C2  modify src/report.py:4 render  reason: render offers the export
-         └─ plan S1-01  approved                   human.approval · autonomy: reviewed
-            └─ intent int_01a14d9f…  "add CSV export to the report"   received 2026-10-18T06:07Z</pre>
+      ├─ attempt 1   gate-green-verify: BLOCK      scope: touched src/app.py outside targets
+      └─ targets C2  modify src/api.py:12 handle  reason: handle checks the limit
+         └─ plan S1-01  granted by the typed intent  autonomy: autonomous (M11)
+            └─ intent int_01a14d9f…  "Add rate limiting to the API"   received 2026-10-18T06:07Z</pre>
 <p>Decisions carry a one-line reason, evidence refs and an authority ref. Usage is reported by class (fresh input, cache read, cache write, output, context) and marked <em>estimated</em> where a host does not report it.</p>
 
 <h2 id="evidence">Evidence, not claims</h2>
 <p>Every public number comes from the harness's own <code>stats.md</code> and is reproducible with <code>make e2e-live YES=1</code>: a one-line intent through intake, standards, planning, RED/SCAFFOLD/GREEN per task, structural review and the final gate, to merged and tested code in a real session. The semver intent ran end to end in 11m10s for $0.65 (run 6); a two-story word-frequency tool in 19m42s for $1.56 (run 9), and in 10m58s for $0.76 with no gate block once every dispatch ran on the project's model (run 23), and in 9m54s for $0.70 on today's master (run 27). Every number here is a row in <a href="https://github.com/adeelahmad/aloop/blob/master/docs/evidence/README.md">docs/evidence/README.md</a> with the command that reproduces it, and every requirement on the roadmap is tracked with the test that proves it in <a href="https://github.com/adeelahmad/aloop/blob/master/docs/TRACKING.md">docs/TRACKING.md</a>.</p>
 
-<footer>MIT. <code>md-db</code> is vendored under AGPL-3.0. Formerly <em>agentic-agile</em>; the old names keep working. Brand: the <a href="https://github.com/adeelahmad/aloop/tree/master/docs/brand">Aladdin design system</a>. The lamp is an original drawing: a lantern whose flame is a red-to-green loop.</footer>
+<h2 id="roadmap">Roadmap</h2>
+<table>
+  <tr><th>Milestone</th><th>What</th><th>Status</th></tr>
+  <tr><td>M0 to M7</td><td>hygiene, trustworthy state, budgets that plan, clean boundaries, intent contracts, narrow context, audit, any host</td><td class="green">✓ shipped in v0.12.0</td></tr>
+  <tr><td>M8, Aladdin 1.0</td><td><code>/aladdin</code> and the CLI, this site, measured public runs on every host</td><td class="blue">● in progress</td></tr>
+  <tr><td>M9, mission layer</td><td>missions, journeys, baseline, goals: the loop picks its next goal</td><td class="blue">● in progress</td></tr>
+  <tr><td>M10, agent habitat</td><td>contained workers, a supply-chain gate, fetched content as data, one project stop</td><td class="blue">● in progress</td></tr>
+  <tr><td>M11, autonomous by default</td><td>the typed intent is the grant; only one-way doors ask</td><td class="blue">● in progress</td></tr>
+  <tr><td>M12, kernel and user space</td><td>gates stay in the kernel; agents, prompts and the TDD profile are yours to eject and override</td><td>○ next</td></tr>
+</table>
+<p>Every requirement, its status and the test that proves it: <a href="https://github.com/adeelahmad/aloop/blob/master/docs/ROADMAP.md">ROADMAP.md</a> · <a href="https://github.com/adeelahmad/aloop/blob/master/docs/TRACKING.md">TRACKING.md</a>.</p>
+
+<footer>MIT. <code>md-db</code> is vendored under AGPL-3.0. Formerly <em>agentic-agile</em>; the old names keep working. Brand: the owner's Aladdin design system and the Aladdin's loop infographic; usage rules in <a href="https://github.com/adeelahmad/aloop/tree/master/docs/brand">docs/brand</a>.</footer>
 </main>
 </body>
 </html>

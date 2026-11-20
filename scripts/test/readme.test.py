@@ -31,6 +31,11 @@ assert re.search(r"^# .*intent is all you need", readme, re.M | re.I), "the titl
 assert readme.index("# Aladdin") < readme.index("## Demo") < readme.index("### Quick start"), "intent before demo before install"
 ok("sections run product-first in the §4.11 order")
 
+# 1b) the owner's brand leads: the Aladdin's loop infographic is on the page and ships in docs/
+assert 'src="docs/diagrams/aladdins-loop.webp"' in readme and os.path.isfile(os.path.join(ROOT, "docs", "diagrams", "aladdins-loop.webp"))
+assert readme.index("aladdins-loop.webp") < readme.index("## Demo"), "the infographic sits above the fold"
+ok("the owner's Aladdin's loop infographic leads the README")
+
 # 2) every command the README names exists: `aladdin <sub>` (bin/aladdin) and `aloop <tool>` (bin/<tool>)
 tools = set(os.listdir(BIN))
 aladdin = open(os.path.join(BIN, "aladdin")).read()

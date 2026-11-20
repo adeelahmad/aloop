@@ -325,7 +325,7 @@ No extra model calls are made just for telemetry.
   10. Audit
   11. Architecture
   12. Limitations
-- **A site / GitHub Pages** with an original lamp motif (no Disney visual language), the RED explainer ("Give the agent something to make false.") and the audit tree.
+- **A site / GitHub Pages** led by the owner's Aladdin's loop infographic (`docs/diagrams/aladdins-loop.webp`, used as given: the owner's call on 2026-11-20 replaced the earlier "original lamp motif" rule) and the Aladdin design system (`docs/brand/design-system/`), a quick start whose every command is checked to run, the roadmap, the RED explainer ("Give the agent something to make false.") and the audit tree.
 - **Evidence:** every public claim links to a reproducible measured run. ✅ *(Unreleased) `docs/evidence/README.md` is the ledger: one row per live run with intent, plugin version, checks, wall, cost, wakes, plugin reads, gate blocks and the `make e2e-live` command; `bin/run-summary` writes each run's `summary.json` and its row from the session's `result` lines and the gate log (called by `e2e-live.sh`). The README demo table and the site link every figure to it. Test: `scripts/test/evidence.test.py` (a public figure without a row fails).*
 
 ### 4.12 Mission layer: Missionary Aladdin Genie (M9)

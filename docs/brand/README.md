@@ -45,9 +45,10 @@ explored and not chosen.
 
 There is no pictorial mark yet. The design system adds one only when an original exists. The
 icon is the on-blue wordmark cut to its initial: a white **A** over the loop bar on a blue tile.
-The 16 px cut is drawn on whole pixels (cap y 2–10, bar y 12–14 in 3 px segments). The site's
-lamp is the illustration ROADMAP §4.11 asks for, drawn flat in the design-system colours. It
-is not part of the wordmark or the icon.
+The 16 px cut is drawn on whole pixels (cap y 2–10, bar y 12–14 in 3 px segments). The owner's
+**Aladdin's loop infographic** ([`docs/diagrams/aladdins-loop.webp`](../diagrams/aladdins-loop.webp),
+with its lamp and genie) is the hero art of the README and the site, used as given. It is not
+part of the wordmark or the icon.
 
 ## Type and voice
 
@@ -76,9 +77,8 @@ The social preview is the owner's design. Four changes keep its claims true: the
 the real agent (`red-worker`), a grey evidence box gives the measured cost (8 intents, each
 under $1 and 15 min in its latest run, from the ledger), the feature list adds the mission
 layer, and the footer no longer breaks words across lines. One change is for contrast: the red,
-green and gold phase discs take the dark variants or ink, as above. The genie illustration from
-the earlier infographic is not used; the design system keeps the lamp metaphor light and
-original. Arrows and ● ◆ ✓ ≠ ≤ come from pinned Noto faces, and `render.mjs` fails if any text
+green and gold phase discs take the dark variants or ink, as above. The infographic itself,
+genie included, is shown as given on the README and the site (the owner's call, 2026-11-20). Arrows and ● ◆ ✓ ≠ ≤ come from pinned Noto faces, and `render.mjs` fails if any text
 falls back to a system font, so the PNGs come out the same on any machine.
 
 ```html
