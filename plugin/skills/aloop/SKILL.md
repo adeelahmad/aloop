@@ -2,9 +2,9 @@
 name: aloop
 description: >-
   Use this skill to plan and build software in a sprint with strict TDD and
-  deterministic, hook-enforced gates. Two-stage planning (interactive, human-gated)
-  then autonomous two-phase TDD execution: the supervisor drives planning with the
-  human, then dispatches one worktree-isolated sub-agent per task through
+  deterministic, hook-enforced gates. Two-stage planning from the human's intent (they
+  answer only one-way-door questions) then autonomous two-phase TDD execution: the
+  supervisor plans, then dispatches one worktree-isolated sub-agent per task through
   RED → SCAFFOLD → GREEN → STRUCTURAL-REVIEW → FINAL-GATE, with md-db/ctx-symbols
   validation, per-task transcript capture, and a retrospective that distills memory. Trigger
   when asked to build, ship, implement, add, change, improve, redesign, polish, fix, or
@@ -46,10 +46,10 @@ defaults.
 ## Project setup comes first (init) — and where everything lives
 
 If `docs/agents/defaults.md` does not exist, the project was never initialized: run the
-init flow (`skills/init/SKILL.md` steps 1–2 — `aloop init --show`, ask the human, then
-`aloop init --apply …`) **before any planning**. It confirms with the human the limits,
-models, the `.gitignore` edit, whether `docs/agents/` is tracked (default no), and the
-commit author (default: the human's git identity, no Claude trailers). The harness writes
+init flow (`skills/init/SKILL.md` steps 1–2 — `aloop init --show`, then `aloop init --apply`
+with the defaults, no questions unless the human asks to choose) **before any planning**:
+limits, models, the `.gitignore` edit, `docs/agents/` untracked, and the commit author (the
+human's git identity, no Claude trailers). The harness writes
 the file; you never hand-edit `defaults.md`, `NEXT.md` or `stats.md` (a hook blocks it).
 
 The layout is FIXED by `bin/_paths.sh` — never invent another directory name. The run-data
@@ -110,8 +110,8 @@ If a backend reports "not installed", run `ensure-tools --sync` once (needs carg
   current one) and run intake → planner before any RED. Silently switching into ad-hoc
   implementation is the bypass this skill exists to prevent. "Improve X" and "fix the
   broken Y" are sprint triggers, not invitations to edit files directly.
-- The human is absent from execution: never wait for them mid-run, except a reviewed
-  re-plan changes the plan they approved, so it waits for their line.
+- The human is absent from execution: never wait for them mid-run (reviewed mode only: a
+  re-plan waits for their line).
 - **You own all planning artifacts.** Sub-agents NEVER edit `stories.md`,
   `tasks.md`, `validate.md`, `plan.md`, `plan-ready.md`, or `sprintN/plan.md`.
 - **You NEVER write production source — in any phase.** Every line of code (tests,
@@ -268,22 +268,18 @@ Each sprint's plan must be **self-contained**: every task finishes inside the sp
 nothing depends on a later sprint, nothing is "continued next sprint" — your context is
 cleared between sprints, so a spill-over would be lost.
 One `planner` dispatch per sprint's Stage-2 (or per story for a large sprint). Plan ONE
-sprint at a time: dispatch the planner, review its output, present it for the human's
-approval, then — only on "go" — start that sprint's execution. Do NOT batch-write every
-future sprint's Stage-2 and chain straight into execution.
+sprint at a time; never batch-write future sprints' Stage-2.
 
-**Autonomous mode** is explicit, never inferred, and per sprint: the human grants it with
-the line `events authority --mode autonomous --sprint N` asks for (or by approving an
-autonomous mission), plus `AGENTIC_AUTONOMY_MODE=autonomous` for the gates. Then the plan
-and its re-plans go through the deterministic planning checks (gate-intake incl. `intent
-check`, gate-stage2-complete) and straight into execution, unless an escalation class is
-hit: an unanswered `ask` question (`intent check` exit 3), a scope change, or the re-plan cap.
-
-**Approval is a gate.** `gate-dispatch` starts no execution role of a sprint until the
-human approved its plan as it is now:
-`events authority --initiated-by <human> --mode reviewed|autonomous --scope "sprint N as approved" --sprint N`
-(`--override KEY=VALUE` too) exits 3 with a line like `approve S1 1a2b3c4d`: relay it, the
-human types it, run it again. Never type it yourself. At each split, re-plan,
+**Autonomous is the default (M11): only one-way doors go to the human.** Generation is cheap:
+a reversible choice the human dislikes is redone. After the planner, dispatch the
+**`door-classifier`**: it tags every task one-way (`mission doors tag … --door`) or two-way.
+Then `events authority --initiated-by <human> --scope "<intent>" --sprint N`: the human's typed
+intent is the grant (no line to type; `intent new --raw` must hold their words verbatim).
+Relay `aloop mission doors plan SN`'s open doors to the human in ONE message, each with a
+recommended option, and execute: `gate-dispatch` parks only those tasks. An intake `ask` with
+a `recommended` answer and no `door` is taken and recorded. Reviewed mode is opt-in
+(`AGENTIC_AUTONOMY_MODE=reviewed`): `authority` then exits 3 with `approve SN <code>`; relay it,
+the human types it, run it again. Never type a grant line yourself. At each split, re-plan,
 target or acceptance decision, record ONE line of rationale with its evidence:
 `events decide split|replan|acceptance|… --task SN-NN-Tk --reason "<one line>" --evidence <ref>`.
 No chain-of-thought — a reason, refs and the authority (`events lineage <task>` shows it).
@@ -652,7 +648,7 @@ start the next wave's RED, or if this was the last wave, FINAL-GATE.
 
 - **foundation-poisoning** → HALT the dependency chain now (abandon its
   worktrees), keep merged waves.
-- **scope / plan defect** → human decision.
+- **scope / plan defect** → re-plan (planner); the human only for a one-way door.
 - **time-box overrun** (a worker killed at its hard limit) → mid-sprint re-plan (split
   the task), NOT a retry and NOT a hard stop — see "Budget overrun".
 - **gate-retry budget exhausted / no-progress / re-plan cap reached** → hard stop.
@@ -665,14 +661,14 @@ escalation is what happens when revision is exhausted.
 
 ## Invocation boundary
 
-- PLANNING is a normal interactive session — the human is in the loop; the
-  clarify/conflict/re-plan loops are human-bounded.
+- PLANNING runs from the intent; the human answers only one-way-door questions
+  (reviewed mode, opt-in: they approve the plan).
 - EXECUTION is an autonomous run ("run until the sprint gate is green").
 - **ONE sprint per autonomous run.** Execution is scoped to a single sprint — its
   FINAL-GATE is the finish line. When it passes, STOP and report; the human decides
   whether to start the next sprint, which RE-ENTERS interactive planning (dispatch the
   planner for it). Never chain Sprint N → N+1 execution in one sweep, and never cross the
-  planning→execution boundary without the human's explicit "go".
+  planning→execution boundary without a grant that holds (`events approval SN`).
 - **Clear context at every sprint boundary — the harness drives it.** When FINAL-GATE
   passes, `gate-final` runs `stats sprint-close`, which writes `sprintN/stats.md` (tasks
   planned/completed, attempts, gate blocks, budget stops, re-plans, tokens for the

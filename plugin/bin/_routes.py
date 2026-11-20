@@ -12,7 +12,7 @@ import _paths
 HERE = os.path.dirname(os.path.realpath(__file__))
 # The mission roles (ROADMAP §4.12, plugin/mission/roles.json `group`): the four that judge plan on the
 # planning route; the two that only measure with pinned scripts run on the worker route.
-GROUPS = {"planning": ("intake", "standards", "planner", "archivist",
+GROUPS = {"planning": ("intake", "standards", "planner", "archivist", "door-classifier",
                        "market-researcher", "evaluator", "mission-planner", "ethics-reviewer"),
           "worker": ("red-worker", "scaffolder", "green-worker", "structural-reviewer", "final-gate",
                      "product-tester", "state-assessor")}

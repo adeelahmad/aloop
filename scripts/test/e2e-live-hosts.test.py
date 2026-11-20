@@ -7,7 +7,9 @@ the same intent, approval and checks; `--dry-run` seeds and prints the command w
 spending tokens; `run-summary --host` records the host and the reproduce command names it.
     python3 scripts/test/e2e-live-hosts.test.py
 """
+import hashlib
 import json
+import sys
 import os
 import re
 import shutil
@@ -117,21 +119,18 @@ assert not os.path.exists(os.path.join(d, "repo", ".opencode")) and "host: claud
 assert "E2E-DONE" not in cmd and "prompt: stdin" in r.stdout, cmd
 ok("default host is claude: claude -p --plugin-dir … with the prompt on stdin (no host install)")
 
-# 3b) the approval given up front is the human's typed line (ROADMAP M0.9): the prompt carries the line that
-#     grants sprint 1 autonomy, and that line, captured as the human's words, is what the recorded grant cites
+# 3b) only the intent (ROADMAP M11.9): no approval line; the prompt's first line is the intent word for word,
+#     which is what grants the sprint (M11.2) once intake records it with `intent new --raw`
+sys.path.insert(0, BIN)
+import _approval  # noqa: E402
 r, d = run("--host", "opencode")
-grant = re.search(r"^autonomous S1 [0-9a-f]{8}$", r.stdout, re.M)
-assert grant and "--mode autonomous" in r.stdout and "--sprint 1" in r.stdout, r.stdout
-repo = os.path.join(d, "repo")
-AUTH = [os.path.join(BIN, "events"), "authority", "--initiated-by", "e2e human", "--mode", "autonomous", "--scope", "the e2e run",
-        "--sprint", "1"]
-assert subprocess.run(AUTH, cwd=repo, env=ENV, capture_output=True, text=True).returncode == 3     # not before the human's words
-subprocess.run([os.path.join(BIN, "transcripts"), "prompt"], cwd=repo, env=ENV, check=True, capture_output=True, text=True,
-               input=json.dumps({"hook_event_name": "UserPromptSubmit", "session_id": "e2e", "prompt": "Use the aloop skill.\n"
-                                 + grant.group(0) + "\nRun the whole loop."}))
-r = subprocess.run(AUTH, cwd=repo, env=ENV, capture_output=True, text=True)
-assert r.returncode == 0, r.stderr
-ok("the e2e prompt carries the human's line granting sprint 1 autonomy; captured, it records that grant")
+assert not re.search(r"^(?:autonomous|approve) S1 [0-9a-f]{8}$", r.stdout, re.M) and "approve in advance" not in r.stdout, r.stdout
+prompt = r.stdout[r.stdout.index("cmd: ") + 5:]
+words = re.search(r"opencode run --format json (?:--model \S+ )?(.+?)\nUse the aloop skill", prompt, re.S)
+assert words, prompt
+raw = words.group(1).strip()
+assert _approval.said(raw + "\nUse the aloop skill on the intent above.", hashlib.sha256(raw.encode()).hexdigest()), raw
+ok("the e2e prompt carries only the intent: its first line is the grant (no approval line)")
 
 # 4) an unknown host or a missing CLI is a usage error before anything is seeded or spent
 r, _ = run("--host", "cursor")

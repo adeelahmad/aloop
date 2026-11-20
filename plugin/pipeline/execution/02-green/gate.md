@@ -3,7 +3,9 @@
 Checks (bin/gate-green-verify):
 - [ ] Every test in the task's plan-ready.md section now passes.
 - [ ] No previously-passing test regressed.
-- [ ] git diff --stat touches only tasks.md-named files + the RED test file.
+- [ ] The diff touches only the task's planned fileset (`targets diffscope`: its targets'
+      paths and planned tests), new test files, additions to an existing test, and up to 3
+      declared two-way `### Scope exemptions` (each a `scope.exempted` ledger row).
 - [ ] fmt / lint / full test suite / dependency audit / coverage all green.
 - [ ] No suppression pattern introduced.
 

@@ -1,8 +1,8 @@
 # Aloop: standing goal
 
-**What it is.** **aloop** (Aladdin's Loop; formerly agentic-agile, heading for **Aladdin 1.0**) is a plugin for Claude Code, Codex and OpenCode that turns any intent into planned, test-first, gate-verified software. A human approves the plan, cheap workers build it in isolated worktrees, and deterministic hooks decide what is accepted. *Models explore. Gates decide.*
+**What it is.** **aloop** (Aladdin's Loop; formerly agentic-agile, heading for **Aladdin 1.0**) is a plugin for Claude Code, Codex and OpenCode that turns any intent into planned, test-first, gate-verified software. A human gives the intent and answers only one-way-door questions (generation is cheap: anything reversible is decided, recorded and redone on request), cheap workers build it in isolated worktrees, and deterministic hooks decide what is accepted. *Models explore. Gates decide.*
 
-**North star.** A one-line intent becomes merged, tested, auditable code on any host, with no human help beyond approval, at the lowest token cost.
+**North star.** A one-line intent becomes merged, tested, auditable code on any host, with no human help beyond the intent and one-way-door answers, at the lowest token cost.
 
 **Done means.** Every milestone's exit criterion is proven by a test or a measured run, CI is green, and `docs/OVERVIEW.md` and `docs/ROADMAP.md` match the code.
 
