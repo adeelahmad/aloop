@@ -93,7 +93,7 @@ for cmd, door in (("git push origin main", "push-default-branch"), ("sudo env X=
                   ("gh secret set TOKEN", "credentials-and-secrets"), ("psql -c 'DROP TABLE users'", "destructive-db")):
     r = classify(p, cmd)
     assert r.returncode == 3 and "ASK[door] %s" % door in r.stderr, (cmd, r.returncode, r.stderr)
-    assert "aloop mission doors authorize %s --by NAME --reason" % door in r.stderr, r.stderr
+    assert "aloop mission doors authorize %s --by " % door in r.stderr and "allow %s " % door in r.stderr, r.stderr
 r = classify(p, "gh secret set TOKEN")
 assert "--once %s" % D.action_sha("Bash", {"command": "gh secret set TOKEN"}) in r.stderr, r.stderr
 r = p.run("doors", "classify", "--tool", "mcp__github__merge_pull_request", "--input", '{"pullNumber": 3}')

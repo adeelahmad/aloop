@@ -1,0 +1,4 @@
+# aloop run data (transcripts, budgets, ledger, logs, state) — never committed
+*
+!.gitignore
+!config.yaml

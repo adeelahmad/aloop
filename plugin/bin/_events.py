@@ -39,6 +39,7 @@ EVENT_TYPES = {
     "judge.run",
     "scope.exempted",
     "door.authorized", "door.revoked", "door.reclassified", "door.tagged", "door.denied", "door.crossed",
+    "door.two_way",
     # user space (ROADMAP M12): which copy of each customized opinion a run loaded
     "userspace.applied",
     # modules (ROADMAP M12.7): each run of a pinned extension, with its verdict
