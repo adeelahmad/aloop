@@ -279,7 +279,7 @@ and [→ DeepSeek Harness](plugin/README.md#deepseek-harness-dsh).
 
 ### Upgrading from agentic-agile
 
-The plugin is now `aloop@aloop-marketplace` (since v0.11.0; current v0.12.0). Swap the install once:
+The plugin is now `aloop@aloop-marketplace` (since v0.11.0; current v0.13.0). Swap the install once:
 
 ```bash
 /plugin uninstall agentic-agile@agentic-agile-marketplace
