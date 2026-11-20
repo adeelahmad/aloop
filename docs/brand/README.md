@@ -87,3 +87,10 @@ falls back to a system font, so the PNGs come out the same on any machine.
 <link rel="apple-touch-icon" href="brand/app-icon-180.png" />
 <meta property="og:image" content="https://raw.githubusercontent.com/adeelahmad/aloop/master/docs/brand/og-card.png">
 ```
+
+## Fonts on the site
+
+`docs/index.html` applies the design system as given (tokens, type, radii, tinted panels, phase
+dots, the loop stepper, gate verdicts, agent chips, the terminal) and loads nothing from outside:
+DM Sans, JetBrains Mono and Caveat are vendored in [`fonts/`](fonts/) from `@fontsource` (SIL OFL
+1.1, [`fonts/OFL.txt`](fonts/OFL.txt)).

@@ -41,6 +41,7 @@ class P(HTMLParser):
 
 
 html = open(PAGE).read()
+roadmap_text = open(os.path.join(ROOT, "docs", "ROADMAP.md")).read()
 p = P()
 p.feed(html)
 assert not p.ext, "external resources: %r" % p.ext
@@ -48,7 +49,8 @@ assert not p.bad and not p.stack, (p.bad, p.stack)
 ok("docs/index.html is self-contained and well-formed")
 
 assert 'src="diagrams/aladdins-loop.webp"' in html and os.path.isfile(os.path.join(ROOT, "docs", "diagrams", "aladdins-loop.webp"))
-assert 'src="brand/wordmark.svg"' in html and os.path.isfile(os.path.join(ROOT, "docs", "brand", "wordmark.svg"))
+# the wordmark is the design system's option D: "Aladdin" over the blue, red, green, gold loop bar
+assert re.search(r'class="word"[^>]*>Aladdin<span class="bar"><span class="b"></span><span class="r"></span><span class="g"></span><span class="y"></span>', html)
 ok("the owner's brand: the Aladdin wordmark and the Aladdin's loop infographic, both shipped in docs/")
 
 # the quick start is what a user types: the marketplace and plugin are the real ones, the intent goes to a
@@ -58,15 +60,21 @@ mk = json.load(open(os.path.join(ROOT, ".claude-plugin", "marketplace.json")))
 plugin = mk["plugins"][0]["name"]
 assert "/plugin marketplace add adeelahmad/aloop" in html
 assert "/plugin install %s@%s" % (plugin, mk["name"]) in html
-pres = re.findall(r"<pre>(.*?)</pre>", html, re.S)
-start = [x for x in pres if "/plugin install" in x]
-assert len(start) == 1, "one quick-start block"
+pres = [re.sub(r"<[^>]+>", "", x) for x in re.findall(r"<pre[^>]*>(.*?)</pre>", html, re.S)]
+starts = [x for x in pres if "/plugin install" in x]
+assert starts, "a quick-start block"
 skills = os.listdir(os.path.join(ROOT, "plugin", "skills"))
-for cmd in re.findall(r"^/(\w[\w:-]*)", start[0], re.M):
-    name = cmd.split(":")[-1]
-    assert cmd in ("plugin", "reload-plugins") or name in skills, "unknown slash command /%s" % cmd
-assert re.search(r"^/aladdin \S", start[0], re.M), "the quick start ends in /aladdin <intent>"
-assert not any(re.match(r'\s*aladdin "', x) for x in pres), "a shell `aladdin \"...\"` only records an intent"
+for start in starts:
+    for cmd in re.findall(r"^/(\w[\w:-]*)", start, re.M):
+        name = cmd.split(":")[-1]
+        assert cmd in ("plugin", "reload-plugins") or name in skills, "unknown slash command /%s" % cmd
+    assert re.search(r"^/aladdin \S", start, re.M), "the quick start says /aladdin <intent>"
+assert not any(re.search(r'^\s*(\$ )?aladdin "', x, re.M) for x in pres), "a shell `aladdin \"...\"` only records an intent"
+# the design system's fonts are vendored, so the page stays self-contained
+for font in re.findall(r"url\((brand/fonts/[^)]+)\)", html):
+    assert os.path.isfile(os.path.join(ROOT, "docs", font)), font
+for cost in re.findall(r"\$\d+\.\d\d", html):
+    assert cost in roadmap_text, "unsourced cost %s (not in ROADMAP)" % cost
 assert {"start", "roadmap"} <= p.ids
 ok("the quick start is the real install lines and skill, and the roadmap is on the page")
 
