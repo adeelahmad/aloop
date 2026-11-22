@@ -23,7 +23,7 @@ def ok(name):
     print("ok -", name)
 
 
-lib = open(os.path.join(P, "bin", "_gatelib.sh")).read()
+lib = open(os.path.join(P, "libexec", "_gatelib.sh")).read()
 fn = lib[lib.index("assert_no_suppression() {"):]
 fn = fn[:fn.index("\n}\n")]
 listed = re.findall(r'fail "test-suppression pattern present \(no (.*)\)"', fn)
@@ -57,7 +57,7 @@ def suppressed(rel, text):
     os.makedirs(os.path.dirname(os.path.join(d, rel)), exist_ok=True)
     open(os.path.join(d, rel), "w").write(text)
     r = subprocess.run(["bash", "-c", 'GATE_NAME=t; . "$1"; assert_no_suppression', "_",
-                        os.path.join(P, "bin", "_gatelib.sh")], cwd=d, env=dict(os.environ, REPO_DIR=d),
+                        os.path.join(P, "libexec", "_gatelib.sh")], cwd=d, env=dict(os.environ, REPO_DIR=d),
                        capture_output=True, text=True)
     return r.returncode == 2 and "test-suppression" in r.stderr
 

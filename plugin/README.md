@@ -23,11 +23,11 @@ See `skills/aloop/SKILL.md` for the full supervisor playbook and
 | **md-db** | recommended | validates `.md` artifacts against `schemas/*.kdl` | built from vendored `tools/md-db` (AGPL-3.0; see below) |
 | **Rust toolchain** | required to install | builds both backends + runs the target repo's `cargo fmt/clippy/test/coverage` matrix | rustup (>= 1.85) |
 
-**You don't install the backends yourself.** A `SessionStart` hook (`bin/ensure-tools`)
+**You don't install the backends yourself.** A `SessionStart` hook (`libexec/ensure-tools`)
 builds `md-db` + `ctx-symbols` from the bundled source into the plugin's data dir the
 first time a session starts (in the background, ~1 min; needs a Rust toolchain), and
-rebuilds them when the plugin version changes. The plugin's `bin/` is on PATH in every
-session and sub-agent, and `bin/md-db` / `bin/ctx-symbols` are shims that run the real
+rebuilds them when the plugin version changes. The plugin's `libexec/` is on PATH in every
+session and sub-agent, and `libexec/md-db` / `libexec/ctx-symbols` are shims that run the real
 binaries — so agents call every tool by bare name and never go looking for it.
 Opt out with `AGENTIC_NO_AUTOINSTALL=1`; force a build with `ensure-tools --sync`.
 
@@ -67,7 +67,7 @@ no Claude co-author trailers — `gate-commit-author` enforces it). The harness 
 answers in `docs/agents/defaults.md`.
 
 Run data lives in `.aladdin/` (transcripts, budget, token ledger, gate log, state),
-resolved in `bin/_paths.sh` / `bin/_paths.py` and never committed: `.aladdin/.gitignore`
+resolved in `libexec/_paths.sh` / `libexec/_paths.py` and never committed: `.aladdin/.gitignore`
 keeps only `config.yaml`. A project that still has `.agentic/` keeps using it until
 `aloop layout migrate`. When FINAL-GATE
 passes the harness writes `docs/agents/sprintN/stats.md` (tasks, attempts, gate blocks,
@@ -98,13 +98,13 @@ from `aloop --root` once installed anywhere):
 git clone https://github.com/adeelahmad/aloop && cd your-project
 
 # Codex — Codex reads this repo's .claude-plugin manifests + hooks/hooks.json natively
-/path/to/aloop/plugin/bin/aloop install codex      # .codex/agents/*.toml + ~/.local/bin/aloop
+/path/to/aloop/plugin/libexec/aloop install codex      # .codex/agents/*.toml + ~/.local/bin/aloop
 codex plugin marketplace add adeelahmad/aloop
 codex plugin add aloop@aloop-marketplace
 #   then in Codex: /hooks → trust the aloop hooks (Codex runs only trusted hooks)
 
 # OpenCode — no bundle format, so the installer renders everything into .opencode/
-/path/to/aloop/plugin/bin/aloop install opencode   # agents, skills, /aloop-init, plugin
+/path/to/aloop/plugin/libexec/aloop install opencode   # agents, skills, /aloop-init, plugin
 #   restart opencode; start with /aloop-init
 ```
 
@@ -116,7 +116,7 @@ codex plugin add aloop@aloop-marketplace
 | Hooks | `hooks/hooks.json` | the same file (native) | plugin → the same scripts | native plugin `hosts/dsh/aloop.mjs` → the same scripts |
 | Agents | `agents/*.md` | generated `.codex/agents/*.toml` | generated `.opencode/agents/*.md` | agent presets `aloop-<role>` in the generated `aloop` profile |
 | Worker isolation | `isolation: "worktree"` | `aloop task-worktree` + `aloop bind` (hook-enforced) | same (plugin rewrites into the worktree) | same, dispatched with `cwd: <worktree>` (hook-enforced: dsh cannot rewrite a call) |
-| Tools on PATH | plugin `bin/` | `~/.local/bin/aloop` | plugin `shell.env` | `~/.local/bin/aloop` |
+| Tools on PATH | plugin `libexec/` | `~/.local/bin/aloop` | plugin `shell.env` | `~/.local/bin/aloop` |
 | Token source | transcripts | rollouts (`.jsonl`/`.zst`) | plugin-written usage log | plugin-written usage log |
 | Hard stop | PostToolUse `continue:false` | same | `session.abort` | `agent.cancel` |
 
@@ -135,7 +135,7 @@ installer writes an `aloop` profile and a native plugin runs the gates:
 
 ```bash
 npm install -g @deepseek-ai/dsh@0.2.1-rc.2
-/path/to/aloop/plugin/bin/aloop install dsh        # $DSH_HOME/profiles/aloop + .dsh/skills + ~/.local/bin/aloop
+/path/to/aloop/plugin/libexec/aloop install dsh        # $DSH_HOME/profiles/aloop + .dsh/skills + ~/.local/bin/aloop
 export DEEPSEEK_API_KEY=sk-...                     # or DEEPSEEK_API_KEY=... in $DSH_HOME/.env
 dsh --profile aloop "Use the aloop skill. Intent: <one line>"
 ```
@@ -162,7 +162,7 @@ dsh --profile aloop "Use the aloop skill. Intent: <one line>"
   dsh compacts a session in place, and the plugin records `context.compacted` and adds the
   handoff to the first request after it (the retry of an overflowed step included).
 - **Cost**: `run-summary --host dsh` prices each logged call (dsh's compaction and session-title
-  calls included) from the dated DeepSeek table in `bin/_prices.py`, to the micro-dollar (the
+  calls included) from the dated DeepSeek table in `libexec/_prices.py`, to the micro-dollar (the
   evidence row to four places, `<$0.0001` below); a model with no published price leaves the cost
   unmeasured. A retried attempt and DeepSeek's server-side
   Search/Fetch are not in it (ROADMAP §4.9).
@@ -196,12 +196,12 @@ Stage-2 approval (`approve SN <code>`).
 The execution gates ship wired for a **Rust** target (cargo fmt/clippy/test). The
 GREEN and FINAL matrix is **read from your `standards.md`**, not hardcoded — so the
 fastest way to retarget is to declare your matrix there. For a non-Rust stack, adapt
-the language-specific bits of `bin/gate-red-verify` (compile-then-fail check) and the
-default matrix in `bin/_gatelib.sh`.
+the language-specific bits of `libexec/gate-red-verify` (compile-then-fail check) and the
+default matrix in `libexec/_gatelib.sh`.
 
 ### Gate contract (env the supervisor sets per dispatch)
 
-All optional, each with a safe fallback (see `bin/_gatelib.sh`):
+All optional, each with a safe fallback (see `libexec/_gatelib.sh`):
 `STORY_DIR`, `REPO_DIR`, `STANDARDS_FILE`, `BASE_REF`, `TEST_GLOBS`,
 `SCOPE_GLOBS`, `SCAFFOLD_SYMBOLS`, `GATE_RUN_TESTS`, `GATE_RUN_MATRIX`.
 
@@ -212,7 +212,7 @@ All optional, each with a safe fallback (see `bin/_gatelib.sh`):
 skills/aloop/SKILL.md the supervisor playbook (canonical)
 agents/<role>.md             9 dispatchable personas
 hooks/hooks.json             gate wiring by agent_type (SubagentStop/Stop/PostToolUse)
-bin/                         gate bodies + _gatelib.sh + log-execution
+libexec/                         gate bodies + _gatelib.sh + log-execution
 schemas/*.kdl                md-db schemas (agent-io / planning-artifacts / ledger)
 tools/ctx-symbols/           the symbol backend (Rust source) + install.sh
 pipeline/                    design source of truth (persona/init/artifacts/gate per activity)
@@ -233,7 +233,7 @@ MIT — see `LICENSE`.
 
 ## Transcripts & memory (v0.2)
 
-- `bin/transcripts` keeps a global append-only `global.jsonl` + per-task transcripts.
+- `libexec/transcripts` keeps a global append-only `global.jsonl` + per-task transcripts.
   `SubagentStart` stages a READ-ONLY task slice into the worktree (`.transcripts/`),
   `PostToolUse *` records every call, `SubagentStop *` removes the slice. These hooks
   never block. The supervisor reads the global store; the planning **retrospective**

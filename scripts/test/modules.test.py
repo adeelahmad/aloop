@@ -20,7 +20,7 @@ import sys
 import tempfile
 
 PLUGIN = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(PLUGIN, "bin")
+BIN = os.path.join(PLUGIN, "libexec")
 TMP = tempfile.mkdtemp(prefix="aloop-modules-")
 HOME = os.path.join(TMP, "home")
 AH = os.path.join(HOME, ".aloop")
@@ -154,8 +154,8 @@ ok(r.returncode == 2 and "not JSON" in r.stderr, "an unreadable distro.json bloc
 hooks = json.load(open(os.path.join(PLUGIN, "hooks", "hooks.json")))["hooks"]
 for evn in ("SubagentStop", "Stop"):
     star = [h["command"] for m in hooks[evn] if m["matcher"] == "*" for h in m["hooks"]]
-    ok(any(c.endswith('/bin/module" hook') for c in star), "%s runs `module hook` on every agent" % evn)
-gates = [h["command"] for m in hooks["SubagentStop"] for h in m["hooks"] if "/bin/gate-" in h["command"]]
+    ok(any(c.endswith('/libexec/module" hook') for c in star), "%s runs `module hook` on every agent" % evn)
+gates = [h["command"] for m in hooks["SubagentStop"] for h in m["hooks"] if "/libexec/gate-" in h["command"]]
 ok(len(gates) == 11, "every core SubagentStop gate is still wired (11)", gates)
 p = {"tool_name": "Write", "session_id": "s", "cwd": P, "agent_type": "green-worker",
      "tool_input": {"file_path": os.path.join(AH, "modules", "x", "check"), "content": "exit 0"}}

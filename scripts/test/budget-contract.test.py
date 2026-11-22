@@ -19,7 +19,7 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
 from plan_fixture import approve_plan  # noqa: E402
 
-BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin")
+BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "libexec")
 T = tempfile.mkdtemp(prefix="aloop-contract-")
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTIC_", "ALADDIN_")) and k != "SKIP_HOOKS"}

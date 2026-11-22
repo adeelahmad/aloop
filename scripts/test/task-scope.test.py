@@ -17,7 +17,7 @@ import subprocess
 import tempfile
 
 PLUGIN = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(PLUGIN, "bin")
+BIN = os.path.join(PLUGIN, "libexec")
 ENV = dict(os.environ, PATH="/usr/bin:/bin", AGENTIC_NO_AUTOINSTALL="1",
            GIT_AUTHOR_NAME="A", GIT_AUTHOR_EMAIL="a@a", GIT_COMMITTER_NAME="A", GIT_COMMITTER_EMAIL="a@a")
 for k in ("AGENTIC_HOST", "SCOPE_GLOBS", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "BASE_REF", "ALOOP_SCOPE_EXEMPT_MAX"):

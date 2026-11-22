@@ -1,4 +1,4 @@
-"""_paths.py — Python mirror of bin/_paths.sh: THE aloop file layout.
+"""_paths.py — Python mirror of libexec/_paths.sh: THE aloop file layout.
 
 No model picks these names and no environment variable overrides them. See _paths.sh
 for the full map. <project> is the MAIN worktree, so linked worktrees share it.
@@ -19,7 +19,7 @@ DEFAULTS = {
     # soft = rollover warning; hard = admission closes, not-started tasks carry over
     "SPRINT_TOKENS_SOFT": 4000000,
     "SPRINT_TOKENS_HARD": 6000000,
-    # time budget mode: fixed (TIME_*_MIN above) | auto (one project timebox, bin/timebox)
+    # time budget mode: fixed (TIME_*_MIN above) | auto (one project timebox, libexec/timebox)
     "TIME_MODE": "fixed",
     # structural (LSP) backend for `targets refs|callers|callees` (ROADMAP §4.6): a command
     "LSP_COMMAND": "",
@@ -28,7 +28,7 @@ DEFAULTS = {
     "CONTEXT_WINDOW": 200000,
     # optional cross-project impact provider (ROADMAP §4.8): a command, empty = none
     "IMPACT_PROVIDER": "",
-    # a ROUTE (strongest | strong | economical, resolved per host by bin/models) or a pinned id
+    # a ROUTE (strongest | strong | economical, resolved per host by libexec/models) or a pinned id
     "MODEL_PLANNING": "strongest",
     "MODEL_WORKER": "strong",
     "GITIGNORE": "yes",

@@ -394,7 +394,7 @@ r = subprocess.run([os.path.join(BIN, "gate-supervisor-scope")], cwd=s1.dir, env
 assert r.returncode == 0, r.stderr
 assert open(os.path.join(s1.dir, ".aladdin", "state", "sprint.lock")).readline().strip() == "S1"   # the lock is armed
 assert ask_in(s1, plan_q).stdout == ""                                      # planning: the approval is asked
-_events.emit(s1.dir, "plan.created", role="planner", sprint="S1")      # as plugin/bin/ids names it
+_events.emit(s1.dir, "plan.created", role="planner", sprint="S1")      # as plugin/libexec/ids names it
 os.makedirs(os.path.join(s1.dir, "docs", "agents", "sprint1"), exist_ok=True)
 r = as_human(lambda: subprocess.run([EVENTS, "authority", "--initiated-by", "Adeel", "--mode", "reviewed", "--scope",
                                      "sprint1", "--sprint", "1"], cwd=s1.dir, env=s1.env, capture_output=True, text=True),
@@ -406,7 +406,7 @@ assert "two-way" in denied(ask_in(Project(mode="spoon-fed"), "parse_row or parse
                                   env={"AGENTIC_AUTONOMY_MODE": "autonomous"}))   # an autonomous run
 ok("questions: planning and the plan approval are asked; live once the plan is approved, for the lock's session")
 
-# 17) round 2 (M9.38): one shell reader (plugin/bin/_shellread.py, the scope gate's) reads the line, so an
+# 17) round 2 (M9.38): one shell reader (plugin/libexec/_shellread.py, the scope gate's) reads the line, so an
 #     operator that touches a word, a keyword, a group, a function body, a here-string, an IO-number
 #     redirect, a quoted operator or a second find -exec hides nothing; a heredoc or a quote inside
 #     "$(cat <<'EOF' … EOF)" is data; stdin reaches only the command it feeds; the directory follows
@@ -616,8 +616,8 @@ R3 = (("[[ -n x ]]&&git push origin main", "push-default-branch"), ("[[ -d .git 
       ("x=$(cat <<A <<B\nA); mission doors authorize publish-release --by A --reason r", "forge-human-record"),
       ("env -u CLAUDECODE aladdin mission doors authorize push-default-branch --by me --reason r", "forge-human-record"),
       ("agentic mission doors authorize x --by me --reason r", "forge-human-record"),
-      ("bash plugin/bin/aloop mission doors authorize x --by me --reason r", "forge-human-record"),
-      ("python3 -u plugin/bin/mission doors authorize x --by me --reason r", "forge-human-record"),
+      ("bash plugin/libexec/aloop mission doors authorize x --by me --reason r", "forge-human-record"),
+      ("python3 -u plugin/libexec/mission doors authorize x --by me --reason r", "forge-human-record"),
       ("set -- a; for i do npm publish; done", "publish-release"), ("coproc P { npm publish; }; wait", "publish-release"),
       ("case a in a) ((1<<2));; esac\nnpm publish", "publish-release"), ("echo $[1<<2]\nnpm publish", "publish-release"),
       ("printf '%s %s\\n' npm publish | bash", "publish-release"), ("echo -e 'true\\nnpm publish' | bash", "publish-release"),
@@ -912,14 +912,14 @@ finally:
 assert rc == 2 and out == "" and "BLOCK[doors]" in err and took < 3, (rc, out, err, took)
 ok("deadline: one deadline covers the whole decision; a held doors.lock or a hung verdict is exit 2 within it, never a hang")
 
-for x in ("hosts/opencode/aloop.js", "hosts/dsh/aloop.mjs", "bin/host-adapter", "bin/install"):
+for x in ("hosts/opencode/aloop.js", "hosts/dsh/aloop.mjs", "libexec/host-adapter", "libexec/install"):
     assert ids("Write", {"file_path": os.path.join(D.PLUGIN, x)}) == ["change-agent-settings"], x
     assert ids("apply_patch", {"command": patch("*** Update File: %s" % os.path.join(D.PLUGIN, x))}) == ["change-agent-settings"]
 for x in (".codex/hooks.json", ".codex/config.toml", "~/.codex/agents/red-worker.toml", ".opencode/plugins/aloop.js",
           ".opencode/opencode.jsonc", "opencode.json", "~/.config/opencode/plugins/aloop.js",
           "~/.dsh/profiles/aloop/cordis.patch.yml", "~/.dsh/profiles/aloop/package.json"):
     assert "change-agent-settings" in denied(hook(p, "Write", {"file_path": x, "content": "{}"})), x
-assert ids("Write", {"file_path": os.path.join(D.PLUGIN, "bin", "README.md")}) == []
+assert ids("Write", {"file_path": os.path.join(D.PLUGIN, "libexec", "README.md")}) == []
 for cmd in ("echo '{}' > opencode.json", "cat x >> .codex/hooks.json", "printf x | tee ~/.dsh/profiles/aloop/cordis.patch.yml"):
     assert "change-agent-settings" in doors_of(cmd), cmd
 for cmd in ("cat .codex/config.toml", "jq . opencode.json", "cat ~/.dsh/profiles/aloop/cordis.patch.yml"):

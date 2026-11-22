@@ -59,7 +59,7 @@ root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 [ -n "${AGENTIC_HOME:-}" ] || . "$HERE/_paths.sh"
-lock="$AGENTIC_HOME/state/sprint.lock"          # fixed path (bin/_paths.sh), git-ignored
+lock="$AGENTIC_HOME/state/sprint.lock"          # fixed path (libexec/_paths.sh), git-ignored
 
 # An unreadable payload is judged like a crash: it blocks while this repo has a sprint lock, and
 # stays out of the way everywhere else (this gate sees every session on the machine).

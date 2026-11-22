@@ -5,7 +5,7 @@
 set -uo pipefail
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; export PATH="$BIN_DIR:$PATH"  # md-db shim -> real binary
 GATE_NAME="gate-stage2-complete"
-# A direct call (the supervisor's own check, bin/selfcheck) is logged as a self-check; only a
+# A direct call (the supervisor's own check, libexec/selfcheck) is logged as a self-check; only a
 # host SubagentStop payload makes a verdict. Decided before _gatelib.sh reads the payload.
 [ -t 0 ] && export AGENTIC_SELFCHECK=1
 # shellcheck source=/dev/null
@@ -33,7 +33,7 @@ if [ -z "${TASK_ID:-}" ] && [ -n "$GATE_PAYLOAD" ]; then
   fi
 fi
 
-# 0) The sprint lives in docs/agents/sprintN/ (bin/_paths.sh), never in the run-data dir, which
+# 0) The sprint lives in docs/agents/sprintN/ (libexec/_paths.sh), never in the run-data dir, which
 # is git-ignored and never committed (live e2e run 24: a haiku supervisor had the whole sprint
 # planned and built under .aladdin/sprint1/ and this gate passed it).
 case "/$(cd "$sprint_dir" && pwd -P)/" in

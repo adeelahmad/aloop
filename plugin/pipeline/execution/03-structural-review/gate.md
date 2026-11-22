@@ -1,6 +1,6 @@
 # Gate — 03-structural-review  (supervisor verification)
 
-Checks (bin/gate-structural-integrity):
+Checks (libexec/gate-structural-integrity):
 - [ ] Zero orphan modules.
 - [ ] Zero parallel implementations of a single abstraction.
 - [ ] Zero duplicate helpers under different names.
@@ -9,7 +9,7 @@ Failure verbs:
   ESCALATE — a finding poisons a shared foundation -> supervisor HALTs the
              dependency chain and surfaces it at the next planning session (§4)
   REJECT   — an isolated finding -> supervisor CONTINUEs other work, collects it
-Enforced by: SubagentStop(structural-reviewer) -> bin/gate-structural-integrity.
+Enforced by: SubagentStop(structural-reviewer) -> libexec/gate-structural-integrity.
 
 Remediation (added): an ISOLATED + FIXABLE finding re-spawns the implicated GREEN
 task with feedback via init.md (RETRY) — it does NOT just "continue." Only a

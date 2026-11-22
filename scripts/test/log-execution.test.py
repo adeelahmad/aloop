@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import tempfile
 
-BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin", "log-execution")
+BIN = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "libexec", "log-execution")
 GATE = os.path.join(os.path.dirname(BIN), "gate-ledger-format")
 T = tempfile.mkdtemp(prefix="aloop-ledger-")
 atexit.register(shutil.rmtree, T, ignore_errors=True)

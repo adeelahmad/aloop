@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 T = tempfile.mkdtemp(prefix="agentic-ids-")
 ENV = dict(os.environ, HOME=os.path.join(T, "home"), PATH="/usr/bin:/bin")  # no md-db: structural path only
 ENV.pop("AGENTIC_HOST", None)

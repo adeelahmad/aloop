@@ -22,7 +22,7 @@ import threading
 import time
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 AREAS = os.path.join(ROOT, "mission")
 T = os.path.realpath(tempfile.mkdtemp(prefix="aloop-research-"))
 OUT = os.path.realpath(tempfile.mkdtemp(prefix="aloop-research-outside-"))   # a dir outside the project

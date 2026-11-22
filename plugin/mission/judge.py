@@ -64,7 +64,7 @@ import subprocess
 import sys
 import tempfile
 
-_BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "bin")
+_BIN = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "libexec")
 if _BIN not in sys.path:
     sys.path.insert(0, _BIN)
 import _events  # noqa: E402

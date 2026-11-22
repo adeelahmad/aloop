@@ -13,11 +13,11 @@ import subprocess
 import sys
 import tempfile
 
-sys.dont_write_bytecode = True                 # loading bin/ scripts must not leave __pycache__ there
+sys.dont_write_bytecode = True                 # loading libexec/ scripts must not leave __pycache__ there
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 PLUGIN = os.path.join(ROOT, "plugin")
-BIN = os.path.join(PLUGIN, "bin")
+BIN = os.path.join(PLUGIN, "libexec")
 T = tempfile.mkdtemp(prefix="aloop-rename-")
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = dict(os.environ, HOME=os.path.join(T, "home"), CLAUDE_PLUGIN_DATA=os.path.join(T, "pdata"),

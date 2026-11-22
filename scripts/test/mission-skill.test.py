@@ -16,7 +16,7 @@ ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 PLUGIN = os.path.join(ROOT, "plugin")
 SDIR = os.path.join(PLUGIN, "skills", "mission")
 SKILL = open(os.path.join(SDIR, "SKILL.md")).read()
-sys.path.insert(0, os.path.join(PLUGIN, "bin"))
+sys.path.insert(0, os.path.join(PLUGIN, "libexec"))
 sys.path.insert(0, os.path.join(PLUGIN, "mission"))
 import tick as T  # noqa: E402
 
@@ -81,7 +81,7 @@ for phrase in ("never write", "docs/agents/mission/", "explicit yes", "--by", "h
 for phrase in ("they reply", "exact line", "typed", 'the command the ASK names after "then"', "goal approve",
                "grants nothing"):
     assert phrase in rules, "the hard rules do not say how a grant is made (M9.17): %r" % phrase
-for src, forms in (("bin/_mission.py", ("they reply  ", "then run this again")),          # what the CLI prints
+for src, forms in (("libexec/_mission.py", ("they reply  ", "then run this again")),          # what the CLI prints
                    ("mission/goal.py", ("then aloop mission goal approve",))):
     text = open(os.path.join(PLUGIN, src)).read()
     assert all(f in text for f in forms), (src, forms)

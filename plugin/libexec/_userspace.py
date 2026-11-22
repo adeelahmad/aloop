@@ -99,7 +99,7 @@ def plugin_files():
     out[REFERENCE_NOTE + "hooks/hooks.json"] = (os.path.join(ROOT, "hooks", "hooks.json"), "reference")
     for fn in sorted(os.listdir(HERE)):
         if fn.startswith("gate-"):
-            out[REFERENCE_NOTE + "bin/" + fn] = (os.path.join(HERE, fn), "reference")
+            out[REFERENCE_NOTE + "libexec/" + fn] = (os.path.join(HERE, fn), "reference")
     return out
 
 

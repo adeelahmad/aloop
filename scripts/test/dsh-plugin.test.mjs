@@ -1,5 +1,5 @@
 // The DeepSeek Harness (dsh) plugin against an emulated Cordis context: the REAL plugin
-// (plugin/hosts/dsh/aloop.mjs) and the REAL bin/ scripts in a throw-away git repo. No dsh, no
+// (plugin/hosts/dsh/aloop.mjs) and the REAL libexec/ scripts in a throw-away git repo. No dsh, no
 // network, no tokens.   node scripts/test/dsh-plugin.test.mjs
 // dsh-runtime.test.mjs runs the same plugin on dsh itself; this one covers what a scripted model
 // cannot reach cheaply: the budget limits, the STUCK release, the cancel, the fallbacks.
@@ -13,7 +13,7 @@ import assert from "node:assert/strict"
 import { approvePlan } from "./fixtures/plan-fixture.mjs"
 
 const ROOT = join(fileURLToPath(import.meta.url), "..", "..", "..", "plugin")
-const BIN = join(ROOT, "bin")
+const BIN = join(ROOT, "libexec")
 const T = mkdtempSync(join(tmpdir(), "aloop-dsh-"))
 process.on("exit", () => rmSync(T, { recursive: true, force: true }))
 const sh = (cmd, args) => execFileSync(cmd, args, { cwd: T, encoding: "utf8" })
@@ -444,8 +444,8 @@ ok("the door gate fails closed: a hang (timeout), a crash, a kill, an odd exit o
 // a gate runs the worker's code, so it gets the worker shell's environment: dsh's credential scrub,
 // aloop's own settings kept, and the plugin root the gates read their schemas from
 const FR = join(T, "fake-root")
-mkdirSync(join(FR, "bin"), { recursive: true })
-writeFileSync(join(FR, "bin", "host-adapter"), `#!/bin/sh\nenv > "${join(FR, "env.txt")}"\n`); chmodSync(join(FR, "bin", "host-adapter"), 0o755)
+mkdirSync(join(FR, "libexec"), { recursive: true })
+writeFileSync(join(FR, "libexec", "host-adapter"), `#!/bin/sh\nenv > "${join(FR, "env.txt")}"\n`); chmodSync(join(FR, "libexec", "host-adapter"), 0o755)
 Object.assign(process.env, { DEEPSEEK_API_KEY: "sk-secret", GITHUB_TOKEN: "ghp-secret", DSH_SESSION_ID: "s1", TOKENS_SOFT: "5", AGENTIC_TOKENS_X: "1",
   GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.pager", GIT_CONFIG_VALUE_0: "cat" })
 const fr = host({ root: FR })

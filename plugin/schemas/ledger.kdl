@@ -1,6 +1,6 @@
 // ledger.kdl — append-only ledgers. These are LINE-oriented logs, not section
 // docs, so md-db's role here is frontmatter + the wrapping doc; the line format
-// is enforced by bin/log-execution (writer) and bin/gate-ledger-format (reader).
+// is enforced by libexec/log-execution (writer) and libexec/gate-ledger-format (reader).
 
 type "execution-log" {            // docs/agents/sprintN/execution.log (wrapped as .md if validated)
     field "type"   type="string" required=#true                     // "execution-log"

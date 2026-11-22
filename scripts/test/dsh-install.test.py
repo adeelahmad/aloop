@@ -15,10 +15,10 @@ import subprocess
 import sys
 import tempfile
 
-sys.dont_write_bytecode = True                 # loading bin/ scripts must not leave __pycache__ there
+sys.dont_write_bytecode = True                 # loading libexec/ scripts must not leave __pycache__ there
 
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
-BIN = os.path.join(ROOT, "plugin", "bin")
+BIN = os.path.join(ROOT, "plugin", "libexec")
 T = os.path.realpath(tempfile.mkdtemp(prefix="aloop-dsh-install-"))
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = dict(os.environ, HOME=os.path.join(T, "home"), DSH_HOME=os.path.join(T, "dsh-home"),

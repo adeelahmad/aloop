@@ -257,10 +257,10 @@ deliver results, grow adoption vs keep it simple.
 /aladdin Add rate limiting to the API
 ```
 
-**Codex:** from a clone, `plugin/bin/aloop install codex` (agent TOMLs and `aloop` on PATH), then
+**Codex:** from a clone, `plugin/libexec/aloop install codex` (agent TOMLs and `aloop` on PATH), then
 `codex plugin marketplace add adeelahmad/aloop`, `codex plugin add aloop@aloop-marketplace`, and trust
-the hooks once in Codex's `/hooks`. **OpenCode:** `plugin/bin/aloop install opencode` renders
-everything. **DeepSeek Harness:** `plugin/bin/aloop install dsh --project .` renders a `dsh` profile,
+the hooks once in Codex's `/hooks`. **OpenCode:** `plugin/libexec/aloop install opencode` renders
+everything. **DeepSeek Harness:** `plugin/libexec/aloop install dsh --project .` renders a `dsh` profile,
 then run `dsh --profile aloop`. Every way you get full parity (hooks, agents, gates, time box, ledger,
 stats, handoff). See [`plugin/README.md` → Codex and OpenCode](plugin/README.md#codex-and-opencode)
 and [→ DeepSeek Harness](plugin/README.md#deepseek-harness-dsh).
@@ -277,7 +277,7 @@ and [→ DeepSeek Harness](plugin/README.md#deepseek-harness-dsh).
   improve / add requests even if you never say "agile", or invoke `/aladdin`, `/aloop` or `/aloop:init`.
 - **From a shell:** `aladdin "<intent>"` records the intent (on PATH inside host sessions; in your
   own terminal after `aloop install codex|opencode|dsh` links it into `~/.local/bin`, or from a clone as
-  `plugin/bin/aladdin`); `aladdin status` (one line per task from
+  `plugin/libexec/aladdin`); `aladdin status` (one line per task from
   the harness files, tasks to re-gate, token totals); `aladdin resume` (what the next session
   loads); `aladdin report` (the sprint's `stats.md`); `aladdin target | context | refs | callers`
   (the semantic queries). Every tool is also `aloop <tool>` (`aloop --list`).
@@ -365,7 +365,7 @@ change rationale.
 ```
 .claude-plugin/marketplace.json   marketplace catalog (source: ./plugin)
 plugin/                           the installable plugin (see plugin/README.md)
-  bin/        the tools and gates (aladdin, aloop, gate-*, budget, sweep, targets, events, host, mission …)
+  libexec/        the tools and gates (aladdin, aloop, gate-*, budget, sweep, targets, events, host, mission …)
   agents/     the 16 roles (Aladdin's 10 + the mission layer's 6) · skills/ the supervisor playbooks (aloop, aladdin, init, mission)
   hooks/      hooks.json (aloop:<role> matchers) · hosts/ capabilities, routes, the OpenCode and dsh plugins
   mission/    the mission layer's areas (journeys, baseline, assess, evaluate …) and their schemas
@@ -428,7 +428,7 @@ enforce this. Tag releases `vMAJOR.MINOR.PATCH`.
 `.github/workflows/ci.yml` runs on every push/PR:
 
 - **rust**: `cargo fmt --check`, `cargo clippy -D warnings`, tests for `ctx-symbols` + `md-db`.
-- **shellcheck**: lints every gate script (`plugin/bin/*`), errors fail the build.
+- **shellcheck**: lints every gate script (`plugin/libexec/*`), errors fail the build.
 - **hosts**: byte-compiles the Python hooks, then Codex hooks emulation + the OpenCode
   and dsh plugins end-to-end, the dsh one also on the real (pinned) dsh runtime against a
   scripted model (no network, no tokens).

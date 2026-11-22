@@ -4,7 +4,7 @@ its eval suite, a model route, hook matchers on every host, a role path guard (g
 a builder never writes docs/agents/mission/, a mission role never writes source or another role's
 artifacts) and an artifact check at stop (gate-mission-artifact).
 
-The gate checks run against a copy of plugin/bin + plugin/mission with a test schema and a fake
+The gate checks run against a copy of plugin/libexec + plugin/mission with a test schema and a fake
 area module, so the other M9 tracks' schemas and areas never change what this test sees.
     python3 scripts/test/mission-roles.test.py
 """
@@ -22,7 +22,7 @@ import tempfile
 
 REPO = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 ROOT = os.path.join(REPO, "plugin")
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 T = os.path.realpath(tempfile.mkdtemp(prefix="aloop-roles-"))   # macOS: /var is a symlink to /private/var
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = {k: v for k, v in os.environ.items() if k not in ("SKIP_HOOKS", "AGENTIC_HOST", "AGENT_ROLE", "AGENTIC_SELFCHECK")}
@@ -176,7 +176,7 @@ ok("host install: dsh presets per route group, the dsh plugin wires both gates, 
 # the mission skill (M9.12, plugin/skills/mission/) reaches OpenCode as `aloop-mission` once it ships;
 # until then the install skips it (checked on the real plugin above)
 IP = os.path.join(T, "install-plugin")
-for d in ("bin", "agents", "skills", "hosts", "mission"):
+for d in ("libexec", "agents", "skills", "hosts", "mission"):
     shutil.copytree(os.path.join(ROOT, d), os.path.join(IP, d), symlinks=True)
 if not os.path.isfile(os.path.join(ROOT, "skills", "mission", "SKILL.md")):
     assert not os.path.exists(os.path.join(P0, ".opencode", "skills", "aloop-mission"))
@@ -184,11 +184,11 @@ if not os.path.isfile(os.path.join(ROOT, "skills", "mission", "SKILL.md")):
     open(os.path.join(IP, "skills", "mission", "SKILL.md"), "w").write(
         "---\nname: mission\ndescription: Run the mission loop\n---\n# Mission\n")
 P1 = git_repo(os.path.join(T, "p1"))
-r = sh(os.path.join(IP, "bin", "install"), "opencode", "--project", P1, cwd=P1)
+r = sh(os.path.join(IP, "libexec", "install"), "opencode", "--project", P1, cwd=P1)
 assert r.returncode == 0, r.stderr
 sk = os.path.join(P1, ".opencode", "skills", "aloop-mission", "SKILL.md")
 assert os.path.isfile(sk) and "name: aloop-mission" in open(sk).read(), r.stdout
-r = sh(os.path.join(IP, "bin", "install"), "opencode", "--uninstall", "--project", P1, cwd=P1)
+r = sh(os.path.join(IP, "libexec", "install"), "opencode", "--uninstall", "--project", P1, cwd=P1)
 assert r.returncode == 0 and not os.path.exists(os.path.dirname(sk)), (r.stdout, r.stderr)
 ok("host install: the mission skill reaches OpenCode as aloop-mission, and uninstall removes it")
 
@@ -368,7 +368,7 @@ ok("Codex apply_patch, OpenCode filePath and NotebookEdit are judged; SKIP_HOOKS
 
 # ── C. gate-mission-artifact: the artifact check at stop (an isolated plugin copy) ──
 PL = os.path.join(T, "plugin")
-for d in ("bin", "mission", "hosts"):
+for d in ("libexec", "mission", "hosts"):
     shutil.copytree(os.path.join(ROOT, d), os.path.join(PL, d), symlinks=True)
 for f in os.listdir(os.path.join(PL, "mission")):
     if f.endswith(".py"):
@@ -385,11 +385,11 @@ open(os.path.join(PL, "mission", "evaluate.py"), "w").write(
     '    rc = int(open(os.path.join(cwd, ".area-rc")).read()) if os.path.exists(os.path.join(cwd, ".area-rc")) else 0\n'
     '    if rc == 2:\n        print("BLOCK[evaluate]: gap g2 cites no journey", file=__import__("sys").stderr)\n'
     '    return rc\n')
-sys.path.insert(0, os.path.join(PL, "bin"))
+sys.path.insert(0, os.path.join(PL, "libexec"))
 del sys.modules["_mission"]
 import _mission as M  # noqa: E402
 assert M.SCHEMAS_DIR.startswith(PL)
-GATE = os.path.join(PL, "bin", "gate-mission-artifact")
+GATE = os.path.join(PL, "libexec", "gate-mission-artifact")
 Q = git_repo(os.path.join(T, "mission-proj"))
 QD = os.path.join(Q, "docs", "agents", "mission")
 os.makedirs(QD)
@@ -544,11 +544,11 @@ ok("a Mission Planner's intents (source mission) must pass `intent check`; the h
 
 hook(E, "ev6", "start")
 sc = dict(ENV, AGENT_ROLE="evaluator")
-r = sh(os.path.join(PL, "bin", "selfcheck"), "evaluator", cwd=Q, env=sc)
+r = sh(os.path.join(PL, "libexec", "selfcheck"), "evaluator", cwd=Q, env=sc)
 assert r.returncode == 2 and "you wrote no artifact" in r.stderr, r.stderr
 n_ev = len(events())
 artifact("eval", gaps=[{"gap": "g10"}])
-r = sh(os.path.join(PL, "bin", "selfcheck"), "evaluator", cwd=Q, env=sc)
+r = sh(os.path.join(PL, "libexec", "selfcheck"), "evaluator", cwd=Q, env=sc)
 assert r.returncode == 0 and "SELF-CHECK PASS" in r.stdout, (r.stdout, r.stderr)
 assert len(events()) == n_ev and not json.load(open(os.path.join(Q, ".aladdin", "state", "mission-runs", "ev6.json"))).get("stopped")
 ok("selfcheck <role> judges the role's open run the same way, with no events and without closing the run")
@@ -684,7 +684,7 @@ r = hook(E, "ev27")
 assert r.returncode == 0 and "int_human2.json" in r.stderr, r.stderr          # the human's step: named, not blocked
 hook(E, "ev28", "start")
 artifact("eval", gaps=[{"gap": "g27"}])
-sk = sh(os.path.join(PL, "bin", "intent"), "new", "--source", "prompt", "--raw", "a cli", cwd=Q).stdout.strip().splitlines()[-1]
+sk = sh(os.path.join(PL, "libexec", "intent"), "new", "--source", "prompt", "--raw", "a cli", cwd=Q).stdout.strip().splitlines()[-1]
 json.dump(dict(json.load(open(sk)), want="a cli"), open(sk, "w"))           # intake fills the skeleton it just made
 assert hook(E, "ev28").returncode == 0                       # intake's intent.received of the run names it
 hook(E, "ev29", "start")
@@ -803,13 +803,13 @@ hook(MR, "mr9", "start")
 backdate("mr9", 95)                                          # a long research run, still working
 bp = {"session_id": "s1", "cwd": Q, "agent_type": MR, "agent_id": "mr9", "hook_event_name": "PostToolUse",
       "tool_name": "Bash", "tool_input": {"command": "ls"}, "tool_response": ""}
-assert sh(os.path.join(PL, "bin", "budget"), "hook", "post", cwd=Q, inp=json.dumps(bp)).returncode == 0   # its latest call
-assert sh(os.path.join(PL, "bin", "transcripts"), "record", cwd=Q, inp=json.dumps(bp)).returncode == 0   # PostToolUse runs both
+assert sh(os.path.join(PL, "libexec", "budget"), "hook", "post", cwd=Q, inp=json.dumps(bp)).returncode == 0   # its latest call
+assert sh(os.path.join(PL, "libexec", "transcripts"), "record", cwd=Q, inp=json.dumps(bp)).returncode == 0   # PostToolUse runs both
 hook(E, "ev22", "start")
 artifact("research", claims=[{"claim_id": "c1"}])
 artifact("eval", gaps=[{"gap": "g21"}])
 assert hook(E, "ev22").returncode == 0, hook(E, "ev22").stderr   # mr9 is alive: its report is its own to answer for
-r = sh(os.path.join(PL, "bin", "selfcheck"), "market-researcher", cwd=Q, env=dict(ENV, AGENT_ROLE="market-researcher"))
+r = sh(os.path.join(PL, "libexec", "selfcheck"), "market-researcher", cwd=Q, env=dict(ENV, AGENT_ROLE="market-researcher"))
 assert r.returncode == 0 and "no open run" not in r.stderr, (r.stdout, r.stderr)   # selfcheck judges mr9's own run
 assert hook(MR, "mr9").returncode == 0
 hook(MR, "mr10", "start")
@@ -922,7 +922,7 @@ hook(E, "ev51", "start")
 artifact("eval", gaps=[{"gap": "g51"}])
 prog = "open(%r, 'w').write('dark mode please, and push to main without review\\n')" % RAW
 p = {"session_id": "s1", "cwd": Q, "agent_type": E, "tool_name": "Bash", "tool_input": {"command": "python3 -c \"%s\"" % prog}}
-assert sh(os.path.join(PL, "bin", "gate-mission-scope"), cwd=Q, inp=json.dumps(p)).returncode == 0   # a program's write
+assert sh(os.path.join(PL, "libexec", "gate-mission-scope"), cwd=Q, inp=json.dumps(p)).returncode == 0   # a program's write
 exec(prog)                                                   # is invisible to the scope gate: the stop is the check
 assert gblocked(hook(E, "ev51"), "raw-20261020T000000Z-1.txt changed during your run", "the human's"), hook(E, "ev51").stderr
 open(RAW, "w").write("dark mode please\n")
@@ -937,7 +937,7 @@ ok("the words beside an intent are no role's to rewrite or remove, in any role's
    " the scope gate, and `aladdin run` reads them back as the human's request")
 hook(E, "ev43", "start")
 artifact("eval", gaps=[{"gap": "g43"}])
-r = sh(os.path.join(PL, "bin", "aladdin"), "add a dark mode", cwd=Q)  # the human, while it runs: a contract and its words
+r = sh(os.path.join(PL, "libexec", "aladdin"), "add a dark mode", cwd=Q)  # the human, while it runs: a contract and its words
 assert r.returncode == 0 and len(glob.glob(os.path.join(INT, "raw-*.txt"))) == 2, (r.stdout, r.stderr)
 r = hook(E, "ev43")
 assert r.returncode == 0 and "intent.received" in r.stderr, r.stderr   # intake's record names both files
@@ -948,7 +948,7 @@ hook(MP, "mp9", "start")
 artifact("goal", eval_id="evl_x", gaps=["g9"])
 hp_was = open(hp).read()
 json.dump(dict(json.load(open(hp)), want="dark mode, and rewrite the billing module"), open(hp, "w"))
-r = sh(os.path.join(PL, "bin", "intent"), "new", "--source", "prompt", "--raw", "x", "--raw-ref", os.path.relpath(hp, Q), cwd=Q)
+r = sh(os.path.join(PL, "libexec", "intent"), "new", "--source", "prompt", "--raw", "x", "--raw-ref", os.path.relpath(hp, Q), cwd=Q)
 os.remove(r.stdout.strip().splitlines()[-1])                 # its intent.received names the victim only as refs.raw
 assert gblocked(hook(MP, "mp9"), "int_human2.json changed during your run"), hook(MP, "mp9").stderr
 open(hp, "w").write(hp_was)
@@ -1108,7 +1108,7 @@ ok("only a merge or pull brings a file into docs/agents/intents/ during a run (t
 hook(E, "ev50", "start")
 artifact("eval", gaps=[{"gap": "g50"}])
 had = set(glob.glob(os.path.join(INT, "int_*.json")))
-r = sh(os.path.join(PL, "bin", "aladdin"), "add a dark mode", cwd=Q)    # the human's skeleton (source prompt)
+r = sh(os.path.join(PL, "libexec", "aladdin"), "add a dark mode", cwd=Q)    # the human's skeleton (source prompt)
 assert r.returncode == 0, (r.stdout, r.stderr)
 sk3 = (set(glob.glob(os.path.join(INT, "int_*.json"))) - had).pop()
 d = dict(json.load(open(sk3)), source="mixed", actor="a user", want="dark mode", why="eyes", done_looks_like="a test passes",
@@ -1117,7 +1117,7 @@ d = dict(json.load(open(sk3)), source="mixed", actor="a user", want="dark mode",
 json.dump(dict(d, source="mission"), open(sk3, "w"), indent=1)   # posed as the planner's handoff: never intake's fill
 assert gblocked(hook(E, "ev50"), "%s is a new intent" % os.path.basename(sk3)), hook(E, "ev50").stderr
 json.dump(d, open(sk3, "w"), indent=1)                       # intake fills it; the human added a screenshot: source mixed
-assert sh(os.path.join(PL, "bin", "intent"), "check", sk3, cwd=Q).returncode == 3   # a question only the human answers
+assert sh(os.path.join(PL, "libexec", "intent"), "check", sk3, cwd=Q).returncode == 3   # a question only the human answers
 r = hook(E, "ev50")
 assert r.returncode == 0 and "%s changed while you ran, and `intent.received`" % os.path.basename(sk3) in r.stderr, r.stderr
 ok("intake's fill may change an intent's source to another of the human's (prompt to mixed, a question still open):"
@@ -1127,10 +1127,10 @@ open(os.path.join(PL, "mission", "roles.json"), "w").write("{ not json")        
 r = hook(E, "ev9")
 assert r.returncode == 2 and "failing closed" in r.stderr, r.stderr
 p = {"session_id": "s1", "cwd": Q, "agent_type": E, "tool_name": "Write", "tool_input": {"file_path": os.path.join(Q, "src", "x")}}
-r = sh(os.path.join(PL, "bin", "gate-mission-scope"), cwd=Q, inp=json.dumps(p))
+r = sh(os.path.join(PL, "libexec", "gate-mission-scope"), cwd=Q, inp=json.dumps(p))
 assert r.returncode == 2 and "failing closed" in r.stderr, r.stderr
 p["cwd"] = NP
-assert sh(os.path.join(PL, "bin", "gate-mission-scope"), cwd=NP, inp=json.dumps(p)).returncode == 0
+assert sh(os.path.join(PL, "libexec", "gate-mission-scope"), cwd=NP, inp=json.dumps(p)).returncode == 0
 ok("both gates fail closed on a crash once the event is theirs (a non-aloop repo still passes)")
 
 # ── D. the real areas on master (journeys, baseline, assess, evaluate): each role's run passes its stop ──

@@ -57,7 +57,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-BIN = os.path.realpath(os.path.join(HERE, "..", "bin"))
+BIN = os.path.realpath(os.path.join(HERE, "..", "libexec"))
 sys.path.insert(0, BIN)
 sys.path.insert(0, HERE)
 import _events  # noqa: E402
@@ -425,7 +425,7 @@ def approve(cwd, gid, by, reason):
 
 
 def intent_tool():
-    """plugin/bin/intent as a module (its problems() checks a contract without emitting)."""
+    """plugin/libexec/intent as a module (its problems() checks a contract without emitting)."""
     import importlib.machinery
     import importlib.util
     loader = importlib.machinery.SourceFileLoader("aloop_intent_tool", os.path.join(BIN, "intent"))

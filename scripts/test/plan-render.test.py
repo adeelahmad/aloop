@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 T = tempfile.mkdtemp(prefix="agentic-render-")
 ENV = dict(os.environ, HOME=os.path.join(T, "home"), PATH="/usr/bin:/bin")
 for k in ("AGENTIC_HOST", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA"):

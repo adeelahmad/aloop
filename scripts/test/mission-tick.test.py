@@ -23,7 +23,7 @@ import tempfile
 import time
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 MI = os.path.join(BIN, "mission")
 PASS = [0]
 sys.path.insert(0, BIN)

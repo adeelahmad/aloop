@@ -65,18 +65,18 @@ clippy: ## Clippy with warnings-as-errors
 .PHONY: shellcheck
 shellcheck: ## Lint gate scripts (skipped with a warning if shellcheck is absent)
 	@if ! command -v shellcheck >/dev/null; then echo "WARN: shellcheck not installed; skipping (CI enforces it)"; else \
-	  shellcheck -S error -e SC1091 plugin/bin/_gatelib.sh plugin/bin/_failclosed.sh plugin/bin/_finddoc.sh $$(grep -l "^#!/usr/bin/env bash" plugin/bin/gate-*) plugin/bin/log-execution \
-	       plugin/bin/selfcheck plugin/bin/transcripts plugin/bin/worktree-create plugin/bin/worktree-remove \
-	       plugin/bin/worktree-hygiene plugin/bin/ensure-tools plugin/bin/md-db plugin/bin/ctx-symbols \
-	       plugin/bin/session-start plugin/bin/_paths.sh plugin/bin/aloop plugin/bin/aladdin plugin/bin/agentic plugin/bin/bind plugin/bin/task-worktree; fi
+	  shellcheck -S error -e SC1091 plugin/libexec/_gatelib.sh plugin/libexec/_failclosed.sh plugin/libexec/_finddoc.sh $$(grep -l "^#!/usr/bin/env bash" plugin/libexec/gate-*) plugin/libexec/log-execution \
+	       plugin/libexec/selfcheck plugin/libexec/transcripts plugin/libexec/worktree-create plugin/libexec/worktree-remove \
+	       plugin/libexec/worktree-hygiene plugin/libexec/ensure-tools plugin/libexec/md-db plugin/libexec/ctx-symbols \
+	       plugin/libexec/session-start plugin/libexec/_paths.sh plugin/libexec/aloop plugin/libexec/aladdin plugin/libexec/agentic plugin/libexec/bind plugin/libexec/task-worktree; fi
 
 .PHONY: pycheck
 pycheck: ## Byte-compile the Python hook scripts
-	@python3 -m py_compile plugin/bin/budget plugin/bin/stats plugin/bin/aloop-init plugin/bin/gate-commit-author plugin/bin/_paths.py \
-	    plugin/bin/_usage.py plugin/bin/_prices.py plugin/bin/_events.py plugin/bin/events plugin/bin/intent plugin/bin/lessons plugin/bin/ids plugin/bin/targets plugin/bin/impact plugin/bin/timebox plugin/bin/sweep plugin/bin/capabilities plugin/bin/models plugin/bin/_routes.py plugin/bin/host plugin/bin/_host.py plugin/bin/config plugin/bin/_config.py plugin/bin/layout plugin/bin/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/bin/_timebox.py plugin/bin/host-adapter plugin/bin/install \
-	    plugin/bin/_approval.py plugin/bin/mission plugin/bin/_mission.py plugin/bin/_mission_roles.py plugin/bin/_shellread.py plugin/bin/gate-mission-scope plugin/bin/gate-mission-artifact $$(ls plugin/mission/*.py 2>/dev/null) \
+	@python3 -m py_compile plugin/libexec/budget plugin/libexec/stats plugin/libexec/aloop-init plugin/libexec/gate-commit-author plugin/libexec/_paths.py \
+	    plugin/libexec/_usage.py plugin/libexec/_prices.py plugin/libexec/_events.py plugin/libexec/events plugin/libexec/intent plugin/libexec/lessons plugin/libexec/ids plugin/libexec/targets plugin/libexec/impact plugin/libexec/timebox plugin/libexec/sweep plugin/libexec/capabilities plugin/libexec/models plugin/libexec/_routes.py plugin/libexec/host plugin/libexec/_host.py plugin/libexec/config plugin/libexec/_config.py plugin/libexec/layout plugin/libexec/_lsp.py scripts/test/fixtures/fake-lsp.py plugin/libexec/_timebox.py plugin/libexec/host-adapter plugin/libexec/install \
+	    plugin/libexec/_approval.py plugin/libexec/mission plugin/libexec/_mission.py plugin/libexec/_mission_roles.py plugin/libexec/_shellread.py plugin/libexec/gate-mission-scope plugin/libexec/gate-mission-artifact $$(ls plugin/mission/*.py 2>/dev/null) \
 	    $$(ls scripts/smoke/*.py 2>/dev/null) \
-	  && rm -rf plugin/bin/__pycache__ plugin/mission/__pycache__ scripts/smoke/__pycache__ && echo "python ok"
+	  && rm -rf plugin/libexec/__pycache__ plugin/mission/__pycache__ scripts/smoke/__pycache__ && echo "python ok"
 
 .PHONY: test-hosts
 test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and dsh plugins end-to-end (no network, no tokens)
@@ -116,8 +116,8 @@ test-hosts: ## Budget/worktree regression + Codex hooks emulation + OpenCode and
 	python3 scripts/test/site.test.py
 	python3 scripts/test/readme.test.py
 	python3 scripts/test/layout.test.py
-	plugin/bin/layout check
-	plugin/bin/host check
+	plugin/libexec/layout check
+	plugin/libexec/host check
 	python3 scripts/test/targets-scope.test.py
 	python3 scripts/test/task-scope.test.py
 	python3 scripts/test/userspace.test.py
@@ -255,7 +255,7 @@ smoke: build ## Quick offline gate smoke test (structural gate on a tmp tree)
 	@export PATH="$(BIN_DIR):$$PATH"; \
 	  cp "$(CTX)/target/release/ctx-symbols" "$(BIN_DIR)/ctx-symbols" 2>/dev/null || true; \
 	  T=$$(mktemp -d); printf 'pub fn a(){let x=1;}\npub fn caller(){a();}\n' > "$$T/a.rs"; \
-	  REPO_DIR="$$T" CLAUDE_PLUGIN_ROOT="$(CURDIR)/plugin" plugin/bin/gate-structural-integrity; \
+	  REPO_DIR="$$T" CLAUDE_PLUGIN_ROOT="$(CURDIR)/plugin" plugin/libexec/gate-structural-integrity; \
 	  echo "structural gate exit=$$?"; rm -rf "$$T"
 
 .PHONY: clean

@@ -38,7 +38,7 @@ import re
 import sys
 import unicodedata
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "bin"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "libexec"))
 import _mission as M  # noqa: E402
 import _paths  # noqa: E402
 

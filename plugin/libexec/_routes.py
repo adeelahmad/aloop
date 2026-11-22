@@ -1,4 +1,4 @@
-"""_routes.py — abstract model routes (ROADMAP §3.6); see bin/models and hosts/routes.json.
+"""_routes.py — abstract model routes (ROADMAP §3.6); see libexec/models and hosts/routes.json.
 
 A role group (planning | worker) is configured as a ROUTE (strongest | strong | economical)
 or a pinned concrete id. Each host resolves a route to its own id; a pinned id passes

@@ -76,7 +76,7 @@ except ImportError:          # no flock (Windows): the gate runs unserialized
     fcntl = None
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "bin"))
+sys.path.insert(0, os.path.join(HERE, "..", "libexec"))
 import _events  # noqa: E402
 import _mission as M  # noqa: E402
 import _patch  # noqa: E402
@@ -352,7 +352,7 @@ def moved(prog, args, cur, old, dirs):
 
 def views(cmd, depth=0, cur=""):
     """Every (prog, args, env, writes, dir; a python's code) a command line runs, read by the shell reader
-    the scope gate uses (plugin/bin/_shellread.py): one per simple command, one per wrapper (sudo, env,
+    the scope gate uses (plugin/libexec/_shellread.py): one per simple command, one per wrapper (sudo, env,
     timeout, xargs, find -exec, …) around it, the commands inside `sh -c`, `eval`, a script a shell runs, a
     command substitution, and the stdin that feeds a shell or python (the last heredoc, here-string or
     `<` on fd 0, else the pipe, into a subshell, a group or a compound too), each with the directory it runs

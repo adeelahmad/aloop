@@ -57,7 +57,7 @@ DRIVER = os.path.join(SMOKE, "mission_driver.py")
 SUMMARY = os.path.join(SMOKE, "mission_summary.py")
 FIX = os.path.join(SMOKE, "fixtures", "todo-mission")
 RUNNER = "docs/agents/mission/journeys/runners/todo_journey.py"
-BIN = os.path.join(ROOT, "plugin", "bin")
+BIN = os.path.join(ROOT, "plugin", "libexec")
 sys.path.insert(0, BIN)
 sys.path.insert(0, SMOKE)
 import _mission as M  # noqa: E402

@@ -123,7 +123,7 @@ tasks.md, validate.md, plan.md, plan-ready.md, sprintN/plan.md.
   │   ├── post-planner.md                # NEW: post-RED scaffold pass
   │   └── final-gate.md
   ├── hooks/hooks.json                   # the deterministic gates (§3)
-  ├── bin/                               # scripts the hooks call
+  ├── libexec/                               # scripts the hooks call
   │   ├── gate-stage2-complete           # planning→execution handoff gate
   │   ├── gate-red-verify
   │   ├── gate-green-verify
@@ -144,7 +144,7 @@ tasks.md, validate.md, plan.md, plan-ready.md, sprintN/plan.md.
 - PostToolUse hooks cannot undo an action (tool already ran) — so destructive
   prevention must be PreToolUse, not PostToolUse.
 - This is a DESIGN. None of it is verified against a live runtime yet; the
-  bin/ gates are offline-testable, the hook wiring needs a real CC session.
+  libexec/ gates are offline-testable, the hook wiring needs a real CC session.
 
 ────────────────────────────────────────────────────────────────────────────
 ## 8. [OPEN] — not decided, do NOT guess
@@ -324,7 +324,7 @@ patterns not one-offs; bounded + deduped.
 A global append-only `global.jsonl`, plus per-task `events.jsonl` (the full hook
 payload per tool call + every user prompt) and `transcript.jsonl` (the complete session
 snapshot — every message and thinking block — copied from the session's `transcript_path`
-on stop). No FUSE. At `SubagentStart` the supervisor's `bin/transcripts stage-in` copies
+on stop). No FUSE. At `SubagentStart` the supervisor's `libexec/transcripts stage-in` copies
 the task's slice into the worktree as READ-ONLY (`.transcripts/`); `UserPromptSubmit`
 records prompts; `PostToolUse *` records the full tool payload (`transcripts record`);
 `Stop`/`SubagentStop *` snapshot the full transcript and remove the slice (`transcripts

@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-BIN = os.path.join(ROOT, "plugin", "bin")
+BIN = os.path.join(ROOT, "plugin", "libexec")
 PASS = [0]
 
 

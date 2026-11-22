@@ -38,7 +38,7 @@ Then skim:
 - `.claude-plugin/plugin.json`     manifest (skills/agents/hooks registered)
 - `agents/<role>.md`               8 personas, assembled from `pipeline/*/persona.md`
 - `hooks/hooks.json`               event -> matcher -> gate wiring (real)
-- `bin/gate-*`, `bin/log-execution` gate bodies — REAL where structural, STUB
+- `libexec/gate-*`, `libexec/log-execution` gate bodies — REAL where structural, STUB
                                    (SUB-AGENT-TODO) where language/repo-specific
 - `schemas/*.kdl`                  md-db schemas (agent-io / planning-artifacts / ledger)
 - `pipeline/`                      design source of truth (4 files per activity)
@@ -54,7 +54,7 @@ Then skim:
           [dispatched sub-agent; add the gate guard "a body implemented instead of
            panic+TODO => reject".]
 - OPEN-3  Stage-2 gate as a Stop hook or a supervisor self-check step.
-          [supervisor self-check calling bin/gate-stage2-complete; keep the
+          [supervisor self-check calling libexec/gate-stage2-complete; keep the
            PostToolUse md-db hook either way.]
 - OPEN-4  init.md/output.md path scheme.
           [per-task `T<k>/attempt-K/` dirs — see ARCHITECTURE §6; gives per-task
@@ -111,7 +111,7 @@ DO NOT pull into the plugin (these are why this is a plugin, not that binary):
 4. FINALIZE hooks.json per OPEN-3.
 5. IMPLEMENT the data-plane writers in the skill: per-task `attempt-K/init.md`
    (append-only, turn-counted), `output.md`, `plan-ready.md` (tick on pass only),
-   `execution.log` via `bin/log-execution`. Worktree per dispatch; merge on pass;
+   `execution.log` via `libexec/log-execution`. Worktree per dispatch; merge on pass;
    abandon chain worktrees on HALT.
 6. VERIFY end to end: `md-db validate` a sample init.md/output.md against
    agent-io.kdl; dry-run a one-story sprint; confirm RED fails by assertion,

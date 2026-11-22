@@ -14,7 +14,7 @@ import sys
 import tempfile
 
 sys.dont_write_bytecode = True
-BIN = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin"))
+BIN = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "libexec"))
 T = os.path.realpath(tempfile.mkdtemp(prefix="aloop-audit-"))
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 FAKE = os.path.join(T, "fakebin")

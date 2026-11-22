@@ -56,7 +56,7 @@ extract into docs/agents/, where an archive's mission/ would land, is blocked to
 large to judge in linear time (FIND_WORK, CLIMB: a find's start paths × -exec words; GIT_ASKS). Wrappers (timeout,
 env, nice, sudo, su, setsid, runuser, xargs, npx, stdbuf…) are looked through, and a shell string
 (`bash -c`, `eval`, `env -S`, a heredoc or here-string fed to `bash` on stdin) or a script run by an
-interpreter (`python3 …/bin/mission approve`) is read again. Variables set earlier in the command
+interpreter (`python3 …/libexec/mission approve`) is read again. Variables set earlier in the command
 resolve (incl. via export/declare/local and a `for`/`select` loop variable), and so do $PWD, $HOME,
 the environment, $(pwd) and $(mktemp …) (a scratch dir outside the project). What only running it
 would tell (a computed path) is judged by its known
@@ -96,7 +96,7 @@ CLI = {"aloop", "aladdin", "agentic"}
 ALADDIN_READS = {"status", "resume", "report", "target", "context", "refs", "callers", "callees", "shadow", "scope",
                  "-h", "--help", "--list", "--root"}  # `aladdin` verbs that record no intent
 INTENT_READS = {"summary", "-h", "--help"}            # `intent` verbs that write no intent and emit no intake event
-BIN = os.path.dirname(os.path.realpath(__file__))    # `aloop|aladdin <tool>` execs BIN/<tool> (bin/aloop, bin/aladdin)
+BIN = os.path.dirname(os.path.realpath(__file__))    # `aloop|aladdin <tool>` execs BIN/<tool> (libexec/aloop, libexec/aladdin)
 JUDGE_NAMES = {"ALOOP_JUDGE_CMD", "ALOOP_JUDGE_TIMEOUT"}         # the judge command and its time box (M9.42)
 # the judge var SET in a script string run elsewhere (shell or interpreter code); a mention as data is no set
 JUDGE_SET = re.compile(r"""(?<![\w$]){n}\+?=                # NAME=… (assignment, env, export, putenv("NAME=…"))
@@ -179,7 +179,7 @@ def prefix(v):
 
 
 def basename(v):
-    """The command name even when its directory is unknown ("$(aloop --root)/bin/mission")."""
+    """The command name even when its directory is unknown ("$(aloop --root)/libexec/mission")."""
     t = text(v)
     if t is not None:
         return os.path.basename(t)
@@ -424,7 +424,7 @@ class Scope:
             return
         ts = [text(a) for a in args]
         opt, pos, k = {}, [], None
-        for t in ts[1:]:                                  # as bin/events parses: `--key value`
+        for t in ts[1:]:                                  # as libexec/events parses: `--key value`
             if k:
                 opt[k], k = t, None
             elif t is not None and t.startswith("--"):
@@ -481,7 +481,7 @@ class Scope:
             return                                        # the planner owns intents; a builder/supervisor is not a role
         pos = [text(a) for a in args if not (text(a) or "").startswith("-")]
         a0 = text(args[0]) if args else ""
-        if cli == "aladdin":                              # bin/aladdin's own words; anything else is the intent itself
+        if cli == "aladdin":                              # libexec/aladdin's own words; anything else is the intent itself
             if not args or a0 in ALADDIN_READS or (a0 == "run" and len(pos) < 2):
                 return                                    # a read verb, or `aladdin run` of the pending intent
             if a0 is not None and a0 != "run" and (a0.startswith("-") or "/" in a0):
@@ -1053,7 +1053,7 @@ class Scope:
                 st["dirs"].append(st["base"])
             st["old"], st["base"] = st["base"], new
             return
-        while name in CLI and args:                       # `aloop|agentic <tool> …` exec bin/<tool>, and so does
+        while name in CLI and args:                       # `aloop|agentic <tool> …` exec libexec/<tool>, and so does
             t = text(args[0])                             # `aladdin <tool> …` but for its own verbs and an intent
             if t is None or name == "aladdin" and (t in ALADDIN_READS or t == "run"):
                 break

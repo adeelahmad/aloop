@@ -21,7 +21,7 @@ import tempfile
 
 sys.dont_write_bytecode = True
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 T = tempfile.mkdtemp(prefix="aloop-conf-")
 # HOME is isolated, so pin rustup/cargo to the real ones (rustup finds its toolchain via HOME).
 _home = os.path.expanduser("~")

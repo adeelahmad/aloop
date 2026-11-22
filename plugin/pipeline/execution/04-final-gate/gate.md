@@ -1,6 +1,6 @@
 # Gate — 04-final-gate  (sprint sign-off)
 
-Checks (bin/gate-final):
+Checks (libexec/gate-final):
 - [ ] Full matrix (fmt/lint/test/deny/coverage/typecheck) green, zero exceptions.
 - [ ] Suppression grep count == 0 (#[ignore], .skip, xit, cfg(not(test)) over asserts).
 - [ ] Every story's plan-ready.md is fully [x].
@@ -8,7 +8,7 @@ Checks (bin/gate-final):
 Failure verbs:
   ESCALATE — a test cannot pass without a scope change -> next planning session
   ABORT    — matrix red after revision budget exhausted
-Enforced by: Stop(final-gate) -> bin/gate-final (exit 2 blocks sprint close).
+Enforced by: Stop(final-gate) -> libexec/gate-final (exit 2 blocks sprint close).
 
 Remediation (added): a FIXABLE final failure (red test, unticked box, or a matrix
 failure that is NOT a scope issue) re-dispatches the failing GREEN task — it is NOT

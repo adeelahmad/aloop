@@ -61,7 +61,7 @@ HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.realpath(os.path.join(HERE, "..", ".."))
 PLUGIN = os.path.join(ROOT, "plugin")
 sys.path.insert(0, HERE)
-sys.path.insert(0, os.path.join(PLUGIN, "bin"))
+sys.path.insert(0, os.path.join(PLUGIN, "libexec"))
 sys.path.insert(0, os.path.join(PLUGIN, "mission"))
 import mission_plan as MP  # noqa: E402
 import _events  # noqa: E402
@@ -173,7 +173,7 @@ def run(argv, cwd, timeout=300, env=None):
 
 
 def mission(repo, *args):
-    return run([os.path.join(PLUGIN, "bin", "mission")] + list(args), repo)
+    return run([os.path.join(PLUGIN, "libexec", "mission")] + list(args), repo)
 
 
 def git(repo, *args):
@@ -1279,7 +1279,7 @@ def check_trace(c):
         return False, "no commit after the seed"
     untraced, product, traced_to_mission = [], [], []
     for s in shas:
-        r = run([os.path.join(PLUGIN, "bin", "events"), "trace", s], c.repo)
+        r = run([os.path.join(PLUGIN, "libexec", "events"), "trace", s], c.repo)
         if r.returncode != 0:
             untraced.append(s[:12])
         files = git(c.repo, "diff-tree", "--no-commit-id", "--name-only", "-r", s).stdout.split()

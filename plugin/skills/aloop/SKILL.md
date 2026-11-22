@@ -52,7 +52,7 @@ limits, models, the `.gitignore` edit, `docs/agents/` untracked, and the commit 
 human's git identity, no Claude trailers). The harness writes
 the file; you never hand-edit `defaults.md`, `NEXT.md` or `stats.md` (a hook blocks it).
 
-The layout is FIXED by `bin/_paths.sh` — never invent another directory name. The run-data
+The layout is FIXED by `libexec/_paths.sh` — never invent another directory name. The run-data
 dir is `.aladdin/` (its own `.gitignore` keeps everything but `config.yaml` out of git); a
 project that still has `.agentic/` keeps using it until `aloop layout migrate` moves it.
 `aloop layout show` prints which one is live. Below, `.aladdin/` stands for either:
@@ -82,7 +82,7 @@ On **Codex, OpenCode or dsh**, read `reference.md` § "Running on Codex, OpenCod
 
 ## Tools are on PATH — never search for them
 
-On Claude Code this plugin's `bin/` is on PATH in every session and sub-agent (OpenCode:
+On Claude Code the `ensure-tools` SessionStart hook puts this plugin's `libexec/` on PATH in every session and sub-agent (OpenCode:
 the plugin adds it; Codex: `aloop` is linked into ~/.local/bin), and a SessionStart
 hook (`ensure-tools`) installs `md-db` + `ctx-symbols` on first use (background build
 from the bundled source). Call everything as `aloop <tool>` — `aloop selfcheck`, `aloop md-db …`,
@@ -118,7 +118,7 @@ If a backend reports "not installed", run `ensure-tools --sync` once (needs carg
   scaffold stubs, implementation) is written by a dispatched worker in its own
   worktree. If you catch yourself about to `Write`/`Edit` a source file, STOP and
   dispatch the matching worker (`red-worker` / `scaffolder` / `green-worker`). This
-  is enforced: a `PreToolUse` gate (`bin/gate-supervisor-scope`) blocks supervisor
+  is enforced: a `PreToolUse` gate (`libexec/gate-supervisor-scope`) blocks supervisor
   writes to anything outside `docs/agents/**` once a sprint is live this session.
 - **You NEVER hand-author planning artifacts either — you DISPATCH the planning
   activities.** `stories.md`, `tasks.md`, `validate.md`, `plan.md`, and `sprintN/plan.md`
@@ -161,7 +161,7 @@ If a backend reports "not installed", run `ensure-tools --sync` once (needs carg
 - A gate whose backend (`md-db` / `ctx-symbols`) is missing WARNS and falls back
   to grep; it never silently passes a real check. Treat a WARN as a weakened gate,
   not a pass. **PLANNING may run degraded; EXECUTION may not** — the preflight
-  `bin/gate-tooling` (SubagentStart on every execution role + your manual
+  `libexec/gate-tooling` (SubagentStart on every execution role + your manual
   pre-dispatch check) BLOCKS the first worker dispatch until both backends are
   installed — it first tries to install them itself (`ensure-tools --sync`). Don't
   enter RED with grep-only gates.
@@ -186,14 +186,14 @@ turns). If the host moves a long call to the background, end the turn: its notif
 you. Never `ScheduleWakeup` (blocked; run 32 idled 12m on one).
 
 ## Prerequisites
-- A POSIX shell + git with worktrees. The gates and `bin/transcripts` are bash.
+- A POSIX shell + git with worktrees. The gates and `libexec/transcripts` are bash.
 - **A git repo with at least one commit** before execution. Worktree isolation uses the
   harness's **built-in `isolation: "worktree"`** — each dispatch runs in its own
   `git worktree`, which needs an existing commit to branch from. Make the initial commit
   (the worktree base ref) before the first RED dispatch; if the repo isn't initialized,
   `git init && git add -A && git commit` first. (For a non-git VCS, or if the harness
-  reports it can't create a worktree, the bundled `bin/worktree-create` /
-  `bin/worktree-remove` scripts can be wired into your **user `settings.json`** as
+  reports it can't create a worktree, the bundled `libexec/worktree-create` /
+  `libexec/worktree-remove` scripts can be wired into your **user `settings.json`** as
   `WorktreeCreate`/`WorktreeRemove` hooks — these are NOT valid in a plugin manifest, only
   in settings.json. The supervisor can also create the worktree manually with
   `git worktree add`; `assert_worktree_isolation` validates a real linked worktree either way.)
@@ -221,7 +221,7 @@ patterns not one-offs; keep `memory.md` bounded.
 
 Every planning artifact you write carries minimal YAML frontmatter so `md-db`
 validates it structurally. The dynamic `## Tn` task bodies are checked separately
-by `bin/gate-plan-shape` (grep), not by md-db.
+by `libexec/gate-plan-shape` (grep), not by md-db.
 
 ```
 stories.md     --- type: stories     | sprint: N ---
@@ -343,7 +343,7 @@ built-in worktree isolation creates a `git worktree` per dispatch. If the harnes
 create a worktree (e.g. an uncommitted or non-git tree), FIX the prerequisite (init +
 initial commit) — do NOT fall back to the shared tree. A manual `git worktree add` per
 task (reused across the chain, removed on merge/abandon) is a sanctioned equivalent, and
-for a non-git VCS the bundled `bin/worktree-create`/`-remove` scripts can be wired into
+for a non-git VCS the bundled `libexec/worktree-create`/`-remove` scripts can be wired into
 your user `settings.json`. Either way `assert_worktree_isolation` enforces a real linked
 worktree.
 **One task, one worktree.** RED dispatches with `isolation: "worktree"`; once it verifies, run
@@ -361,7 +361,7 @@ docs/agents/                                     the plan and its audit trail
   sprintN/
     stats.md                                     (stats sprint-close) the sprint's numbers
     stories.md plan.md intake.md standards.md    (you / planning activities)
-    execution.log                                (you, via bin/log-execution)
+    execution.log                                (you, via libexec/log-execution)
     sN-NN-<slug>/
       tasks.md validate.md plan.md               (planner)
       plan-ready.md                              (you; ticked ONLY on GREEN pass)
@@ -374,7 +374,7 @@ docs/agents/                                     the plan and its audit trail
   # opens with one `--- type: init|output · story: SN-NN ---` frontmatter. Read top-down =
   # the full negotiation history. This is how agents communicate across the chain.
 
-<project>/.aladdin/   run data only, never a sprint; git-ignored, fixed layout (bin/_paths.sh;
+<project>/.aladdin/   run data only, never a sprint; git-ignored, fixed layout (libexec/_paths.sh;
                       .agentic/ in a legacy project: `aloop layout show`):
   transcripts/ budget/ ledger/ logs/ state/
 
@@ -407,8 +407,8 @@ main tree: .aladdin/state/stuck/<task>.<attempt>  a gate released a worker (or, 
   derived from the prior `output.md`. It POINTS at `plan-ready.md`; never copies the
   spec. NEVER rewrite an earlier block. The file opens once with `--- type: init ---`.
   That list IS the block's whole shape: do not read `pipeline/execution/*/init.template.md`
-  or `bin/log-execution` to learn it (live runs 13–15 spent 4–6 reads per run on them).
-  At dispatch you also write the task contract (`aloop budget contract`, below) and `bin/transcripts stage-in` stages `.transcripts/`.
+  or `libexec/log-execution` to learn it (live runs 13–15 spent 4–6 reads per run on them).
+  At dispatch you also write the task contract (`aloop budget contract`, below) and `libexec/transcripts stage-in` stages `.transcripts/`.
 - `output.md` (story-bound, **append-only**) — the **agent** APPENDS one block per
   attempt: `## <task> · attempt N · <role> · <ts>`, `status:`, then `### Summary`, a
   `### Result` table (Check/Status/Detail), optional `### Findings`/`### Scaffold`, and
@@ -424,7 +424,7 @@ main tree: .aladdin/state/stuck/<task>.<attempt>  a gate released a worker (or, 
   `log-execution wave-K <red|green|scaffold|review|gate|budget|replan> SN-NN <start|complete|kill> Tn [words…]`
   (it appends to the latest `docs/agents/sprintN/execution.log`; pass that path as the last
   argument to pick another; `log-execution --help` shows the shape). Format enforced by
-  `bin/gate-ledger-format`: `<ISO8601> wave-K red|green|scaffold|review|gate SN-NN start|complete …`
+  `libexec/gate-ledger-format`: `<ISO8601> wave-K red|green|scaffold|review|gate SN-NN start|complete …`
 
 ### Per-task retry budget (corrections §12 + OPEN-4/6)
 
@@ -723,7 +723,7 @@ and fix any schema error before proceeding. The planner runs `selfcheck planner`
 handoff. This is the plan-validate-execute loop: the worker validates against the same
 source of truth the gate uses, so first-pass blocks become rare.
 
-Every script is on PATH (bare name); the full list is in `reference.md` § "Available scripts", and each gate in `bin/README.md`.
+Every script is on PATH (bare name); the full list is in `reference.md` § "Available scripts", and each gate in `libexec/README.md`.
 
 ================================================================================
 # PART C — MEMORY & TRANSCRIPTS (the learning + audit loop)

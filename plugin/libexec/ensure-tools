@@ -8,10 +8,10 @@
 #      available, builds them from the bundled source IN THE BACKGROUND into the plugin
 #      data dir — a SessionStart hook must return fast; gate-tooling waits for an
 #      in-flight build before it blocks.
-#   3. The platform already puts this plugin's bin/ on PATH, and bin/md-db +
-#      bin/ctx-symbols are shims that exec the real binary — so `md-db` resolves in every
-#      Bash call, sub-agents included. Belt and braces: the tools dir is also appended to
-#      CLAUDE_ENV_FILE when the harness provides one.
+#   3. This hook puts this plugin's libexec/ on PATH (CLAUDE_ENV_FILE; claude.ai refuses a
+#      top-level bin/, so the platform's own bin/-on-PATH is not used), and libexec/md-db +
+#      libexec/ctx-symbols are shims that exec the real binary — so `md-db` resolves in every
+#      Bash call, sub-agents included. The tools dir is appended to CLAUDE_ENV_FILE with it.
 #   4. Tells the model, once, exactly where everything is (additionalContext), so no
 #      agent ever searches for them.
 #
@@ -19,7 +19,7 @@
 #   ensure-tools --sync     build now, in the foreground (make install / manual repair)
 #   ensure-tools --wait [s] block until an in-flight background build ends (default 600s)
 #   ensure-tools --where    print the tools dir
-#   ensure-tools --resolve T  print the REAL binary for T (never the bin/ shim); exit 1 if none
+#   ensure-tools --resolve T  print the REAL binary for T (never the libexec/ shim); exit 1 if none
 #
 # NEVER blocks the session (hook mode always exits 0). Opt out: AGENTIC_NO_AUTOINSTALL=1.
 set -uo pipefail
@@ -41,7 +41,7 @@ STAMP_VALUE="$VERSION+${SRC_SUM:-0}"
 mkdir -p "$TOOLS_BIN" 2>/dev/null || true
 
 # First REAL binary for a tool: the plugin's data dir, the usual install dirs, then PATH
-# — skipping a stale own build, this bin/ dir and any other aloop plugin bin/ (it holds ensure-tools): their
+# — skipping a stale own build, this libexec/ dir and any other aloop plugin libexec/ (it holds ensure-tools): their
 # md-db / ctx-symbols are only shims. Another checkout's shim ahead on PATH resolved back
 # here and `make conformance` hung (found on a Mac release run).
 find_tool() {
@@ -117,7 +117,7 @@ wait_build() {
   ! build_running
 }
 
-path_line() { printf 'export PATH="%s:%s:$PATH"\n' "$TOOLS_BIN" "$ROOT/bin"; }
+path_line() { printf 'export PATH="%s:%s:$PATH"\n' "$TOOLS_BIN" "$ROOT/libexec"; }
 
 case "${1:-}" in
   --where) echo "$TOOLS_BIN"; exit 0 ;;
@@ -140,7 +140,7 @@ fi
 
 # Persist PATH for every later Bash call this session (sub-agents inherit it).
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
-  grep -qF "$TOOLS_BIN:$ROOT/bin" "$CLAUDE_ENV_FILE" 2>/dev/null || path_line >> "$CLAUDE_ENV_FILE"
+  grep -qF "$TOOLS_BIN:$ROOT/libexec" "$CLAUDE_ENV_FILE" 2>/dev/null || path_line >> "$CLAUDE_ENV_FILE"
 fi
 
 # One-time orientation for the model, so nobody spends tokens looking for the tools.
@@ -151,7 +151,7 @@ elif build_running; then
 else
   status="md-db/ctx-symbols are NOT installed and could not be built (no cargo?). Run \`make install\` or see $LOG. Planning still works (grep fallback); execution is blocked by gate-tooling."
 fi
-ctx="aloop tools — do NOT search for them. ${status}. Call every tool as \`aloop <tool>\` (e.g. \`aloop selfcheck\`, \`aloop budget status\`, \`aloop stats show\`; \`aloop --list\` shows them). If \`agentic\` is not on PATH use the absolute path $ROOT/bin/agentic. On Claude Code and OpenCode the bare names (\`selfcheck\`, \`md-db\`, …) work too. Schemas: $ROOT/schemas/."
+ctx="aloop tools — do NOT search for them. ${status}. Call every tool as \`aloop <tool>\` (e.g. \`aloop selfcheck\`, \`aloop budget status\`, \`aloop stats show\`; \`aloop --list\` shows them). If \`agentic\` is not on PATH use the absolute path $ROOT/libexec/agentic. On Claude Code and OpenCode the bare names (\`selfcheck\`, \`md-db\`, …) work too. Schemas: $ROOT/schemas/."
 
 if command -v python3 >/dev/null 2>&1; then
   CTX="$ctx" python3 -c 'import json,os;print(json.dumps({"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":os.environ["CTX"]}}))'

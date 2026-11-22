@@ -1,6 +1,6 @@
 # Gate — 01-scaffold  (supervisor verification)
 
-Checks (bin/gate-scaffold-verify):
+Checks (libexec/gate-scaffold-verify):
 - [ ] Every symbol the RED tests reference now exists as exactly ONE definition.
 - [ ] Every stub body is panic + SUB-AGENT-TODO (no real implementation).
 - [ ] No `mod common` shim remains.
@@ -8,7 +8,7 @@ Checks (bin/gate-scaffold-verify):
 
 Failure verbs:
   REJECT — a body was implemented, or a symbol was defined twice
-Enforced by: SubagentStop(scaffolder) -> bin/gate-scaffold-verify (exit 2 blocks).
+Enforced by: SubagentStop(scaffolder) -> libexec/gate-scaffold-verify (exit 2 blocks).
 
 Added check: scaffolding is idempotent — a symbol that already has a real body is
 left untouched (no clobber); only new symbols are stubbed.

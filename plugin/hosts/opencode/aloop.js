@@ -37,7 +37,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 
 const ROOT = "__AGENTIC_ROOT__"
-const BIN = join(ROOT, "bin")
+const BIN = join(ROOT, "libexec")
 const WRITERS = new Set(["red-worker", "scaffolder", "green-worker"])
 const GATES = {
   "red-worker": "gate-red-verify", scaffolder: "gate-scaffold-verify", "green-worker": "gate-green-verify",
@@ -73,7 +73,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
   const sessions = new Map()       // id -> { parentID, root, agent }
   const startCtx = new Map()       // root id -> SessionStart additionalContext
   const promptCtx = new Map()      // root id -> intent-trigger context for the next turn
-  // the run-data dir (bin/_paths.sh): .aladdin/, or the legacy .agentic/ until `aloop layout migrate`
+  // the run-data dir (libexec/_paths.sh): .aladdin/, or the legacy .agentic/ until `aloop layout migrate`
   const homeDir = (() => {
     const nu = join(project, ".aladdin")
     if (["transcripts", "budget", "ledger", "logs", "state", "host", "worktrees"].some((d) => existsSync(join(nu, d)))) return nu
@@ -278,7 +278,7 @@ export const AgenticAgile = async ({ client, directory, worktree }) => {
         if (why) throw new Error(why)
         s.toolingOk = true
       }
-      const isBind = input.tool === "bash" && /\b((?:aloop|agentic)\s+bind|bin\/bind)\s+\S+/.test(args.command || "")
+      const isBind = input.tool === "bash" && /\b((?:aloop|agentic)\s+bind|(?:bin|libexec)\/bind)\s+\S+/.test(args.command || "")
       if (s.parentID && WRITERS.has(role) && !isBind) {
         const wt = bound(input.sessionID)
         if (!wt && (input.tool === "bash" || EDITS.has(input.tool)))

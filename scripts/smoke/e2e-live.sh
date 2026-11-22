@@ -59,8 +59,8 @@ case "$FIXTURE" in
 esac
 PLUGIN="$(cd "$(dirname "$0")/../../plugin" && pwd)"
 # The host's own ids for the routes; empty (Codex) means the session's model: pass no --model.
-[ -n "$SUP_MODEL" ] || SUP_MODEL="$("$PLUGIN/bin/models" routes --host "$HOST" | sed -n 's/.*strong=\([^ ]*\).*/\1/p')"
-[ -n "$WORKER_MODEL" ] || WORKER_MODEL="$("$PLUGIN/bin/models" routes --host "$HOST" | sed -n 's/.*economical=\([^ ]*\).*/\1/p')"
+[ -n "$SUP_MODEL" ] || SUP_MODEL="$("$PLUGIN/libexec/models" routes --host "$HOST" | sed -n 's/.*strong=\([^ ]*\).*/\1/p')"
+[ -n "$WORKER_MODEL" ] || WORKER_MODEL="$("$PLUGIN/libexec/models" routes --host "$HOST" | sed -n 's/.*economical=\([^ ]*\).*/\1/p')"
 case "$SUP_MODEL" in "<session"*) SUP_MODEL= ;; esac
 case "$WORKER_MODEL" in "<session"*) WORKER_MODEL= ;; esac
 T="${E2E_DIR:-$(mktemp -d)}"; mkdir -p "$T/repo"; cd "$T/repo" || exit 1
@@ -167,9 +167,9 @@ git add -A && git commit -qm init
 # and the run renders its host into the repo below.
 export DSH_HOME="$T/dsh-home"; mkdir -p "$DSH_HOME"
 if [ "$HOST" = dsh ] && [ -f "$USER_DSH_HOME/.env" ]; then cp "$USER_DSH_HOME/.env" "$DSH_HOME/.env"; fi
-ALOOP_NO_HOST_RERENDER=1 "$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="${WORKER_MODEL:-economical}" MODEL_WORKER="${WORKER_MODEL:-economical}" GITIGNORE=yes >/dev/null
+ALOOP_NO_HOST_RERENDER=1 "$PLUGIN/libexec/aloop-init" --apply MODEL_PLANNING="${WORKER_MODEL:-economical}" MODEL_WORKER="${WORKER_MODEL:-economical}" GITIGNORE=yes >/dev/null
 # Codex, OpenCode and dsh load the agents, skills and hooks from the project (dsh: its profile): render them in.
-[ "$HOST" = claude ] || "$PLUGIN/bin/install" "$HOST" --project . >/dev/null
+[ "$HOST" = claude ] || "$PLUGIN/libexec/install" "$HOST" --project . >/dev/null
 git add -A && git commit -qm "aloop init" >/dev/null 2>&1 || true
 
 # Only the intent (ROADMAP M11.9): its first line is the intent, word for word, and that typed line is the
@@ -218,7 +218,7 @@ check "session finished (exit $rc)" '[ "$rc" -eq 0 ]'
 check "planning wrote stories.md + a story dir" '[ -f docs/agents/sprint1/stories.md ] && [ -n "$story" ]'
 [ "$FIXTURE" = wordfreq ] && check "planning made both stories" '[ "$(ls -d docs/agents/sprint1/s1-* 2>/dev/null | wc -l)" -ge 2 ]'
 check "planning artifacts are schema-valid" \
-  '[ -n "$story" ] && find docs/agents/sprint1 -name "*.md" \( -name stories.md -o -name tasks.md -o -name validate.md -o -name plan.md \) | "$PLUGIN/bin/md-db" validate --stdin-list --schema "$PLUGIN/schemas/planning-artifacts.kdl" >/dev/null 2>&1'
+  '[ -n "$story" ] && find docs/agents/sprint1 -name "*.md" \( -name stories.md -o -name tasks.md -o -name validate.md -o -name plan.md \) | "$PLUGIN/libexec/md-db" validate --stdin-list --schema "$PLUGIN/schemas/planning-artifacts.kdl" >/dev/null 2>&1'
 check "RED and GREEN gates both passed at least once" \
   'grep -q "\"gate\":\"gate-red-verify\".*\"exit\":0" .aladdin/logs/gates.jsonl 2>/dev/null && grep -q "\"gate\":\"gate-green-verify\".*\"exit\":0" .aladdin/logs/gates.jsonl'
 check "work is merged into main ($SRC/ changed since init)" '[ -n "$(git diff --name-only HEAD~1 -- "$SRC" 2>/dev/null; git log --oneline main | sed -n 3p)" ]'
@@ -237,12 +237,12 @@ check "final gate passed" 'grep -q "\"gate\":\"gate-final\".*\"exit\":0" .aladdi
 check "no hook crashed" '! grep -q "the gate itself failed" "$T/out.jsonl"'
 # Auditable: every commit the run merged traces back to its task from the event stream alone
 # (ROADMAP §4.7). `init` and `aloop init` are the two seed commits.
-untraced=0; for sha in $(git log --no-merges --format=%H HEAD | head -n -2); do "$PLUGIN/bin/events" trace "$sha" >/dev/null 2>&1 || untraced=$((untraced + 1)); done
+untraced=0; for sha in $(git log --no-merges --format=%H HEAD | head -n -2); do "$PLUGIN/libexec/events" trace "$sha" >/dev/null 2>&1 || untraced=$((untraced + 1)); done
 check "every merged commit traces to its task (events trace)" '[ "$untraced" -eq 0 ]'
 
 # The measured record (ROADMAP §4.11): summary.json, summary.md and a docs/evidence/README.md row
 # in the run dir; the numbers come from the session's `result` lines and the gate log.
-"$PLUGIN/bin/run-summary" "$T" --intent "$FIXTURE" --host "$HOST" --checks "$((checks - fails))/$checks" --secs "$secs" --plugin "$PLUGIN"
+"$PLUGIN/libexec/run-summary" "$T" --intent "$FIXTURE" --host "$HOST" --checks "$((checks - fails))/$checks" --secs "$secs" --plugin "$PLUGIN"
 # Keep the transcript and the repo, drop the build artifacts (a cargo target dir per worktree
 # is hundreds of MB; a dozen kept runs filled the disk).
 rm -rf "$T"/repo/target "$T"/repo/.claude/worktrees/*/target "$T"/repo/.aladdin/worktrees/*/target 2>/dev/null

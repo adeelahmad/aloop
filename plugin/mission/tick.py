@@ -87,7 +87,7 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-BIN = os.path.join(os.path.dirname(HERE), "bin")
+BIN = os.path.join(os.path.dirname(HERE), "libexec")
 sys.path.insert(0, BIN)
 sys.path.insert(0, HERE)
 import _events  # noqa: E402
@@ -99,7 +99,7 @@ import ethics as E  # noqa: E402
 import evaluate as EV  # noqa: E402
 import journeys as J  # noqa: E402
 
-NO_ARGS = True            # `mission tick` with no arguments runs (plugin/bin/mission run_area)
+NO_ARGS = True            # `mission tick` with no arguments runs (plugin/libexec/mission run_area)
 ROLES = {
     "STOPPED": ("human", []), "SET_MISSION": ("human", []), "CONFIRM_MISSION": ("human", []), "STOP_BUDGET": ("human", []),
     "ETHICS_REVIEW": ("role", ["ethics-reviewer"]), "BLOCKED": ("human", []), "ASK_CONSENT": ("human", []),
@@ -252,7 +252,7 @@ def budget(cwd, mdoc, since, now):
 
 # ── facts ─────────────────────────────────────────────────────────────────────────────
 def cli():
-    """plugin/bin/mission as a module (its `evaluate` is the mission's deterministic check)."""
+    """plugin/libexec/mission as a module (its `evaluate` is the mission's deterministic check)."""
     mod = sys.modules.get("mission_cli")
     if mod is None:
         import importlib.machinery

@@ -22,7 +22,7 @@ import sys
 import tempfile
 
 PLUGIN = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(PLUGIN, "bin")
+BIN = os.path.join(PLUGIN, "libexec")
 TMP = tempfile.mkdtemp(prefix="aloop-userspace-")
 HOME = os.path.join(TMP, "home")
 ENV = dict(os.environ, PATH=BIN + ":/usr/bin:/bin", AGENTIC_NO_AUTOINSTALL="1", HOME=HOME,
@@ -95,7 +95,7 @@ ok(r.returncode == 0 and all(os.path.isfile(os.path.join(U, "agents", x + ".md")
    "first session ejects every role's agent (%d)" % len(ROLES), r.stderr)
 ok(os.path.isfile(os.path.join(U, "skills", "aloop", "SKILL.md")) and
    os.path.isfile(os.path.join(U, "reference", "hooks", "hooks.json")) and
-   all(os.path.isfile(os.path.join(U, "reference", "bin", g)) for g in GATES) and
+   all(os.path.isfile(os.path.join(U, "reference", "libexec", g)) for g in GATES) and
    os.path.isfile(os.path.join(U, "reference", "pipeline", "execution", "00-red", "persona.md")),
    "it ejects the skills and a kernel reference (hooks.json, %d gates, the pipeline)" % len(GATES))
 ok(m["plugin_version"] == json.load(open(os.path.join(PLUGIN, ".claude-plugin", "plugin.json")))["version"]
@@ -161,19 +161,19 @@ write(os.path.join(U, "agents", "yolo-worker.md"), "---\nname: yolo-worker\ndesc
 r = us(P, "apply")
 ok(not os.path.exists(os.path.join(P, ".claude", "agents", "yolo-worker.md")) and "names no kernel role" in r.stdout,
    "an agent file for a role the kernel has no gates for is not loaded (and says so)", r.stdout)
-gf = os.path.join(U, "reference", "bin", "gate-final")
+gf = os.path.join(U, "reference", "libexec", "gate-final")
 write(gf, "#!/usr/bin/env bash\nexit 0\n")
-st = status(P)["reference/bin/gate-final"]
+st = status(P)["reference/libexec/gate-final"]
 ok(st["kind"] == "reference" and st["layer"] == "plugin", "an edited gate reference still resolves to the plugin's gate", st)
 hooks = read(os.path.join(PLUGIN, "hooks", "hooks.json"))
-ok("docs/agents/userspace" not in hooks and "userspace" not in hooks.replace('"${CLAUDE_PLUGIN_ROOT}/bin/session-start"', ""),
+ok("docs/agents/userspace" not in hooks and "userspace" not in hooks.replace('"${CLAUDE_PLUGIN_ROOT}/libexec/session-start"', ""),
    "the hooks never run a project copy of a gate")
-us(P, "reset", "reference/bin/gate-final")
+us(P, "reset", "reference/libexec/gate-final")
 
 # 5) plugin upgrades: an edited copy of the plugin stands in for the new release
 NP = os.path.join(TMP, "plugin-next")
 shutil.copytree(PLUGIN, NP, ignore=shutil.ignore_patterns("tools", "evals", "target", "node_modules"))
-NB = os.path.join(NP, "bin")
+NB = os.path.join(NP, "libexec")
 U2P = project("p-upgrade")
 session_start(U2P, bin_dir=BIN)
 U2 = os.path.join(U2P, "docs", "agents", "userspace")

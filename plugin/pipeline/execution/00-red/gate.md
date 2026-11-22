@@ -1,6 +1,6 @@
 # Gate — 00-red  (supervisor verification)
 
-Checks (bin/gate-red-verify):
+Checks (libexec/gate-red-verify):
 - [ ] Every new test is in the FAIL list.
 - [ ] No previously-passing test flipped to fail.
 - [ ] git diff --stat touches only test files + the shim module.
@@ -8,7 +8,7 @@ Checks (bin/gate-red-verify):
 Failure verbs:
   REJECT  — wrote production code, or a new test passed (exercises nothing)
   RETRY   — transient/incomplete; re-spawn with feedback appended to init.md
-Enforced by: SubagentStop(red-worker) -> bin/gate-red-verify (exit 2 blocks).
+Enforced by: SubagentStop(red-worker) -> libexec/gate-red-verify (exit 2 blocks).
 
 Note (v0.2): RED compile shims carry `// agentic:shim`; the scaffold gate keys on that
 marker, so a normal `tests/common/mod.rs` helper is never mistaken for a shim.

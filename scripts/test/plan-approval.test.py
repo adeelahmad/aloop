@@ -19,7 +19,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "fixtures"))
 from mission_fixture import Project, as_human, say  # noqa: E402
 
-BIN = os.path.realpath(os.path.join(HERE, "..", "..", "plugin", "bin"))
+BIN = os.path.realpath(os.path.join(HERE, "..", "..", "plugin", "libexec"))
 GATE, EV, IDS, SCOPE = (os.path.join(BIN, n) for n in ("gate-dispatch", "events", "ids", "gate-mission-scope"))
 T = tempfile.mkdtemp(prefix="aloop-plan-approval-")
 atexit.register(shutil.rmtree, T, ignore_errors=True)

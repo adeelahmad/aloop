@@ -461,7 +461,7 @@
    ],
    "plugin_paths": [
     "^hooks/hooks\\.json$",
-    "^bin/(?:gate-[^/]+|_failclosed\\.sh|_gatelib\\.sh|host-adapter|install)$",
+    "^libexec/(?:gate-[^/]+|_failclosed\\.sh|_gatelib\\.sh|host-adapter|install)$",
     "^hosts/(?:opencode/aloop\\.js|dsh/aloop\\.mjs)$",
     "^mission/doors\\.(?:json|py)$"
    ],
@@ -693,8 +693,8 @@
      "printf 'authorize\\n' | xargs -I{} aloop mission doors {} x --by me --reason r",
      "python3 - <<'EOF'\nimport _events\n_events.emit('.', 'door.authorized', role='human', subject='door:x')\nEOF",
      "env -u CLAUDECODE aladdin mission doors authorize push-default-branch --by me --reason r",
-     "bash plugin/bin/aloop mission doors authorize x --by me --reason r",
-     "python3 -u plugin/bin/mission doors revoke x --by me --reason r",
+     "bash plugin/libexec/aloop mission doors authorize x --by me --reason r",
+     "python3 -u plugin/libexec/mission doors revoke x --by me --reason r",
      "cd docs/agents && echo x >> mission/ledger.jsonl",
      "cd docs/agents && sed -i s/a/b/ mission/ledger.jsonl",
      "sed --in-place /door.revoked/d .aladdin/logs/events.jsonl",

@@ -87,7 +87,7 @@ def task_env_keys():
     """_gatelib.sh's TASK_ENV_KEYS (every contract key a gate loads only when the env leaves it unset): read from
     the file, so a key added there is scrubbed too."""
     try:
-        with open(os.path.join(PLUGIN, "bin", "_gatelib.sh"), encoding="utf-8", errors="replace") as f:
+        with open(os.path.join(PLUGIN, "libexec", "_gatelib.sh"), encoding="utf-8", errors="replace") as f:
             m = re.search(r'^TASK_ENV_KEYS="([^"]*)"', f.read(), re.M)
     except OSError:
         return ()
@@ -321,7 +321,7 @@ def run_events(repo):
 
 
 def budget_released(events):
-    """(task, attempt) of every attempt bin/budget stopped at its hard limit. _gatelib's budget_release lets its
+    """(task, attempt) of every attempt libexec/budget stopped at its hard limit. _gatelib's budget_release lets its
     SubagentStop gate exit 0 with no `released` field, so the gate log alone shows a pass (ROADMAP M9.80)."""
     out = set()
     for e in events:

@@ -2,7 +2,7 @@
 // `aloop install dsh` renders the profile into a throw-away DSH_HOME, then `dsh --profile aloop
 // --json` runs a supervisor that dispatches a red-worker and a state-assessor (subagent), and an
 // intake, an archivist and a market-researcher (subagent_planning) against fixtures/fake-deepseek.mjs.
-// The REAL bin/ scripts run in a throw-away git repo. No network, no tokens. It proves on dsh itself
+// The REAL libexec/ scripts run in a throw-away git repo. No network, no tokens. It proves on dsh itself
 // what the emulated test (dsh-plugin.test.mjs) assumes: the handoff reaches the model, a deny /
 // post-execute block reaches it, the profile's roles, tools and models, worker confinement, the
 // per-role stop gate (a block steers the child and is reported to the supervisor after 3 rounds; an
@@ -27,7 +27,7 @@ import { approvePlan } from "./fixtures/plan-fixture.mjs"
 
 const HERE = join(fileURLToPath(import.meta.url), "..")
 const ROOT = join(HERE, "..", "..", "plugin")
-const BIN = join(ROOT, "bin")
+const BIN = join(ROOT, "libexec")
 
 function findDsh() {
   if (process.env.DSH_BIN) return process.env.DSH_BIN

@@ -400,13 +400,13 @@ flowchart TD
 <section id="validation">
   <h2><span class="num">07</span>Validation model</h2>
   <p class="lede">md-db / KDL validates the markdown artifacts; grep-gates cover what it structurally cannot.</p>
-  <p><code>md-db validate &lt;dir&gt; --schema &lt;x&gt;.kdl</code> enforces YAML frontmatter, field types, enums, patterns, required sections, and cross-document reference integrity. It cannot enumerate dynamically-named sections — the playbook's <code>## Tn — Title</code> headings — so validation is two-layered: schemas for structure, <code>bin/</code> grep-gates for the dynamic body shape.</p>
+  <p><code>md-db validate &lt;dir&gt; --schema &lt;x&gt;.kdl</code> enforces YAML frontmatter, field types, enums, patterns, required sections, and cross-document reference integrity. It cannot enumerate dynamically-named sections — the playbook's <code>## Tn — Title</code> headings — so validation is two-layered: schemas for structure, <code>libexec/</code> grep-gates for the dynamic body shape.</p>
   <table>
     <thead><tr><th>Schema</th><th>Scope</th><th>Coverage</th></tr></thead>
     <tbody>
       <tr><td><code>agent-io.kdl</code></td><td>per-task-attempt comms — <code>init.md</code>, <code>output.md</code></td><td>fully validated (new artifacts, fixed sections)</td></tr>
       <tr><td><code>planning-artifacts.kdl</code></td><td>stories / tasks / validate / plan / plan-ready / sprint-plan</td><td>frontmatter + fixed sections (see OPEN-7)</td></tr>
-      <tr><td><code>ledger.kdl</code></td><td><code>execution.log</code></td><td>wrapping doc; line format enforced by <code>bin/</code></td></tr>
+      <tr><td><code>ledger.kdl</code></td><td><code>execution.log</code></td><td>wrapping doc; line format enforced by <code>libexec/</code></td></tr>
     </tbody>
   </table>
 </section>
@@ -465,7 +465,7 @@ flowchart TD
       <tr><td>deterministic gates</td><td><code>hooks/hooks.json</code> — <code>SubagentStop</code>, <code>Stop</code>, <code>PostToolUse</code></td></tr>
       <tr><td>the workflow itself</td><td><code>skills/</code></td></tr>
       <tr><td>the eight roles</td><td><code>agents/</code> (assembled from personas)</td></tr>
-      <tr><td>gate scripts + ledger writer</td><td><code>bin/</code></td></tr>
+      <tr><td>gate scripts + ledger writer</td><td><code>libexec/</code></td></tr>
       <tr><td>per-sub-agent isolation</td><td><code>isolation: "worktree"</code> (built in)</td></tr>
     </tbody>
   </table>
@@ -487,7 +487,7 @@ flowchart TD
   schemas/                     <span class="c"># md-db KDL</span>
     agent-io.kdl  planning-artifacts.kdl  ledger.kdl  SCHEMA-NOTES.md
   hooks/hooks.json             <span class="c"># which gate fires on which event</span>
-  bin/                         <span class="c"># gate scripts over md-db + greps</span>
+  libexec/                         <span class="c"># gate scripts over md-db + greps</span>
     gate-stage2-complete  gate-red-verify  gate-scaffold-verify
     gate-green-verify  gate-structural-integrity  gate-final
     gate-plan-shape  gate-standards-cited  gate-ledger-format  log-execution

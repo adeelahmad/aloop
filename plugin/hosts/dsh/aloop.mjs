@@ -76,7 +76,7 @@ const releaseOf = (stderr, role) => {
   return kind === "NEEDS-HUMAN" && role !== "intake" ? null : kind || null
 }
 const TOOLS_NOTE = "aloop tools: call `aloop <tool>` (e.g. `aloop selfcheck`, `aloop stats show`); never search for them."
-const PROVIDER = "deepseek-official"      // bin/install's DSH_PROVIDER: a bare model id is DeepSeek's own
+const PROVIDER = "deepseek-official"      // libexec/install's DSH_PROVIDER: a bare model id is DeepSeek's own
 
 // A gate runs the worker's own code (its tests), so it gets the environment dsh gives the worker's
 // shell: credential-shaped names and DSH_* dropped (dsh-subprocess's scrub), aloop's own settings
@@ -107,7 +107,7 @@ const freeze = (o) => { Object.freeze(o); for (const v of Object.values(o)) if (
 const msg = (text) => freeze({ role: "user", id: randomUUID(), content: [{ type: "text", text }], source: { kind: "aloop" } })
 const textOf = (content) => typeof content === "string" ? content : (content || []).map((b) => b?.text || "").filter(Boolean).join("\n")
 const under = (p, root) => { const r = resolve(p), w = resolve(root); return r === w || r.startsWith(w + sep) }
-// a model id as the profile routes it (bin/install's dsh_agent_options): `<provider>/<model>`, or a bare DeepSeek id
+// a model id as the profile routes it (libexec/install's dsh_agent_options): `<provider>/<model>`, or a bare DeepSeek id
 const routeOf = (m) => { const i = m.indexOf("/"); return i < 0 ? { provider: PROVIDER, model: m } : { provider: m.slice(0, i), model: m.slice(i + 1) } }
 // the aloop skills dsh loads for a project: its own .dsh/skills, or $DSH_HOME/skills (`--global`)
 const hasSkills = (project) => [join(project, ".dsh"), process.env.DSH_HOME?.trim() || join(homedir(), ".dsh")]
@@ -126,7 +126,7 @@ function projectOf(dir) {
     if (dirname(d) === d) return resolve(dir)
   }
 }
-// the run-data dir (bin/_paths.sh): .aladdin/, or the legacy .agentic/ until `aloop layout migrate`
+// the run-data dir (libexec/_paths.sh): .aladdin/, or the legacy .agentic/ until `aloop layout migrate`
 function homeOf(project) {
   const nu = join(project, ".aladdin")
   if (["transcripts", "budget", "ledger", "logs", "state", "host", "worktrees"].some((d) => existsSync(join(nu, d)))) return nu
@@ -135,10 +135,10 @@ function homeOf(project) {
 
 export function apply(ctx, config = {}) {
   const ROOT = config.root
-  const BIN = join(ROOT, "bin")
+  const BIN = join(ROOT, "libexec")
   const MAX = Number.isInteger(config.maxStopBlocks) ? config.maxStopBlocks : 3
   // A model's shell gets dsh's own environment (secrets and DSH_* removed), so this reaches every
-  // `aloop …` the supervisor or a worker runs: bin/ scripts then know their host.
+  // `aloop …` the supervisor or a worker runs: libexec/ scripts then know their host.
   process.env.AGENTIC_HOST = "dsh"
   const FROM_FILE = fileSwitches(process.cwd())
   if (FROM_FILE.size) process.stderr.write(`[aloop] gates ignore ${[...FROM_FILE].join(", ")} from ${join(process.cwd(), ".env")} (export a setting to use it)\n`)
@@ -233,7 +233,7 @@ export function apply(ctx, config = {}) {
     }
   }
 
-  // Run one of this plugin's bin/ scripts with the hook JSON on stdin. Async: one Node process
+  // Run one of this plugin's libexec/ scripts with the hook JSON on stdin. Async: one Node process
   // drives every agent, so a synchronous wait would stall all of them.
   function run(script, args, input, cwd, ms = 600000) {
     return new Promise((done) => {

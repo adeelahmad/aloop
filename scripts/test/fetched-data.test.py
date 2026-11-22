@@ -20,7 +20,7 @@ import tempfile
 
 sys.dont_write_bytecode = True
 ROOT = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
-BIN = os.path.join(ROOT, "plugin", "bin")
+BIN = os.path.join(ROOT, "plugin", "libexec")
 T = os.path.realpath(tempfile.mkdtemp(prefix="aloop-fetch-"))
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 REPO = os.path.join(T, "repo")

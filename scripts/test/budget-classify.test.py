@@ -12,7 +12,7 @@ import sys
 import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 T = tempfile.mkdtemp(prefix="agentic-classify-")
 ENV = dict(os.environ, HOME=os.path.join(T, "home"))
 ENV.pop("AGENTIC_HOST", None)

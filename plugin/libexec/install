@@ -14,7 +14,7 @@ from docs/agents/defaults.md (MODEL_*_CODEX / MODEL_*_OPENCODE / MODEL_*_DSH); `
 re-renders installed hosts after a change.
 
 codex:    <DIR>/.codex/agents/<role>.toml  (or ~/.codex/agents with --global)
-          + ~/.local/bin/aloop (+ legacy alias agentic)  (Codex does not put plugin bin/ on PATH)
+          + ~/.local/bin/aloop (+ legacy alias agentic)  (Codex does not put plugin libexec/ on PATH)
           The plugin itself (skills, hooks, commands) installs through Codex's own
           plugin manager — it reads this repo's .claude-plugin manifests natively:
             codex plugin marketplace add adeelahmad/aloop
@@ -127,7 +127,7 @@ def host_body(body, host):
 
 
 def model_for(host, planning, st):
-    """The host's concrete id for the group's route (ROADMAP §3.6; see _routes / bin/models)."""
+    """The host's concrete id for the group's route (ROADMAP §3.6; see _routes / libexec/models)."""
     return _routes.resolve(host, "planning" if planning else "worker", st)["model"]
 
 

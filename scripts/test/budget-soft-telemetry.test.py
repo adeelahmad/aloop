@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 # T is reached through a symlink, as every macOS temp dir is (/var -> /private/var): `stats
 # sprint-close` compared the recorded realpath STORY_DIR with the unresolved sprint dir and
 # counted 0 attempts (found on a Mac release run; Linux CI never saw it).
