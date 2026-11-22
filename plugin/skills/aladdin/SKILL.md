@@ -3,7 +3,7 @@ name: aladdin
 description: >-
   Aladdin — intent is all you need. The product name of the aloop loop: say what you want
   built, fixed or changed and it becomes planned, test-first, gate-verified software.
-  Invoke with /aladdin "<intent>" (or /aloop); any build/fix/improve request triggers the
+  Invoke with /aladdin followed by your intent (or /aloop); any build/fix/improve request triggers the
   same playbook.
 model: sonnet
 ---

@@ -36,6 +36,8 @@ Upgrade: `claude plugin marketplace update aloop-marketplace && claude plugin up
   now live under `reference/libexec/`.
 
 ### Added
+- The `aladdin` skill's description drops its `<intent>` placeholder: claude.ai strips angle brackets
+  from skill descriptions (sync warning `plugin_upload_skill_md_description_contains_xml`); a test pins it.
 - A plugin icon (`plugin/.claude-plugin/icon.png`) for the plugin directory, and CI validates the
   marketplace manifest too (#129).
 - The mission layer's ethics, principles and goals (#105), the mission plan (#115), and the brand

@@ -57,6 +57,13 @@ assert head[:8] == b"\x89PNG\r\n\x1a\n", "icon.png is not a PNG"
 w, h = int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
 assert w == h and 512 <= w <= 2048 and os.path.getsize(icon) < 2 * 1024 * 1024, (w, h)
 ok("plugin ships a directory-valid icon")
+# claude.ai warns on (and strips) angle brackets in a skill description: plugin_upload_skill_md_description_contains_xml
+import glob, re as _re
+for sk in glob.glob(os.path.join(PLUGIN, "skills", "*", "SKILL.md")):
+    fm = open(sk).read().split("---")[1]
+    desc = _re.search(r"(?ms)^description:\s*(?:>-?|\|-?)?\s*(.*?)(?=^\S+:|\Z)", fm).group(1)
+    assert "<" not in desc and ">" not in desc, (sk, desc)
+ok("no skill description holds angle brackets (claude.ai strips them)")
 
 # 2. the legacy CLI names forward to aloop
 run("git", "init", "-q")
