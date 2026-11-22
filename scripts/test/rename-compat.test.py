@@ -49,6 +49,14 @@ assert plugin["name"] == "aloop", plugin["name"]
 assert market["name"] == "aloop-marketplace" and market["plugins"][0]["name"] == "aloop"
 assert os.path.isfile(os.path.join(PLUGIN, "skills", "aloop", "SKILL.md"))
 ok("plugin, marketplace and skill are named aloop")
+# the plugin directory (claude.ai) needs a square PNG icon, 512-2048 px, under 2 MB
+icon = os.path.join(PLUGIN, ".claude-plugin", "icon.png")
+with open(icon, "rb") as f:
+    head = f.read(24)
+assert head[:8] == b"\x89PNG\r\n\x1a\n", "icon.png is not a PNG"
+w, h = int.from_bytes(head[16:20], "big"), int.from_bytes(head[20:24], "big")
+assert w == h and 512 <= w <= 2048 and os.path.getsize(icon) < 2 * 1024 * 1024, (w, h)
+ok("plugin ships a directory-valid icon")
 
 # 2. the legacy CLI names forward to aloop
 run("git", "init", "-q")

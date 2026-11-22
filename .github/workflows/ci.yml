@@ -130,3 +130,5 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: claude plugin validate --strict
         run: claude plugin validate ./plugin --strict
+      - name: claude plugin validate marketplace --strict
+        run: claude plugin validate . --strict
