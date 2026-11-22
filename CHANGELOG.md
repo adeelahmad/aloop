@@ -22,6 +22,27 @@ tag in lockstep. Tag releases as `vMAJOR.MINOR.PATCH`.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-22
+
+Highlights: **aloop installs on claude.ai.** Adding the `adeelahmad/aloop` marketplace on claude.ai failed
+sync (`marketplace_sync_bin_directory_not_allowed`: claude.ai-hosted plugins may not ship a top-level `bin/`).
+Upgrade: `claude plugin marketplace update aloop-marketplace && claude plugin update aloop@aloop-marketplace`.
+
+### Changed
+- The plugin's scripts moved from `plugin/bin/` to `plugin/libexec/` (#129). Every hook, host adapter
+  (Codex, OpenCode, dsh) and test follows. On Claude Code the `ensure-tools` SessionStart hook puts
+  `libexec/` on PATH through `CLAUDE_ENV_FILE`, so `aloop <tool>` and the bare names work as before.
+  Re-run `aloop install codex|opencode|dsh` to relink a non-Claude host. Ejected userspace reference copies
+  now live under `reference/libexec/`.
+
+### Added
+- The `aladdin` skill's description drops its `<intent>` placeholder: claude.ai strips angle brackets
+  from skill descriptions (sync warning `plugin_upload_skill_md_description_contains_xml`); a test pins it.
+- A plugin icon (`plugin/.claude-plugin/icon.png`) for the plugin directory, and CI validates the
+  marketplace manifest too (#129).
+- The mission layer's ethics, principles and goals (#105), the mission plan (#115), and the brand
+  README/site (#126) merged since 0.13.0.
+
 ## [0.13.0] - 2026-11-20
 
 Highlights: **autonomous by default** (your typed intent is the grant; no `approve SN <code>` line),
