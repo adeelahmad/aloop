@@ -12,7 +12,7 @@ import os
 import subprocess
 import tempfile
 
-BIN = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin", "bin"))
+BIN = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin", "libexec"))
 GATE = os.path.join(BIN, "gate-stage2-complete")
 T = tempfile.mkdtemp(prefix="aloop-planner-stuck-")
 ENV = {k: v for k, v in os.environ.items() if k not in ("SKIP_HOOKS", "AGENTIC_SELFCHECK", "AGENTIC_STUCK_BLOCKS")}
@@ -71,7 +71,7 @@ r = hook(agent_id="a2")
 assert r.returncode == 2 and "STUCK" not in r.stderr, r
 ok("a re-dispatched planner (new agent id) starts the count over")
 
-# the supervisor's self-check (bin/selfcheck) and a direct call never release, and a direct
+# the supervisor's self-check (libexec/selfcheck) and a direct call never release, and a direct
 # call is logged as a self-check, not a verdict
 for _ in range(3):
     r = hook(agent_id="a3", AGENTIC_SELFCHECK="1")

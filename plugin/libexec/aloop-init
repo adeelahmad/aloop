@@ -196,7 +196,7 @@ def render(vals, who, rendered_from=None, extra=None):
     lines += ["```", "", "## What they mean", ""]
     for k in ORDER:
         lines.append("- `AGENTIC_%s` — %s" % (k, EXPLAIN[k]))
-    lines += ["", "## Layout (fixed — bin/_paths.sh)", "",
+    lines += ["", "## Layout (fixed — libexec/_paths.sh)", "",
               "- `.aladdin/` — run data: transcripts, budget, token ledger, gate log, state (legacy projects keep `.agentic/` until `aloop layout migrate`). Never committed: `.aladdin/.gitignore` keeps only config.yaml.",
               "- `docs/agents/` — planning docs, `defaults.md`, `NEXT.md` (orchestrator handoff), `sprintN/stats.md`.", ""]
     return "\n".join(lines)

@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 T = tempfile.mkdtemp(prefix="aloop-mission-")
 ENV = dict(os.environ, HOME=os.path.join(T, "home"))
 ENV.pop("AGENTIC_HOST", None)
@@ -208,14 +208,14 @@ ok("the ledger keeps every decision without run data; an edited, removed, backda
 # 10) an area that opts in with NO_ARGS runs bare (`aloop mission due`); others print their help
 import shutil  # noqa: E402
 P2 = os.path.join(T, "plugin2")
-shutil.copytree(BIN, os.path.join(P2, "bin"), ignore=shutil.ignore_patterns("__pycache__"))
+shutil.copytree(BIN, os.path.join(P2, "libexec"), ignore=shutil.ignore_patterns("__pycache__"))
 os.makedirs(os.path.join(P2, "mission", "schemas"))
 for name, body in (("bare", '"""bare: help"""\nNO_ARGS = True\n\ndef main(argv, cwd):\n    print("ran", argv)\n    return 4\n'),
                    ("plain", '"""plain: help"""\n\ndef main(argv, cwd):\n    return 9\n')):
     open(os.path.join(P2, "mission", name + ".py"), "w").write(body)
-r = run(os.path.join(P2, "bin", "mission"), "bare")
+r = run(os.path.join(P2, "libexec", "mission"), "bare")
 assert r.returncode == 4 and "ran []" in r.stdout, (r.returncode, r.stdout, r.stderr)
-r = run(os.path.join(P2, "bin", "mission"), "plain")
+r = run(os.path.join(P2, "libexec", "mission"), "plain")
 assert r.returncode == 0 and "plain: help" in r.stdout, (r.returncode, r.stdout)
 ok("NO_ARGS areas run with no arguments; the rest print their help")
 

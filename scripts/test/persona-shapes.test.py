@@ -16,7 +16,7 @@ PLUGIN = os.path.join(ROOT, "plugin")
 T = tempfile.mkdtemp(prefix="aloop-shapes-")
 n = 0
 
-mddb = subprocess.run([os.path.join(PLUGIN, "bin", "ensure-tools"), "--resolve", "md-db"],
+mddb = subprocess.run([os.path.join(PLUGIN, "libexec", "ensure-tools"), "--resolve", "md-db"],
                       capture_output=True, text=True).stdout.strip()
 if not mddb:
     print("skip - md-db not installed")

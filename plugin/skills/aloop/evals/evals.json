@@ -14,7 +14,7 @@
         "no test is suppressed anywhere (#[ignore], .skip) in the final tree",
         "plan-ready.md checkboxes are ticked only after the corresponding test passes",
         "the final gate reports the standards matrix green with zero suppressions",
-        "before reporting done, each worker ran bin/selfcheck (and md-db validate on its .md output), so gate blocks on the hook are rare"
+        "before reporting done, each worker ran libexec/selfcheck (and md-db validate on its .md output), so gate blocks on the hook are rare"
       ]
     },
     {

@@ -18,7 +18,7 @@ Read this file, then walk `pipeline/`. The tree is the documentation.
         04-final-gate/
     schemas/                     md-db KDL schemas — what `md-db validate` enforces
     hooks/hooks.json             wiring: which gate fires on which platform event
-    bin/                         gate scripts (thin wrappers over `md-db validate` + greps)
+    libexec/                         gate scripts (thin wrappers over `md-db validate` + greps)
     agents/                      plugin-standard agent files, ASSEMBLED from pipeline/*/persona.md
 
 ## Every activity folder holds the same four files
@@ -52,7 +52,7 @@ types, enums, patterns, required sections, and cross-doc reference integrity.
 It CANNOT enumerate dynamically-named sections (the playbook's `## Tn — Title`
 headings). So validation is two-layered:
   - md-db (schemas/*.kdl) : frontmatter + fixed sections + refs    [structural]
-  - bin/ grep-gates        : the dynamic `Tn` body shape + invariants [pattern]
+  - libexec/ grep-gates        : the dynamic `Tn` body shape + invariants [pattern]
 init.md and output.md are NEW artifacts with fixed sections -> fully md-db-validated.
 
 ## v0.2 additions
@@ -64,7 +64,7 @@ init.md and output.md are NEW artifacts with fixed sections -> fully md-db-valid
     agents/{market-researcher,product-tester,state-assessor,evaluator,mission-planner,ethics-reviewer}.md
                                  the mission layer's six fixed roles (ROADMAP §4.12; mission/roles.json)
     schemas/memory.kdl           validates docs/agents/memory.md
-    bin/transcripts                  full capture (stage-in / record / prompt / snapshot / stop)
+    libexec/transcripts                  full capture (stage-in / record / prompt / snapshot / stop)
     tools/ctx-symbols/           the symbol backend (build + install)
 
 Transcripts: a global append-only `global.jsonl` + per-task `events.jsonl` (full tool

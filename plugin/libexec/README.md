@@ -1,4 +1,4 @@
-# bin/ — gate scripts & tools
+# libexec/ — gate scripts & tools
 
 Gates are bash (`gate-commit-author`, `gate-mission-scope` and `gate-mission-artifact` are Python). The hook-wired ones are invoked by hooks
 (`hooks/hooks.json`) by `agent_type`; the agent never calls them directly. Shared helpers live in
@@ -50,7 +50,7 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 | `run-summary` | `<run-dir> [--intent] [--host claude|codex|opencode|dsh] [--checks N/M] [--secs] [--plugin]` — a live run's measured record: `summary.json`, `summary.md` and a `docs/evidence/README.md` row from the session's `result` lines and `gates.jsonl` (cost, wakes, plugin reads, blocks); on dsh, which prints no cost, every call its plugin logged is priced from `_prices.py` (`cost_by_model`, the row's cost to four places, `<$0.0001` below; an unpriced model leaves the cost unmeasured); called by `e2e-live.sh` |
 | `log-execution` | `wave-K activity SN-NN transition [detail…] [execution.log]` — append one transition line (default ledger: the latest sprint's); `--help` |
 | `ensure-tools` | SessionStart — builds md-db + ctx-symbols into `$CLAUDE_PLUGIN_DATA/bin` on first run / version change (background), tells the model where the tools are. `--sync` build now · `--wait` · `--resolve T` real binary path |
-| `md-db`, `ctx-symbols` | PATH shims (this `bin/` is on PATH in every session): exec the real binary, building it once if needed. Gates test presence with `ensure-tools --resolve`, never `command -v` |
+| `md-db`, `ctx-symbols` | PATH shims (this `libexec/` is on PATH in every session): exec the real binary, building it once if needed. Gates test presence with `ensure-tools --resolve`, never `command -v` |
 | `aladdin` | the product entry point (ROADMAP §4.11): `aladdin "<intent>"` records the contract and prints how to start the run · `run` · `status` (sweep + resume rule + token totals) · `resume` (what SessionStart loads) · `report` (stats.md) · `target\|context\|refs\|callers\|callees\|shadow\|scope` → `targets` · any other aloop tool unchanged. |
 | `aloop` | the one entrypoint: `aloop <tool> …` (`aloop --list`); `aloop init` = aloop-init, `aloop install` = install. Linked into `~/.local/bin` for Codex/OpenCode |
 | `install` | `aloop install codex\|opencode [--project DIR\|--global] [--uninstall]` — renders agents/skills/commands (+ the OpenCode plugin from `hosts/opencode/`) from this plugin's sources; `status`; `claude` |
@@ -87,7 +87,7 @@ ctx-symbols) → WARN + grep fallback; never a silent pass.
 
 ## v0.2 — self-check at every step
 
-Every dispatched role now has BOTH a `bin/selfcheck` mapping (run it before you report
+Every dispatched role now has BOTH a `libexec/selfcheck` mapping (run it before you report
 done) AND a `SubagentStop` hook backstop running the same gate:
 
 | role | gate | event · matcher |
@@ -101,5 +101,5 @@ done) AND a `SubagentStop` hook backstop running the same gate:
 | the six mission roles (`plugin/mission/roles.json`) | `gate-mission-artifact`: the run wrote an artifact in its own paths, each passes the core contract and its area's check, nothing deleted (an artifact accepted during the run included), no other role's artifact changed (content or status) unless a run of its owner answers for it (open and active by its last tool call in the transcript store, or passed having judged those bytes) or the run's own records explain it; a research snapshot belongs to the roles whose reports cite it; every file in `docs/agents/intents/` (an intent, the words kept beside it) changes only through mission-planner's own `source: mission` intents (never flipped to another source), the human/intake events of the run that name it by the intent's own refs, or a `git merge`/`git pull` made during the run (its HEAD reflog entry says so, and for a merge the file is the other side's blob; a local commit of the tree never); a judge run log or usage report needs its command's event; the ledger only appends and still verifies, or is the supervisor's restore of HEAD's copy or of its rows before the first bad line, with every row after it one the run started with, byte for byte, or a command's append; a run that wrote nothing on a ledger broken before it started gets a note, not a block, when the role's own commands decide from the ledger (`ledger_bound`); a run with no start record is blocked; a pass records `artifact.created` (provenance) and any human event during the run | SubagentStart (`start`: what exists) · SubagentStop · role |
 | every agent and the supervisor | `gate-mission-scope`: a mission role writes only its own paths (never source, the event log or the gates' state); any other agent never writes `docs/agents/mission/` or runs a writing `mission` command; the supervisor never hand-writes a role's artifact; no one hand-writes `ledger.jsonl` or the captured prompts, runs a hook's `transcripts` command or starts a host session from a tool call (its prompt would read as the human's: M9.17, M0.9); no dispatched agent runs `events authority` or emits a human or mission-layer event. Bash is read as the shell reads it (`_shellread.py`: quotes, comments, continuations, wrappers, `bash -c`, interpreters, variables) | PreToolUse · Write/Edit/MultiEdit/NotebookEdit/Bash |
 
-`bin/selfcheck [role]` resolves the role from `$AGENT_ROLE` (task.env) and runs that
+`libexec/selfcheck [role]` resolves the role from `$AGENT_ROLE` (task.env) and runs that
 gate; exit `0` PASS · `2` FAIL · `64` unknown role. A PASS here means the hook passes.

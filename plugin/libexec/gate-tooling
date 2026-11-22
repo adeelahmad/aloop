@@ -19,7 +19,7 @@ GATE_NAME=tooling
 [ "${SKIP_HOOKS:-}" = "1" ] && exit 0
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Resolve the REAL binaries (bin/md-db + bin/ctx-symbols are PATH shims that always exist).
+# Resolve the REAL binaries (libexec/md-db + libexec/ctx-symbols are PATH shims that always exist).
 check() {
   missing=""
   "$HERE/ensure-tools" --resolve md-db       >/dev/null 2>&1 || missing="$missing md-db"

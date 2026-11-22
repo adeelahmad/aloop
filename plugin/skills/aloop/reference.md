@@ -124,11 +124,11 @@ All of these are on PATH — call them by bare name.
 - `gate-supervisor-scope` — PreToolUse guard; blocks the supervisor from writing
   production source while a sprint is live this session (code goes through workers).
 - `transcripts …` — full interaction capture (managed by hooks; `transcripts --help`).
-- `bin/<gate>` — the individual gates (hook-invoked; see `bin/README.md` for each
+- `libexec/<gate>` — the individual gates (hook-invoked; see `libexec/README.md` for each
   gate, its event/matcher, and exit codes).
 - `md-db validate … --schema schemas/*.kdl` — validate any `.md` artifact you write.
 
-## Transcripts (full capture, file-based — bin/transcripts)
+## Transcripts (full capture, file-based — libexec/transcripts)
 - Store at `.aladdin/transcripts/` in the main tree (fixed path, git-ignored, never merged):
   - `global.jsonl` — thin cross-task causal stream (tool/file/prompt/stop markers) the
     retrospective scans without reading every payload.
@@ -155,7 +155,7 @@ All of these are on PATH — call them by bare name.
   opt-in cap (`AGENTIC_TRANSCRIPTS_KEEP=<n>`) if disk gets tight; it keeps the human's prompts,
   which their grants cite.
 
-## Worktree hygiene (bin/worktree-hygiene)
+## Worktree hygiene (libexec/worktree-hygiene)
 - SubagentStart (exec roles) sparse-checkout-excludes `docs/agents/` from the new
   worktree — a worker reaches its story's docs at the absolute `STORY_DIR` path back
   into the main tree, never a copy inside its own worktree, so the checked-out copy is
@@ -165,7 +165,7 @@ All of these are on PATH — call them by bare name.
   `.aladdin/.gitignore` guards that dir's run data)
   the first time a worker runs against it (idempotent — a no-op check after that).
   Fires regardless of whether the harness's built-in `isolation: "worktree"` or the
-  optional `bin/worktree-create` made the worktree, since the built-in path never
+  optional `libexec/worktree-create` made the worktree, since the built-in path never
   calls `worktree-create` at all.
 - The retrospective reads this to distill memory. Gate verdicts, supervisor decisions,
   and worktree create/merge/abandon are all captured here.
@@ -175,9 +175,9 @@ All of these are on PATH — call them by bare name.
 - `pipeline/` — the design source of truth (persona / init.template / artifacts /
   gate per activity).
 - `schemas/` — md-db KDL schemas (`agent-io`, `planning-artifacts`, `ledger`).
-- `bin/` — the gate bodies + `log-execution`.
+- `libexec/` — the gate bodies + `log-execution`.
 - `tools/ctx-symbols/` — the symbol backend (build + install per its README).
-- `bin/_paths.sh` / `bin/_paths.py` — the one definition of the file layout.
+- `libexec/_paths.sh` / `libexec/_paths.py` — the one definition of the file layout.
 - Backends: `md-db` (artifact validation) and `ctx-symbols` (code-structure checks),
   auto-installed by `ensure-tools`. Planning gates degrade to grep with a WARN if they
   are missing; execution does not start without them.

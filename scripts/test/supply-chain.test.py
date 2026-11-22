@@ -22,7 +22,7 @@ sys.dont_write_bytecode = True
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
 from plan_fixture import approve_plan  # noqa: E402
 
-BIN = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin"))
+BIN = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "libexec"))
 T = os.path.realpath(tempfile.mkdtemp(prefix="aloop-deps-"))
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 MAIN = os.path.join(T, "repo")

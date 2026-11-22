@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """mission_summary — the measured record of one live mission run (ROADMAP §4.11, M9.13): the mission
-mode of run-summary (plugin/bin/run-summary), with the same flags it will take there.
+mode of run-summary (plugin/libexec/run-summary), with the same flags it will take there.
 
     mission_summary.py <run-dir> --sessions DIR --kind mission [--checks N/M] [--secs WALL] [--run N]
                        [--host claude] [--outcome TEXT] [--plugin DIR]
@@ -123,8 +123,8 @@ def crashes(paths):
 def ledger(repo, plugin):
     """(the ledger's rows that verify, its problems), as the plugin's own _mission reads them; a plugin that
     cannot be loaded reads as no row and that one problem."""
-    if os.path.join(plugin, "bin") not in sys.path:
-        sys.path.insert(0, os.path.join(plugin, "bin"))
+    if os.path.join(plugin, "libexec") not in sys.path:
+        sys.path.insert(0, os.path.join(plugin, "libexec"))
     try:
         import _mission as M
         return M.ledger_rows(repo)[0], M.ledger_problems(repo)
@@ -148,7 +148,7 @@ def mission_facts(repo, plugin):
     tick = None
     if os.path.isfile(os.path.join(repo, "docs", "agents", "mission", "mission.json")):
         try:
-            r = subprocess.run([os.path.join(plugin, "bin", "mission"), "tick", "--peek", "--json"], cwd=repo,
+            r = subprocess.run([os.path.join(plugin, "libexec", "mission"), "tick", "--peek", "--json"], cwd=repo,
                                capture_output=True, text=True, timeout=120)
             b = json.loads(r.stdout).get("budget") or {}
             tick = round(float(b["usd"]), 2) if isinstance(b.get("usd"), (int, float)) else None

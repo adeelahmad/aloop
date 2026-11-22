@@ -32,7 +32,7 @@ execution input and carries the feedback loop.
 | 8 personas                    | `agents/<role>.md` (dispatched via the Task tool)      |
 | per-task isolation            | dispatch with `isolation: "worktree"`                  |
 | deterministic gates           | `hooks/hooks.json` — SubagentStop / Stop / PostToolUse |
-| gate bodies                   | `bin/gate-*` (exit 0 pass, exit 2 block+feedback)      |
+| gate bodies                   | `libexec/gate-*` (exit 0 pass, exit 2 block+feedback)      |
 | artifact validation           | `md-db validate ... --schema schemas/*.kdl`            |
 | code-structure checks         | `ctx-symbols` (optional) with grep fallback            |
 | feedback channel              | `init.md` / `output.md` per task attempt               |
@@ -60,13 +60,13 @@ agentic-agile/
   skills/agentic-agile/SKILL.md  the orchestration the supervisor executes   [OPEN-2]
   agents/<role>.md               8 dispatchable personas (assembled from pipeline/)
   hooks/hooks.json               event -> matcher -> gate-script wiring
-  bin/gate-*                     gate bodies; bin/log-execution writes the ledger
+  libexec/gate-*                     gate bodies; libexec/log-execution writes the ledger
   schemas/*.kdl                  md-db schemas
   pipeline/                      design source of truth (persona/init/artifacts/gate per activity)
 ```
 `pipeline/` is the human-readable design source; `agents/` is assembled from
 `pipeline/*/persona.md`. `${CLAUDE_PLUGIN_ROOT}` resolves to the installed plugin dir
-inside every hook command, so all `bin/`/`schemas/` paths are addressed through it.
+inside every hook command, so all `libexec/`/`schemas/` paths are addressed through it.
 
 ================================================================================
 ## 3. Control plane — who runs what
@@ -103,7 +103,7 @@ event and send stderr back to the supervisor**; other non-zero = surface as erro
 `*` Planning is interactive, so the Stage-2 gate is awkward as a hard hook. Two
 viable wirings, decided by [OPEN-3]: (a) a Stop hook on the planning command that
 blocks "proceed to execution," or (b) a supervisor self-check step that calls
-`bin/gate-stage2-complete` before the first dispatch. `gate-validate-artifact`
+`libexec/gate-stage2-complete` before the first dispatch. `gate-validate-artifact`
 (PostToolUse Write) is deterministic and works in interactive planning regardless.
 
 **The feedback loop, exactly:** a SubagentStop gate exits 2 → Claude Code blocks the
@@ -123,14 +123,14 @@ orchestration engine.
 ```
 md-db validate <attempt-or-story-dir> --schema ${CLAUDE_PLUGIN_ROOT}/schemas/<x>.kdl
 ```
-`bin/gate-validate-artifact` routes by filename:
+`libexec/gate-validate-artifact` routes by filename:
 ```
 init.md|output.md                                  -> agent-io.kdl
 stories.md|tasks.md|validate.md|plan.md|plan-ready.md -> planning-artifacts.kdl
 ```
 md-db enforces frontmatter, field types/enums/patterns, required sections, tables,
 and cross-doc refs. It CANNOT enumerate the dynamic `## Tn` headings — those are
-checked by `bin/gate-plan-shape` (grep: every checkbox line carries `path::fn`).
+checked by `libexec/gate-plan-shape` (grep: every checkbox line carries `path::fn`).
 
 **ctx-symbols (analyzes the source code).** `gate-scaffold-verify` and
 `gate-structural-integrity` probe `command -v ctx-symbols`:
@@ -311,7 +311,7 @@ EXECUTION  (autonomous, supervisor present, human absent)
   `PostToolUse * -> transcripts record` (full payload); `Stop * -> transcripts snapshot`;
   `SubagentStop * -> transcripts stop` (snapshot + stage-out). `final-gate` runs on
   `SubagentStop`/`final-gate`.
-- `bin/transcripts` (file-based) + per-worktree `.agentic/task.env` contract; `_gatelib.sh`
+- `libexec/transcripts` (file-based) + per-worktree `.agentic/task.env` contract; `_gatelib.sh`
   sources it so the gates get TASK_ID / SCOPE_GLOBS / SCAFFOLD_SYMBOLS / BASE_REF for
   real (closes the env-injection gap). `.agentic/`, `.transcripts/` are git-ignored.
 - Retrospective activity (`pipeline/planning/retrospective/`) + `archivist` agent +

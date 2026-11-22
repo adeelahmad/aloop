@@ -2,83 +2,83 @@
   "hooks": {
     "SessionStart": [
       { "matcher": "*", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/ensure-tools\"", "timeout": 30 },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/session-start\"", "timeout": 15 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/ensure-tools\"", "timeout": 30 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/session-start\"", "timeout": 15 } ] }
     ],
     "PreToolUse": [
       { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|ScheduleWakeup", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-supervisor-scope\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-supervisor-scope\"" } ] },
       { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-mission-scope\"", "timeout": 15 } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-mission-scope\"", "timeout": 15 } ] },
       { "matcher": "Bash", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-commit-author\"", "timeout": 15 } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-commit-author\"", "timeout": 15 } ] },
       { "matcher": "Agent|Task", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-dispatch\"", "timeout": 15 } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-dispatch\"", "timeout": 15 } ] },
       { "matcher": "*", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/host-adapter\" hook", "timeout": 15 },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook pre", "timeout": 15 },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/mission\" doors hook", "timeout": 15 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/host-adapter\" hook", "timeout": 15 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/budget\" hook pre", "timeout": 15 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/mission\" doors hook", "timeout": 15 } ] }
     ],
     "UserPromptSubmit": [
       { "matcher": "*", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" prompt" },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/intent-trigger\" hook", "timeout": 10 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/transcripts\" prompt" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/intent-trigger\" hook", "timeout": 10 } ] }
     ],
     "SubagentStart": [
       { "matcher": "red-worker|aloop:red-worker|scaffolder|aloop:scaffolder|green-worker|aloop:green-worker|structural-reviewer|aloop:structural-reviewer|final-gate|aloop:final-gate", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-tooling\"" },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/worktree-hygiene\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-tooling\"" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/worktree-hygiene\"" } ] },
       { "matcher": "market-researcher|aloop:market-researcher|product-tester|aloop:product-tester|state-assessor|aloop:state-assessor|evaluator|aloop:evaluator|mission-planner|aloop:mission-planner|ethics-reviewer|aloop:ethics-reviewer", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-mission-artifact\" start", "timeout": 30 } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-mission-artifact\" start", "timeout": 30 } ] },
       { "matcher": "*", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/host-adapter\" hook", "timeout": 15 },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" stage-in" },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/mission\" principles hook", "timeout": 10 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/host-adapter\" hook", "timeout": 15 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/transcripts\" stage-in" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/mission\" principles hook", "timeout": 10 } ] }
     ],
     "PostToolUse": [
       { "matcher": "Write", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-validate-artifact\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-validate-artifact\"" } ] },
       { "matcher": "*", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" record" },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook post", "timeout": 15 },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/intent\" hook", "timeout": 15 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/transcripts\" record" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/budget\" hook post", "timeout": 15 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/intent\" hook", "timeout": 15 } ] }
     ],
     "Stop": [
       { "matcher": "*", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" snapshot" },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/stats\" hook", "timeout": 60 },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/module\" hook", "timeout": 600 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/transcripts\" snapshot" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/stats\" hook", "timeout": 60 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/module\" hook", "timeout": 600 } ] }
     ],
     "SubagentStop": [
       { "matcher": "intake|aloop:intake", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-intake\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-intake\"" } ] },
       { "matcher": "standards|aloop:standards", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-standards-cited\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-standards-cited\"" } ] },
       { "matcher": "planner|aloop:planner", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-stage2-complete\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-stage2-complete\"" } ] },
       { "matcher": "archivist|aloop:archivist", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-memory\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-memory\"" } ] },
       { "matcher": "door-classifier|aloop:door-classifier", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-door-plan\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-door-plan\"" } ] },
       { "matcher": "red-worker|aloop:red-worker", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-red-verify\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-red-verify\"" } ] },
       { "matcher": "scaffolder|aloop:scaffolder", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-scaffold-verify\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-scaffold-verify\"" } ] },
       { "matcher": "green-worker|aloop:green-worker", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-green-verify\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-green-verify\"" } ] },
       { "matcher": "structural-reviewer|aloop:structural-reviewer", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-structural-integrity\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-structural-integrity\"" } ] },
       { "matcher": "final-gate|aloop:final-gate", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-final\"" } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-final\"" } ] },
       { "matcher": "market-researcher|aloop:market-researcher|product-tester|aloop:product-tester|state-assessor|aloop:state-assessor|evaluator|aloop:evaluator|mission-planner|aloop:mission-planner|ethics-reviewer|aloop:ethics-reviewer", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/gate-mission-artifact\"", "timeout": 600 } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/gate-mission-artifact\"", "timeout": 600 } ] },
       { "matcher": "red-worker|aloop:red-worker|scaffolder|aloop:scaffolder|green-worker|aloop:green-worker|intake|aloop:intake|standards|aloop:standards|planner|aloop:planner|archivist|aloop:archivist|door-classifier|aloop:door-classifier|structural-reviewer|aloop:structural-reviewer|final-gate|aloop:final-gate|market-researcher|aloop:market-researcher|product-tester|aloop:product-tester|state-assessor|aloop:state-assessor|evaluator|aloop:evaluator|mission-planner|aloop:mission-planner|ethics-reviewer|aloop:ethics-reviewer", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/budget\" hook stop", "timeout": 15 } ] },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/budget\" hook stop", "timeout": 15 } ] },
       { "matcher": "*", "hooks": [
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/host-adapter\" hook", "timeout": 15 },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/transcripts\" stop" },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/stats\" hook", "timeout": 60 },
-        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/module\" hook", "timeout": 600 } ] }
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/host-adapter\" hook", "timeout": 15 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/transcripts\" stop" },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/stats\" hook", "timeout": 60 },
+        { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/libexec/module\" hook", "timeout": 600 } ] }
     ]
   }
 }

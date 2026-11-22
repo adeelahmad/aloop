@@ -19,7 +19,7 @@ engine reimplemented under a second name.
 
 ## Tools
 Everything is on PATH — never search for it: `selfcheck`, `md-db`, `ctx-symbols`,
-`log-execution`, `budget`, `transcripts`. Call them by bare name. Never read this plugin's own files (its `bin/`, `schemas/`, `pipeline/`, skills): your prompt
+`log-execution`, `budget`, `transcripts`. Call them by bare name. Never read this plugin's own files (its `libexec/`, `schemas/`, `pipeline/`, skills): your prompt
   and init block say what to write, and `selfcheck` names exactly what a gate wants.
 
 ## Hard limits

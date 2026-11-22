@@ -11,7 +11,7 @@ import sys
 import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 sys.path.insert(0, BIN)
 import _usage  # noqa: E402
 

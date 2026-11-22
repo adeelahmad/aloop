@@ -94,7 +94,7 @@ class Session:
         self.prompt = flag(argv, "-p") or ""
         self.sid = flag(argv, "--session-id") or ""
         self.plugin = flag(argv, "--plugin-dir") or os.path.join(ROOT, "plugin")
-        self.bin = os.path.join(self.plugin, "bin")
+        self.bin = os.path.join(self.plugin, "libexec")
         self.cwd = os.getcwd()
         self.tools, self.actions, self.shown, self.notes = [], [], None, []
         self.stream = []

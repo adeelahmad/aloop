@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fix
 from plan_fixture import approve_plan  # noqa: E402
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 HOOKS = json.load(open(os.path.join(ROOT, "hooks", "hooks.json")))["hooks"]
 ALIASES = {"apply_patch": ["Write", "Edit"], "spawn_agent": ["Agent"]}
 T = tempfile.mkdtemp(prefix="agentic-codex-")

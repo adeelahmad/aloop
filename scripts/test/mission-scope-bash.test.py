@@ -17,7 +17,7 @@ import sys
 import tempfile
 
 REPO = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-BIN = os.path.join(REPO, "plugin", "bin")
+BIN = os.path.join(REPO, "plugin", "libexec")
 GATE = os.path.join(BIN, "gate-mission-scope")
 T = os.path.realpath(tempfile.mkdtemp(prefix="aloop-scope-bash-"))
 atexit.register(shutil.rmtree, T, ignore_errors=True)
@@ -56,7 +56,7 @@ MISSION = os.path.join(BIN, "mission")
 ROWS = [
     # ── the mission CLI behind an interpreter, a shell string, eval or xargs ──
     (MP, P, "python3 %s approve --by human" % MISSION, 2),
-    (MP, P, 'python3 "$(aloop --root)/bin/mission" approve --by human', 2),
+    (MP, P, 'python3 "$(aloop --root)/libexec/mission" approve --by human', 2),
     (MP, P, "python3 -u %s approve --by human" % MISSION, 2),
     (G, T1, "python3 %s init x --budget-usd 1" % MISSION, 2),
     (MP, P, "bash -c 'aloop mission approve --by h'", 2),

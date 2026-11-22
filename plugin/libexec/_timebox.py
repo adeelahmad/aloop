@@ -1,4 +1,4 @@
-"""_timebox.py — the time budget's `auto` mode record (ROADMAP §4.2); see bin/timebox."""
+"""_timebox.py — the time budget's `auto` mode record (ROADMAP §4.2); see libexec/timebox."""
 import json
 import os
 

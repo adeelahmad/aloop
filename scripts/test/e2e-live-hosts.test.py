@@ -19,7 +19,7 @@ import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 SH = os.path.join(ROOT, "scripts", "smoke", "e2e-live.sh")
-BIN = os.path.join(ROOT, "plugin", "bin")
+BIN = os.path.join(ROOT, "plugin", "libexec")
 PASS = [0]
 T = tempfile.mkdtemp(prefix="agentic-e2e-hosts-")
 STUBS = os.path.join(T, "stubs")

@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import due as D  # noqa: E402
 import tick as T  # noqa: E402
 
-NO_ARGS = True            # `mission cron` with no arguments runs (plugin/bin/mission run_area)
+NO_ARGS = True            # `mission cron` with no arguments runs (plugin/libexec/mission run_area)
 HOSTS = ("claude", "codex", "opencode")
 EVERY = re.compile(r"^([1-9][0-9]*)([mhd])$")
 MINUTES = (1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30)     # the minute steps cron can repeat evenly

@@ -2,9 +2,9 @@
 # worktree-hygiene — SubagentStart(red-worker|scaffolder|green-worker|structural-reviewer|final-gate).
 #
 # A worker reaches its story's docs at STORY_DIR — an ABSOLUTE path back into the MAIN
-# tree (see bin/_gatelib.sh) — never a copy inside its own worktree. But whichever
+# tree (see libexec/_gatelib.sh) — never a copy inside its own worktree. But whichever
 # mechanism created the worktree (the harness's BUILT-IN `isolation: "worktree"`, which
-# most plain-git setups use, or the OPTIONAL bin/worktree-create), `git worktree add`
+# most plain-git setups use, or the OPTIONAL libexec/worktree-create), `git worktree add`
 # checks out docs/agents/** from HEAD like any other tracked path, so every worker
 # worktree ends up carrying a redundant, increasingly stale copy of the whole planning
 # tree. This trims that after the fact: sparse-checkout removes docs/agents/ from THIS
@@ -53,7 +53,7 @@ fi
 # .gitignore bootstrap on the MAIN tree (first entry of `git worktree list` is always
 # the main tree, regardless of which worktree $WT points at). Full rest-of-line, not
 # awk field-splitting — a $2-only split truncates at the first space in the path.
-# the run-data dir (mirrors bin/_paths.sh agentic_home_name; this script has its own $main):
+# the run-data dir (mirrors libexec/_paths.sh agentic_home_name; this script has its own $main):
 # .aladdin/ (ROADMAP M1), or the legacy .agentic/ until `aloop layout migrate`
 aloop_home() {
   local p="$1" d

@@ -9,7 +9,7 @@
 // VALIDATION SPLIT: md-db validates the static top frontmatter only (`type: init|output`);
 // the dynamic `##` blocks CANNOT be md-db-enumerated, so block presence + structure (latest
 // block is the dispatched role's, with ### Summary/### Result/### Next) is enforced by
-// `validate_comms` in bin/_gatelib.sh (grep), called by every worker gate at SubagentStop.
+// `validate_comms` in libexec/_gatelib.sh (grep), called by every worker gate at SubagentStop.
 // The `field`/`section` definitions below document the per-BLOCK shape (reference for the
 // grep gate + the agents), not a whole-file md-db contract.
 

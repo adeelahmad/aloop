@@ -15,7 +15,7 @@ Scheduled tasks.
 - Manifest: `.claude-plugin/plugin.json` (name, version, and paths to skills/
   agents/hooks).
 - `${CLAUDE_PLUGIN_ROOT}` is available inside hook commands and resolves to the
-  installed plugin directory — use it for all bin/ and schemas/ paths.
+  installed plugin directory — use it for all libexec/ and schemas/ paths.
 
 ## Skills
 - A skill is instructions (a `SKILL.md`) the agent loads and follows. It is

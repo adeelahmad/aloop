@@ -16,7 +16,7 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures"))
 from plan_fixture import approve_plan  # noqa: E402
 
-GATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin", "gate-dispatch")
+GATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "libexec", "gate-dispatch")
 T = tempfile.mkdtemp(prefix="aloop-dispatch-")
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = {k: v for k, v in os.environ.items() if k not in ("SKIP_HOOKS", "AGENTIC_HOST")}

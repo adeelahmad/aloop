@@ -16,7 +16,7 @@ import subprocess
 import tempfile
 import time
 
-BIN = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin"))
+BIN = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "libexec"))
 HOOKS = os.path.join(BIN, "..", "hooks", "hooks.json")
 T = tempfile.mkdtemp(prefix="aloop-failclosed-")
 atexit.register(shutil.rmtree, T, ignore_errors=True)
@@ -60,7 +60,7 @@ wired = set()
 for ev in ("SubagentStart", "SubagentStop"):
     for entry in hooks.get(ev, []):
         for h in entry["hooks"]:
-            m = re.search(r"bin/(gate-[a-z0-9-]+)", h["command"])
+            m = re.search(r"libexec/(gate-[a-z0-9-]+)", h["command"])
             if m:
                 wired.add(m.group(1))
 

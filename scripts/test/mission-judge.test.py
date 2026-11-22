@@ -24,7 +24,7 @@ import sys
 import tempfile
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 AREAS = os.path.join(ROOT, "mission")
 T = tempfile.mkdtemp(prefix="aloop-judge-")
 FAKE_DIR = tempfile.mkdtemp(prefix="aloop-judge-fake-")

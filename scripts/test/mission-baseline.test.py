@@ -246,7 +246,7 @@ assert r.returncode == 2 and "must be object" in r.stderr and "Traceback" not in
 q.save("baseline", c2, y)
 nd = tempfile.mkdtemp(prefix="aloop-mission-")
 subprocess.run(["git", "init", "-q"], cwd=nd, check=True)
-v = subprocess.run([os.path.join(M.PLUGIN, "bin", "mission"), "init", "m", "--mode", "autonomous", "--budget-usd", "1",
+v = subprocess.run([os.path.join(M.PLUGIN, "libexec", "mission"), "init", "m", "--mode", "autonomous", "--budget-usd", "1",
                     "--veto-window-h", "nan"], cwd=nd, env=q.env, capture_output=True, text=True)
 assert v.returncode != 0 and "veto-window-h" in v.stderr, v.stderr
 ok("a forged measurement or window, a hand-set status, a re-sealed frozen journey, a malformed file, NaN: all refused")

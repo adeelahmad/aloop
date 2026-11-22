@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # _paths.sh — THE one definition of where aloop keeps its files. Every script
-# sources this (Python scripts mirror it in bin/_paths.py). No model picks these names,
+# sources this (Python scripts mirror it in libexec/_paths.py). No model picks these names,
 # no task.env variable overrides them — so every project gets the same layout.
 #
 #   <project>/.agentic/                 run data — ALWAYS git-ignored, never committed
@@ -9,7 +9,7 @@
 #     ledger/                           one <session_id>.jsonl per session (token usage)
 #     logs/gates.jsonl                  every gate verdict (pass/block)
 #     state/                            sprints.json (sprint close times), locks, markers,
-#       tasks/<TASK_ID>.env             the supervisor's per-task contract (bin/_gatelib.sh)
+#       tasks/<TASK_ID>.env             the supervisor's per-task contract (libexec/_gatelib.sh)
 #   <project>/docs/agents/              planning docs (git-ignored unless init said track)
 #     defaults.md                       confirmed project settings (limits, models, git)
 #     NEXT.md                           the orchestrator handoff, re-loaded after /clear

@@ -3,7 +3,7 @@
 The mission layer (ROADMAP §4.12, milestone M9) sits on top of Aladdin: a human sets a
 mission, a budget and a cadence; fixed roles build a baseline and an evaluation layer from
 user journeys; goals derived from the gap list become Aladdin intents. `aloop mission …`
-is the one entry point (`plugin/bin/mission`); the shared core is `plugin/bin/_mission.py`.
+is the one entry point (`plugin/libexec/mission`); the shared core is `plugin/libexec/_mission.py`.
 
 ## Adding an area (one parallel track = one area)
 
@@ -145,7 +145,7 @@ A gate checks structure and evidence, never whether a judgment is right.
   bare intent containing `/`; use `aladdin run`.
 - **M9.30 doors.** `doors.json` is the catalogue (anything unlisted is two-way; `{DEF}` is the default
   branch, `{DRY}` "not a dry run or a help page"); `doors.py` reads Bash as the shell does (with
-  `plugin/bin/_shellread.py`, the scope gate's reader; `views`: each command with the directory it acts on and
+  `plugin/libexec/_shellread.py`, the scope gate's reader; `views`: each command with the directory it acts on and
   the stdin it is fed), matches an action by program and arguments, reads the human's `door.authorized` / `door.revoked` ledger rows
   (`HUMAN_EVENTS`), and runs as the PreToolUse hook `mission doors hook` (deny JSON, fails closed with
   exit 2). A gate that knows an action is a one-way door can call `doors.verdict(cwd, tool, input)`.

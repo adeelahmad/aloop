@@ -86,7 +86,7 @@ if [ -z "$DRY" ]; then
 fi
 
 # Models as e2e-live's: the host's strong route for the supervisor, economical for the roles and workers.
-[ -n "$SUP_MODEL" ] || SUP_MODEL="$("$PLUGIN/bin/models" routes --host "$HOST" | sed -n 's/.*strong=\([^ ]*\).*/\1/p')"
+[ -n "$SUP_MODEL" ] || SUP_MODEL="$("$PLUGIN/libexec/models" routes --host "$HOST" | sed -n 's/.*strong=\([^ ]*\).*/\1/p')"
 case "$SUP_MODEL" in "<session"*) SUP_MODEL= ;; esac
 WORKER_MODEL="${WORKER_MODEL:-economical}"
 
@@ -100,9 +100,9 @@ cp -R "$FIXTURE/todo" "$FIXTURE/tests" "$FIXTURE/docs" "$FIXTURE/.gitignore" . |
 find . -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null
 git add -A && git commit -qm init || { echo "FAIL - seed commit init"; exit 1; }
 export DSH_HOME="$T/dsh-home"; mkdir -p "$DSH_HOME"     # the user's own dsh profile is never re-rendered
-ALOOP_NO_HOST_RERENDER=1 "$PLUGIN/bin/aloop-init" --apply MODEL_PLANNING="$WORKER_MODEL" MODEL_WORKER="$WORKER_MODEL" GITIGNORE=yes >/dev/null \
+ALOOP_NO_HOST_RERENDER=1 "$PLUGIN/libexec/aloop-init" --apply MODEL_PLANNING="$WORKER_MODEL" MODEL_WORKER="$WORKER_MODEL" GITIGNORE=yes >/dev/null \
   || { echo "FAIL - aloop-init"; exit 1; }
-[ "$HOST" = claude ] || "$PLUGIN/bin/install" "$HOST" --project . >/dev/null || { echo "FAIL - aloop install $HOST"; exit 1; }
+[ "$HOST" = claude ] || "$PLUGIN/libexec/install" "$HOST" --project . >/dev/null || { echo "FAIL - aloop install $HOST"; exit 1; }
 git add -A && git commit -qm "aloop init" || { echo "FAIL - seed commit aloop init"; exit 1; }
 SEED_SHA="$(git rev-parse HEAD)"
 
@@ -138,7 +138,7 @@ else
   echo "skip - pytest is not installed for python3: the seed's own test was not run (a live run needs it)"
 fi
 check "no __pycache__ under journeys/" no_pycache
-PEEK_RC=0; PEEK="$("$PLUGIN/bin/mission" tick --peek --json 2>/dev/null)" || PEEK_RC=$?
+PEEK_RC=0; PEEK="$("$PLUGIN/libexec/mission" tick --peek --json 2>/dev/null)" || PEEK_RC=$?
 check "tick --peek: SET_MISSION (exit 3)" peek_is "$PEEK_RC" 3 "$PEEK" SET_MISSION
 check "exactly 2 seed commits" two_commits
 check "the runner is tracked and docs/agents/ is ignored" tracked_and_ignored

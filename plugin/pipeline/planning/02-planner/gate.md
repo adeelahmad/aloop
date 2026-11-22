@@ -1,6 +1,6 @@
 # Gate — 02-planner  (the planning -> execution boundary)
 
-Checks (bin/gate-stage2-complete):
+Checks (libexec/gate-stage2-complete):
 - [ ] Every story in stories.md has a sN-NN-<slug>/ dir with all three files.
 - [ ] No "TBW" remains anywhere.
 - [ ] sprintN/plan.md references every story; references no non-existent story.

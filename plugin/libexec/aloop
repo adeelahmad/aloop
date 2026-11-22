@@ -6,7 +6,8 @@
 #   aloop --list              the tools
 #   aloop --root              this plugin's root (for absolute paths)
 #
-# Claude Code puts this plugin's bin/ on PATH itself. Codex has no such mechanism and
+# On Claude Code the ensure-tools SessionStart hook puts this plugin's libexec/ on PATH
+# (CLAUDE_ENV_FILE); claude.ai refuses a plugin with a top-level bin/. Codex has no such mechanism and
 # OpenCode needs its plugin to add it, so `aloop install <host>` links THIS one name
 # into ~/.local/bin — one unambiguous command instead of dozens of generic ones.
 set -uo pipefail

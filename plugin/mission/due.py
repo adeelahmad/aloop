@@ -27,7 +27,7 @@ try:
 except ImportError:          # no flock (Windows): the time lease alone guards the loop
     fcntl = None
 
-NO_ARGS = True            # `mission due` with no arguments runs (plugin/bin/mission run_area)
+NO_ARGS = True            # `mission due` with no arguments runs (plugin/libexec/mission run_area)
 LEASE = 2 * 3600 * 1000   # a handout from an interactive session: after this it is handed out again
 
 

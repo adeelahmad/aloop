@@ -7,14 +7,14 @@
                         by `validate_comms` (md-db can't enumerate dynamic sections).
 - planning-artifacts.kdl the playbook's stories/tasks/validate/plan/plan-ready/
                         sprint-plan. md-db validates frontmatter + fixed sections.
-- ledger.kdl            execution.log line ledger. Line format enforced by bin/.
+- ledger.kdl            execution.log line ledger. Line format enforced by libexec/.
 
 ## Tool boundary (don't fight it)
 md-db can validate: frontmatter fields/types/enums/patterns, NAMED required
 sections, tables, and cross-doc refs. md-db CANNOT enumerate dynamically-named
 sections — so the playbook's `## Tn — Title` task headings, and the
 "one bullet = one test, has a real path + fn name" rule, are checked by
-bin/gate-plan-shape (grep), not by md-db.
+libexec/gate-plan-shape (grep), not by md-db.
 
 ## DECISION required (OPEN-7)
 planning-artifacts.kdl assumes YAML frontmatter on stories.md/plan.md/etc.

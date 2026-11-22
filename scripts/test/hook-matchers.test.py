@@ -56,14 +56,14 @@ ok("every role has a SubagentStop gate when dispatched as aloop:<role>")
 
 # the door rule on every host and role (M9.31): the door gate guards every tool call, and every dispatched
 # role starts with the core principles (the main session gets them from session-start)
-DOORS = '"${CLAUDE_PLUGIN_ROOT}/bin/mission" doors hook'
-PRINCIPLES = '"${CLAUDE_PLUGIN_ROOT}/bin/mission" principles hook'
+DOORS = '"${CLAUDE_PLUGIN_ROOT}/libexec/mission" doors hook'
+PRINCIPLES = '"${CLAUDE_PLUGIN_ROOT}/libexec/mission" principles hook'
 pre_all = [h for g in hooks["PreToolUse"] if g.get("matcher") == "*" for h in g["hooks"]]
 cmds = [h["command"] for h in pre_all]
 assert DOORS in cmds, cmds
 # listed last, after budget hook pre: the order OpenCode and dsh run it in, since it records door.crossed (uses
 # up a once-grant) and must only do so once every other gate admitted the call
-assert cmds.index(DOORS) == len(cmds) - 1 and cmds.index('"${CLAUDE_PLUGIN_ROOT}/bin/budget" hook pre') < cmds.index(DOORS), cmds
+assert cmds.index(DOORS) == len(cmds) - 1 and cmds.index('"${CLAUDE_PLUGIN_ROOT}/libexec/budget" hook pre') < cmds.index(DOORS), cmds
 assert pre_all[cmds.index(DOORS)].get("timeout") == 15, pre_all
 ok("PreToolUse *: the door gate (mission doors hook) guards every tool call, listed last")
 

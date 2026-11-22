@@ -2,7 +2,7 @@
 """ROADMAP §4.11: the README reads product-first and makes no claim the repo cannot back.
     python3 scripts/test/readme.test.py
 Checks the section order, that every `aladdin` / `aloop <tool>` command it names exists in
-plugin/bin, that the install lines name the real marketplace and plugin, that every relative
+plugin/libexec, that the install lines name the real marketplace and plugin, that every relative
 link resolves, that every demo time/cost figure is one ROADMAP §0 records, and that every CI job
 running the host tests installs the pinned dsh and requires it, with nothing that skips or overrides
 that (so its runtime test cannot skip), and that the ci.yml header and the README name every CI job. It also checks the README
@@ -13,7 +13,7 @@ import os
 import re
 
 ROOT = os.path.realpath(os.path.join(os.path.dirname(__file__), "..", ".."))
-BIN = os.path.join(ROOT, "plugin", "bin")
+BIN = os.path.join(ROOT, "plugin", "libexec")
 PASS = [0]
 
 
@@ -39,7 +39,7 @@ assert 'src="docs/diagrams/aladdins-loop.webp"' in readme and os.path.isfile(os.
 assert readme.index("aladdins-loop.webp") < readme.index("## Demo"), "the infographic sits above the fold"
 ok("the owner's Aladdin's loop infographic leads the README")
 
-# 2) every command the README names exists: `aladdin <sub>` (bin/aladdin) and `aloop <tool>` (bin/<tool>)
+# 2) every command the README names exists: `aladdin <sub>` (libexec/aladdin) and `aloop <tool>` (libexec/<tool>)
 tools = set(os.listdir(BIN))
 aladdin = open(os.path.join(BIN, "aladdin")).read()
 missing = []
@@ -50,7 +50,7 @@ for sub in re.findall(r"`aladdin ([a-z][\w-]*)", readme):
     if not re.search(r"^\s*[\w|-]*\b%s\b[\w|-]*\)" % re.escape(sub), aladdin, re.M) and sub not in tools:
         missing.append("aladdin " + sub)
 assert not missing, "README names tools that do not exist: %r" % missing
-ok("every `aloop <tool>` / `aladdin <sub>` the README names exists in plugin/bin")
+ok("every `aloop <tool>` / `aladdin <sub>` the README names exists in plugin/libexec")
 
 # 3) the install lines name the real marketplace and plugin
 plugin = json.load(open(os.path.join(ROOT, "plugin", ".claude-plugin", "plugin.json")))["name"]

@@ -1,5 +1,5 @@
 // End-to-end test of the OpenCode plugin against a mock OpenCode client.
-// Runs the REAL generated plugin (aloop install opencode) and the REAL bin/ scripts in a
+// Runs the REAL generated plugin (aloop install opencode) and the REAL libexec/ scripts in a
 // throw-away git repo. No OpenCode, no network, no tokens.   node scripts/test/opencode-plugin.test.mjs
 import { execFileSync, spawnSync } from "node:child_process"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
@@ -10,7 +10,7 @@ import assert from "node:assert/strict"
 import { approvePlan } from "./fixtures/plan-fixture.mjs"
 
 const ROOT = join(fileURLToPath(import.meta.url), "..", "..", "..", "plugin")
-const BIN = join(ROOT, "bin")
+const BIN = join(ROOT, "libexec")
 const T = mkdtempSync(join(tmpdir(), "agentic-oc-"))
 process.on("exit", () => rmSync(T, { recursive: true, force: true }))   // a leaked dir held ~500MB
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: T, encoding: "utf8", ...opts })
@@ -73,10 +73,10 @@ assert.equal(count(sys.system.join("\n"), CORE), 1, sys.system.join("\n")); ok("
 // a resumed root session (no session.created in this process, so no SessionStart context) still carries them
 assert.equal(count(await systemOf(hooks, "resumed"), CORE), 1); ok("a resumed root session gets the core principles once")
 
-// shell.env puts bin/ on PATH and marks the shell as an agent's (`mission doors authorize` refuses it)
+// shell.env puts libexec/ on PATH and marks the shell as an agent's (`mission doors authorize` refuses it)
 const envOut = { env: { PATH: "/usr/bin" } }
 await hooks["shell.env"]({ cwd: T }, envOut)
-assert.ok(envOut.env.PATH.startsWith(BIN)); ok("shell.env prepends plugin bin/")
+assert.ok(envOut.env.PATH.startsWith(BIN)); ok("shell.env prepends plugin libexec/")
 assert.equal(envOut.env.ALOOP_AGENT_SHELL, "1"); ok("shell.env exports ALOOP_AGENT_SHELL=1 into the agent's shell")
 
 // UserPromptSubmit capture
@@ -316,9 +316,9 @@ ok("doors: in a live run a question at a door the gate stopped is asked")
 // plugin root: each gate logs its call and does what S/mode.<gate> says (default: admit)
 const S = mkdtempSync(join(tmpdir(), "agentic-oc-stub-"))
 process.on("exit", () => rmSync(S, { recursive: true, force: true }))
-mkdirSync(join(S, "plugin/bin"), { recursive: true })
+mkdirSync(join(S, "plugin/libexec"), { recursive: true })
 for (const g of ["host-adapter", "gate-tooling", "gate-supervisor-scope", "gate-mission-scope", "gate-commit-author", "budget", "mission"]) {
-  writeFileSync(join(S, "plugin/bin", g), `#!/bin/sh
+  writeFileSync(join(S, "plugin/libexec", g), `#!/bin/sh
 S="$(dirname "$0")/../.."
 cat > "$S/stdin.$(basename "$0")"
 echo "$(basename "$0") $*" >> "$S/calls"
@@ -330,7 +330,7 @@ case "$(cat "$S/mode.$(basename "$0")" 2>/dev/null)" in
 esac
 exit 0
 `)
-  chmodSync(join(S, "plugin/bin", g), 0o755)
+  chmodSync(join(S, "plugin/libexec", g), 0o755)
 }
 writeFileSync(join(S, "aloop.mjs"), readFileSync(join(ROOT, "hosts/opencode/aloop.js"), "utf8").replaceAll("__AGENTIC_ROOT__", join(S, "plugin")))
 process.env.ALOOP_DOORS_TIMEOUT_MS = "500"
@@ -371,7 +371,7 @@ for (const [m, what] of [["hang", "hangs (past its timeout)"], ["crash", "is kil
   assert.ok(/door gate/.test(g.err?.message) && Date.now() - t0 < 10000, `${m}: ${g.err?.message}`)
   ok(`doors: a door gate that ${what} denies the call (fails closed)`)
 }
-rmSync(join(S, "plugin/bin/mission"))
+rmSync(join(S, "plugin/libexec/mission"))
 g = await gated("bash", { command: "ls" })
 assert.ok(/door gate/.test(g.err?.message), g.err?.message); ok("doors: a door gate that cannot start denies the call (fails closed)")
 

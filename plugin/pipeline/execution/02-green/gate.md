@@ -1,6 +1,6 @@
 # Gate — 02-green  (supervisor verification)
 
-Checks (bin/gate-green-verify):
+Checks (libexec/gate-green-verify):
 - [ ] Every test in the task's plan-ready.md section now passes.
 - [ ] No previously-passing test regressed.
 - [ ] The diff touches only the task's planned fileset (`targets diffscope`: its targets'
@@ -12,7 +12,7 @@ Checks (bin/gate-green-verify):
 Failure verbs:
   REJECT — new test, unforced refactor, out-of-scope file, or suppression
   RETRY  — tests still failing; re-spawn with feedback appended to init.md
-Enforced by: SubagentStop(green-worker) -> bin/gate-green-verify (exit 2 blocks).
+Enforced by: SubagentStop(green-worker) -> libexec/gate-green-verify (exit 2 blocks).
 
 Standards binding (added): the fmt/lint/test/coverage matrix this gate runs is the
 one declared in standards.md (the lawkeeper's digest), not a hardcoded list — so the

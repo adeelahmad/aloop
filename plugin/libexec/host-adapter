@@ -38,12 +38,12 @@ import _paths  # noqa: E402
 import _usage  # noqa: E402
 
 WRITERS = ("red-worker", "scaffolder", "green-worker")
-BIND = re.compile(r"(?:^|[;&|]\s*|\s)(?:\S*/)?(?:(?:aloop|agentic)\s+bind|bin/bind)\s+(\S+)")
+BIND = re.compile(r"(?:^|[;&|]\s*|\s)(?:\S*/)?(?:(?:aloop|agentic)\s+bind|(?:bin|libexec)/bind)\s+(\S+)")
 # a command that is just the bind: every word plain or quoted with nothing the shell expands, so no
 # second command can hide in it (`;`, `&&`, `$(…)`, a newline); a redirect to /dev/null or `2>&1` may follow
 _SAFE = r"[A-Za-z0-9_./@%+=:,-]"
 _WORD = r"(?:'[^'\n]*'|\"[^\"$`\\\n!]*\"|%s+)" % _SAFE
-ONLY_BIND = re.compile(r"[ \t]*(?:cd[ \t]+%s[ \t]*&&[ \t]*)?(?:%s*/)?(?:(?:aloop|agentic)[ \t]+bind|bin/bind)[ \t]+%s"
+ONLY_BIND = re.compile(r"[ \t]*(?:cd[ \t]+%s[ \t]*&&[ \t]*)?(?:%s*/)?(?:(?:aloop|agentic)[ \t]+bind|(?:bin|libexec)/bind)[ \t]+%s"
                        r"(?:[ \t]+(?:[12]?>[ \t]*/dev/null|2>&1))*\s*\Z" % (_WORD, _SAFE, _WORD))
 
 

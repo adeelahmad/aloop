@@ -13,7 +13,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 ROOT = os.path.realpath(os.path.join(HERE, "..", "..", "plugin"))
-BIN = os.path.join(ROOT, "bin")
+BIN = os.path.join(ROOT, "libexec")
 T = tempfile.mkdtemp(prefix="agentic-lsp-")
 FAKE = "%s %s" % (sys.executable, os.path.join(HERE, "fixtures", "fake-lsp.py"))
 ENV = dict(os.environ, HOME=os.path.join(T, "home"), PATH="/usr/bin:/bin")

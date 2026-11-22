@@ -22,7 +22,7 @@
 
 set -uo pipefail
 
-# bin/ensure-tools resolves the REAL backend binaries (bin/md-db + bin/ctx-symbols are
+# libexec/ensure-tools resolves the REAL backend binaries (libexec/md-db + libexec/ctx-symbols are
 # PATH shims, so `command -v` alone would always succeed and hide a missing backend).
 GATELIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 have_tool() { "$GATELIB_DIR/ensure-tools" --resolve "$1" >/dev/null 2>&1; }
@@ -135,7 +135,7 @@ _gate_enter_bound_worktree() {
 _gate_enter_bound_worktree
 
 # The per-task contract: TASK_ID, ATTEMPT, AGENT_ROLE, SCOPE_GLOBS, SCAFFOLD_SYMBOLS,
-# BASE_REF, STORY_DIR, AGENTIC_TRANSCRIPTS_DIR (+ BUDGET_*, read by bin/budget). Real env
+# BASE_REF, STORY_DIR, AGENTIC_TRANSCRIPTS_DIR (+ BUDGET_*, read by libexec/budget). Real env
 # still overrides (only unset keys are loaded).
 #
 # WHERE IT LIVES. The supervisor writes it in the MAIN tree's run-data dir (`aloop layout show`):
@@ -195,7 +195,7 @@ load_task_env() {
   [ -n "$tid" ] || tid="$(_task_env_get "$te" TASK_ID)"
   contract="$(agentic_contract_path "$tid")" || contract=""
   # A copy OLDER than the contract is stale (the supervisor re-dispatched and bumped the
-  # contract; bin/budget refreshes the copy on the worker's next tool call), not tampering:
+  # contract; libexec/budget refreshes the copy on the worker's next tool call), not tampering:
   # a worker's edit makes the copy newer. Only a copy at least as new is compared.
   if [ -n "$contract" ] && [ -f "$te" ] && [ "$te" -ot "$contract" ]; then
     note "the worktree's task.env copy ($te) is older than the contract $contract; using the contract"
@@ -239,7 +239,7 @@ _gate_bind_role() {
 }
 _gate_bind_role
 
-# Budget overrun release (bin/budget). A worker that hit its HARD time/token limit is
+# Budget overrun release (libexec/budget). A worker that hit its HARD time/token limit is
 # being stopped — its SubagentStop gate must not block the stop (exit 2 would make it keep
 # working past the limit). It is released WITHOUT verification: the attempt is NOT a pass,
 # the supervisor never merges it, and the task goes to a mid-sprint re-plan. (A worker

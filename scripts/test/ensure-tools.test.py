@@ -23,8 +23,8 @@ def ok(msg):
     print("ok - " + msg)
 
 
-os.makedirs(os.path.join(ROOT, "bin"))
-shutil.copy(os.path.join(PLUGIN, "bin", "ensure-tools"), os.path.join(ROOT, "bin"))
+os.makedirs(os.path.join(ROOT, "libexec"))
+shutil.copy(os.path.join(PLUGIN, "libexec", "ensure-tools"), os.path.join(ROOT, "libexec"))
 os.makedirs(os.path.join(ROOT, ".claude-plugin"))
 open(os.path.join(ROOT, ".claude-plugin", "plugin.json"), "w").write('{"version": "9.9.9"}\n')
 for crate in ("ctx-symbols", "md-db"):
@@ -44,7 +44,7 @@ ENV = dict(os.environ, CLAUDE_PLUGIN_DATA=os.path.join(T, "data"), HOME=T,
 
 
 def sync():
-    r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--sync"], env=ENV,
+    r = subprocess.run([os.path.join(ROOT, "libexec", "ensure-tools"), "--sync"], env=ENV,
                        capture_output=True, text=True, stdin=subprocess.DEVNULL)
     assert r.returncode == 0, r
     return open(os.path.join(T, "builds")).read().count("built") if os.path.exists(os.path.join(T, "builds")) else 0
@@ -60,15 +60,15 @@ ok("a source change without a version bump rebuilds")
 assert sync() == 4
 ok("and is then current again")
 
-# Another aloop checkout's bin/ ahead on PATH (an older install, ~/work/agentic-agile/plugin/bin)
+# Another aloop checkout's libexec/ ahead on PATH (an older install, ~/work/agentic-agile/plugin/libexec)
 # holds only SHIMS of the same names: resolving to one made the gate exec a shim whose own
 # ensure-tools resolved back here, and `make conformance` hung (found on a Mac release run).
-other = os.path.join(T, "other", "plugin", "bin")
+other = os.path.join(T, "other", "plugin", "libexec")
 os.makedirs(other)
 for name in ("ensure-tools", "ctx-symbols", "md-db"):
-    shutil.copy(os.path.join(PLUGIN, "bin", name), other)
+    shutil.copy(os.path.join(PLUGIN, "libexec", name), other)
 envo = dict(ENV, CLAUDE_PLUGIN_DATA=os.path.join(T, "data-empty"), PATH=other + ":" + ENV["PATH"])
-r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envo,
+r = subprocess.run([os.path.join(ROOT, "libexec", "ensure-tools"), "--resolve", "ctx-symbols"], env=envo,
                    capture_output=True, text=True, timeout=20)
 assert other not in r.stdout, ("resolved to another checkout's shim", r.stdout)
 real = os.path.join(T, "realbin")
@@ -76,7 +76,7 @@ os.makedirs(real)
 open(os.path.join(real, "ctx-symbols"), "w").write("#!/bin/sh\n")
 os.chmod(os.path.join(real, "ctx-symbols"), 0o755)
 envo["PATH"] = other + ":" + real + ":" + ENV["PATH"]
-r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envo,
+r = subprocess.run([os.path.join(ROOT, "libexec", "ensure-tools"), "--resolve", "ctx-symbols"], env=envo,
                    capture_output=True, text=True, timeout=20)
 assert r.returncode == 0 and r.stdout.strip() == os.path.join(real, "ctx-symbols"), r
 ok("--resolve skips another plugin checkout's shims on PATH and finds the real binary behind them")
@@ -92,11 +92,11 @@ for name in ("ctx-symbols", "md-db"):
     os.chmod(os.path.join(stale, "bin", name), 0o755)
 open(os.path.join(stale, "bin", ".version"), "w").write("0.11.0+1\n")
 envs = dict(ENV, CLAUDE_PLUGIN_DATA=stale, PATH=real + ":" + ENV["PATH"])
-r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
+r = subprocess.run([os.path.join(ROOT, "libexec", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
                    capture_output=True, text=True, timeout=20)
 assert r.returncode == 0 and r.stdout.strip() == os.path.join(real, "ctx-symbols"), r
 envs["PATH"] = ENV["PATH"]
-r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
+r = subprocess.run([os.path.join(ROOT, "libexec", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
                    capture_output=True, text=True, timeout=20)
 assert r.returncode == 1 and not r.stdout.strip(), ("a stale own build is not a resolution", r)
 ok("--resolve skips its own stale build (older version or sources): a current one on PATH wins, else none (the shim rebuilds)")
@@ -105,17 +105,29 @@ ok("--resolve skips its own stale build (older version or sources): a current on
 # cannot tell a source change: its own build at the same version is current (CI hosts job).
 bare = os.path.join(T, "bare")
 os.makedirs(os.path.join(bare, "bin"))
-shutil.copy(os.path.join(PLUGIN, "bin", "ensure-tools"), os.path.join(bare, "bin"))
+shutil.copy(os.path.join(PLUGIN, "libexec", "ensure-tools"), os.path.join(bare, "bin"))
 shutil.copytree(os.path.join(ROOT, ".claude-plugin"), os.path.join(bare, ".claude-plugin"))
 open(os.path.join(stale, "bin", ".version"), "w").write("9.9.9+12345\n")
 r = subprocess.run([os.path.join(bare, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
                    capture_output=True, text=True, timeout=20)
 assert r.returncode == 0 and r.stdout.strip() == os.path.join(stale, "bin", "ctx-symbols"), r
 os.remove(os.path.join(stale, "bin", ".version"))
-r = subprocess.run([os.path.join(ROOT, "bin", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
+r = subprocess.run([os.path.join(ROOT, "libexec", "ensure-tools"), "--resolve", "ctx-symbols"], env=envs,
                    capture_output=True, text=True, timeout=20)
 assert r.returncode == 0 and r.stdout.strip() == os.path.join(stale, "bin", "ctx-symbols"), r
 ok("a plugin copy with no tool sources trusts its own build at the same version; an unstamped binary is used as is")
+
+# claude.ai refuses a plugin with a top-level bin/ (marketplace_sync_bin_directory_not_allowed),
+# so the plugin ships libexec/ and this hook puts it on PATH for every later Bash call.
+assert not os.path.exists(os.path.join(PLUGIN, "bin")), "plugin/bin/ is refused by claude.ai; use libexec/"
+envf = os.path.join(T, "claude-env")
+for _ in range(2):                                       # idempotent: one line, however often it runs
+    r = subprocess.run([os.path.join(ROOT, "libexec", "ensure-tools")], env=dict(ENV, CLAUDE_ENV_FILE=envf,
+                       AGENTIC_NO_AUTOINSTALL="1"), input="{}", capture_output=True, text=True, timeout=20)
+    assert r.returncode == 0, r
+lines = open(envf).read().splitlines()
+assert len(lines) == 1 and lines[0].startswith("export PATH=") and (ROOT + "/libexec:") in lines[0], lines
+ok("no plugin bin/ (claude.ai); the SessionStart hook puts libexec/ on PATH once via CLAUDE_ENV_FILE")
 
 shutil.rmtree(T, ignore_errors=True)
 print("\n%d checks passed" % n)

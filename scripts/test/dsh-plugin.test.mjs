@@ -1,5 +1,5 @@
 // The DeepSeek Harness (dsh) plugin against an emulated Cordis context: the REAL plugin
-// (plugin/hosts/dsh/aloop.mjs) and the REAL bin/ scripts in a throw-away git repo. No dsh, no
+// (plugin/hosts/dsh/aloop.mjs) and the REAL libexec/ scripts in a throw-away git repo. No dsh, no
 // network, no tokens.   node scripts/test/dsh-plugin.test.mjs
 // dsh-runtime.test.mjs runs the same plugin on dsh itself; this one covers what a scripted model
 // cannot reach cheaply: the budget limits, the STUCK release, the cancel, the fallbacks.
@@ -13,7 +13,7 @@ import assert from "node:assert/strict"
 import { approvePlan } from "./fixtures/plan-fixture.mjs"
 
 const ROOT = join(fileURLToPath(import.meta.url), "..", "..", "..", "plugin")
-const BIN = join(ROOT, "bin")
+const BIN = join(ROOT, "libexec")
 const T = mkdtempSync(join(tmpdir(), "aloop-dsh-"))
 process.on("exit", () => rmSync(T, { recursive: true, force: true }))
 const sh = (cmd, args) => execFileSync(cmd, args, { cwd: T, encoding: "utf8" })
@@ -389,13 +389,13 @@ ok("a role whose project's model cannot be resolved is neither dispatched nor ru
 // the door gate runs last (it records a crossing, using up a once-authorization), never for a
 // read-only tool, and fails closed: a hang, a kill, a crash or an exit but 0/2 denies
 const FD = join(T, "fake-doors")
-mkdirSync(join(FD, "bin"), { recursive: true })
+mkdirSync(join(FD, "libexec"), { recursive: true })
 const CALLS = join(FD, "calls.log"), MODE = join(FD, "mode")
 for (const g of ["host-adapter", "gate-supervisor-scope", "gate-mission-scope", "gate-commit-author", "gate-dispatch", "budget"]) {
-  writeFileSync(join(FD, "bin", g), `#!/bin/sh\necho ${g} >> "${CALLS}"\n[ "$(cat "${MODE}")" = "budget-deny" ] && [ ${g} = budget ] && { echo "budget says no" >&2; exit 2; }\nexit 0\n`)
-  chmodSync(join(FD, "bin", g), 0o755)
+  writeFileSync(join(FD, "libexec", g), `#!/bin/sh\necho ${g} >> "${CALLS}"\n[ "$(cat "${MODE}")" = "budget-deny" ] && [ ${g} = budget ] && { echo "budget says no" >&2; exit 2; }\nexit 0\n`)
+  chmodSync(join(FD, "libexec", g), 0o755)
 }
-writeFileSync(join(FD, "bin", "mission"), `#!/bin/sh
+writeFileSync(join(FD, "libexec", "mission"), `#!/bin/sh
 echo "mission $*" >> "${CALLS}"
 case "$(cat "${MODE}")" in
   hang) exec sleep 30 ;;
@@ -407,7 +407,7 @@ case "$(cat "${MODE}")" in
 esac
 exit 0
 `)
-chmodSync(join(FD, "bin", "mission"), 0o755)
+chmodSync(join(FD, "libexec", "mission"), 0o755)
 const fd = host({ root: FD, doorsTimeoutMs: 500 })
 plugin.apply(fd.ctx, fd.config)
 const fdRoot = agentOf("root8")
@@ -437,15 +437,15 @@ for (const [mode, re] of [["crash", /door gate.*exited 1.*boom.*fail closed/], [
   r = await doorsRun(mode)
   assert.ok(denied(r.d, re), `${mode}: ${JSON.stringify(r.d)}`)
 }
-rmSync(join(FD, "bin", "mission"))
+rmSync(join(FD, "libexec", "mission"))
 assert.ok(denied((await doorsRun("ok")).d, /door gate.*could not run.*fail closed/))
 ok("the door gate fails closed: a hang (timeout), a crash, a kill, an odd exit or a missing gate denies; its own block or deny is the reason")
 
 // a gate runs the worker's code, so it gets the worker shell's environment: dsh's credential scrub,
 // aloop's own settings kept, and the plugin root the gates read their schemas from
 const FR = join(T, "fake-root")
-mkdirSync(join(FR, "bin"), { recursive: true })
-writeFileSync(join(FR, "bin", "host-adapter"), `#!/bin/sh\nenv > "${join(FR, "env.txt")}"\n`); chmodSync(join(FR, "bin", "host-adapter"), 0o755)
+mkdirSync(join(FR, "libexec"), { recursive: true })
+writeFileSync(join(FR, "libexec", "host-adapter"), `#!/bin/sh\nenv > "${join(FR, "env.txt")}"\n`); chmodSync(join(FR, "libexec", "host-adapter"), 0o755)
 Object.assign(process.env, { DEEPSEEK_API_KEY: "sk-secret", GITHUB_TOKEN: "ghp-secret", DSH_SESSION_ID: "s1", TOKENS_SOFT: "5", AGENTIC_TOKENS_X: "1",
   GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.pager", GIT_CONFIG_VALUE_0: "cat" })
 const fr = host({ root: FR })

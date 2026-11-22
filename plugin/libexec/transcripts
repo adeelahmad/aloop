@@ -29,7 +29,7 @@ set -uo pipefail
 WT="${AGENTIC_WORKTREE:-$PWD}"
 for te in "$WT/.aladdin/task.env" "$WT/.agentic/task.env"; do [ -f "$te" ] && { set -a; . "$te"; set +a; break; }; done
 TASK_ID="${TASK_ID:-session}"
-# THE store location (bin/_paths.sh): <main worktree>/.agentic/transcripts — never a
+# THE store location (libexec/_paths.sh): <main worktree>/.agentic/transcripts — never a
 # model-chosen or per-worktree path, so every task of every sprint lands in one place.
 # shellcheck source=/dev/null
 AGENTIC_CWD="$WT" . "$(dirname "${BASH_SOURCE[0]}")/_paths.sh"

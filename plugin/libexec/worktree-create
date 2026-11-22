@@ -40,7 +40,7 @@ git -C "$main" rev-parse HEAD >/dev/null 2>&1 || {
   exit 2
 }
 
-# the run-data dir (mirrors bin/_paths.sh agentic_home_name; this script has its own $main):
+# the run-data dir (mirrors libexec/_paths.sh agentic_home_name; this script has its own $main):
 # .aladdin/ (ROADMAP M1), or the legacy .agentic/ until `aloop layout migrate`
 aloop_home() {
   local p="$1" d
@@ -63,7 +63,7 @@ aloop_home_guard "$home"
 
 # Idempotent reuse: a worktree already at this path is returned as-is. (The
 # sparse-checkout / .gitignore hygiene below runs only on FRESH creation here — a
-# reused worktree relies on bin/worktree-hygiene's SubagentStart hook to re-apply it.)
+# reused worktree relies on libexec/worktree-hygiene's SubagentStart hook to re-apply it.)
 if [ -e "$path/.git" ]; then printf '%s\n' "$path"; exit 0; fi
 
 # Create off the MAIN tree's HEAD (the integration ref). Reuse the branch if a prior
@@ -78,7 +78,7 @@ fi
 
 if [ -e "$path/.git" ]; then
   # Workers reach docs/agents/** via the absolute STORY_DIR path back into $main (see
-  # bin/_gatelib.sh) — never their own worktree's copy. Sparse-checkout drops the
+  # libexec/_gatelib.sh) — never their own worktree's copy. Sparse-checkout drops the
   # redundant, would-go-stale checkout of that tree from THIS worktree only (per-worktree
   # config; $main and sibling worktrees are untouched). Best-effort: an older git without
   # `sparse-checkout` just leaves the full checkout in place. If sparse-checkout was

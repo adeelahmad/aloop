@@ -22,7 +22,7 @@ import subprocess
 import tempfile
 import time
 
-GATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "bin", "gate-supervisor-scope")
+GATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "plugin", "libexec", "gate-supervisor-scope")
 T = tempfile.mkdtemp(prefix="aloop-scope-")
 atexit.register(shutil.rmtree, T, ignore_errors=True)
 ENV = {k: v for k, v in os.environ.items() if k not in ("SKIP_HOOKS", "AGENTIC_SPRINT_LOCK_TTL")}
@@ -312,7 +312,7 @@ gates = {"gate-tooling"}
 for ev in ("PreToolUse", "PostToolUse"):
     for group in json.load(open(os.path.join(BIN, "..", "hooks", "hooks.json")))["hooks"][ev]:
         for h in group["hooks"]:
-            gates.update(re.findall(r"bin/(gate-[a-z0-9-]+)", h["command"]))
+            gates.update(re.findall(r"libexec/(gate-[a-z0-9-]+)", h["command"]))
 bad = [g for g in sorted(gates) if re.search(r"\bsed\b[^\n]*\[\[:space:\]\]\*:", open(os.path.join(BIN, g)).read())]
 assert {"gate-supervisor-scope", "gate-validate-artifact"} <= gates and not bad, (sorted(gates), bad)
 ok("no tool-event gate reads its payload with sed (%s)" % ", ".join(sorted(gates)))
