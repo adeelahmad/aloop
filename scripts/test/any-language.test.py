@@ -29,6 +29,13 @@ FAKE = os.path.join(T, "fakebin")
 ENV = {k: v for k, v in os.environ.items()
        if k not in ("AGENTIC_HOST", "SKIP_HOOKS", "STORY_DIR", "AGENT_ROLE", "REPO_DIR", "BASE_REF", "SCOPE_GLOBS", "TEST_GLOBS")}
 ENV.update(HOME=os.path.join(T, "home"), PYTHONDONTWRITEBYTECODE="1", PATH=FAKE + os.pathsep + os.environ["PATH"])
+# A stray top-level `tests` package on sys.path (some site-packages ship one; seen on a Mac's
+# Python 3.11) wins over a namespace tests/ dir, so the fixtures' tests/ are regular packages and
+# the test always runs with such a stray package present.
+STRAY = os.path.join(T, "site", "tests")
+os.makedirs(STRAY)
+open(os.path.join(STRAY, "__init__.py"), "w").close()
+ENV["PYTHONPATH"] = os.path.dirname(STRAY) + (os.pathsep + ENV["PYTHONPATH"] if ENV.get("PYTHONPATH") else "")
 n = [0]
 
 # pytest's documented exit codes: 0 all passed, 1 tests failed, 2 collection error, 5 none collected
@@ -112,7 +119,7 @@ def red(name, files, rows):
 SHIM = "def sub(a, b):  # agentic:shim\n    return 0\n"
 
 # 1) a RED that fails by assertion against a conftest/test-side shim is accepted
-r = red("assert", {"tests/shim.py": SHIM,
+r = red("assert", {"tests/__init__.py": "", "tests/shim.py": SHIM,
                    "tests/test_sub.py": "from tests.shim import sub\n\n\ndef test_sub():\n    assert sub(3, 1) == 2\n"},
         [("tests/test_sub.py::test_sub", "FAIL")])
 assert r.returncode == 0 and "RED verified" in r.stderr, r.stderr
@@ -142,7 +149,7 @@ os.rename(STANDARDS, STANDARDS + ".off")
 # host's, never the planning doc's): one with a matrix the RED would pass must not be read
 DECOY = os.path.join(MAIN, ".opencode", "agents", "standards.md")
 write(DECOY, "# standards agent\n\n## Gate matrix\n\n```\npytest -q\n```\n")
-r = red("nomatrix", {"tests/shim.py": SHIM,
+r = red("nomatrix", {"tests/__init__.py": "", "tests/shim.py": SHIM,
                      "tests/test_sub.py": "from tests.shim import sub\n\n\ndef test_sub():\n    assert sub(3, 1) == 2\n"},
         [("tests/test_sub.py::test_sub", "FAIL")])
 os.rename(STANDARDS + ".off", STANDARDS)
@@ -179,7 +186,7 @@ os.remove(DECOY)
 ok("the standards role's stop gate refuses a matrix with no fenced commands (a table only) and accepts a fenced one; unnamed, it reads the sprint's, not a host's agent file")
 
 # 5) an earlier task's test listed as PASS is context, not a new passing test (Python `def`)
-r = red("context", {"tests/shim.py": SHIM,
+r = red("context", {"tests/__init__.py": "", "tests/shim.py": SHIM,
                     "tests/test_sub.py": "from tests.shim import sub\n\n\ndef test_sub():\n    assert sub(3, 1) == 2\n"},
         [("tests/test_add.py::test_add", "PASS"), ("tests/test_sub.py::test_sub", "FAIL")])
 assert r.returncode == 0, r.stderr
